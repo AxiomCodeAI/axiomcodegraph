@@ -172,7 +172,17 @@ def render(verb, doc, repo):
     # from these places needs it as much as the verified: line, so it is never tidied away here.
     # run: stays LAST: the answer ends with the command to run, whatever else the foot carries.
     kept = [x for x in foot if x.startswith(('verified', 'bound:'))][:3]
-    out += kept + [x for x in foot if x.startswith('run:')][:1]
+    out += kept + unknown(doc, repo) + [x for x in foot if x.startswith('run:')][:1]
+    return out
+
+
+UNKNOWN_SHOWN = 5        # unresolved sites listed under an answer: the nearest; the verbs' --json carries up to 30
+def unknown(doc, repo):
+    """the answer's gaps as a short work list (ax_links.py): where it stops being complete, and how to close one"""
+    import ax_links
+    sites = doc.get('unknown_sites') or []
+    out = ax_links.unknown_lines(repo, sites, doc.get('unknown_total') or len(sites), shown=UNKNOWN_SHOWN) if sites else []
+    if doc.get('links_note'): out.append(doc['links_note'])
     return out
 
 
@@ -258,7 +268,9 @@ def main(argv):
     lines = render(verb, doc, repo) if r.returncode in (0, 1) or doc.get('called_undeclared') else None
     if lines is None:
         # a refusal or an answer with no place in it: the verb's own words are the answer
-        print('\n'.join(doc.get('prose') or []) or doc.get('refusal') or r.stdout.strip()); return r.returncode
+        prose = '\n'.join(doc.get('prose') or []) or doc.get('refusal') or r.stdout.strip()
+        extra = [l for l in unknown(doc, repo) if l not in prose]
+        print('\n'.join([prose] + extra)); return r.returncode
     print('\n'.join(lines))
     return 0
 

@@ -17,6 +17,7 @@ Search with grep as usual; the graph answers what grep cannot. Use the MCP tools
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
 | which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
+| an answer lists an unresolved call I can see the target of | `link(site, target)` | `axiomcode link <file:line> <target>` |
 
 Names are written as in the code: `Owner.method`, `function`, `Type`, or `file.py:123` for the declaration at that
 line. There is no setup step: the first question builds the graph, and it refreshes itself after every edit.
@@ -55,6 +56,19 @@ Example: `path(start="main", end="Ledger.put")`.
 
 The tests your uncommitted edits reach, each with its code, and a last line `run: <command>` that runs exactly those.
 Example: `tests()`. It is a lower bound: a test reached only through reflection or a service loader is not listed.
+
+## link
+
+An answer that stops at a call the graph could not resolve lists it under `unknown:` — the site as `file:line`, the
+call as written and why the engine could not follow it (a value from `getattr`, a handler table, reflection, a
+callback). When the task depends on one of those sites, read the code; if it makes the target CERTAIN, record it:
+`link(site="app/dispatch.py:6", target="on_save")`, or `axiomcode link app/dispatch.py:6 on_save` from the shell.
+From then on impact, path and tests walk that edge, labelled `[asserted]`, never `resolved`. The links are kept in
+`axiomcode-links.tsv` at the repository root, which is worth committing. `link()` with no arguments lists them and
+whether the graph took each one; `axiomcode link <file:line> -` removes one. A link is refused when the call written
+there names a different declaration, or the target is not one; when the line it was made on is edited, it is
+dropped and listed as stale, and the site is unknown again. Never link a guess: an asserted edge is trusted by every
+answer after it.
 
 ## context
 

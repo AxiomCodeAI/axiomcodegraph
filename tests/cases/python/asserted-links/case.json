@@ -1,0 +1,229 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "BASE: a call through a value getattr returned is unresolved, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "test_save",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_save and audit"
+   ]
+  },
+  {
+   "why": "the unresolved site is listed as a work item, with the call as written and the engine's reason",
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--json"
+   ],
+   "expect_error": true,
+   "want": [
+    "\"unknown_sites\"",
+    "app/dispatch.py:6",
+    "\"reason\": \"no_rule\""
+   ]
+  },
+  {
+   "why": "link records the target of the call at that line",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "on_save"
+   ],
+   "want": [
+    "linked app/dispatch.py:6:12 `fn` → on_save [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted], never [known_edge]",
+   "run": [
+    "path",
+    "test_save",
+    "audit"
+   ],
+   "want": [
+    "[asserted · call @ app/dispatch.py:6] on_save",
+    "ASSERTED by a link",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted, and selects the test through it",
+   "run": [
+    "impact",
+    "on_save",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] dispatch   app/dispatch.py:6",
+    "test_dispatch.py::test_save",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ],
+   "avoid": [
+    "[resolved] dispatch",
+    "axiomcode-links.tsv:"
+   ]
+  },
+  {
+   "why": "a second target at the same site is a fan, each its own edge",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "on_load"
+   ],
+   "want": [
+    "linked app/dispatch.py:6:12 `fn` → on_load [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "no_such_handler"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:3",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at app/dispatch.py:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "app/dispatch.py:19",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: a member call on an untyped receiver names a library method, not an unrelated function",
+   "run": [
+    "link",
+    "app/dispatch.py:23",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call is to the member `copy` of a receiver the graph could not type"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling site stays unknown",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "app/dispatch.py:15:12  return fn(doc)  [computed_attribute_name:on_*]"
+   ],
+   "avoid": [
+    "app/dispatch.py:15:12  return fn(doc)  [computed_attribute_name:on_*]  → linked"
+   ]
+  },
+  {
+   "why": "CONTROL: the table call nobody linked still reaches nothing",
+   "run": [
+    "path",
+    "test_table",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_table and on_load"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "app/dispatch.py",
+    "from app import handlers\n",
+    "from app import handlers\n# dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ app/dispatch.py:8] on_save"
+   ]
+  },
+  {
+   "why": "the list says where the link now is",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[moved] app/dispatch.py:6:12 (now line 8)  → on_save"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: the list says so at once, before any rebuild (another function's identical line is not it)",
+   "edit": [
+    "app/dispatch.py",
+    "    return fn(doc)\n\n\ndef run_table",
+    "    return fn(dict(doc))\n\n\ndef run_table"
+   ],
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[changed] app/dispatch.py:6:12 (now line 8)  → on_save"
+   ]
+  },
+  {
+   "why": "…and after the rebuild it is dropped: the site is unknown again, and the answer says a link was not applied",
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_save and audit",
+    "links: 2 of 2 asserted link(s) not applied (2 stale)"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  },
+  {
+   "why": "…and the list gives the reason",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[stale] app/dispatch.py:6:12  → on_save  — stale: the line was edited (no line with its text and that call is left in dispatch)"
+   ]
+  }
+ ]
+}

@@ -57,6 +57,19 @@ UNRESOLVED = []                                     # endpoints G.resolve found 
 # Filled as the human output is produced, from the SAME chain objects, so the two cannot disagree:
 # a second traversal for the machine shape is a second implementation to keep in step.
 RESULT = {'query': None, 'answers': [], 'reached': [], 'bound': None, 'verified': None}
+WANT_UNKNOWN = False
+
+
+def unknown_block(g, callers):
+    """THE GAPS AS A WORK LIST (ax_links.py): the unresolved sites in these callables, each with the call as written and
+    the engine's reason, in --json always and in the prose with --unknown; and the note when a link was not applied"""
+    import ax_links
+    sites, n = ax_links.unknown_sites(g.q, list(callers), g.site_file, limit=30 if not WANT_UNKNOWN else 200, repo=g.repo)
+    RESULT['unknown_sites'] = sites; RESULT['unknown_total'] = n
+    if WANT_UNKNOWN and sites:
+        for l in ax_links.unknown_lines(g.repo, sites, n): print('  ' + l)
+    n_ = ax_links.note(g.q)
+    if n_: RESULT['links_note'] = n_; print('  ' + n_)
 
 
 def chain_json(g, chain):
@@ -1903,7 +1916,10 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         if not hits: continue
         near = read_back(res['parent'], q, hits[0][0], srcs) or []
         outside = sorted({t for _, t in near[1:] if t in ax_edges.OUTSIDE_CALL})
+        # a hop someone ASSERTED (axiomcode link) is not a resolved call: the header says the chain rests on it
+        nas = sum(1 for _, t in near[1:] if t == 'asserted')
         print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls"
+              + (f" and {nas} asserted link(s) (an edge someone recorded, not one the engine resolved)" if nas else '')
               + (f" and a hop no call site expresses ([{'] and ['.join(outside)}], below)" if outside else '')
               + f"; nearest at {hits[0][1]} hop(s)")
         if len(hits) > limit and not show_all:
@@ -1955,9 +1971,15 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         if u:
             RESULT['bound'] = f"the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see"
             print(f"  bound: {RESULT['bound']}")
+        unknown_block(g, blind)
         return 0
     # nothing resolved either way: say so, then whether unresolved sites would connect them
     print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")
+    # where a missing hop can be: an unresolved call somewhere A reaches (the start's own closure, nearest first)
+    _fa = [i for i in A_ if i in g.sym]; _seen = set(_fa); _fr = list(_fa)
+    while _fr:
+        _fr = [y for y in dict.fromkeys(y for x in _fr for y in adj.get(x, ())) if y not in _seen and y in g.sym]
+        _seen.update(_fr); _fa += _fr
     # A CROSS-PROCESS HOP IS A CONNECTION, AND THIS SAID THERE WAS NONE (#1108). A gRPC client and the
     # handler it calls, or a producer and its consumer, are joined by an edge no call site expresses, so
     # the BFS above cannot reach it and the honest-sounding "the two are independent in this graph" was
@@ -2006,6 +2028,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         for c, m2 in bridges:
             sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
             print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
+        unknown_block(g, _fa)
         return 1
     # A LIBRARY CALL IS WHERE THE GRAPH STOPS, NOT WHERE THE CODE DOES (#1385). A start that publishes an event
     # through a framework's publisher reaches the listener at run time, and the call that does it is a resolved
@@ -2168,6 +2191,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   + (f" — named like the target: if it holds {other}, the chain is real" if r['n'] in names[lx] else ''))
         if len(rows) > 4: print(f"    … +{len(rows) - 4} more")
     for line in fw: print(line)
+    unknown_block(g, _fa)
     return 1
 
 # ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────
@@ -2244,6 +2268,7 @@ if __name__ == '__main__':
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
     if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))
     as_json = '--json' in args; args = [a for a in args if a != '--json']
+    WANT_UNKNOWN = '--unknown' in args; args = [a for a in args if a != '--unknown']
     want_why = '--why' in args; args = [a for a in args if a != '--why']
     show_all = '--all' in args; args = [a for a in args if a != '--all']
     depth = 40

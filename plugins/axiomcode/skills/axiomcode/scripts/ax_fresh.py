@@ -1505,6 +1505,12 @@ def query(repo, verb, argv, fresh=False):
     """run a query verb (argv) against the last good graph, the stale-while-revalidate way (above). Returns its exit code"""
     import ax_exec
     argv = ax_exec.program(argv)                        # `python3` may be a shell shim no native process can start (#1331)
+    # THE ASSERTED LINKS FOLLOW THEIR FILE (ax_links.py): a links file edited by hand, pulled or removed since the graphs
+    # were last given it is re-applied here, O(links), with the derived facts patched in place — never a rebuild
+    try:
+        import ax_links; ax_links.sync(repo)
+    except Exception:
+        pass
     def run():
         return subprocess.run(argv, stdout=subprocess.PIPE)
     def passthrough(): ax_exec.become(argv)             # never os.execvp: on Windows it returns 0 before the answer (#1640)
