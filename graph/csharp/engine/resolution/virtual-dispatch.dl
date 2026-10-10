@@ -268,6 +268,10 @@ dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), overrides_transitive(
 dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), implements_member(_, t, m).
 dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), implements_member(_, x, m), overrides_transitive(_, t, x).
 dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), method_is_accessor(_, m).
+// and an override the overrides relation did not pair (it is computed per declaring
+// group, and a nested or partial subtype can fall outside it): the same written
+// signature is the same member, a sibling overload never has one.
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), method_signature(_, m, sg), method_signature(_, t, sg).
 runtime_params_conflict(m, t) :-
     dispatch_runtime_shape(_, m, t), m != t,
     method_param_predef(m, k, x), method_param_predef(t, k, y), x != y.
