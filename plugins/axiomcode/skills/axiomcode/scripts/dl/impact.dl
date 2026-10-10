@@ -46,6 +46,8 @@
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
 .decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
+// rejected(c, m, f, l)   a lead at c's site f:l to m someone rejected (axiomcode link --not; ax_links.suppressed): not walked
+.decl rejected(c:symbol, m:symbol, f:symbol, l:number) .input rejected
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
 // a `new T()` of a type with no written constructor (C#): no constructor to call, so no `calls` row, but the engine knows the type (#1473)
 .decl implicit_new(c:symbol, t:symbol, f:symbol, l:number) .input implicit_new
@@ -420,7 +422,7 @@ direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m,
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c), !rejected(c, m, f, l).
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
 // A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
 // the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
@@ -865,7 +867,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", k != "library", !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), k != "stub", k != "library", !seed(q, c), !rejected(c, m, f, l).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the

@@ -31,7 +31,7 @@ them, and on `link` itself against the existing graphs, with the derived facts p
 import hashlib, json, os, re, sqlite3, subprocess, sys, time
 
 FILE_NAME = 'axiomcode-links.tsv'
-COLS = ('file', 'line', 'line_sha', 'callee', 'caller', 'target', 'target_file', 'by', 'at', 'col', 'ncol')
+COLS = ('file', 'line', 'line_sha', 'callee', 'caller', 'target', 'target_file', 'by', 'at', 'col', 'ncol', 'not')
 HEADER = ('# axiomcode links: call edges asserted where the graph could not resolve the call. '
           'Written by `axiomcode link`; one per line, tab-separated: ' + ' '.join(COLS))
 TIER = 'asserted'
@@ -111,6 +111,7 @@ def read_links(repo):
         d['line'] = int(d['line']); d['n'] = n
         d['col'] = int(d['col']) if str(d.get('col') or '').isdigit() else None
         d['ncol'] = int(d['ncol']) if str(d.get('ncol') or '').isdigit() else None
+        d['not'] = str(d.get('not') or '').strip().lower() in ('1', 'not', 'yes', 'true')
         out.append(d)
     return out, bad
 
@@ -125,7 +126,9 @@ def write_links(repo, links):
     with open(tmp, 'w', encoding='utf-8') as fh:
         fh.write(HEADER + '\n')
         for l in keep: fh.write(l + '\n')
-        for d in links: fh.write('\t'.join(('' if d.get(c) is None else str(d.get(c))).replace('\t', ' ').replace('\n', ' ') for c in COLS).rstrip('\t') + '\n')
+        for d in links:
+            d = dict(d, **{'not': 'not' if d.get('not') else ''})
+            fh.write('\t'.join(('' if d.get(c) is None else str(d.get(c))).replace('\t', ' ').replace('\n', ' ') for c in COLS).rstrip('\t') + '\n')
     os.replace(tmp, p)
 
 
@@ -442,6 +445,7 @@ def clean_type(t, owner=''):
     parts = [x.strip() for x in re.split(r'\|', t) if x.strip() not in ('None', 'null', 'undefined', 'void')] if '|' in t and '<' not in t and '[' not in t else [t]
     if len(parts) != 1: return ''
     t = parts[0]
+    if t.endswith('[]'): return ''                                        # an array: its element is element_type's
     head, args = split_generic(t)
     last = head.split('.')[-1]
     if last in WRAPPERS and args: return clean_type(args[0], owner)
@@ -471,13 +475,8 @@ class Types:
             return (r[0][0], d[0][0] if d else r[0][0])
         return None
     def declared(self, mid):
-        """the return type as WRITTEN: (text, how) from the graph's type_use, else the declaration's own header"""
+        """the return type as WRITTEN: (text, how) from the declaration's own header (generics and arrays as written), else the graph's type_use"""
         g = self.g
-        if 'type_use' in g.tables:
-            rows = g.q("SELECT tu.depth, COALESCE(sy.display, ty.name) FROM type_use tu LEFT JOIN symbols sy ON sy.type_id = tu.type_id AND sy.method_id IS NULL "
-                       "LEFT JOIN types ty ON ty.id = tu.type_id WHERE tu.owner_method_id = ? AND tu.context = 'METHOD_RETURN' ORDER BY tu.depth", mid) if 'types' in g.tables else []
-            names = [n for _d, n in rows if n]
-            if names: return (names[0] + (f"<{', '.join(names[1:])}>" if len(names) > 1 else ''), 'declared')
         sy = g.q("SELECT name, file, line, end_line FROM symbols WHERE method_id = ? AND file IS NOT NULL LIMIT 1", mid)
         if not sy: return None
         name, f, ln, end = sy[0]
@@ -499,10 +498,20 @@ class Types:
             m = re.search(r'([\w.$]+(?:\s*<[^()]*?>)?(?:\[\])?\??)\s+' + re.escape(name) + r'\s*(?:<[^>]*>)?\s*\(', head)
             if m and m.group(1) not in ('new', 'return', 'void', 'else'): return (m.group(1), 'declared')
         if lang in ('javascript', 'typescript'):
-            for k in range(max(0, ln - 16), ln - 1):
+            # the doc comment directly above the declaration, and only that one
+            k = ln - 2
+            while k >= 0 and k >= ln - 40 and re.match(r'\s*(/\*\*|\*|\*/|//|@)', L[k]):
                 m = re.search(r'@returns?\s*\{([^}]+)\}', L[k])
                 if m: return (m.group(1), 'JSDoc')
+                k -= 1
+        # the graph's own type_use when the header says nothing the patterns read
+        if 'type_use' in g.tables:
+            rows = g.q("SELECT tu.depth, COALESCE(sy.display, ty.name) FROM type_use tu LEFT JOIN symbols sy ON sy.type_id = tu.type_id AND sy.method_id IS NULL "
+                       "LEFT JOIN types ty ON ty.id = tu.type_id WHERE tu.owner_method_id = ? AND tu.context = 'METHOD_RETURN' ORDER BY tu.depth", mid) if 'types' in g.tables else []
+            names = [n for _d, n in rows if n]
+            if names: return (names[0] + (f"<{', '.join(names[1:])}>" if len(names) > 1 else ''), 'declared')
         return None
+
     def inferred(self, mid):
         """the type every `return` of the body names: `self` / `this` (the owner), `new T(…)` / `T(…)` of a type in the graph"""
         sy = self.g.q("SELECT file, line, end_line FROM symbols WHERE method_id = ? AND file IS NOT NULL LIMIT 1", mid)
@@ -510,8 +519,8 @@ class Types:
         f, ln, end = sy[0]
         L = self.reader.lines(f) or []
         got = set()
-        for t in L[ln: (end or ln)]:
-            m = re.search(r'\breturn\s+(?:await\s+)?(.+?)\s*;?\s*$', t)
+        for t in L[ln - 1: (end or ln)]:
+            m = re.search(r'\breturn\s+(?:await\s+)?(.+?)\s*;?\s*}?\s*$', t)
             if not m: continue
             v = m.group(1)
             if re.fullmatch(r'(self|this)', v): o = self.owner_type(mid); got.add(o[1].split('.')[-1] if o else '?'); continue
@@ -629,6 +638,100 @@ def derive(g, reader, res, cap=60):
     return out, (f"derived {n} edge(s) on its result ({rt[1]}, {rt[2]})" if n else f"returns {rt[1]} ({rt[2]}); no call on its result here")
 
 
+
+# ── REJECTIONS: a lead at a site that someone read and found wrong ──────────────────────────────────────────────
+# `axiomcode link <site> --not <target>`. Only a GUESS can be rejected: a by-name match at an unresolved site, or one
+# member of a target set the engine could not narrow (one of a set, a capped fan). Nothing is deleted: the pair is
+# skipped where the walks read their facts (impact's calls / rejected, path's edge / rejected_edge), so removing the
+# rejection restores it at once. An edge the engine resolved is never hidden this way.
+LEAD_TIERS = ('multi_inferred', 'fan_capped')
+REJ_TABLE = ("CREATE TABLE IF NOT EXISTS asserted_rejections(n INT, call_site_id TEXT, caller_id TEXT, callee_id TEXT, file TEXT, line INT, "
+             "status TEXT, reason TEXT)")
+
+
+def resolve_not(g, reader, link, asserted_pairs):
+    """-> dict(status, reason, site, caller, callee_id, line) for a rejection"""
+    r = dict(status='rejected', reason='', site=None, caller=None, callee_id=None, line=None)
+    ts = g.targets(link['target'], link.get('target_file') or '')
+    if not ts:
+        r.update(status='stale' if link.get('target_file') else 'rejected',
+                 reason='the target is not a declaration in this graph (renamed, deleted or moved?)'); return r
+    if len(ts) > 1: r['reason'] = f"the target names {len(ts)} declarations: name it as file:line"; return r
+    mid, disp, tf, prov, tname, tkind, towner = ts[0]
+    r['callee_id'] = mid; r['target_file'] = tf; r['target_display'] = disp
+    line, sites, why = locate(g, reader, link)
+    if why: r.update(status='stale', reason=why); return r
+    r['line'] = line
+    if link.get('col') or link.get('ncol') is not None:
+        L = reader.lines(link['file']) or []
+        text = L[line - 1] if 0 < line <= len(L) else ''
+        col = denorm_col(text, link['ncol']) if link.get('ncol') is not None else link['col']
+        sites = [x for x in sites if x['col'] == col]
+        if not sites: r.update(status='stale', reason=f"stale: no call's name starts at column {col}"); return r
+    if not sites: r['reason'] = f"no call is written at {link['file']}:{line}"; return r
+    lead, refuse = [], ''
+    for x in sites:
+        tiers = {t for (t,) in g.q("SELECT tier FROM call_edges WHERE call_site_id = ? AND callee_method_id = ?", x['id'], mid)}
+        if (x['id'], mid) in asserted_pairs or tiers == {TIER}:
+            refuse = refuse or "that edge is an asserted link, not a guess: remove the link instead (`axiomcode link <file:line[:col]> -`)"
+        elif tiers & set(LEAD_TIERS) and not (tiers - set(LEAD_TIERS) - {TIER}):
+            lead.append(x)
+        elif tiers:
+            refuse = refuse or "the engine resolved this call; if it is wrong that is an engine defect — not hidden"
+        elif g.unresolved(x['id']) and (x['callee'] or '').split('.')[-1] == tname:
+            lead.append(x)
+    if not lead:
+        r['reason'] = refuse or f"no by-name or one-of-a-set lead at {link['file']}:{line} reaches {disp}"; return r
+    if len(lead) > 1:
+        r['reason'] = f"{len(lead)} calls on that line lead to {disp}: give the column"; return r
+    x = lead[0]
+    r.update(status='applied' if line == link['line'] else 'moved', site=x['id'], caller=x['caller'], col=x['col'], callee_written=x['callee'])
+    return r
+
+
+def prefer_on():
+    """AXIOMCODE_LINKS_PREFER=1: at a site an asserted link settles, the site's own guesses are not walked either"""
+    return os.environ.get('AXIOMCODE_LINKS_PREFER', '').lower() in ('1', 'on', 'true', 'yes')
+
+
+def suppressed(q, site_file=lambda f: f):
+    """-> (pairs {(caller, callee, file, line)}, edges {(caller, callee)}): the leads the walks skip. A pair is a site and
+    a target; an edge (path's by-name / set edges carry no site) is skipped only when EVERY site of that caller leading
+    to that callee is suppressed."""
+    tabs = {r[0] for r in q("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
+    sites = set()                                            # (site id, callee)
+    if 'asserted_rejections' in tabs:
+        sites |= {(a, b) for a, b in q("SELECT call_site_id, callee_id FROM asserted_rejections WHERE status IN ('applied','moved')")}
+    if prefer_on():
+        linked = {a for (a,) in q("SELECT DISTINCT call_site_id FROM call_edges WHERE tier = 'asserted'")}
+        for sid in linked:
+            keep = {b for (b,) in q("SELECT callee_method_id FROM call_edges WHERE call_site_id = ? AND tier = 'asserted'", sid)}
+            sites |= {(sid, b) for (b,) in q(f"SELECT callee_method_id FROM call_edges WHERE call_site_id = ? AND tier IN ('multi_inferred','fan_capped')", sid) if b not in keep}
+            if 'unresolved_sites' in tabs and q("SELECT 1 FROM unresolved_sites WHERE call_site_id = ?", sid):
+                n = q("SELECT callee_name FROM call_sites WHERE id = ?", sid)
+                nm = (n[0][0] or '').split('.')[-1] if n else ''
+                if nm: sites |= {(sid, b) for (b,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL", nm) if b not in keep}
+    if not sites: return set(), set()
+    info = {}
+    ids = sorted({a for a, _ in sites})
+    for i in range(0, len(ids), 500):
+        ch = ids[i:i + 500]
+        for sid, c, n, f, l in q(f"SELECT id, caller_id, callee_name, file_path, start_line FROM call_sites WHERE id IN ({','.join('?' * len(ch))})", *ch):
+            info[sid] = (c, (n or '').split('.')[-1], site_file(f) if f else '', l or 0)
+    pairs = {(info[a][0], b, info[a][2], info[a][3]) for a, b in sites if a in info}
+    # an edge is gone only when all of its sites are: the caller's other sites of that name / set still lead there
+    edges = set()
+    by_edge = {}
+    for a, b in sites:
+        if a in info: by_edge.setdefault((info[a][0], b), set()).add(a)
+    for (c, b), ss in by_edge.items():
+        multi = {x for (x,) in q("SELECT call_site_id FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier IN ('multi_inferred','fan_capped')", c, b)}
+        nm = {info[x][1] for x in ss}
+        byname = {x for n_ in nm if n_ for (x,) in (q("SELECT s.id FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND (s.callee_name = ? OR s.callee_name LIKE ?)", c, n_, '%.' + n_) if 'unresolved_sites' in tabs else [])}
+        if (multi | byname) <= ss: edges.add((c, b))
+    return pairs, edges
+
+
 DERIVED_TABLE = "CREATE TABLE IF NOT EXISTS asserted_derived(n INT, call_site_id TEXT, callee_id TEXT, label TEXT, how TEXT)"
 LINK_TABLE = ("CREATE TABLE IF NOT EXISTS asserted_links(n INT, file TEXT, line INT, at_line INT, target TEXT, target_id TEXT, "
               "call_site_id TEXT, caller_id TEXT, status TEXT, reason TEXT)")
@@ -643,8 +746,10 @@ def apply_db(db, repo, reader, links=None, bad=None, sha=None):
     try:
         g = Graph(con)
         if 'call_sites' not in g.tables or 'call_edges' not in g.tables: return []
-        had = bool(con.execute("SELECT 1 FROM call_edges WHERE tier = ? LIMIT 1", (TIER,)).fetchone()) or 'asserted_links' in g.tables
+        had = bool(con.execute("SELECT 1 FROM call_edges WHERE tier = ? LIMIT 1", (TIER,)).fetchone()) or 'asserted_links' in g.tables or 'asserted_rejections' in g.tables
         if not links and not bad and not had: return []
+        rejs = [l for l in links if l.get('not')]
+        links = [l for l in links if not l.get('not')]
         res = [(l, resolve(g, reader, l)) for l in links]
         # what each applied link makes resolvable after it, read before any row is written (the engine's own edges decide)
         derived = {}
@@ -671,6 +776,14 @@ def apply_db(db, repo, reader, links=None, bad=None, sha=None):
                 r['reason'] = ('; '.join(x for x in (r['reason'], why) if x))
             con.execute("INSERT INTO asserted_links VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (l['n'], l['file'], l['line'], r['line'], l['target'], r['callee_id'], r['site'], r['caller'], r['status'], r['reason']))
+        con.execute(REJ_TABLE); con.execute("DELETE FROM asserted_rejections")
+        apairs = {(r['site'], r['callee_id']) for _l, r in res if r['status'] in ('applied', 'moved')}
+        for l in rejs:
+            r = resolve_not(g, reader, l, apairs)
+            res.append((l, r))
+            con.execute("INSERT INTO asserted_rejections VALUES (?,?,?,?,?,?,?,?)", (l['n'], r['site'], r['caller'], r['callee_id'], l['file'], r['line'], r['status'], r['reason']))
+            con.execute("INSERT INTO asserted_links VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (l['n'], l['file'], l['line'], r['line'], 'not ' + l['target'], r['callee_id'], r['site'], r['caller'], r['status'], r['reason']))
         for n, raw, why in bad or []:
             con.execute("INSERT INTO asserted_links VALUES (?,?,?,?,?,?,?,?,?,?)", (n, '', None, None, raw[:120], None, None, None, 'malformed', why))
         if 'index_meta' in g.tables:
@@ -733,17 +846,27 @@ def asserted_rows(db):
         con.close()
 
 
+def _has_rejections(db):
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try: return bool(con.execute("SELECT 1 FROM asserted_rejections LIMIT 1").fetchone())
+        finally: con.close()
+    except sqlite3.Error: return False
+
+
 def apply_repo(repo, quiet=True):
     """apply the links file to every graph of the repository, patching each one's facts. -> {graph: results}"""
     links, bad = read_links(repo); sha = file_sha(repo); out = {}
     for db, reader, live in graph_dbs(repo):
         try: old = os.stat(db).st_mtime
         except OSError: continue
+        had_rej = _has_rejections(db)
         try: res = apply_db(db, repo, reader, links, bad, sha)
         except sqlite3.Error as e:
             if not quiet: print(f"axiomcode link: {db}: {e}", file=sys.stderr)
             continue
-        if res or links or bad: patch_facts(db, old, asserted_rows(db))
+        # a rejection (or the prefer mode) changes the by-name and set facts too: those graphs re-export on the next query
+        if (res or links or bad) and not prefer_on() and not had_rej and not any(l.get('not') for l in links): patch_facts(db, old, asserted_rows(db))
         out[db] = (live, res)
     return out
 
@@ -774,11 +897,81 @@ def note(q):
     """one line for an answer when some link was not applied, else ''"""
     rows = status_rows(q)
     off = [r for r in rows if r[5] in ('stale', 'rejected', 'malformed')]
+    nrej = sum(1 for r in rows if str(r[4]).startswith('not ') and r[5] in ('applied', 'moved'))
     if not off: return ''
     by = {}
     for r in off: by[r[5]] = by.get(r[5], 0) + 1
     return (f"links: {len(off)} of {len(rows)} asserted link(s) not applied ({', '.join(f'{n} {s}' for s, n in sorted(by.items()))})"
             f" — `axiomcode link` lists them")
+
+
+def rejected_note(q):
+    rows = status_rows(q)
+    n = sum(1 for r in rows if str(r[4]).startswith('not ') and r[5] in ('applied', 'moved'))
+    return f"links: {n} lead(s) rejected by a link are not walked — `axiomcode link` lists them" if n else ''
+
+
+
+# ── CANDIDATES: what the graph already knows about where an unknown site may land ───────────────────────────────
+# Never from a runtime trace: the engine's own target set at the site, the callables handed into the called value by
+# the caller's callers, a computed name's constant prefix, callables registered as values in the same file, and
+# declarations of the callee's own name. Ranked in that order, at most `cap`. A candidate is a LEAD: the agent confirms
+# it by reading the call, never by its rank.
+def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5):
+    out, seen = [], set()
+    def add(mid, why):
+        if not mid or mid in seen or len(out) >= cap: return
+        r = q("SELECT display, file, line FROM symbols WHERE method_id = ? AND kind <> 'module' LIMIT 1", mid)
+        if not r: return
+        seen.add(mid); out.append(dict(target=r[0][0], at=f"{r[0][1]}:{r[0][2]}", why=why))
+    for (m,) in q("SELECT callee_method_id FROM call_edges WHERE call_site_id = ? AND tier IN ('multi_inferred','fan_capped') AND callee_provenance = 'client'", sid):
+        add(m, "the engine's own candidate set")
+    nm = (callee or '').split('.')[-1]
+    L = reader.lines(file_) if reader and file_ else None
+    cs = q("SELECT name, file, line, end_line, signature FROM symbols WHERE id = ? LIMIT 1", caller)
+    # a parameter called: what the callers pass in that position
+    if nm and cs and L is not None:
+        cname, cf, cl, ce, sig = cs[0]
+        params = [re.split(r'[:=\s]', p.strip().lstrip('*&'))[0] for p in re.sub(r'^[^(]*\(|\)[^)]*$', '', sig or '').split(',') if p.strip()]
+        if nm in params:
+            k = params.index(nm)
+            for s_f, s_l, s_sc in q("SELECT s.file_path, s.start_line, s.start_column FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
+                                    "WHERE e.callee_method_id = (SELECT method_id FROM symbols WHERE id = ?) AND e.tier <> 'asserted' LIMIT 20", caller):
+                rel = q("SELECT rel FROM paths WHERE raw = ?", s_f); rel = rel[0][0] if rel else s_f
+                LL = reader.lines(rel) or []
+                t = LL[s_l - 1] if 0 < (s_l or 0) <= len(LL) else ''
+                mm = re.search(re.escape(cname) + r'\s*\((.*)', t)
+                if not mm: continue
+                args = [a.strip() for a in re.split(r',(?![^()\[\]{}]*[)\]}])', mm.group(1).rsplit(')', 1)[0])]
+                a = args[k - (1 if params and params[0] in ('self', 'cls', 'this') else 0)] if k < len(args) + 1 else ''
+                a = (a or '').split('=')[-1].strip().split('.')[-1]
+                for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module'", a):
+                    add(m, f"passed in by a caller at {rel}:{s_l}")
+    # a name computed from a constant prefix (the engine's reason carries it: computed_attribute_name:on_*)
+    pref = ''
+    mr = re.search(r'computed_attribute_name:(\w*)\*', reason or '')
+    if mr: pref = mr.group(1)
+    elif L is not None and cs:
+        body = '\n'.join(L[cs[0][2] - 1: cs[0][3] or cs[0][2]])
+        mp = re.search(r'["\'`](\w{2,})["\'`]\s*\+|`(\w{2,})\$\{|f["\'](\w{2,})\{', body)
+        if mp: pref = next(g_ for g_ in mp.groups() if g_)
+    if pref:
+        for (m,) in q("SELECT method_id FROM symbols WHERE name LIKE ? ESCAPE '\\' AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file = ? DESC, line LIMIT 20",
+                      pref.replace('\\', '').replace('%', '').replace('_', '\\_') + '%', file_):
+            add(m, f"named {pref}…, the constant part of the computed name")
+    # callables registered as VALUES in the same file (a table, a list, a register(...) call)
+    if L is not None:
+        vals = set()
+        for t in L:
+            for v in re.findall(r'[:\[,(=]\s*([A-Za-z_$][\w$]*)\s*(?=[,\]})])', t): vals.add(v)
+        for v in sorted(vals):
+            for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind NOT IN ('module', 'class') LIMIT 3", v):
+                add(m, "handed over as a value in this file")
+    # declarations of the callee's own name (a member call on an untyped receiver)
+    if nm:
+        for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' LIMIT 10", nm):
+            add(m, "a declaration of the name called")
+    return out
 
 
 def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
@@ -804,6 +997,13 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
                                          f"JOIN call_sites s ON s.id = e.call_site_id JOIN methods m ON m.id = e.callee_method_id "
                                          f"WHERE m.kind IN ('FUNCTION_TYPE_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE') AND e.caller_id IN ({ph})", *ch):
             rows.append((sid, c, k, n, f, l)); libcall[sid] = 'a function-type signature, not a body'
+        # …and a site whose every engine candidate a link rejected: never silently empty, it is to resolve again
+        if 'asserted_rejections' in tabs:
+            for sid, c, k, n, f, l in q(f"SELECT DISTINCT s.id, s.caller_id, s.kind, s.callee_name, s.file_path, s.start_line FROM asserted_rejections r "
+                                        f"JOIN call_sites s ON s.id = r.call_site_id WHERE r.status IN ('applied','moved') AND s.caller_id IN ({ph})", *ch):
+                left = q("SELECT 1 FROM call_edges e WHERE e.call_site_id = ? AND e.tier IN ('multi_inferred','fan_capped') AND NOT EXISTS "
+                         "(SELECT 1 FROM asserted_rejections r WHERE r.call_site_id = e.call_site_id AND r.callee_id = e.callee_method_id AND r.status IN ('applied','moved')) LIMIT 1", sid)
+                if not left: rows.append((sid, c, k, n, f, l))
     rows = list(dict.fromkeys(rows))
     total = len(rows)
     rank = {c: i for i, c in enumerate(order or callers)}
@@ -838,7 +1038,11 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
         lc = str(libcall.get(sid, ''))
         why = reasons.get(sid) or ((f"calls a value typed by {lc}" if ' ' in lc else f"runs a value through {lc.split(':')[-1]}") if sid in libcall else 'unresolved')
         rf = site_file(f) if f else '?'
-        out.append(dict(at=f"{rf}:{ln or 0}", site=f"{rf}:{ln or 0}:{col_of(sid, rf, callee)}", call=callee or '', kind=kind, caller=disp[caller],
+        try: cands = candidates(q, sid, caller, callee, kind, rf, ln, reasons.get(sid), rd)
+        except Exception: cands = []
+        site = f"{rf}:{ln or 0}:{col_of(sid, rf, callee)}"
+        out.append(dict(at=f"{rf}:{ln or 0}", site=site, call=callee or '', kind=kind, caller=disp[caller], candidates=cands,
+                        command=f"axiomcode link {site} {cands[0]['target'] if cands else '<target>'}",
                         reason=why, linked=sorted(linked.get(sid, []))))
     return out, total
 
@@ -854,13 +1058,22 @@ def code_at(repo, at):
 def unknown_lines(repo, sites, total, shown=None):
     """the `unknown:` block of an answer"""
     if not sites: return []
+    # a site a link settled is no longer to resolve: counted, not listed
+    nlinked = sum(1 for x in sites if x['linked'])
+    sites = [x for x in sites if not x['linked']]
+    total = max(0, total - nlinked)
+    if not sites: return [f"to resolve: nothing — {nlinked} site(s) the answer stopped at are settled by links"] if nlinked else []
     shown = sites[:shown] if shown else sites
-    out = [f"unknown: {total} unresolved call site(s) inside — what each reaches is not in this answer"
+    out = [f"to resolve: {total} call site(s) the answer stopped at — what each reaches is not in it"
            + (f" (first {len(shown)})" if total > len(shown) else '') + ':']
     for s in shown:
         code = code_at(repo, s['at'])
         out.append(f"    {s.get('site') or s['at']}  {code[:90]}  [{s['reason']}]" + (f"  → linked: {', '.join(s['linked'])} [asserted]" if s['linked'] else ''))
-    out.append("    if the code shows where one of these lands and the task depends on it: `axiomcode link <file:line:col> <target>`")
+        if not s['linked']:
+            cs_ = s.get('candidates') or []
+            out.append("        candidates: " + ('; '.join(f"{c['target']} {c['at']} ({c['why']})" for c in cs_[:3]) + (f" +{len(cs_) - 3}" if len(cs_) > 3 else '')
+                                                if cs_ else 'no candidate'))
+    out.append("    read the call first; when it makes the target certain: `axiomcode link <file:line:col> <target>` (a candidate is a lead, never link it by its rank)")
     return out
 
 
@@ -913,6 +1126,7 @@ def list_links(repo, as_json=False):
         elif st in ('applied', 'moved', 'redundant') and l.get('line_sha') and not same(at or l['line']):
             st, why = 'changed', 'the line was edited since the graph was built; the next refresh re-validates it (followed if it only moved)'
         rows.append(dict(link=l['n'], site=f"{l['file']}:{l['line']}" + (f":{l['col']}" if l.get('col') else ''), now=at, callee=l.get('callee'), target=l['target'],
+                         rejects=bool(l.get('not')),
                          target_file=l.get('target_file'), status=st, reason=why, by=l.get('by'), at=l.get('at')))
     for n, raw, why in bad:
         rows.append(dict(link=n, site='', target=raw[:80], status='malformed', reason=why))
@@ -924,7 +1138,8 @@ def list_links(repo, as_json=False):
     print(f"{len(rows)} asserted link(s) in {os.path.relpath(links_path(repo), repo)}:")
     for r in rows:
         where = r['site'] + (f" (now line {r['now']})" if r.get('now') and r['site'] and int(r['site'].split(':')[1]) != r['now'] else '')
-        print(f"  {r['link']:>3}. [{r['status']}] {where}  → {r['target']}" + (f"  — {r['reason']}" if r['reason'] else ''))
+        tgt = f"NOT {r['target']} (a lead rejected: not walked)" if r.get('rejects') else r['target']
+        print(f"  {r['link']:>3}. [{r['status']}] {where}  → {tgt}" + (f"  — {r['reason']}" if r['reason'] else ''))
     return 0
 
 
@@ -933,6 +1148,8 @@ def main(argv):
     argv = [a for a in argv if a != '--json']
     remove = '--remove' in argv
     argv = [a for a in argv if a != '--remove']
+    reject = '--not' in argv
+    argv = [a for a in argv if a != '--not']
     if '--list' in argv: argv = [a for a in argv if a != '--list']; return list_links(find_repo(argv)[0], as_json)
     if argv and argv[0] in ('-h', '--help', 'help'): print(USAGE); return 0
     repo, args = find_repo(argv)
@@ -967,21 +1184,26 @@ def main(argv):
     for db, rd, live in graph_dbs(repo):
         if not live: continue
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try: g = Graph(con); verdicts.append((resolve(g, rd, new), g))
+        try:
+            g = Graph(con)
+            if reject:
+                ap = {(a, b) for a, b in g.q("SELECT call_site_id, callee_method_id FROM call_edges WHERE tier = ?", TIER)}
+                verdicts.append((resolve_not(g, rd, new, ap), g))
+            else: verdicts.append((resolve(g, rd, new), g))
         except sqlite3.Error: pass
-        finally: pass
     good = [(r, g) for r, g in verdicts if r['status'] in ('applied', 'redundant')]
     if not good:
         why = sorted(verdicts, key=lambda x: (x[0]['reason'].startswith('no call is written'), x[0]['reason'].startswith('the target is not')))
         print(f"axiomcode link: rejected — {why[0][0]['reason'] if why else 'no graph to check it against'}", file=sys.stderr); return 1
     r, g = good[0]
     new.update(callee=r.get('callee_written') or callee, caller=g.display(r['caller']) if r.get('caller') else '',
-               target=r['target_display'], target_file=r.get('target_file') or '')
+               target=r['target_display'], target_file=r.get('target_file') or '', **({'not': True} if reject else {}))
     new['target'], new['target_file'] = stable_name(g, r['callee_id'], r['target_display'], new['target_file'])
     g.con.close()
     # the column the link resolved to is recorded even when none was given: it is what the link names from now on
     if r.get('col') and not new.get('col'): new['col'] = r['col']; new['ncol'] = norm_col(L[line - 1], r['col'])
-    dup = [l for l in links if l['file'] == f and l['line'] == line and l['target'] == new['target'] and l.get('col') == new.get('col')]
+    dup = [l for l in links if l['file'] == f and l['line'] == line and l['target'] == new['target'] and l.get('col') == new.get('col')
+           and bool(l.get('not')) == bool(new.get('not'))]
     links = [l for l in links if l not in dup] + [new]
     t0 = time.time()
     write_links(repo, links); _restore_bad(repo, bad)
@@ -990,6 +1212,10 @@ def main(argv):
     note_ = next((x['reason'] for live, rs in res.values() if live for l_, x in rs
                   if l_['file'] == f and l_['line'] == line and l_['target'] == new['target'] and l_.get('col') == new.get('col') and x['status'] in ('applied', 'moved')), '')
     where = f"{f}:{line}" + (f":{new['col']}" if new.get('col') else '')
+    if reject:
+        print(f"rejected the lead {where} → {new['target']}: no walk takes it from now on (the engine's row is kept; "
+              f"`axiomcode link {where} -` restores it)  — applied to {sum(1 for v in res.values() if v[0])} graph(s) in {ms:.0f} ms")
+        return 0
     print(f"linked {where} `{new['callee']}` → {new['target']} [asserted]" + (" (the graph already had this edge; recorded, nothing added)" if r['status'] == 'redundant' else '')
           + (f"; {note_}" if note_ else '') + f"  — applied to {sum(1 for v in res.values() if v[0])} graph(s) in {ms:.0f} ms")
     return 0

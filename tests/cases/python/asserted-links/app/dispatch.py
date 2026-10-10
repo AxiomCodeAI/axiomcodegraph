@@ -21,3 +21,7 @@ def save_and_audit(doc):
 
 def copy_doc(doc):
     return doc.copy()
+
+
+def refresh(doc, store):
+    return store.on_load(doc)

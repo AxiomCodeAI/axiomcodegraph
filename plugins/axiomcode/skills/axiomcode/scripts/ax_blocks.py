@@ -19,6 +19,7 @@ sys.path.insert(0, H)
 import ax_grep
 
 CAP = 10                 # places shown; the rest are counted
+LEAD_CERTS = {'by name', 'by key', 'decorator by name', 'one of a set', 'text', 'in scope', 'capped set', 'protocol', 'library callback'}
 FAR = 8                  # places more than one hop away, named without code
 DIRECT_CODE = 3          # direct callers shown with code even when a word grep also finds them
 PLAIN_WHY = ('calls it', 'reads it', 'writes it', 'writes/reads it', 'references it', 'instantiates it')
@@ -140,7 +141,18 @@ def render(verb, doc, repo):
         far = [p for p in places.values() if is_far(p) and not is_test(p)]
         places = {k: p for k, p in places.items() if not is_far(p) and not is_test(p)}
     out = []
-    for i, p in enumerate(list(places.values())[:CAP], 1):
+    # CONFIRMED FIRST, THEN LEADS: a place backed by an edge (resolved, or asserted by a link) before one reached only
+    # through a guess (by name, by key, one of a set, text). One place per function, so a function reached both ways is
+    # listed once, as confirmed; the guesses get a heading of their own only when both kinds are present.
+    def is_lead(p):
+        certs = [t.split(' · ')[0].strip() for t in p['tags'] if ' · ' in t]
+        return bool(certs) and all(c in LEAD_CERTS for c in certs)
+    ordered = [p for p in places.values() if not is_lead(p)] + [p for p in places.values() if is_lead(p)]
+    places = {id(p): p for p in ordered}
+    any_confirmed = any(not is_lead(p) for p in ordered)
+    for i, p in enumerate(ordered[:CAP], 1):
+        if is_lead(p) and any_confirmed and (i == 1 or not is_lead(ordered[i - 2])):
+            out.append("leads — reached only through a guess; check each before relying on it:")
         where = f"{p['f']}:{','.join(map(str, sorted(p['marks'])))}"
         out.append(f"{i}. {where}" + (f"  [{' | '.join(p['tags'][:2])}]" if p['tags'] else ''))
         body = block(repo, p['f'], p['marks'], p['span'])

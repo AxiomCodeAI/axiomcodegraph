@@ -22,6 +22,7 @@ Four other keys a check may carry:
                          CONCATENATED, so no substring can express "this must not be inside the document" — which is
                          how a `note:` line sat in --json for every name declared as both a field and a method.
   "expect_error": true   a non-zero exit is the answer, not a fault (`path` exits 1 when it finds no chain).
+  "env": {name: value}   the check runs with these environment variables set (AXIOMCODE_FRONT=1 for the front door).
   "edit": [file, old, new]  the case edits that file before the check runs; edited files and a links file the case
                          wrote are restored when the case ends.
   "pending": "<issue>"   the check states behaviour the tool does NOT have yet. It still RUNS. Failing prints PEND and
@@ -70,7 +71,9 @@ def run_case(case):
             edited.setdefault(fp, txt)
             if old not in txt: print(f"FAIL {l}/{name}: the edit's old text is not in {ef}"); fail += 1; continue
             open(fp, 'w').write(txt.replace(old, new, 1))
-        out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True)
+        # "env": {…} — the check runs with these set (AXIOMCODE_FRONT=1: the answer the installed command and MCP give)
+        out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True,
+                             env=dict(os.environ, **ch['env']) if ch.get('env') else None)
         text = out.stdout + out.stderr
         # a [text] row quoting this case.json is the spec read back (a name no graph declares is searched as text, and the
         # case file lies in the searched tree): its own `avoid` strings there are not the tool's answer

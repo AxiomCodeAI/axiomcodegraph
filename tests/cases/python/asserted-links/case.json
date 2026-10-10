@@ -160,6 +160,137 @@
    ]
   },
   {
+   "why": "FRONT DOOR: a by-name lead alone is listed, and its site is to resolve, with the declaration of its name as a candidate",
+   "env": {
+    "AXIOMCODE_FRONT": "1"
+   },
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "by name · refresh",
+    "to resolve:",
+    "app/dispatch.py:27:18  return store.on_load(doc)",
+    "candidates: on_load app/handlers.py:5"
+   ]
+  },
+  {
+   "why": "a computed name's constant prefix gives candidates",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "candidates: on_save app/handlers.py:1 (named on_…, the constant part of the computed name)"
+   ]
+  },
+  {
+   "why": "a lead can be rejected: it is no longer walked",
+   "run": [
+    "link",
+    "app/dispatch.py:27",
+    "--not",
+    "on_load"
+   ],
+   "want": [
+    "rejected the lead app/dispatch.py:27:18 → on_load"
+   ]
+  },
+  {
+   "why": "…impact no longer lists the rejected lead",
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "avoid": [
+    "refresh   app/dispatch.py:27"
+   ]
+  },
+  {
+   "why": "…and the list shows it as a rejection",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "→ NOT on_load (a lead rejected: not walked)"
+   ]
+  },
+  {
+   "why": "CONTROL: an edge the engine resolved cannot be rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:19",
+    "--not",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "the engine resolved this call; if it is wrong that is an engine defect — not hidden"
+   ]
+  },
+  {
+   "why": "removing the rejection restores the lead",
+   "run": [
+    "link",
+    "app/dispatch.py:27:18",
+    "-"
+   ],
+   "want": [
+    "removed 1 link(s)"
+   ]
+  },
+  {
+   "why": "…it is walked again",
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "[by name] refresh   app/dispatch.py:27"
+   ]
+  },
+  {
+   "why": "a lead and an asserted link at the same site: the site is listed ONCE, as confirmed",
+   "run": [
+    "link",
+    "app/dispatch.py:27",
+    "on_load"
+   ],
+   "want": [
+    "linked app/dispatch.py:27:18 `on_load` → on_load [asserted]"
+   ]
+  },
+  {
+   "why": "FRONT DOOR: confirmed, not a lead; the settled site is not to resolve",
+   "env": {
+    "AXIOMCODE_FRONT": "1"
+   },
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "asserted · refresh"
+   ],
+   "avoid": [
+    "by name · refresh",
+    "app/dispatch.py:27:18  return store.on_load(doc)  [untyped"
+   ]
+  },
+  {
+   "why": "clean up the site link before the edit steps",
+   "run": [
+    "link",
+    "app/dispatch.py:27:18",
+    "-"
+   ],
+   "want": [
+    "removed"
+   ]
+  },
+  {
    "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
    "edit": [
     "app/dispatch.py",
