@@ -1,14 +1,31 @@
 ambient_terminal	FUNCTION_CALL	app#atStartup() @L38 -> app#onReady(() =)
+ambient_terminal	FUNCTION_CALL	plugin#<module-init>() @L12 -> plugin#wrap(T)
+ambient_terminal	FUNCTION_CALL	plugin#<module-init>() @L7 -> plugin#wrap(T)
+ambient_terminal	FUNCTION_CALL	store#deferred() @L24 -> store#later(() =)
+ambiguous_unknown	CONSTRUCTOR_CALL	store#<module-init>() @L8 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	store#<module-init>() @L9 -> -
+ambiguous_unknown	METHOD_CALL	store#known() @L17 -> -
+ambiguous_unknown	METHOD_CALL	store#store() @L12 -> -
+ambiguous_unknown	METHOD_CALL	store#store() @L13 -> -
 callback_registered	FUNCTION_CALL	app#atStartup() @L38 -> app#<arrow@38>()
+callback_registered	FUNCTION_CALL	plugin#<module-init>() @L7 -> plugin#<arrow@7>()
+callback_registered	FUNCTION_CALL	store#deferred() @L24 -> store#onUpdated()
+callback_registered	METHOD_CALL	app#boot() @L57 -> plugin#<arrow@7>()
+callback_registered	METHOD_CALL	app#bootBare() @L62 -> app#<arrow@62>()
 callback_registered	METHOD_CALL	app#doubled(number[]) @L16 -> app#<arrow@16>(?)
 callback_registered	METHOD_CALL	app#named(number[]) @L25 -> app#double(number)
 callback_registered	METHOD_CALL	app#scaled(number[]) @L12 -> app#<arrow@12>(?)
 callback_registered	METHOD_CALL	app#viaLocal(number[]) @L31 -> app#log(number)
 known_edge	FUNCTION_CALL	app#<arrow@38>() @L38 -> app#record(number)
 known_edge	FUNCTION_CALL	app#<arrow@48>(?) @L48 -> app#record(number)
+known_edge	FUNCTION_CALL	app#<arrow@62>() @L62 -> plugin#migrate()
 known_edge	FUNCTION_CALL	app#each(number[],(n: number) =) @L44 -> app#<arrow@43>(number)
 known_edge	FUNCTION_CALL	app#log(number) @L30 -> app#record(number)
 known_edge	FUNCTION_CALL	app#useEach(number[]) @L48 -> app#each(number[],(n: number) =)
+known_edge	FUNCTION_CALL	plugin#<arrow@7>() @L8 -> plugin#migrate()
+known_edge	METHOD_CALL	app#boot() @L57 -> app#register(unknown)
+known_edge	METHOD_CALL	app#bootBare() @L62 -> app#register(unknown)
+known_edge	METHOD_CALL	app#bootSettings() @L67 -> app#register(unknown)
 known_edge	METHOD_CALL	app#doubled(number[]) @L16 -> Array#map((v: T) =)
 known_edge	METHOD_CALL	app#named(number[]) @L25 -> Array#map((v: T) =)
 known_edge	METHOD_CALL	app#scaled(number[]) @L12 -> Array#map((v: T) =)

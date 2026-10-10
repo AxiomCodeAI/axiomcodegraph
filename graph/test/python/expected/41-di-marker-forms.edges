@@ -1,0 +1,10 @@
+ambiguous_unknown	DECORATOR_APPLICATION	handlers.<module> -> -
+boundary_lib	DECORATOR_CALL	handlers.<module> -> external:APIRouter.get
+boundary_lib	DECORATOR_CALL	handlers.<module> -> external:Depends
+boundary_lib	SIMPLE_CALL	deps.<module> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	deps.<module> -> external:Depends
+boundary_lib	SIMPLE_CALL	deps.ShapeFilter.<classbody> -> external:Depends
+boundary_lib	SIMPLE_CALL	handlers.<module> -> external:APIRouter
+boundary_lib	SIMPLE_CALL	handlers.<module> -> external:Depends
+boundary_lib	SIMPLE_CALL	handlers.<module> -> external:FastAPI
+boundary_lib	SIMPLE_CALL	other.<module> -> external:Depends

@@ -165,3 +165,14 @@ sbca_value(v) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, tsconfig, _
 sbca_regime("STRICT") :- sbca_value("true"), !sbca_value("false").
 sbca_regime("LOOSE")  :- sbca_value("false"), !sbca_value("true").
 sbca_regime("MIXED")  :- sbca_value("true"), sbca_value("false").
+
+// ── module_sbca_governed(ModuleHash, Flag) — the flag a CALL SITE is compiled under ──
+// MIXED above is the right answer for the project and the wrong one for a call: each
+// file is compiled under the tsconfig that governs it, so a call in a strict program
+// answers with CallableFunction and a call in a loose one with Function, in the same
+// repository. overload.dl reads this per call site to settle what MIXED hedged.
+// The same vote guard as sbca_value: a module no tsconfig claims carries the resolver's
+// default, not a measurement, and keeps the project's hedge.
+module_sbca_governed(h, v) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, tsconfig, _, _, _, _, _, _, _, _, _, _, _, h, v),
+    v != "",
+    tsconfig != "".

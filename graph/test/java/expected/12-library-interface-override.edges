@@ -1,10 +1,12 @@
 ambiguous_unknown	method	LibIfaceOverride#main(String[]) -> -
 ambiguous_unknown	new	LibIfaceOverride#main(String[]) -> -
+boundary_lib	method	LibIfaceOverride#main(String[]) -> external:java.util.List.add
 boundary_lib	method	LibIfaceOverride#viaComparator(Comparator,String,String) -> external:java.util.Comparator.compare
 boundary_lib	method	LibIfaceOverride#viaFunction(Function,String) -> external:java.util.function.Function.apply
 boundary_lib	method	LibIfaceOverride#viaLibrarySort(List) -> external:java.util.List.sort
 boundary_lib	method	LibIfaceOverride.ByLength#probe(String) -> external:String.length
 boundary_lib	method	LibIfaceOverride.Shouty#mark(String) -> external:String.toUpperCase
+callback_registered	callback	LibIfaceOverride#viaLibrarySort(List) -> LibIfaceOverride.ByLength#compare(String,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaComparator(Comparator,String,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaFunction(Function,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaLibrarySort(List)

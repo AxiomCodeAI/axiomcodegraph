@@ -27,11 +27,19 @@ import {
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
+import { WorkspacePackages } from '@/parsers/typescript/workspace-packages';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
+import {
+  mergeCompleteness as mergeFileCompleteness,
+  parsePoolJobs,
+  parseTsFilesInPool,
+  STREAMED_KEYS,
+  STREAMED_TABLES,
+} from '@/workflows/typescript/ts-parse-pool';
+import { tsResolutionContext } from '@/workflows/typescript/ts-resolution-context';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
-import { stripTsExtension } from '@/parsers/typescript/ts-module-paths';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 import {
   isVueFile,
@@ -263,8 +271,21 @@ export class TypeScriptProjectAnalyzer {
         moduleHashFor(toRelative(pathAnchor, file), options.baseMservPath, serviceVersionLinkHash)
       );
     }
-    const toProjectRelative = (absolutePath: string): string =>
-      stripExtension(toRelative(pathAnchor, absolutePath));
+    // The three closures extraction needs, built from plain values through
+    // ts-resolution-context.ts — the SAME constructor a parse worker uses, so
+    // the serial loop and the pool cannot drift.
+    const workspacePackages = this.workspacePackagesAt(pathAnchor);
+    const resolutionInputs = {
+      pathAnchor,
+      baseMservPath: options.baseMservPath,
+      serviceVersionLinkHash,
+      excludes,
+      projectModuleHashes,
+    };
+    const { toProjectRelative, resolveWorkspaceModule } = tsResolutionContext(
+      resolutionInputs,
+      workspacePackages
+    );
 
     // Skips accumulate across the programs one analyzePrograms call drives; a
     // standalone analyze starts its own list.
@@ -299,48 +320,29 @@ export class TypeScriptProjectAnalyzer {
     const completenessAccumulator = newCompletenessAccumulator();
     let analysed = 0;
 
-    for (const file of files) {
-      let sourceText: string;
-      try {
-        sourceText = await fsp.readFile(file, 'utf-8');
-      } catch (error) {
+    // One file's outcome on the SERIAL path (AXIOMCODE_PARSE_JOBS=1, or no
+    // compiled worker): the loop below calls it inline. The pooled path's
+    // consume mirrors this body over worker-rendered rows, in the same file
+    // order, so skip order, writer order and output bytes match.
+    const consumeOutcome = async (
+      file: string,
+      outcome: { readError?: string; extractError?: string; facts?: TsFileFacts }
+    ): Promise<void> => {
+      if (outcome.readError !== undefined) {
         this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-          SkippedFileReason.READ_ERROR, String(error));
-        continue;
+          SkippedFileReason.READ_ERROR, outcome.readError);
+        return;
       }
-      const governing = configResolver.resolve(file);
-      const script = scriptTextOf(file, sourceText);
-      let facts: TsFileFacts;
-      try {
-        facts = extractTypeScriptFile({
-          absoluteFilePath: file,
-          filePath: toRelative(pathAnchor, file),
-          baseMservPath: options.baseMservPath,
-          moduleQualifiedName: toProjectRelative(file),
-          sourceText: script.text,
-          scriptKind: script.scriptKind,
-          serviceVersionLinkHash,
-          tsConfigPath: governing.configPath === ''
-            ? ''
-            : toRelative(pathAnchor, governing.configPath),
-          moduleResolutionMode: governing.moduleResolutionMode,
-          // Per file, from the config that actually claims it. `legacy/` in the
-          // fixture corpus compiles under experimentalDecorators while its
-          // siblings do not, and the source is identical either way.
-          decoratorSystem: governing.decoratorSystem,
-          compilerOptions: governing.options,
-          packageName: '',
-          projectModuleHashes,
-          toProjectRelative,
-        });
-      } catch (error) {
+      if (outcome.extractError !== undefined || !outcome.facts) {
         // An extraction error is a DEFECT, never a decision. Counted apart from
         // anything else so a parser that throws on every file cannot report a
         // clean run with empty relations.
         this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-          SkippedFileReason.EXTRACTION_ERROR, String(error));
-        continue;
+          SkippedFileReason.EXTRACTION_ERROR,
+          outcome.extractError ?? 'worker returned no facts');
+        return;
       }
+      const facts = outcome.facts;
       analysed += 1;
       // Measured HERE, before the row is let go. The measurement was already
       // per-file: the two indexes it called cross-file were keyed by a file's
@@ -369,6 +371,119 @@ export class TypeScriptProjectAnalyzer {
       await writerFor(TYPESCRIPT_CSV_FILES.FIELD_POSITIONS).append(facts.fieldPositions);
       await writerFor(TYPESCRIPT_CSV_FILES.COMMENTS).append(facts.comments);
       await writerFor(TYPESCRIPT_CSV_FILES.PARSE_GAPS).append(facts.parseGaps);
+    };
+
+    // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files:
+    // extraction is per-file by design (cross-file call resolution is the
+    // engine's; the module link passes run after every file, below), so the
+    // pool only changes WHERE a file is parsed, never what order its rows are
+    // consumed in. AXIOMCODE_PARSE_JOBS=1 restores the strict serial path;
+    // the pool declining (no compiled worker beside this file) falls back to
+    // it too.
+    const jobs = parsePoolJobs(files.length);
+    let pooled = false;
+    if (jobs > 1) {
+      pooled = await parseTsFilesInPool(
+        {
+          pathAnchor,
+          baseMservPath: options.baseMservPath,
+          serviceVersionLinkHash,
+          excludes: [...excludes],
+          projectModuleHashes,
+        },
+        files.map((file, i) => {
+          // the closure walk read this file already; hand its text over
+          const prefetched = rootProgram?.texts.get(file);
+          if (prefetched !== undefined) {
+            rootProgram!.texts.delete(file);
+          }
+          return {
+            i,
+            file,
+            sourceText: prefetched,
+            filePath: toRelative(pathAnchor, file),
+            moduleQualifiedName: toProjectRelative(file),
+          };
+        }),
+        jobs,
+        async (i, outcome) => {
+          const file = files[i] as string;
+          if (outcome.readError !== undefined) {
+            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+              SkippedFileReason.READ_ERROR, outcome.readError);
+            return;
+          }
+          if (outcome.extractError !== undefined || !outcome.file) {
+            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+              SkippedFileReason.EXTRACTION_ERROR,
+              outcome.extractError ?? 'worker returned no facts');
+            return;
+          }
+          const pooledFile = outcome.file;
+          analysed += 1;
+          // The worker already measured this file; fold its counters, gaps and
+          // deferred verdicts in, in file order, as the serial call would have.
+          mergeFileCompleteness(completenessAccumulator, pooledFile.completeness);
+          moduleGraph.push({
+            filePath: pooledFile.filePath,
+            modules: pooledFile.modules,
+            imports: pooledFile.imports,
+            exports: pooledFile.exports,
+          });
+          for (const key of STREAMED_KEYS) {
+            const rendered = pooledFile.rendered[key];
+            if (rendered) {
+              await writerFor(STREAMED_TABLES[key]).appendRendered(rendered.header, rendered.lines);
+            }
+          }
+        }
+      );
+    }
+    if (!pooled) {
+      for (const file of files) {
+        // the closure walk read this file already; take its text and release it
+        const prefetched = rootProgram?.texts.get(file);
+        if (prefetched !== undefined) {
+          rootProgram!.texts.delete(file);
+        }
+        let outcome: { readError?: string; extractError?: string; facts?: TsFileFacts };
+        try {
+          const sourceText = prefetched ?? await fsp.readFile(file, 'utf-8');
+          try {
+            const governing = configResolver.resolve(file);
+            const script = scriptTextOf(file, sourceText);
+            outcome = {
+              facts: extractTypeScriptFile({
+                absoluteFilePath: file,
+                filePath: toRelative(pathAnchor, file),
+                baseMservPath: options.baseMservPath,
+                moduleQualifiedName: toProjectRelative(file),
+                sourceText: script.text,
+                scriptKind: script.scriptKind,
+                serviceVersionLinkHash,
+                tsConfigPath: governing.configPath === ''
+                  ? ''
+                  : toRelative(pathAnchor, governing.configPath),
+                moduleResolutionMode: governing.moduleResolutionMode,
+                // Per file, from the config that actually claims it. `legacy/` in the
+                // fixture corpus compiles under experimentalDecorators while its
+                // siblings do not, and the source is identical either way.
+                decoratorSystem: governing.decoratorSystem,
+                compilerOptions: governing.options,
+                packageName: '',
+                projectModuleHashes,
+                toProjectRelative,
+                resolveWorkspaceModule,
+              }),
+            };
+          } catch (error) {
+            outcome = { extractError: String(error) };
+          }
+        } catch (error) {
+          outcome = { readError: String(error) };
+        }
+        await consumeOutcome(file, outcome);
+      }
     }
 
     // The MODULE graph is the parser's, and it needs every file: an import of
@@ -537,6 +652,18 @@ export class TypeScriptProjectAnalyzer {
   /** Distinguishes concurrent writes within one process; the pid does the rest. */
   private writeSequence = 0;
 
+  /** The packages declared under each path anchor, found once for every program under it. */
+  private readonly workspacePackages = new Map<string, WorkspacePackages>();
+
+  private workspacePackagesAt(anchor: string): WorkspacePackages {
+    let found = this.workspacePackages.get(anchor);
+    if (found === undefined) {
+      found = WorkspacePackages.discover(anchor, new Set<string>(TS_SKIP_DIRECTORIES));
+      this.workspacePackages.set(anchor, found);
+    }
+    return found;
+  }
+
   private async exportSkippedFilesCsv(outputDir: string): Promise<void> {
     const header = ['filePath', 'baseMservPath', 'serviceVersionLinkHash', 'reason', 'detail']
       .join('\t');
@@ -566,7 +693,13 @@ export class TypeScriptProjectAnalyzer {
 function filesOfRootProgram(
   rootDir: string,
   configResolver: TsConfigResolver
-): { readonly files: string[]; readonly others: string[]; readonly orphans: string[] } | undefined {
+): {
+  readonly files: string[];
+  readonly others: string[];
+  readonly orphans: string[];
+  /** What the closure walk already read, so the extraction pass reads nothing twice. */
+  readonly texts: Map<string, string>;
+} | undefined {
   const configPath = path.join(rootDir, 'tsconfig.json');
   if (!fs.existsSync(configPath)) {
     return undefined;
@@ -617,38 +750,83 @@ function filesOfRootProgram(
   // by a nested tsconfig stays in that program, which is what keeps a nested
   // project's separate global scope separate.
   const rootOptions = configResolver.resolve(claimed[0] ?? configPath).options;
+  // One resolution cache for the whole walk: ts.resolveModuleName with a bare
+  // ts.sys re-probes the same node_modules directories for every specifier,
+  // and the probing (statSync/readdirSync) was most of this pass's cost.
+  const resolutionCache = ts.createModuleResolutionCache(rootDir, (f) => f, rootOptions);
+  const texts = new Map<string, string>();
   const included = new Set(claimed.map((f) => path.normalize(f)));
   const available = new Map(unclaimed.map((f) => [path.normalize(f), f]));
-  const queue = [...claimed];
-  while (queue.length > 0) {
-    const current = queue.pop()!;
+  // What each file imports, resolved and normalised; read once, for both walks below.
+  const importsOf = new Map<string, string[]>();
+  const resolvedImports = (file: string): string[] => {
+    const known = importsOf.get(file);
+    if (known !== undefined) {
+      return known;
+    }
+    const keys: string[] = [];
+    importsOf.set(file, keys);
     let text: string;
     try {
-      text = fs.readFileSync(current, 'utf-8');
+      text = fs.readFileSync(file, 'utf-8');
     } catch {
-      continue;
+      return keys;
     }
+    texts.set(file, text);
     // No parent pointers and no type nodes needed: this pass only reads
     // specifiers, so the cheapest possible parse is the right one.
-    const script = scriptTextOf(current, text);
-    const sf = ts.createSourceFile(current, script.text, ts.ScriptTarget.Latest, false,
-      script.scriptKind ?? (current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
+    const script = scriptTextOf(file, text);
+    const sf = ts.createSourceFile(file, script.text, ts.ScriptTarget.Latest, false,
+      script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : JS_JOINER.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
-      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys)
-        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, current);
-      if (resolved === undefined) {
-        continue;
+      const resolved = ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
+        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, file);
+      if (resolved !== undefined) {
+        keys.push(path.normalize(resolved));
       }
-      const key = path.normalize(resolved);
-      if (included.has(key) || !available.has(key)) {
-        continue;
-      }
-      included.add(key);
-      queue.push(available.get(key)!);
     }
+    return keys;
+  };
+  const queue = [...claimed];
+  const closeOverImports = (): void => {
+    while (queue.length > 0) {
+      for (const key of resolvedImports(queue.pop()!)) {
+        if (included.has(key) || !available.has(key)) {
+          continue;
+        }
+        included.add(key);
+        queue.push(available.get(key)!);
+      }
+    }
+  };
+  closeOverImports();
+  // ...and the files that import the program. A build config routinely excludes its
+  // tests (`exclude: ["test/**", "**/*.spec.ts"]`) and leaves them to the test runner,
+  // so no config claims them and nothing claimed imports them: they arrived nowhere,
+  // and every test the change reaches was invisible to test selection. A file no other
+  // config owns that imports a file of this program is part of what the program runs
+  // under; it joins, together with the unclaimed files it pulls in.
+  // The same holds for a JavaScript file that imports the program — a `.js` test of `.ts` source,
+  // which the JavaScript graph holds with no edge into this one. It is a candidate here only: a
+  // TypeScript file that imports JavaScript still leaves it to the JavaScript analyzer.
+  const joiners = new Map(collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES), JS_JOINER)
+    .filter((f) => configResolver.resolve(f).configPath === '' || rootConfigs.has(path.resolve(configResolver.resolve(f).configPath)))
+    .map((f) => [path.normalize(f), f]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const pool of [available, joiners]) {
+      for (const [key, file] of pool) {
+        if (!included.has(key) && resolvedImports(file).some((k) => included.has(k))) {
+          included.add(key);
+          queue.push(file);
+          grew = true;
+        }
+      }
+    }
+    closeOverImports();
   }
 
-  const files = [...included].map((f) => available.get(f) ?? f);
+  const files = [...included].map((f) => available.get(f) ?? joiners.get(f) ?? f);
   const pulled = new Set(files.map((f) => path.normalize(f)));
   // A file no config claims and no claimed file imports belongs to no program at
   // all; it is reported, not dropped (NO_PROGRAM_CLAIMS_FILE).
@@ -659,7 +837,7 @@ function filesOfRootProgram(
       orphans.push(f);
     }
   }
-  return { files, others, orphans };
+  return { files, others, orphans, texts };
 }
 
 /**
@@ -700,7 +878,8 @@ function importSpecifiersOf(sf: ts.SourceFile): string[] {
       && ts.isStringLiteral(node.moduleReference.expression)) {
       out.push(node.moduleReference.expression.text);
     } else if (ts.isCallExpression(node)
-      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
       && node.arguments.length > 0
       && ts.isStringLiteral(node.arguments[0]!)) {
       out.push((node.arguments[0] as ts.StringLiteral).text);
@@ -752,7 +931,10 @@ function verifyRelationFile(temporaryPath: string, outputPath: string): void {
   }
 }
 
-function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {
+/** A JavaScript file that may join a TypeScript program by importing it (see filesOfRootProgram). */
+const JS_JOINER = /\.(?:[cm]?js|jsx)$/;
+
+function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>, only?: RegExp): string[] {
   const out: string[] = [];
   const walk = (current: string): void => {
     let entries: fs.Dirent[];
@@ -772,8 +954,8 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): str
         }
         continue;
       }
-      if (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))
-        || (isVueFile(entry.name) && isTypeScriptVueComponent(full))) {
+      if (only ? only.test(entry.name) : (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))
+        || (isVueFile(entry.name) && isTypeScriptVueComponent(full)))) {
         out.push(full);
       }
     }
@@ -819,10 +1001,6 @@ function pathAnchorFor(rootDir: string, baseMservPath: string): string {
   const root = path.resolve(rootDir);
   const contained = root === base || root.startsWith(base + path.sep);
   return contained ? base : root;
-}
-
-function stripExtension(relativePath: string): string {
-  return stripTsExtension(relativePath);
 }
 
 /** Re-exported so a caller can create a source file the same way the extractor does. */

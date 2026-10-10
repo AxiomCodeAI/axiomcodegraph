@@ -1,0 +1,7 @@
+82-mixed-bind-call-apply [types]
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  contexts METHOD_PARAM=4  METHOD_RETURN=1  SUPER_TYPE=2
+  not scored: 0 rows whose target is not a client declaration

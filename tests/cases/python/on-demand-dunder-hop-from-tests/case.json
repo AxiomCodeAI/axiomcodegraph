@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "showing a value is on demand: a test that builds the object is taken for `__repr__`, a constructor deep in the source is not",
+   "run": ["impact", "Point.__repr__", "--tests"],
+   "want": ["test_point.py"],
+   "avoid": ["test_use.py"]},
+  {"why": "CONTROL: a protocol a constructed object does not avoid (`__eq__`) keeps the hop from every constructor",
+   "run": ["impact", "Point.__eq__", "--tests"],
+   "want": ["test_use.py", "test_point.py"]}]}

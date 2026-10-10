@@ -38,6 +38,7 @@ import { splatCallee } from './python-gates/splat-callee';
 import { cachedProperty } from './python-gates/cached-property';
 import { fieldLines } from './python-gates/field-lines';
 import { pep604Union } from './python-gates/pep604-union';
+import { functionExports } from './python-gates/function-exports';
 
 const VERIFIED = 'src/test-data/python/verified';
 const GOLDEN = path.join(VERIFIED, '_golden');
@@ -596,6 +597,8 @@ const CHECKS: Check[] = [
     proves: 'async for and async with are distinguishable from their sync forms, so the right protocol edge can be chosen' },
   { name: 'soft-keyword type call', run: softKeywordTypeCall,
     proves: 'type(obj).attr = v is an assignment through a call, and the subscript form is not' },
+  { name: 'function exports', run: functionExports,
+    proves: 'a module-level async def, generator or async generator is importable by name, as a plain def is' },
   { name: 'construct x position', run: constructPositions,
     proves: 'constructs hold in EVERY syntactic position, not just the one the corpus uses' },
 ];

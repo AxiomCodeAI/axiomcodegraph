@@ -1,0 +1,1 @@
+{"name": "demo", "private": true, "workspaces": ["packages/*", "services/*"]}

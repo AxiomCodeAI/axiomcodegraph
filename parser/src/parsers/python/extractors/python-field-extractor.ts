@@ -178,6 +178,10 @@ export class PythonFieldExtractor {
   extract(input: PythonFieldInput): PythonFieldExtraction {
     this.input = input;
     this.methodByNodeId = new Map();
+    // Field hashes are globally unique, so stale entries never answered a
+    // lookup — but each holds a SyntaxNode, so an unreset map pinned every
+    // file's whole tree for the length of the run.
+    this.annotationByField = new Map();
 
     const methodByHash = new Map<string, PyMethodRegistry>();
     for (const method of input.methods) {

@@ -1,4 +1,4 @@
-"""What the enrich and changes hooks print about one declaration, where a bare number would mislead.
+"""What the changes hook prints about one declaration, where a bare number would mislead.
 
   zero_label   a method with no resolved caller. Of 323 caller counts the Read / Grep hooks printed in headless
                sessions, 209 were `← 0`, and most of those were methods a framework calls: a route handler, an
@@ -133,5 +133,73 @@ def body_line(db, results, repo='.'):
         cl = sorted(_concrete(db, cl))      # before the cut, so the command and the "+N more" count the same classes
     cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN], None, repo)
     more = (len({c.split('.')[-1] for c in cl}) if lang in ('java', 'csharp') and cl else len(fl)) - SHOWN
-    tail = (f"; run: {cmd}" + (f" (+{more} more: axiomcode test-impact)" if more > 0 else '')) if cmd else "; axiomcode test-impact gives the command"
+    tail = (f"; run: {cmd}" + (f" (+{more} more: tests(), `axiomcode tests`)" if more > 0 else '')) if cmd else "; tests() (`axiomcode tests`) gives the command"
     return f"graph: body edit of {what}: {n} test(s) reach it{tail}"
+
+
+# ── what ONE edit changed, and a base that moved under it ─────────────────────────────────────────────────────────────
+# The edit hook read the file against the BASELINE (the commit the graph was built from), which only moves when the
+# background refresher has rebuilt HEAD's text. After a rebase or a pull that is minutes, or never with refresh off, and
+# every change the new commits made to the file came back as "this edit changed", with signature diffs garbled by the
+# graph's lines landing on another text. An edit is now read against the file as it was just before the tool call.
+
+def _snap_path(repo, session, fp):
+    import hashlib
+    return os.path.join(repo, '.axiomcode', f"hooks-before-{session or 'x'}", hashlib.sha1(os.path.realpath(fp).encode()).hexdigest())
+
+
+def snapshot_before(repo, session, fp):
+    """PreToolUse on an edit: keep the file as it is, for the PostToolUse report to diff against ('' when it is new)"""
+    try:
+        cur = open(fp, errors='replace').read() if os.path.exists(fp) else ''
+        p = _snap_path(repo, session, fp); os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w') as f: f.write(cur)
+    except OSError:
+        pass
+
+
+def edit_before(tool, inp, resp, fp, repo, session):
+    """the text of `fp` just before this Edit / Write / MultiEdit, or None when it cannot be known. In order: what the
+    host reports (Claude Code's `originalFile`), the PreToolUse snapshot, the edit itself undone (each new_string that
+    occurs exactly once put back); never the baseline, which predates a rebase or a pull"""
+    snap = _snap_path(repo, session, fp); kept = None
+    try:
+        kept = open(snap, errors='replace').read(); os.unlink(snap)
+    except OSError:
+        pass
+    if isinstance(resp, dict):
+        o = resp.get('originalFile')
+        if isinstance(o, str): return o
+        if tool == 'Write' and resp.get('type') == 'create': return ''
+    if kept is not None: return kept
+    if tool not in ('Edit', 'MultiEdit'): return None
+    try: t = open(fp, errors='replace').read()
+    except OSError: return None
+    edits = inp.get('edits') or ([inp] if 'new_string' in inp else [])
+    if not edits: return None
+    for e in reversed(edits):
+        o, n = str(e.get('old_string', '')), str(e.get('new_string', ''))
+        if e.get('replace_all') or not n or t.count(n) != 1: return None
+        t = t.replace(n, o, 1)
+    return t
+
+
+def base_moved_line(repo, st):
+    """one line, once per move of HEAD in a session: `st['head']` is the HEAD this session last spoke for (at first, the
+    commit the baseline was set at). A rebase, a pull, a checkout, a reset or a commit moves it; what those commits
+    changed is then never reported as an edit, and this says so. '' when HEAD has not moved."""
+    import subprocess
+    git = lambda *a: subprocess.run(['git', *a], cwd=repo, capture_output=True, text=True)
+    try: h = git('rev-parse', '-q', '--verify', 'HEAD').stdout.strip()
+    except Exception: return ''
+    if not h: return ''
+    prev = st.get('head')
+    if prev is None:
+        try: prev = open(os.path.join(repo, '.axiomcode', 'out', 'base-commit')).read().strip()
+        except OSError: prev = h
+    st['head'] = h
+    if not prev or prev == h or prev == 'nogit': return ''
+    n = git('rev-list', '--count', '--right-only', '--cherry-pick', f'{prev}...{h}').stdout.strip()
+    return (f"graph: the base moved: HEAD is {h[:10]}, was {prev[:10]}" + (f" ({n} commit(s) it did not have)" if n.isdigit() else '')
+            + " — a rebase, a pull, a checkout, a reset or a commit. What those commits changed is not reported as an edit;"
+            " edits are read against the file before each one. impact(name) (`axiomcode impact <name>`) answers for a declaration they touched.")

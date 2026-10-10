@@ -7,7 +7,9 @@ Adds to <repo>/.axiomcode/out/graph.sqlite, idempotently:
             function | method | constructor | class | interface | enum | enum_member | type |
             namespace | const | variable | field | module
   refs      every place an identifier or member is USED (the question grep answers)
-  literals  string literals;  comments  comments and docstrings
+  literals  string, number and boolean literals, with kind ('string'|'number'|'bool') and, when exactly
+            one scalar sits on a declaration's line, the NAME of the const/field it initializes — so
+            "what is MAX_ITEMS" is answerable;  comments  comments and docstrings
   nesting   (type, outer type) recovered by line containment — Java's qualified_name drops the outer
   skipped   files the parser skipped (so `find` can say "exists, not indexed" instead of nothing)
   index_meta what was indexed, from where, and whether the IR was available
@@ -18,10 +20,14 @@ to --src). The language's IR is read through the ADAPTER table below — header 
 positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
 come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
 """
-import csv, os, re, sqlite3, sys, time, glob, collections
+import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
-INDEX_VERSION = '5'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
-                         # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding); the query
+INDEX_VERSION = '8'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+                         # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
+                         # v6: TypeScript class-property arrows named after their field;
+                         # v7: data keys of module-level const objects declared, Object.freeze seen through;
+                         # v8: literals carry numbers and booleans with a kind column, and the name of the constant
+                         #     a scalar initializes — a spec's numbers were the one thing the graph could not answer); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -41,8 +47,10 @@ if not os.path.isdir(IR):
     cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
     IR = cands[0] if cands else ''
 HAVE_IR = bool(IR and os.path.isdir(IR))
+@functools.lru_cache(maxsize=None)
 def rel(p):
-    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
+    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src. Cached: a file's
+    path is asked once per row that lives in it, and realpath costs a stat per path component each time"""
     if not p: return p
     a = p if os.path.isabs(p) else os.path.join(SRC, p)
     a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
@@ -62,7 +70,11 @@ if not HAVE_IR and prev.get('ir_present') == 'true' and '--force' not in sys.arg
         raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
         c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
     c.execute("DELETE FROM index_meta WHERE key='index_version'"); c.execute("INSERT INTO index_meta VALUES ('index_version', ?)", (INDEX_VERSION,))   # or every query would retry this
-    con.commit(); print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
+    con.commit()
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_links; ax_links.apply_db(DB, REPO, ax_links.Reader(REPO))
+    except Exception: pass
+    print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
 
 # ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
 # ref:      expression rows that are a use of a name.  kinds -> the expression kinds; name -> the
@@ -76,7 +88,7 @@ A = {
     modules=None,
     expr=dict(file='all-expressions.csv', kind='kind', name='literalValue', line='startLine', fileVia=('types', 'typeRegistryLinkHash'),
               refKinds={'IDENTIFIER_REFERENCE', 'FIELD_ACCESS', 'CLASS_LITERAL'}, entityKind='referencedEntityKind',
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'INTEGER': 'number', 'LONG': 'number', 'FLOAT': 'number', 'DOUBLE': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'typeRegistryLinkHash')),
     # @Annotation(args) on a method or type: the arguments live in a second file keyed by the annotation hash
@@ -91,21 +103,37 @@ A = {
     # a property's name (`this.pending`, `row.setX`) is in literalValue with an empty potentialQualifiedName — 36k of 60k references in the parser repo
     expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
               refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              # the key of an object literal (`{ eventId: … }`) is stored with the entity kind OBJECT_PROPERTY_KEY, not
+              # UNKNOWN: it is never a property ACCESS, so an access the engine bound on the same line is not this name
+              keyRole=dict(role='edgeRole', value='OBJECT_PROPERTY_KEY'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'NUMBER': 'number', 'BIGINT': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
-    decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
+    # the variable's own hash: the engine's field_access names a module variable by it when an identifier the binder
+    # tied to it (directly, or through an import binding) reads it
+    decls=[dict(file='all-typescript-variables.csv', id='tsVariableUniqueHash', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
-    # `const foo = () => …` : the method is named <arrow>; its name is the variable's
-    boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+    # `const foo = () => …` : the method is named <arrow>; its name is the variable's. A class property `handler = () => …`
+    # is the same shape through the field: its initializer is the ARROW_FUNCTION row whose anonymousDeclarationHash is the
+    # method, so `this.handler()` (resolved to that method) is a caller of `Svc.handler`, not of `Svc.<arrow>`.
+    # `handler = debounce(() => …)` is not: its initializer is the CALL, which declares nothing
+    boundNames=[dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+                dict(file='all-typescript-fields.csv', name='name',
+                     via=dict(key='initializerExpressionLinkHash', file='all-typescript-expressions.csv', id='tsExpressionUniqueHash', method='anonymousDeclarationHash'))],
+    # `obj.x = function …`, `{ all: (p) => … }`: named for the property, as JavaScript's are (#1585). The rows are
+    # read through `ts_member_rows`, which gives them JavaScript's expression shape
+    memberNames=dict(file='all-typescript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
+                     # no `consts`: the parser declares a const table's data keys itself, and leaves an annotated
+                     # const's keys to the type it names (`const S: Settings = {…}` reads Settings.mode)
+                     vars='all-typescript-variables.csv', shape='typescript'),
     skipped='skipped-typescript-files.csv'),
  'python': dict(
     modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
     expr=dict(file='all-python-expressions.csv', kind='kind', name=('NAME_REFERENCE:literalValue', 'ATTRIBUTE_ACCESS:dottedPath'), line='startLine', fileVia=('modules', 'pyModuleLinkHash'),
               refKinds={'NAME_REFERENCE', 'ATTRIBUTE_ACCESS'}, entityKind='referencedEntityKind',
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'INTEGER': 'number', 'FLOAT': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ASSIGNMENT_VALUE'}),
     comments=dict(file='all-python-comments.csv', text='text', kind='kind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-python-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'pyModuleLinkHash')),
     decorations=dict(file='all-python-decorators.csv', name='decoratorName', owner='ownerHash', line='startLine', fileVia=('modules', 'pyModuleLinkHash'), text='fullText'),
@@ -117,12 +145,12 @@ A = {
     modules=dict(file='all-javascript-modules.csv', id='jsModuleUniqueHash', filePath='filePath'),
     expr=dict(file='all-javascript-expressions.csv', kind='expressionKind', name='name', line='startLine', fileVia=('modules', 'ownerModuleLinkHash'),
               refKinds={'IDENTIFIER', 'PROPERTY_ACCESS'}, entityKind='referenceKind',
-              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='text'),
+              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'NUMBER': 'number', 'BIGINT': 'number', 'BOOLEAN': 'bool'}), litValue='text', litLinkRoles={'OPERAND', 'ASSIGNMENT_VALUE'}, litLinkBlockKinds={'UNARY'}),
     comments=dict(file='all-javascript-comments.csv', text='text', kind='commentKind', line='startLine', fileVia=('modules', 'ownerModuleLinkHash')),
     # a `function f` or `class C` is also a binding (FUNCTION_DECLARATION_HOISTED, CLASS_TDZ), and `const { C } =
     # require('./m')` is an import in all but syntax (it carries an importLinkHash): none of them is a variable, and
     # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
-    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
+    decls=[dict(file='all-javascript-variables.csv', id='jsVariableUniqueHash', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
            # a field's owner is its class by hash (`this.x = …` in a constructor, a class field, `F.prototype.x = …`), so it
            # displays as `Store.items`, not `items`; a computed key (`[Symbol.iterator] = …`) is named by its key expression
@@ -135,7 +163,9 @@ A = {
     # `exports.getUser = function …`, `obj.x = () => …`, `{ all: page => … }`: the function is named for the property it
     # is the value of, the way the language's own name inference does it, and is owned by the object's variable
     memberNames=dict(file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
-                     vars='all-javascript-variables.csv'),
+                     vars='all-javascript-variables.csv',
+                     # the module-level consts whose object literal's data keys are declarations (`TOPICS.CREATED`)
+                     consts=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime', '').startswith('CONST') and not r.get('importLinkHash')),
     # `static [Symbol.hasInstance](x) {…}`: the parser leaves the name empty and links the key expression; the member is
     # named `[Symbol.hasInstance]`, as written, instead of displaying as `Tagged.` with nothing to ask for
     computedNames=dict(file='all-javascript-methods.csv', id='jsMethodUniqueHash', key='computedNameExpressionLinkHash',
@@ -146,13 +176,30 @@ A = {
  'csharp': dict(
     modules=dict(file='all-csharp-modules.csv', id='csModuleUniqueHash', filePath='filePath'),
     # a member's name (`obj.Count`, `this.value`) is in potentialQualifiedName; a bare name is in literalValue
-    expr=dict(file='all-csharp-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
+    expr=dict(file='all-csharp-expressions.csv', id='csExpressionUniqueHash', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
               refKinds={'NAME_REFERENCE', 'MEMBER_ACCESS'}, entityKind='referencedEntityKind',
+              # `_o.Limit` is a MEMBER_ACCESS row AND a NAME_REFERENCE child `Limit` in the MEMBER_NAME role: one access,
+              # stored once, as the qualified access it is (#1445). Kept twice, the child was a BARE reference, and a bare
+              # name elsewhere is a by-name reader whatever its qualifier says, so `_r.Limit` was listed under AuditOptions.Limit
+              memberName=dict(role='edgeRole', value='MEMBER_NAME', parent='parentExpressionHash', id='csExpressionUniqueHash'),
               # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
-              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'INTEGER': 'number', 'REAL': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
-    # type references carry no module link of their own; the owner hash resolves through the bundle's types
-    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'ownerLinkHash')),
+    # type references carry no module link of their own. The owner is a type only for a base-list reference; for
+    # `M<T>()`, `new T()`, a parameter, a return or a field it is the expression, method, parameter or field, so
+    # the owner hash resolves through every row kind that can own one (see `owners` below)
+    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('owners', 'ownerLinkHash')),
+    # (file, id column) of every row kind a type reference's ownerLinkHash can name. Each reaches its module in at
+    # most two hops: its own csModuleLinkHash, or the method, type, attribute or owner that holds it (a parameter, a
+    # property, an event, a type parameter, the `typeof(T)` argument of an attribute), which has one. An EXPRESSION
+    # owner (`M<T>()`, `new T()`) is not listed: the expression table is the largest in the IR and the reference pass
+    # below already reads it, so it records those owners' modules as it goes (`expr_module`)
+    owners=(('all-csharp-types.csv', 'csTypeUniqueHash'), ('all-csharp-methods.csv', 'csMethodUniqueHash'),
+            ('all-csharp-method-parameters.csv', 'csMethodParameterUniqueHash'), ('all-csharp-fields.csv', 'csFieldUniqueHash'),
+            ('all-csharp-properties.csv', 'csPropertyUniqueHash'), ('all-csharp-events.csv', 'csEventUniqueHash'),
+            ('all-csharp-type-parameters.csv', 'csTypeParameterUniqueHash'), ('all-csharp-variables.csv', 'csVariableUniqueHash'),
+            ('all-csharp-attributes.csv', 'csAttributeUniqueHash'),
+            ('all-csharp-usings.csv', 'csUsingUniqueHash'), ('all-csharp-attribute-arguments.csv', 'csAttributeArgumentUniqueHash')),
     # [Attribute] on a method or type. Arguments live in a second file, which is empty on every fixture
     # available here, so it is not mapped rather than guessed: a decoration with no argument text is
     # still the decoration, and a wrong `args` mapping would be silently empty in the same way
@@ -192,6 +239,27 @@ def type_kind(cat):
 TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$'
                     r'|(^|/)[^/]*Tests?(\.[^/]+)*(/|$)|(^|/)Tests?\.cs$')
 
+# A JavaScript / TypeScript test file named only for what it is: `test.ts` beside the module it tests
+# (`src/isToday/index.ts` + `src/isToday/test.ts`), or a package's root `test.js`. Neither the name nor a directory
+# says test, so every test of such a tree was a plain function: 0 test files, and test selection named none of the
+# tests a change breaks. The bare name alone is not enough -- a library ships `testing/test.ts` exporting its test
+# utilities, and a vendored `spec.ts` holds a specification's types -- so the file must also register a test.
+BARE_TEST_NAME = re.compile(r'(^|/)(tests?|specs?)\.[cm]?[tj]sx?$')
+REGISTERS_TEST = re.compile(r'^\s*(describe|it|test|suite)(\.\w+)*\s*\(', re.M)
+_test_file = {}
+def is_test_file(fp):
+    if not fp: return False
+    if fp not in _test_file:
+        hit = bool(TESTRE.search(fp))
+        if not hit and BARE_TEST_NAME.search(fp):
+            try:
+                with open(fp if os.path.isabs(fp) else os.path.join(REPO, fp), encoding='utf-8', errors='replace') as fh:
+                    hit = bool(REGISTERS_TEST.search(fh.read()))
+            except OSError:
+                hit = False
+        _test_file[fp] = hit
+    return _test_file[fp]
+
 def rows(name):
     p = os.path.join(IR, name)
     if not HAVE_IR or not os.path.exists(p): return iter(())
@@ -208,7 +276,7 @@ DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXIS
 DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source; DROP VIEW IF EXISTS sites;
 CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
 CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
-CREATE TABLE literals(value TEXT, file TEXT, line INT);
+CREATE TABLE literals(value TEXT, file TEXT, line INT, kind TEXT, name TEXT);
 CREATE TABLE comments(text TEXT, file TEXT, line INT, kind TEXT);
 CREATE TABLE nesting(type_id TEXT, outer_type_id TEXT);
 CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT);
@@ -224,35 +292,117 @@ c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in 
 
 # ── names a function or class takes from what it is bound to ──────────────────────────────────────
 bound = {}
-if A['boundNames']:
-    b = A['boundNames']
-    if b.get('via'):                                   # variable -> expression -> method
+# method -> (file, line, name) of the variable or field that names it, where that row says its own place: `run:\n T =\n (…) => …`
+# starts the field lines above its arrow, and without this the field stayed a second `Holder.run`, a field beside the method
+bound_src = {}
+def bind(m_, r, name):
+    if m_ in bound: return
+    bound[m_] = name
+    if r.get('filePath') and (r.get('startLine') or '').isdigit(): bound_src[m_] = (rel(r['filePath']), int(r['startLine']), name)
+for b in ([A['boundNames']] if isinstance(A['boundNames'], dict) else A['boundNames'] or []):
+    if b.get('via'):                                   # variable (or field) -> expression -> method
         v = b['via']; expr2m = {}
         for r in rows(v['file']):
             if r.get(v['method']) and r.get(v['id']): expr2m[r[v['id']]] = r[v['method']]
         for r in rows(b['file']):
             if b.get('only') and not b['only'](r): continue
             m_ = expr2m.get(r.get(v['key'], ''))
-            if m_ and r.get(b['name']): bound.setdefault(m_, r[b['name']])
+            if m_ and r.get(b['name']): bind(m_, r, r[b['name']])
     else:
         for r in rows(b['file']):
-            if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+            if r.get(b['method']): bind(r[b['method']], r, r[b['name']])
 # a function that is the value of a property takes the property's name: `recv.key = function …` (an ASSIGNMENT whose
 # target is a non-computed property access) and `{ key: () => … }` (an OBJECT_LITERAL's PROPERTY_VALUE, keyed by the
 # PROPERTY_KEY sibling at the same childIndex). The owner is the receiver as written (`helpers`, `Foo` for
 # `Foo.prototype`), none for `exports` / `module.exports` / `this`; for a literal, the variable it initialises or the
 # key chain of the literal it is nested in. A named function expression keeps its own name: only placeholders move.
+TS_WRAPPERS = {'AS_EXPRESSION', 'SATISFIES_EXPRESSION', 'TYPE_ASSERTION', 'NON_NULL_EXPRESSION'}
+TS_ROLES = {'OBJECT_PROPERTY_KEY': 'PROPERTY_KEY', 'OBJECT_PROPERTY_VALUE': 'PROPERTY_VALUE',
+            'LEFT_OPERAND': 'ASSIGNMENT_TARGET', 'RIGHT_OPERAND': 'ASSIGNMENT_VALUE'}
+def ts_member_rows(file):
+    """TypeScript expression rows in the shape the naming pass reads (JavaScript's), and a map from a cast's id to the
+    expression it wraps. An arrow or function expression is a FUNCTION_EXPRESSION whose introducesDeclarationLinkHash is
+    its method; a literal's key and value are siblings at one `position`, the key's text in literalValue (a computed key
+    has no key row, so it names nothing); a property access has its name in a PROPERTY_NAME child and gets `text` as
+    written when its receiver is a dotted name. `x as T`, `x satisfies T`, `<T>x` and `x!` are seen through, so
+    `export const Api = { … } as const` is owned by `Api`."""
+    src = {r['tsExpressionUniqueHash']: r for r in rows(file) if r.get('tsExpressionUniqueHash')}
+    kids = collections.defaultdict(list)
+    for r in src.values(): kids[r.get('parentExpressionHash', '')].append(r)
+    def inner(i, depth=0):
+        r = src.get(i)
+        while r is not None and r.get('kind') in TS_WRAPPERS and depth < 8:
+            k = kids.get(r['tsExpressionUniqueHash'], ())
+            r = k[0] if len(k) == 1 else None; depth += 1
+        return r
+    def dotted(r, depth=0):
+        r = inner(r['tsExpressionUniqueHash']) if r else None
+        if r is None or depth > 8: return None
+        if r.get('kind') == 'THIS_REFERENCE': return 'this'
+        if r.get('kind') == 'IDENTIFIER_REFERENCE': return r.get('literalValue') or None
+        if r.get('kind') == 'PROPERTY_ACCESS':
+            ks = kids.get(r['tsExpressionUniqueHash'], ())
+            recv = next((k for k in ks if k.get('edgeRole') == 'RECEIVER'), None)
+            name = next((k.get('literalValue') for k in ks if k.get('edgeRole') == 'PROPERTY_NAME'), None)
+            o = dotted(recv, depth + 1)
+            return f"{o}.{name}" if o and name else None
+    def up(r):                                        # the parent and role, seen through the casts around r
+        p = src.get(r.get('parentExpressionHash', '')); role = r.get('edgeRole'); pos = r.get('position')
+        while p is not None and p.get('kind') in TS_WRAPPERS:
+            role = p.get('edgeRole'); pos = p.get('position'); p = src.get(p.get('parentExpressionHash', ''))
+        return p, role, pos
+    out = {}
+    for i, r in src.items():
+        kind = r.get('kind')
+        if kind in TS_WRAPPERS: continue
+        p, role, pos = up(r)
+        o = dict(jsExpressionUniqueHash=i, parentExpressionLinkHash=p['tsExpressionUniqueHash'] if p else '',
+                 edgeRole=TS_ROLES.get(role, role), childIndex=pos, operatorString=r.get('operatorString', ''),
+                 expressionKind={'ARROW_FUNCTION': 'FUNCTION_EXPRESSION', 'ASSIGNMENT_EXPRESSION': 'ASSIGNMENT', 'CALL_EXPRESSION': 'CALL'}.get(kind, kind),
+                 introducesDeclarationLinkHash=r.get('anonymousDeclarationHash', ''),
+                 ownerModuleLinkHash=r.get('tsModuleLinkHash', ''), startLine=r.get('startLine', ''))
+        if kind == 'CALL_EXPRESSION':                 # the callee as written, the way JavaScript's `text` starts: `Object.freeze(`
+            callee = next((k for k in kids.get(i, ()) if k.get('edgeRole') == 'METHOD_NAME'), None)
+            o['text'] = (dotted(callee) or '') + '(' if callee else ''
+        if role == 'OBJECT_PROPERTY_KEY' and (kind == 'IDENTIFIER_REFERENCE'
+                                              or (kind == 'LITERAL' and r.get('literalType') in ('STRING', 'NUMBER'))):
+            o['name'] = r.get('literalValue', '')
+        elif kind == 'PROPERTY_ACCESS':
+            ks = kids.get(i, ())
+            o['name'] = next((k.get('literalValue', '') for k in ks if k.get('edgeRole') == 'PROPERTY_NAME'), '')
+            o['text'] = dotted(r) or ''
+        out[i] = o
+    return out.values(), {i: inner(i)['tsExpressionUniqueHash'] for i, r in src.items() if r.get('kind') in TS_WRAPPERS and inner(i)}
 bound_owner = {}; cls_named = {}
+data_keys = []                                       # (key, owner key chain, the const's variable row, key row): see below
 if A.get('memberNames'):
     mn = A['memberNames']; ex = {}; kids = collections.defaultdict(list)
-    for r in rows(mn['file']):
+    ts_shape = mn.get('shape') == 'typescript'
+    mrows, unwrap = ts_member_rows(mn['file']) if ts_shape else (rows(mn['file']), {})
+    for r in mrows:
         ex[r[mn['id']]] = r; kids[r.get('parentExpressionLinkHash', '')].append(r)
-    lit_var = {r['initializerExpressionLinkHash']: r['name'] for r in rows(mn['vars']) if r.get('initializerExpressionLinkHash') and r.get('name')}
     DOTTED = re.compile(r'^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$')
     def key_of(parent, role, idx):
         for k in kids.get(parent, ()):
             if k.get('edgeRole') == role and (idx is None or k.get('childIndex') == idx):
                 return k
+    # `const T = Object.freeze({…})` holds the literal it is handed, as `const T = {…}` does: the variable's initializer
+    # is the CALL, and the literal it names is the call's argument. Without this the literal had no variable, so its
+    # function-valued keys lost their owner and its data keys had nothing to be declared under
+    FREEZE = re.compile(r'^Object\s*\.\s*(freeze|seal|preventExtensions)\s*\(')
+    def held_literal(i):
+        r = ex.get(i)
+        if r is not None and r.get('expressionKind') == 'CALL' and FREEZE.match(r.get('text') or ''):
+            a = next((k for k in kids.get(i, ()) if k.get('edgeRole') == 'ARGUMENT'), None)
+            a = ex.get(unwrap.get(a[mn['id']], a[mn['id']])) if a else None
+            if a is not None and a.get('expressionKind') == 'OBJECT_LITERAL': return a[mn['id']]
+        return i
+    lit_var = {}; const_lit = {}                        # literal -> variable name; literal -> variable row, module-level consts only
+    for r in rows(mn['vars']):
+        if not (r.get('initializerExpressionLinkHash') and r.get('name')): continue
+        i = held_literal(unwrap.get(r['initializerExpressionLinkHash'], r['initializerExpressionLinkHash']))
+        lit_var[i] = r['name']
+        if mn.get('consts') and mn['consts'](r): const_lit[i] = r
     def literal_owner(lit, depth=0):
         if lit.get(mn['id']) in lit_var: return lit_var[lit[mn['id']]]
         p = ex.get(lit.get('parentExpressionLinkHash', ''))
@@ -295,6 +445,28 @@ if A.get('memberNames'):
         if name:
             bound[m_] = name
             if owner: bound_owner[m_] = owner
+    # A DATA KEY OF A MODULE-LEVEL CONST OBJECT is a declaration: `export const TOPICS = Object.freeze({ CREATED: 'a.b' })`
+    # declares TOPICS.CREATED, and `bus.publish(TOPICS.CREATED)` reads it. Only a function-valued key was a declaration (a
+    # method, above), so `impact TOPICS.CREATED` answered "nothing named" and its readers were word matches. A nested
+    # literal's keys follow the key chain (`LIMITS.nested.depth`). Not declared: a function (already the method), a bare
+    # name or shorthand (`{ create }` is another declaration, not a value of its own), a computed key, and any literal a
+    # function body builds or a `let` holds -- those are values, not the module's named constants
+    def const_root(lit, depth=0):
+        if lit[mn['id']] in const_lit: return const_lit[lit[mn['id']]]
+        p = ex.get(lit.get('parentExpressionLinkHash', ''))
+        if depth > 8 or not p or lit.get('edgeRole') != 'PROPERTY_VALUE' or p.get('expressionKind') != 'OBJECT_LITERAL': return None
+        return const_root(p, depth + 1)
+    NOT_DATA = {'FUNCTION_EXPRESSION', 'CLASS_EXPRESSION', 'IDENTIFIER', 'IDENTIFIER_REFERENCE'}
+    for k in list(ex.values()) if const_lit else ():
+        if k.get('edgeRole') != 'PROPERTY_KEY' or k.get('isComputedName') == 'true' or not k.get('name'): continue
+        p = ex.get(k.get('parentExpressionLinkHash', ''))
+        if not p or p.get('expressionKind') != 'OBJECT_LITERAL': continue
+        v = key_of(p[mn['id']], 'PROPERTY_VALUE', k.get('childIndex'))
+        v = ex.get(unwrap.get(v[mn['id']], v[mn['id']])) if v else None
+        if v is None or v.get('expressionKind') in NOT_DATA: continue
+        root = const_root(p); owner = literal_owner(p) if root else None
+        if not owner: continue
+        data_keys.append((k['name'], owner, root, k))
 # ── types: display names with nesting recovered by line containment ───────────────────────────────
 types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
 byfile = {}
@@ -335,7 +507,7 @@ for t in types.values():
     d = tdisplay(t['id']); fp = rel(t['file_path'])
     if t['id'] in cls_bound: bound_at.add((fp, t['start_line'], tname(t)))
     sym.append((t['id'], tname(t), d, type_kind(t['category'] or ''), t['qualified_name'], None, fp, t['start_line'], t['end_line'],
-                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else cls_bound.get(t['id'], (None, None))[1], 1 if fp and TESTRE.search(fp) else 0, None, t['id']))
+                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else cls_bound.get(t['id'], (None, None))[1], 1 if is_test_file(fp) else 0, None, t['id']))
 
 # ── methods ───────────────────────────────────────────────────────────────────────────────────────
 # a member whose key is an expression (`[Symbol.iterator]() {…}`, `[KEY] = 1`) has no name in the IR, only a link to the
@@ -363,16 +535,22 @@ def enum_constant_of(fp, ln):
     return None
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
     name = m['name'] or ckey.get(cmeth.get(m['id'], ''), '')
-    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
-    od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else bound_owner.get(m['id'])
+    renamed = name.startswith('<') and m['id'] in bound
+    if renamed:
+        name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
+        if m['id'] in bound_src: bound_at.add(bound_src[m['id']])
+    # the object a function was assigned into names it before the class it is written in: `const o = { f: () => … }`
+    # inside a method of C is `o.f`, not `C.f` (a TypeScript arrow's owner type is the class around it). Only for a
+    # function that took the property's name: `helpers.alias = function realName …` stays `realName`
+    od = (renamed and bound_owner.get(m['id'])) or (tdisplay(m['owner_type_id']) if m['owner_type_id'] else None)
     if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
         k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
         if k_: od = f"{od}.{k_}"
     if m['kind'] == 'MODULE_INITIALIZER':
         fp = rel(m['file_path']); stem = os.path.splitext(os.path.basename(fp or ''))[0]
-        sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
+        sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if is_test_file(fp) else 0, m['id'], None)); continue
     fp = rel(m['file_path'])
-    sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+    sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if is_test_file(fp) else 0, m['id'], None))
 
 # ── members an annotation processor DECLARES, which no source line spells ─────────────────────────
 # Java (Lombok, a record) and C# (an auto-property) synthesise members in the engine: `methods` carries them with
@@ -385,17 +563,28 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
 by_qname = {}
 for t in types.values():
     if t['qualified_name']: by_qname.setdefault(t['qualified_name'], t)
+# A member of a type the engine SYNTHESISED as well (a Lombok builder, `generated:pkg.Order.OrderBuilder#sku/1`) has an
+# owner no types row holds. It hangs off the nearest enclosing type that does, under the display the source would give
+# it (`Order.OrderBuilder.sku`): the owner display then names no type, and every consumer walks it up to Order the way
+# it walks up an enum constant's body, while `Order.sku`, the field, stays a different name (#1405, #1409).
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, file_path, start_line, end_line FROM methods WHERE provenance='generated'"):
     t = types.get(m['owner_type_id']) if m['owner_type_id'] else None
+    inner = ''
     if t is None and (m['id'] or '').startswith('generated:'):
         body = m['id'].split(':', 1)[1]
         q = body.split('#')[0] if '#' in body else body.rsplit('.', 1)[0]
         t = by_qname.get(q)
+        up = q
+        while t is None and '#' in body and '.' in up:
+            up, seg = up.rsplit('.', 1)
+            inner = seg + ('.' + inner if inner else '')
+            t = by_qname.get(up)
     if t is None: continue
     od = tdisplay(t['id']); fp = rel(t['file_path']); nm = m['name'] or ''
+    if inner and od: od = od + '.' + inner
     if not nm: continue
     sym.append((m['id'], nm, (od + '.' if od else '') + nm, 'method', m['qualified_name'], m['signature'],
-                fp, t['start_line'], t['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+                fp, t['start_line'], t['end_line'], od, 1 if is_test_file(fp) else 0, m['id'], None))
 
 # ── other declarations from the IR: fields, constants, enum members ───────────────────────────────
 modules = {}
@@ -406,14 +595,46 @@ tq2id = {}
 for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
 def owner_display(qn):
     tid = tq2id.get(qn)
-    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+    if tid: return tdisplay(tid)
+    # an owner that is no type — a TypeScript const table, `mod/path#ROUTES.orders` — is named by what follows the
+    # module, so its key is `ROUTES.orders.list` rather than `path#ROUTES.orders.list` or `orders.list`
+    if qn and '#' in qn: return qn.rsplit('#', 1)[-1]
+    return qn.rsplit('.', 1)[-1] if qn else None
 def file_of(r, d):
     if d.get('filePath'): return rel(r.get(d['filePath'], ''))
     via = d.get('fileVia')
     if via and via[0] == 'modules': return rel(modules.get(r.get(via[1], ''), ''))
     if via and via[0] == 'types':
         t = types.get(r.get(via[1], '')); return rel(t['file_path']) if t else ''
+    if via and via[0] == 'owners': return rel(modules.get(owner_module().get(r.get(via[1], ''), ''), ''))
     return ''
+_owner_module = None
+def owner_module():
+    """owner hash -> module hash, over every row kind in A['owners']: the row's own module link, else the module of
+    the method, type or owner that holds it (C# column names: only C# declares owners). Built once, on first use,
+    after the reference pass has filled `expr_module`. A row is kept only when a type reference names it, or when it
+    is a method, a type or an attribute (the second hop's targets)."""
+    global _owner_module
+    if _owner_module is not None: return _owner_module
+    tr = A.get('typeRefs') or {}
+    via = (tr.get('fileVia') or ('', ''))[1]
+    wanted = {r.get(via) for r in rows(tr['file'])} if tr else set()
+    mod, up = dict(expr_module), {}
+    for fname, idcol in A.get('owners') or ():
+        hop = idcol in ('csTypeUniqueHash', 'csMethodUniqueHash', 'csAttributeUniqueHash')
+        for r in rows(fname):
+            h = r.get(idcol)
+            if not h or not (hop or h in wanted): continue
+            if r.get('csModuleLinkHash'): mod[h] = r['csModuleLinkHash']
+            else:
+                p = r.get('csMethodLinkHash') or r.get('csTypeLinkHash') or r.get('ownerLinkHash') or r.get('parentAttributeHash')
+                if p: up[h] = p
+    for _ in range(2):                                   # a type parameter's owner is a method or a type: two hops at most
+        for h, p in list(up.items()):
+            if p in mod: mod[h] = mod[p]; del up[h]
+            elif p in up: up[h] = up[p]
+    _owner_module = mod
+    return mod
 for d in A['decls']:
     for r in rows(d['file']):
         if d.get('only') and not d['only'](r): continue
@@ -430,25 +651,76 @@ for d in A['decls']:
         if (fp, ln, name) in bound_at: continue     # `const foo = () => …` is already the function foo
         qn = ((ot['qualified_name'] + '.' + name) if ot and ot.get('qualified_name') else None) or r.get('qualifiedName') or \
              (((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name)
-        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), qn, None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), qn, None, fp, ln, en, od, 1 if is_test_file(fp) else 0, None, None))
+# the data keys of module-level const objects (collected with the member names): a field of the object, owned by the key
+# chain it is written under, so `TOPICS.CREATED` and `LIMITS.nested.depth` are names `impact` takes
+for name, od, v, k in data_keys:
+    fp = rel(modules.get(k.get('ownerModuleLinkHash', ''), '')) or rel(v.get('filePath', ''))
+    ln = int(k.get('startLine') or 0)
+    vq = v.get('qualifiedName') or v.get('potentialQualifiedName')
+    qn = f"{vq}{od[len(v['name']):]}.{name}" if vq and od.startswith(v['name']) else f"{fp}#{od}.{name}"
+    sym.append((None, name, f"{od}.{name}", 'field', qn, None, fp, ln, ln, od, 1 if is_test_file(fp) else 0, None, None))
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
 # ── references, literals, comments ───────────────────────────────────────────────────────────────
 e = A['expr']; refs = []; lits = []
 namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
+mname = e.get('memberName'); child_ek = {}
+kr = e.get('keyRole')
+if mname:   # the member-name child's entity kind, for the access that stands for it (the parent's own is UNKNOWN until resolved)
+    for r in rows(e['file']):
+        if r.get(mname['role']) == mname['value'] and r.get(mname['parent']): child_ek[r[mname['parent']]] = r.get(e['entityKind'], '')
+# the expressions that own a type reference (see A['owners']): their module, taken on this pass rather than a second one
+expr_module = {}; tr_exprs = set()
+if A.get('owners') and e.get('id'):
+    _tr = A['typeRefs']; tr_exprs = {r.get(_tr['fileVia'][1]) for r in rows(_tr['file']) if r.get(_tr['ownerKind']) == 'EXPRESSION'}
 for r in rows(e['file']):
+    if tr_exprs and r.get(e['id']) in tr_exprs: expr_module[r[e['id']]] = r.get(e['fileVia'][1], '')
     k = r.get(e['kind'], '')
+    if mname and r.get(mname['role']) == mname['value'] and r.get(mname['parent']): continue
     if k in e['refKinds']:
         col = namecol if isinstance(namecol, str) else namecol.get(k)
         n = (r.get(col, '') if col else '') or (r.get(e['nameFallback'], '') if e.get('nameFallback') else '')
         if not n: continue
         n = n.rsplit('.', 1)[-1]
-        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
-    elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
+        ek = r.get(e['entityKind'], '')
+        if mname and ek in ('', 'UNKNOWN'): ek = child_ek.get(r.get(mname['id'], ''), ek) or ek
+        if kr and ek in ('', 'UNKNOWN') and r.get(kr['role']) == kr['value']: ek = kr['value']
+        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, ek))
+    elif k in e['litKinds'] and r.get(e['litType'][0]) in e['litType'][1]:
+        kind = e['litType'][1][r.get(e['litType'][0])]        # 'string' | 'number' | 'bool' across every language
         v = (r.get(e['litValue']) or '')
-        if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
-        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0)))
-c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)
+        if kind == 'string':
+            # C# keeps the source token, and the IR writer RFC4180-quotes a field holding a double quote, so `"Fee"` arrived
+            # as `"""Fee"""` and was stored `""Fee""`: no key, route or member name written in a C# string ever matched
+            if LANG == 'csharp' and len(v) > 1 and v[0] == '"' == v[-1] and '""' in v: v = v[1:-1].replace('""', '"')
+            if LANG == 'csharp' and len(v) > 2 and v[0] in '@$' and v[-1] == '"': v = v.lstrip('@$')   # @"verbatim", $"interpolated"
+            if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
+        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0), kind, r.get('edgeRole', '')))
+# a scalar's NAME: `MAX_ITEMS = 5` — the one literal on a const/variable/field declaration's line IS its value,
+# so the row gets the symbol's display and "what is MAX_ITEMS" has an answer with a source location. Strictly:
+# one literal, one such symbol, no call on the line (`RETRY = max(3, env())` names no value), the literal in the
+# language's VALUE position — litLinkRoles, which keeps a subscript's key (`d["timeout"]`, INDEX_ARGUMENT) and a
+# call's argument out — and, where an initializer's sign hides in a parent node (JavaScript's UNARY around `-5`),
+# no such node on the line either (litLinkBlockKinds).
+# Dict passes, not correlated subqueries: the UPDATE form of this join ran minutes against seconds on a mid-sized
+# repository, because at this point the literals indexes do not exist yet.
+lit_count = collections.Counter((f, l) for _v, f, l, _k, _r in lits)
+decl_at = {}                       # (file, line) -> the ONE declared name there, or None once a second appears
+for d, f, l in c.execute("SELECT display, file, line FROM symbols WHERE kind IN ('const', 'variable', 'field', 'enum_member') AND line > 0"):
+    decl_at[(f, l)] = None if (f, l) in decl_at else d
+call_at = {(rel(f), l) for f, l in c.execute("SELECT DISTINCT file_path, start_line FROM call_sites WHERE file_path IS NOT NULL")}
+link_roles = e.get('litLinkRoles') or set()
+block_kinds = e.get('litLinkBlockKinds') or set()
+blocked_at = set()
+if block_kinds:
+    for r in rows(e['file']):
+        if r.get(e['kind'], '') in block_kinds: blocked_at.add((file_of(r, e), int(r.get(e['line']) or 0)))
+lits = [(v, f, l, k,
+         (decl_at.get((f, l)) if role in link_roles and l > 0 and lit_count[(f, l)] == 1
+          and (f, l) not in call_at and (f, l) not in blocked_at else None))
+        for v, f, l, k, role in lits]
+c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?,?,?)", lits)
 cm = A['comments']
 c.executemany("INSERT INTO comments VALUES (?,?,?,?)", ((r.get(cm['text'], '')[:400], file_of(r, cm), int(r.get(cm['line']) or 0), r.get(cm['kind'], '')) for r in rows(cm['file']) if r.get(cm['text'])))
 # where a TYPE is used in a declaration or expression — field type, parameter, return, generic argument, `new` —
@@ -488,6 +760,16 @@ CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EX
 CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
 CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS decorations_owner ON decorations(owner_id); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
 CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+-- lookups by id and by file + line: without them each per-site or per-test query scans the whole table
+CREATE INDEX IF NOT EXISTS symbols_id ON symbols(id); CREATE INDEX IF NOT EXISTS refs_file_line ON refs(file, line);
+CREATE INDEX IF NOT EXISTS literals_file_line ON literals(file, line);
+-- the bases written in a type's header (graph_sql.library_bases, asked once per type a no-caller reason looks at) and
+-- the parts of a partial type (type_parts): without these each ask scanned type_refs / symbols, 1.2 s of a 1.8 s impact
+-- on a 1,300-file Java repository → 0.5-0.75 s, answers unchanged
+CREATE INDEX IF NOT EXISTS type_refs_file_line ON type_refs(file, line); CREATE INDEX IF NOT EXISTS symbols_qn ON symbols(qualified_name);
+-- the fields a caller reads: via_base_rows asks per single-target call site, and without the index each ask
+-- scanned the whole table (65,797 rows × 5,162 sites on an 8,619-file repository = 24 s of a 171 s warm → 1.4 s)
+CREATE INDEX IF NOT EXISTS fa_caller ON field_access(caller_id);
 -- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
 -- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
 CREATE VIEW callers AS
@@ -513,4 +795,16 @@ meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', 
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
 con.execute("VACUUM")                 # the tables above are dropped and recreated on every run; without this the file only grows
+con.close()
+# THE ASSERTED LINKS (ax_links.py, axiomcode-links.tsv) are applied to every graph as it is indexed, after the engine's
+# export and before the graph is published, so a rebuild keeps them and no query ever sees a graph without them: each is
+# validated against THIS graph and this tree's text, O(links), and one whose line changed is dropped and reported.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import ax_links
+    _t0 = time.time(); _res = ax_links.apply_db(DB, REPO, ax_links.Reader(REPO))
+    if _res: print(f"links: {sum(1 for _l, r in _res if r['status'] in ('applied', 'moved'))} of {len(_res)} asserted link(s) applied in {(time.time() - _t0) * 1000:.0f} ms")
+except Exception as e:                # a links file can never cost the graph
+    print(f"links: not applied ({e})")
+con = sqlite3.connect(DB); c = con.cursor()
 print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))

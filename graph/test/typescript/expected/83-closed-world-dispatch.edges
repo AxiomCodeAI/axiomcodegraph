@@ -1,0 +1,16 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	handlers#main() @L52 -> -
+ambiguous_unknown	METHOD_CALL	handlers#register(HandlerClass) @L38 -> -
+known_edge	CONSTRUCTOR_CALL	handlers#main() @L46 -> Built#<new>()
+known_edge	CONSTRUCTOR_CALL	handlers#main() @L47 -> Base#<new>()
+known_edge	FUNCTION_CALL	handlers#<module-init>() @L39 -> handlers#register(HandlerClass)
+known_edge	FUNCTION_CALL	handlers#main() @L50 -> handlers#dispatch(Handler,string)
+known_edge	FUNCTION_CALL	handlers#main() @L51 -> handlers#dispatch(Handler,string)
+known_edge	FUNCTION_CALL	handlers#main() @L52 -> handlers#dispatch(Handler,string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Base#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Built#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Handler#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Orphan#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Provided#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Registered#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> TypeOnly#handle(string)
+multi_inferred	METHOD_CALL	handlers#dispatch(Handler,string) @L42 -> Unused#handle(string)

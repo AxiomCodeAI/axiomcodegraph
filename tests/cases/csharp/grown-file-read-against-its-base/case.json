@@ -1,0 +1,29 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a graph from a later text than the base: a parameter inserted into a constructor header written one per line (a C# constructor is recorded as `<constructor>`, its header spells the type's name) is its signature change, not its body and not a removal; a new method with a generic return type is named as added, and a local in it is no field",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.cs",
+    "--new",
+    "{repo}/new.cs",
+    "--file",
+    "src/Service.cs"
+   ],
+   "want": [
+    "signature  Service.<constructor>",
+    "+gateway",
+    "added      Service.Pay"
+   ],
+   "avoid": [
+    "removed",
+    "Service.total",
+    "added      Service.gateway   src/Service.cs:11"
+   ]
+  }
+ ]
+}

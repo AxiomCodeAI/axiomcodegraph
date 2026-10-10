@@ -43,6 +43,19 @@ export interface ProjectModuleFacts extends ResolutionInput {
    * re-export fails to resolve.
    */
   isPackage?: boolean;
+  /**
+   * Whether this module is a `.pyi` stub. A stub shipped beside its `.py` carries the
+   * same qualified name, and an import must reach the `.py`: that is the module the
+   * interpreter loads. A stub with no `.py` beside it stays the import's target.
+   */
+  isStub?: boolean;
+  /**
+   * The directory names above this module's top-level package, outermost first: `["repo", "src"]` for
+   * `repo/src/pkg/mod.py`. An import more qualified than the module (`import myproject.framework` naming a
+   * `framework` that sits in a `myproject/` directory with no `__init__.py`) is matched by dropping its leading
+   * segments, and those segments must then be the directories the module actually sits in.
+   */
+  outerDirs?: string[];
 }
 
 export interface ProjectResolutionStats {
@@ -101,6 +114,14 @@ export interface ResolutionInput {
 // "unresolved": 1011 ValueError, 516 TypeError, 165 RuntimeError. A hand-listed
 // set of a language's builtins drifts the moment the language adds one.
 const CALLABLE_BUILTINS: ReadonlySet<string> = PYTHON_BUILTIN_NAMES;
+
+// The kinds a module-level `def` can take, whichever its body makes it.
+const MODULE_FUNCTION_KINDS: ReadonlySet<PythonMethodKind> = new Set([
+  PythonMethodKind.FUNCTION,
+  PythonMethodKind.ASYNC_FUNCTION,
+  PythonMethodKind.GENERATOR,
+  PythonMethodKind.ASYNC_GENERATOR,
+]);
 
 /**
  * NOTE: the HAS_GETATTR / HAS_SETATTR escape-hatch check was removed along with
@@ -181,6 +202,8 @@ export class PythonResolutionLinker {
 
     const moduleByQualifiedName = new Map<string, ProjectModuleFacts>();
     for (const module of modules) {
+      const seen = moduleByQualifiedName.get(module.qualifiedName);
+      if (seen !== undefined && module.isStub && !seen.isStub) continue;
       moduleByQualifiedName.set(module.qualifiedName, module);
     }
 
@@ -202,7 +225,13 @@ export class PythonResolutionLinker {
       for (const method of module.methods) {
         // Module-level functions only: a method belongs to its class, not to the
         // module namespace.
-        if (method.getPyTypeLinkHash() === '' && method.getMethodKind() === PythonMethodKind.FUNCTION) {
+        // An `async def`, a generator and an async generator at module level are module
+        // functions too: their kind names what a call returns, not where they live. Left
+        // out, `from m import job` got no entity, so a value use of `job` in another
+        // module was an IMPORT reference that impact never counted (#1525). A nested def
+        // of those kinds has an enclosing member and stays out.
+        if (method.getPyTypeLinkHash() === '' && method.getEnclosingMemberLinkHash() === ''
+            && MODULE_FUNCTION_KINDS.has(method.getMethodKind())) {
           add(method.getName(), method);
         }
       }
@@ -269,12 +298,27 @@ export class PythonResolutionLinker {
               ? undefined
               : exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
                 this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
-          if (declared === undefined || declared === null) {
+          // A module-level VARIABLE is a member too, and the interpreter's
+          // member-first order applies to it the same as to a def or a class.
+          // Without this check, `from svc.order_service import order_service` —
+          // the ordinary singleton idiom, where the value is named after its
+          // module — fell into the submodule fallback below, whose findModule
+          // matches by SUFFIX and so handed back svc.order_service ITSELF: the
+          // import resolved to MODULE with an empty hash and the VARIABLE
+          // branch further down never ran (#1140).
+          const variableMember =
+            targetModule === undefined
+              ? undefined
+              : moduleVariablesByModule.get(targetModule.qualifiedName)?.get(member);
+          if ((declared === undefined || declared === null) && variableMember === undefined) {
             const asModule = targetName === null || targetName === ''
               ? member
               : `${targetName}.${member}`;
             const memberModule = this.findModule(asModule, moduleByQualifiedName);
-            if (memberModule) {
+            // The module found by suffix must not be the target module itself:
+            // `from X import Y` never binds X, so a "submodule" that IS X is a
+            // suffix collision, not an answer.
+            if (memberModule && memberModule !== targetModule) {
               record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
               stats.importsResolved += 1;
               continue;
@@ -335,6 +379,14 @@ export class PythonResolutionLinker {
 
     // ---- step 2: bases, now that imports are resolved
     // Per-module views of what each module's imports brought into scope.
+    // Modules keyed by hash once, FIRST occurrence kept — the lookup below ran as a
+    // linear scan per import record, which is quadratic over the project.
+    const moduleByHash = new Map<string, ProjectModuleFacts>();
+    for (const module of modules) {
+      if (!moduleByHash.has(module.moduleHash)) {
+        moduleByHash.set(module.moduleHash, module);
+      }
+    }
     const importedTypeByName = new Map<string, Map<string, PyTypeRegistry | null>>();
     const importedModuleByName = new Map<string, Map<string, ProjectModuleFacts>>();
     for (const module of modules) {
@@ -351,7 +403,7 @@ export class PythonResolutionLinker {
           // The bound name refers to a module. Find which one by matching the
           // resolved module hash, so `from . import protocols` and
           // `import pkg.protocols` are handled by the same lookup.
-          const target = modules.find(m => m.moduleHash === record.getResolvedModuleLinkHash());
+          const target = moduleByHash.get(record.getResolvedModuleLinkHash());
           if (target) {
             mods.set(record.getSimpleName(), target);
           }
@@ -369,8 +421,14 @@ export class PythonResolutionLinker {
     const aliasByModule = new Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>();
     for (const module of modules) {
       const scoped = new Map<string, PyBindingRegistry>();
+      // Bindings keyed by hash, FIRST occurrence kept, matching the linear
+      // `.find` this replaces; built in the pass that already walks them.
+      const bindingByHash = new Map<string, PyBindingRegistry>();
       for (const binding of module.bindings) {
         scoped.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+        if (!bindingByHash.has(binding.getHash())) {
+          bindingByHash.set(binding.getHash(), binding);
+        }
       }
       const parents = new Map<string, string>();
       for (const scope of module.scopes) {
@@ -397,7 +455,7 @@ export class PythonResolutionLinker {
       });
       const byName = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const [bindingHash, entity] of aliases) {
-        const binding = module.bindings.find(b => b.getHash() === bindingHash);
+        const binding = bindingByHash.get(bindingHash);
         if (binding) {
           byName.set(binding.getName(), entity);
         }
@@ -660,6 +718,20 @@ export class PythonResolutionLinker {
       }
     }
 
+    // Per-module resolution context, built for EVERY module before ANY module
+    // resolves its call sites. The split matters for one reason: an imported
+    // module-level value's type lives in the EXPORTING module's local type
+    // index, and module order is arbitrary, so typing and resolution cannot
+    // share one sweep.
+    const resolutionCtxByModuleHash = new Map<string, {
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+      boundNames: Set<string>;
+      importedModuleNames: Set<string>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      localTypeByBinding: Map<string, PyTypeRegistry | null>;
+    }>();
     for (const module of modules) {
       const entityByBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const method of module.methods) {
@@ -751,6 +823,66 @@ export class PythonResolutionLinker {
         mroCache,
       });
 
+      resolutionCtxByModuleHash.set(module.moduleHash, {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+        boundNames,
+        importedModuleNames,
+        typesByName,
+        localTypeByBinding,
+      });
+    }
+
+    // A from-import of a module-level VALUE carries the binding it names
+    // (#1140, PythonImportTargetKind.VARIABLE) — but the IMPORTING module's
+    // local type index knew nothing about that binding, so
+    // `order_service.cancel()` still fell to a name match whenever
+    // `order_service = OrderService()` lives in another module, while the same
+    // call in the exporting module resolved. The exporter's own index has
+    // already typed that binding on the same three grounds any local uses;
+    // copy the answer onto the import's binding so the ordinary NAME-receiver
+    // lookup finds it. One hop only, by construction: a re-exported value
+    // resolves to an import binding, which is never an assigned module-scope
+    // binding, so it was not given VARIABLE kind in the first place.
+    for (const module of modules) {
+      const own = resolutionCtxByModuleHash.get(module.moduleHash);
+      if (!own) {
+        continue;
+      }
+      for (const record of module.imports) {
+        if (record.getResolvedTargetKind() !== PythonImportTargetKind.VARIABLE) {
+          continue;
+        }
+        const importBinding = record.getBindingLinkHash();
+        const exportedBinding = record.getResolvedTargetHash();
+        // An entry that already exists wins: the name is also assigned in this
+        // module, and that assignment (or its refusal, null) is the local truth.
+        if (importBinding === '' || exportedBinding === '' || own.localTypeByBinding.has(importBinding)) {
+          continue;
+        }
+        const exporter = resolutionCtxByModuleHash.get(record.getResolvedModuleLinkHash());
+        const type = exporter?.localTypeByBinding.get(exportedBinding);
+        if (type) {
+          own.localTypeByBinding.set(importBinding, type);
+        }
+      }
+    }
+
+    for (const module of modules) {
+      const ctx = resolutionCtxByModuleHash.get(module.moduleHash);
+      if (!ctx) {
+        continue;
+      }
+      const {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+        boundNames,
+        importedModuleNames,
+        typesByName,
+        localTypeByBinding,
+      } = ctx;
       for (const callSite of module.callSites) {
         // Retry anything WITHOUT A HASH, not merely anything UNRESOLVED. The
         // single-file pass has no module graph, so it can only say IMPORTED for
@@ -1722,16 +1854,40 @@ export class PythonResolutionLinker {
     const parts = name.split('.');
     for (let drop = 1; drop < parts.length; drop++) {
       const candidate = parts.slice(drop).join('.');
+      const dropped = parts.slice(0, drop);
+      // THE DROPPED SEGMENTS MUST BE WHERE THE MODULE SITS. Dropping them is for an import more qualified than the
+      // module; dropping any leading segment turned `from clikit.testing import CliRunner` into the project's own
+      // `testing` (or `app.testing`, by suffix) — a dependency whose module shares a last segment with one of the
+      // project's resolved INTO the project, and its import bound nothing.
       const direct = moduleByQualifiedName.get(candidate);
-      if (direct) {
+      if (direct && this.sitsUnder(direct, candidate, dropped)) {
         return direct;
       }
       const suffixed = this.moduleSuffixIndex.get(candidate);
-      if (suffixed) {
+      if (suffixed && this.sitsUnder(suffixed, candidate, dropped)) {
         return suffixed;
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether `dropped` names what lies directly above `tail` on the module's own path: the part of its qualified
+   * name before the matched tail, then the directories above its top-level package. A module with no recorded
+   * directories keeps the old answer.
+   */
+  private sitsUnder(module: ProjectModuleFacts, tail: string, dropped: string[]): boolean {
+    if (module.outerDirs === undefined) {
+      return true;
+    }
+    const own = module.qualifiedName.split('.');
+    const before = own.slice(0, Math.max(0, own.length - tail.split('.').length));
+    const chain = [...module.outerDirs, ...before];
+    if (chain.length < dropped.length) {
+      return false;
+    }
+    const end = chain.slice(chain.length - dropped.length);
+    return end.every((segment, i) => segment === dropped[i]);
   }
 
   /**

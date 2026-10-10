@@ -83,7 +83,12 @@ REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
                 # unresolved_value_callee's second column is `binding`: WHAT the callee of an
                 # unresolved call is ("parameter", "loop_variable", "field", ...), the same words
                 # the JavaScript rules write. Written into the output and never joined on.
-                "unresolved_value_callee(")
+                "unresolved_value_callee(",
+                # lib_callback_edge's How column (receiver / receiver_field / argument / argument_field) says
+                # where on the call the handed-back object arrived. Written into the output by
+                # framework-behavior/library-callbacks.dl and never joined on; every name that DOES decide a
+                # library hand-back comes from the tables graph/python/libsum derives from the library's source.
+                "lib_callback_edge(", "lcb_hit(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')

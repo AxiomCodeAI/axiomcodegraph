@@ -95,7 +95,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     log(`▶ wrote ${dbPath}${a.debug ? ' (+ csv/*.csv, --debug)' : ''}`);
   } else {
     fs.rmSync(dbPath, { force: true });
-    console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.5) — graph.sqlite NOT written; csv/*.csv is complete`);
+    console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.13) — graph.sqlite NOT written; csv/*.csv is complete`);
   }
   log(`▶ bundle complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }

@@ -1,0 +1,1 @@
+{ "name": "app", "private": true, "workspaces": ["pkgs/*"], "devDependencies": { "@testing-library/dom": "^10.0.0" } }

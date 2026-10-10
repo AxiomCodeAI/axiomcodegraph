@@ -1,0 +1,14 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a C# source file is an endpoint: every method in it, as for a .java, .py or .ts file",
+   "run": ["path", "src/Checks.cs", "Adder.Twice"],
+   "want": ["Checker.Run", "Adder.Add", "Adder.Twice"],
+   "avoid": ["nothing named"]},
+  {"why": "the file may be named by its last segments",
+   "run": ["path", "Checks.cs", "Adder.Add"],
+   "want": ["Checker.Run"],
+   "avoid": ["nothing named"]},
+  {"why": "control: a method named like an extension (Owner.cs) is still that method when no file has the name",
+   "run": ["path", "Owner.cs", "Adder.Twice"],
+   "want": ["Owner.cs", "Adder.Twice"],
+   "avoid": ["no methods in a file named"]}]}

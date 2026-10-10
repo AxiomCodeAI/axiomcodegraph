@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--explain | --no-explain] [--from <name>]… [--page N|all] [--page-budget N] [--json]
+"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--explain | --no-explain] [--from <name>]… [--page N|all] [--page-budget N] [--json] [--fresh] [--no-refresh]
+
+--no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
+graph as it is and never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph
+that is out of date (files edited since, or built by another axiomcode) starts a background rebuild with this
+axiomcode's engine, and the answer's first line says so, why, and how to prevent it.
 
 A task that asks HOW something works ("how does X …", "explain …", "what happens when …", or --explain) also gets
 the call flow: the spine of the mechanism in the order the calls are written, each step with its edge's certainty,
@@ -58,6 +63,30 @@ PATH_TOKEN = 60.0
 TEST_PENALTY = 0.05          # demoted by 20x, never dropped: sometimes the test IS where the answer lives
 COMMON_PATH = 0.25           # a word in more than a quarter of the file paths earns no path bonus
 
+
+
+def called_undeclared(g, body, cap=8):
+    """{name: [(file, line, caller, code)]} for identifiers the task writes that the code CALLS but declares nowhere.
+    The IDF ranker only knows declared names, so a task about a function the code already calls and nobody has written
+    yet ("implement numpy_to_votable_dtype") lost that word before ranking. The call sites are where the new function
+    is used: the one thing a search would find and the graph did not say."""
+    if not (g.has('call_sites') and g.has('unresolved_sites')): return {}
+    ids = sorted({w for w in re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}', body)})
+    if not ids: return {}
+    ph = ','.join('?' * len(ids))
+    declared = {r[0] for r in g.q(f"SELECT DISTINCT name FROM symbols WHERE name IN ({ph}) AND kind NOT IN ('library', 'written')", *ids)}
+    rows = g.q(f"SELECT cs.callee_name n, cs.file_path f, cs.start_line l, cs.caller_id c FROM call_sites cs "
+               f"JOIN unresolved_sites u ON u.call_site_id = cs.id WHERE cs.callee_name IN ({ph}) ORDER BY cs.file_path, cs.start_line", *ids)
+    out = {}; lines = {}
+    for r in rows:
+        if r['n'] in declared or len(out.get(r['n'], [])) >= cap: continue
+        f = g.site_file(r['f']) if hasattr(g, 'site_file') else r['f']
+        if f not in lines:
+            try: lines[f] = open(os.path.join(g.repo, f), errors='replace').read().split('\n')
+            except OSError: lines[f] = []
+        L = lines[f]; code = L[r['l'] - 1].strip() if r['l'] and r['l'] <= len(L) else ''
+        out.setdefault(r['n'], []).append((f, r['l'], g.disp(r['c']) if r['c'] in g.sym else '', code[:160]))
+    return out
 
 def score_symbols(g, terms, use_path=True):
     """{symbol id: (score, matched terms)} — the lexical tier, IDF-weighted.
@@ -342,8 +371,16 @@ def route_seeds(g, text):
         if parts and parts not in asked: asked.append(parts)
     if not asked: return []
     hits = []                                   # (symbol id, route as written)
+    # A SENDER DOES NOT SERVE THE ROUTE IT SENDS TO. The engine names every send it read (ext_remote_edge c0,
+    # ext_remote_unserved c0); a URL literal inside one is a request, and labelling that method "serves the route"
+    # put a client above the handler.
+    senders, servers = set(), set()
+    for tbl, col in (('ext_remote_edge', 'c0'), ('ext_remote_unserved', 'c0')):
+        if g.has(tbl): senders |= {r[0] for r in g.q(f"SELECT DISTINCT {col} FROM {tbl}")}
+    for tbl, col in (('ext_remote_edge', 'c1'), ('ext_remote_unsent', 'c0')):
+        if g.has(tbl): servers |= {r[0] for r in g.q(f"SELECT DISTINCT {col} FROM {tbl}")}
     def serve(mid, route):
-        if mid in g.sym: hits.append((mid, route))
+        if mid in g.sym and (mid not in senders or mid in servers): hits.append((mid, route))
     # the path a url_dispatch edge says its view is served at: the engine composed it through every include() that
     # mounts the table, so it is the one source that names the handler of `/api/v1/status/` when no line spells it
     tables = set()                              # route files whose every literal path the engine already composed
@@ -356,7 +393,13 @@ def route_seeds(g, text):
     # a route the engine answered is not searched again as text: the literal scan below is the fallback for a route
     # no edge carries, and on an answered one it only adds the table's module and every literal that spells a suffix
     asked = [a for a in asked if not any(_route_eq(_route_parts(r), a) for _s, r in hits)]
-    for tbl in ('ext_remote_unserved', 'ext_remote_unsent') if asked else ():
+    # A HANDLER THAT SOMETHING SENDS TO IS STILL THE HANDLER. ext_remote_unsent lists a route only while no client in
+    # the graph reaches it; once a send links, the handler moves to ext_remote_edge (c1, at destination c3), and reading
+    # only the unlinked tables dropped exactly the routes the graph understood best.
+    if asked and g.has('ext_remote_edge'):
+        for r in g.q("SELECT DISTINCT c1, c3 FROM ext_remote_edge"):
+            if any(_route_eq(_route_parts(r['c3']), a) for a in asked): serve(r['c1'], r['c3'])
+    for tbl in ('ext_remote_unsent',) if asked else ():
         if g.has(tbl):
             for r in g.q(f"SELECT c0, c2 FROM {tbl}"):
                 if any(_route_eq(_route_parts(r['c2']), a) for a in asked): serve(r['c0'], r['c2'])
@@ -368,7 +411,10 @@ def route_seeds(g, text):
         for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
             for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
     if asked and g.has('literals'):
-        for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
+        # strings only: a route is never a number, and the v8 index carries numbers and booleans too
+        try: lit_rows = g.q("SELECT value, file, line FROM literals WHERE (value LIKE '%/%' OR length(value) < 40) AND kind = 'string'")
+        except Exception: lit_rows = g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40")
+        for r in lit_rows:
             lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
     by_file = collections.defaultdict(set)
     for v, f, _l, _o in lits: by_file[f].add(tuple(_route_parts(v)))
@@ -439,11 +485,12 @@ def graph_langs(g):
 
 
 def indexed_files(g, langs):
-    """every file some graph of this repository holds"""
+    """every file some graph of this repository holds. The main graph's dir is '' in `langs` (the default the verbs
+    read); asked from another language's graph, it is read from its place, or a directory only it holds reads as text"""
     import sqlite3
     held = {(sy.get('file') or '') for sy in g.all_sym.values()}
     for l, d in langs.items():
-        if not d: continue
+        if not d: d = os.path.join(g.repo, '.axiomcode')
         try:
             con = sqlite3.connect(f"file:{os.path.join(d, 'out', 'graph.sqlite')}?mode=ro", uri=True)
             held |= {r[0] for r in con.execute("SELECT DISTINCT file FROM symbols")}
@@ -535,21 +582,37 @@ def nonsource(g):
 
 
 def text_term_hits(g, dirs, terms, cap=200):
-    """[(file, first line, [terms])] -- files under `dirs` whose text uses the task's words, most words first"""
+    """[(file, first line, [terms])] -- files under `dirs` whose text uses the task's words, most words first. A word
+    in a lockfile or in a manifest's package lists is never one (ax_nonsource.py: it names a package, not the task)."""
+    import ax_nonsource
     pats = {t: re.compile(r'(?i)(?<![a-z0-9])' + re.escape(t)) for t in terms if len(t) >= 3}
     out = []
     for d in dirs:
         for root, _ds, fs in os.walk(os.path.join(g.repo, d)):
             for fn in fs:
                 rel = os.path.relpath(os.path.join(root, fn), g.repo).replace(os.sep, '/')
+                if ax_nonsource.is_lockfile(rel): continue
                 ln = source_lines(g.repo, rel)
+                skip =ax_nonsource.manifest_skip(rel, '\n'.join(ln)) or (lambda _l, _c: False)
                 got, first = [], 0
                 for t, pt in pats.items():
-                    k = next((i for i, x in enumerate(ln, 1) if pt.search(x)), 0)
+                    k = next((i for i, x in enumerate(ln, 1) for m in pt.finditer(x) if not skip(i, m.start())), 0)
                     if k: got.append(t); first = min(first or k, k)
                 if got: out.append((rel, first, got))
                 if len(out) >= cap: break
     return sorted(out, key=lambda r: (-len(r[2]), r[0]))
+
+
+def print_text_hits(g, dirs, terms):
+    """print the text files under `dirs` that use the task's words; -> how many there are"""
+    hits = text_term_hits(g, dirs, terms)
+    if hits:
+        print(f"\ntext files under {', '.join(d + '/' for d in dirs)} that use the task's words (not source; "
+              "matched by word, not by any declaration):")
+        for f, l, ts in hits[:BINDINGS_SHOWN]:
+            print(f"    {f + ':' + str(l):56}  {', '.join(ts)}")
+        RESULT['text_bindings'] = [{'file': f, 'line': l, 'terms': ts} for f, l, ts in hits]
+    return len(hits)
 
 
 ASK_EXT = [(re.compile(r'\b(sql|quer(y|ies)|statements?|mapper|mappings?|migrations?|schema)\b', re.I), ('.xml', '.sql')),
@@ -564,10 +627,12 @@ def asked_exts(text):
     return tuple(e for rx, es in ASK_EXT if rx.search(text or '') for e in es)
 
 
-def text_bindings(g, sids, under=(), want_ext=()):
+def text_bindings(g, sids, under=(), want_ext=(), scope=None):
     """[(file, line, declaration, name written there)] -- a non-source file that writes the name of one of `sids`
     as a whole word. A mapper XML with a namespace binds only the type that namespace names (a statement id repeated
-    in another mapper's XML is not this method's SQL)."""
+    in another mapper's XML is not this method's SQL). `scope` (the caller's --in) keeps only the files under it, as
+    it keeps only the declarations under it, except a mapper whose namespace names the type: that binding is proved
+    by the declaration, not by the word, wherever the file sits."""
     want = collections.defaultdict(set)          # name -> {sid}
     decl_count = collections.Counter(sy.get('name') for sy in g.sym.values() if not (sy.get('file') or '').startswith('<'))
     for sid in sids:
@@ -599,6 +664,7 @@ def text_bindings(g, sids, under=(), want_ext=()):
             if nm in common and not ns: continue
         elif nm in common: continue
         else: cands = sorted(want[nm])
+        if scope and not scope(f) and not (f.endswith('.xml') and ns_of.get(f)): continue
         key = (f, nm)
         if key in seen: continue
         seen.add(key)
@@ -610,7 +676,7 @@ def text_bindings(g, sids, under=(), want_ext=()):
     return [r for _k, r in sorted(out)]
 
 
-def asked_bound(g, scored, text, under=(), cap=300):
+def asked_bound(g, scored, text, under=(), cap=300, scope=None):
     """{symbol id} among the multi-term matches that a text file of the kind the question asks about binds by name.
     Empty unless the question asks about such a file (SQL, configuration, a template): only then is the tree walked,
     and only then does it break a tie between equally scored entry points (pick_seeds)."""
@@ -619,7 +685,7 @@ def asked_bound(g, scored, text, under=(), cap=300):
     cands = sorted((sid for sid, (_sc, m) in scored.items() if len(m) >= 2), key=lambda s: -scored[s][0])[:cap]
     by_disp = collections.defaultdict(set)
     for sid in cands: by_disp[g.disp(sid)].add(sid)
-    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds)
+    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds, scope=scope)
                      if f.endswith(kinds) for sid in by_disp.get(d, ()))
 
 
@@ -718,7 +784,167 @@ CONTAINER = frozenset('items keys values get pop popitem append extend add updat
                       'length size isEmpty contains equals hashCode'.split())
 
 
-def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
+DISPATCH_NAMED = 6         # the registered handlers a dispatch point names; the rest are counted
+HANDOFF = {}               # (step, registration line, file) -> the declaration that registered it
+ENTRY_NOTE = {}            # entry step -> why the flow starts there, when it is not a match of the task's words
+
+
+def param_names(g, x):
+    """the parameter names of `x`, read from the text of its signature: the first balanced (...) after its name."""
+    sy = g.sym.get(x) or {}
+    if not sy.get('file') or not sy.get('line'): return set()
+    text = ' '.join(source_lines(g.repo, sy['file'])[sy['line'] - 1:sy['line'] + 3])
+    nm = sy.get('name') or ''
+    k = text.find(nm + '(') if nm and nm + '(' in text else 0
+    a = text.find('(', k)
+    if a < 0: return set()
+    depth, b = 0, a
+    for b in range(a, len(text)):
+        depth += {'(': 1, ')': -1}.get(text[b], 0)
+        if depth == 0: break
+    return set(re.findall(r'[A-Za-z_$][\w$]*', re.sub(r'=[^,)]*', '', text[a + 1:b]))) - {'self', 'this'}
+
+
+def handoffs(g, rows, project):
+    """where a registered callback HANDS ON by calling its own parameter: `function auth(req, res, next) { next(); }`
+    registered with `router.use(auth)`. The framework runs the chain, so no call edge leaves `next()`; what it runs is
+    what the same function registers after it on the same receiver with the same method (`router.use('/api', proxy)`),
+    in the order written. Returns step -> [(registration line, continuation, 'handoff', file)], FLOW_FAN at most.
+    A callback that calls no parameter (a route handler that sends the response) ends the chain and continues nowhere;
+    a registration on another receiver in the same function is another chain."""
+    regs = [r for r in rows if r['t'] == 'callback_registered' and r['m'] and project(r['m'])]
+    if not regs: return {}
+    sites = {r['id']: r for r in g.q("""SELECT DISTINCT s.id, s.caller_id, s.callee_name, s.file_path, s.start_line, s.start_column
+                                         FROM call_sites s JOIN call_edges e ON e.call_site_id = s.id
+                                         WHERE e.tier = 'callback_registered'""")}
+    def site_text(s):
+        ln = source_lines(g.repo, g.site_file(s['file_path']))
+        a = s['start_line'] or 0
+        if not 0 < a <= len(ln): return ''
+        return ' '.join([ln[a - 1][max((s['start_column'] or 1) - 1, 0):]] + ln[a:a + 5])
+    def receiver(text, name):
+        m_ = re.match(r'\s*([\w$.\[\]]*?)\s*\??\.\s*' + re.escape(name) + r'\s*\(', text)
+        return m_.group(1) if m_ else ''
+    def arg_at(text, y):
+        """where callback `y` is written among the site's arguments: its own name, or the factory that makes it
+        (`requireAuth(auth)` makes the middleware). None when it is passed through a variable (`limiter`)."""
+        p = made_by(g, y)
+        hits = [m_.start() for nm in {(g.sym.get(y) or {}).get('name'), (g.sym.get(p) or {}).get('name') if p else None}
+                if nm and not nm.startswith('<') for m_ in [re.search(r'(?<![\w$])' + re.escape(nm) + r'(?![\w$])', text)] if m_]
+        return min(hits) if hits else None
+    chain = collections.defaultdict(list)          # (registering caller, method, receiver) -> [(line, col, arg, callback, file)]
+    where = {}                                     # callback -> [(chain key, (line, col, arg))]
+    for r in regs:
+        s = sites.get(r['sid'])
+        if not s or not s['callee_name'] or s['callee_name'] in CONTAINER: continue
+        text = site_text(s)
+        key = (s['caller_id'], s['callee_name'], receiver(text, s['callee_name']))
+        pos = (s['start_line'] or 0, s['start_column'] or 0, arg_at(text, r['m']))
+        chain[key].append(pos + (r['m'], g.site_file(s['file_path'])))
+        where.setdefault(r['m'], []).append((key, pos))
+    calls = collections.defaultdict(set)           # callback -> the names it calls
+    ids = list(where)
+    for k in range(0, len(ids), 500):
+        part = ids[k:k + 500]
+        for c, nm in g.q(f"SELECT caller_id, callee_name FROM call_sites WHERE caller_id IN ({','.join('?' * len(part))})", *part):
+            if nm: calls[c].add(nm)
+    out = {}
+    for x, regd in where.items():
+        hands = calls.get(x, set()) & param_names(g, x)
+        if not hands: continue
+        nxt = []
+        for key, (l0, c0, a0) in regd:
+            # a later registration follows; an argument of the SAME call follows only when both are written there and
+            # it comes after (`use(auth, limiter)`): one passed through a variable has no place to order it by
+            nxt += [(l, y, f, key[0]) for l, c, a, y, f in sorted(chain[key], key=lambda t: (t[0], t[1], t[2] or 0))
+                    if y != x and ((l, c) > (l0, c0) or ((l, c) == (l0, c0) and a0 is not None and (a is None or a > a0)))]
+        seen, keep_ = set(), []
+        for l, y, f, by in nxt:
+            if y in seen: continue
+            seen.add(y); keep_.append((l, y, 'handoff', f))
+            HANDOFF[(y, l, f)] = by
+        if keep_: out[x] = keep_[:FLOW_FAN]
+    return out
+
+
+PRODUCE = frozenset('publish emit send forward produce enqueue broadcast'.split())
+
+
+def asked_verbs(task):
+    """the producing verbs the task is written with, any inflection: 'published', 'forwards', 'sending'."""
+    out = set()
+    for w in re.findall(r'[a-z]+', task_text(task).lower()):
+        for v in PRODUCE:
+            if w == v or (w.startswith(v[:-1] if v.endswith('e') else v) and len(w) - len(v) <= 3): out.add(v)
+    return out
+
+
+def producer_first(g, roots, seeds, task, terms):
+    """a question naming the PRODUCING side ('how are events published and dispatched') matched the bus's own
+    `publish`, and the flow started inside the bus: the code that publishes was never shown. When an entry point is
+    itself named for a verb the task asks with, the flow starts at the project code that calls it from outside its own
+    type or module — the caller matching most of the task's words — and runs through it. A root the task does not ask
+    that way stays.
+    An injected bus is often an untyped receiver (`this.bus.publish(...)`), so no edge reaches the method from the code
+    that publishes. When no resolved caller qualifies and the name is declared in few places (GAP_DECLS), a caller
+    that writes the name on an unresolved site is taken, labelled `by name`, and the method stays the next root."""
+    verbs = asked_verbs(task)
+    if not verbs: return roots
+    tset = set(terms)
+    usable = lambda c, sy: (c.get('method_id') and not c.get('is_test') and not (c.get('file') or '').startswith('<')
+                            and not (c.get('name') or '<').startswith('<')
+                            and (c.get('qualified_name') or '').rsplit('.', 1)[0] != (sy.get('qualified_name') or '').rsplit('.', 1)[0])
+    score = lambda c: len(tset & set(subtokens((c.get('display') or '') + ' ' + (c.get('file') or ''))))
+    for s in seeds:
+        sy = g.sym.get(s) or {}
+        nm = sy.get('name') or ''
+        toks = subtokens(nm)
+        if not sy.get('method_id') or not toks or toks[0] not in verbs: continue
+        cands = []
+        for r in g.q("SELECT DISTINCT caller_id c, tier t FROM call_edges WHERE callee_method_id = ?", s):
+            c = g.sym.get(r['c']) or {}
+            if usable(c, sy) and ax_edges.direct_cert(r['t']) == 'resolved':
+                cands.append((-score(c), c.get('file') or '', c.get('line') or 0, r['c'], None))
+        if not any(c_[0] for c_ in cands):
+            decls = sum(1 for x in g.sym.values() if x.get('name') == nm and x.get('method_id') and not x.get('is_test')
+                        and not (x.get('file') or '').startswith('<'))
+            if decls <= GAP_DECLS:
+                for r in g.q("""SELECT s.caller_id c, min(s.start_line) l FROM call_sites s
+                                WHERE s.callee_name = ? AND NOT EXISTS (SELECT 1 FROM call_edges e WHERE e.call_site_id = s.id
+                                                                        AND e.callee_method_id IS NOT NULL)
+                                GROUP BY s.caller_id""", nm):
+                    c = g.sym.get(r['c']) or {}
+                    if usable(c, sy): cands.append((-score(c), c.get('file') or '', c.get('line') or 0, r['c'], r['l']))
+        cands = [c_ for c_ in cands if c_[0]]      # no caller the task's words point at: which producer is a guess
+        if not cands: continue
+        _h, _f, _l, p, byname = min(cands, key=lambda c_: (c_[4] is not None,) + c_[:3])
+        if byname is None:
+            return [p] + [x for x in roots if x != s and x != p][:FLOW_ROOTS - 1]
+        ENTRY_NOTE[p] = f"calls {nm}() by name at L{byname} (receiver not typed): the producer of {g.disp(s)}, which follows"
+        return [p, s]
+    return roots
+
+
+def made_by(g, x):
+    """the function a nested function is written inside — the factory that makes a closure (`requireAuth` returning
+    the middleware) — or None for a top-level function or a class member.
+    Read from the spans, which every language records the same way (a TypeScript qualified name is flat,
+    `src/gateway#inner`): the narrowest named function whose span holds this one."""
+    sy = g.sym.get(x) or {}
+    f, a, b = sy.get('file'), sy.get('line'), sy.get('end_line') or sy.get('line')
+    if not sy.get('method_id') or not f or not a or f.startswith('<'): return None
+    if not hasattr(g, '_fn_spans'):
+        g._fn_spans = collections.defaultdict(list)
+        for i, s in g.sym.items():
+            if s.get('method_id') and s.get('line') and not (s.get('name') or '<').startswith('<'):
+                g._fn_spans[s.get('file')].append((s['line'], s.get('end_line') or s['line'], i))
+    best = None
+    for c, d, i in g._fn_spans.get(f, ()):
+        if i != x and c <= a and b <= d and (c, d) != (a, b) and (best is None or d - c < best[0]): best = (d - c, i)
+    return best[1] if best else None
+
+
+def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset()):
     """The call flow from `roots`, in the order the calls are written. Nothing here is ranked or scored.
 
     Where a flow STARTS is the reader's decision (--from) or the entry points this verb already chose; which of a
@@ -736,11 +962,15 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     gaps = collections.defaultdict(list)           # caller -> [(line, name)]
     fan = collections.Counter()
     rows = g.q("""SELECT e.call_site_id sid, e.caller_id c, e.callee_method_id m, e.tier t, coalesce(e.callee_label, s.callee_name) n,
-                         s.start_line l, s.file_path f
+                         s.start_line l, s.file_path f, s.callee_name cn
                   FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id""")
+    project = lambda m: m in g.sym and not (g.sym[m].get('file') or '').startswith('<') and not g.sym[m].get('is_test')
+    # the fan of a site counts what a flow could show: a test's handler registered on the same bus is one more candidate
+    # of `handler(envelope)`, and six of them hid the three the project registers
     for r in rows:
-        if r['m']: fan[r['sid']] += 1
+        if r['m'] and project(r['m']): fan[r['sid']] += 1
     exits = collections.defaultdict(list)          # caller -> [(line, library call name)] that hand the flow to a library
+    wide = collections.defaultdict(dict)           # caller -> {(line, name written): [candidates]} too many to be steps
     for r in rows:
         lib = (r['t'] or '').startswith('boundary_lib') or (r['m'] in g.sym and (g.sym[r['m']].get('file') or '') == '<library>')
         if lib:
@@ -748,9 +978,14 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             if nm and DISPATCH(nm): exits[r['c']].append((r['l'] or 0, nm, 'library call, target not followed'))
             continue
         if r['m'] and r['m'] in g.sym and r['m'] != r['c']:
-            sy = g.sym[r['m']]
-            if (sy.get('file') or '').startswith('<') or sy.get('is_test'): continue
-            if ax_edges.direct_cert(r['t']) != 'resolved' and fan[r['sid']] > FLOW_FAN: continue
+            if not project(r['m']): continue
+            if ax_edges.direct_cert(r['t']) != 'resolved' and fan[r['sid']] > FLOW_FAN:
+                # a call through a VALUE (`handler(envelope)`, `table[key].apply(...)`) whose candidates are named
+                # otherwise is a dispatch point: what runs there is what was registered, so it is named on the step.
+                # `pair[0]` matched to every `__getitem__` calls candidates of its own name, and stays unlisted.
+                if r['cn'] and r['cn'] != g.sym[r['m']].get('name') and r['t'] != 'callback_registered':
+                    wide[r['c']].setdefault((r['l'] or 0, r['cn']), []).append(r['m'])
+                continue
             out[r['c']].append((r['l'] or 0, r['m'], r['t'], r['f']))
         elif not r['m'] and r['t'] == 'ambiguous_unknown' and r['n']:
             gaps[r['c']].append((r['l'] or 0, r['n']))
@@ -766,7 +1001,9 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     for b, ms in held.items():
         if len(ms) <= FLOW_FAN: out[b] += [(0, m, 'value', None) for m in ms]
     for x in out: out[x].sort(key=lambda r: r[0])
-    declared = collections.Counter((sy.get('name') or '') for sy in g.sym.values()
+    for x, hs in handoffs(g, rows, project).items():
+        out[x] += [h for h in hs if h[1] not in {y for _l, y, _t, _f in out[x]}]
+    declared =collections.Counter((sy.get('name') or '') for sy in g.sym.values()
                                    if sy.get('method_id') and not (sy.get('file') or '').startswith('<') and not sy.get('is_test'))
     for x in list(gaps):
         # a call the graph could not resolve to a name declared NOWHERE here is a library the index does not hold (a
@@ -781,6 +1018,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     for _d in range(depth_cap):
         nxt = []
         for x in frontier:
+            if x in shallow: continue
             for _l, y, _t, _f in out.get(x, ()):
                 if y not in keep and len(keep) < max_steps:
                     keep.add(y); nxt.append(y)
@@ -794,7 +1032,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             steps.append((depth, x, via, seen[x])); return
         seen[x] = sum(1 for st in steps if st[3] is None) + 1       # the printed step number
         steps.append((depth, x, via, None))
-        if depth >= depth_cap: return
+        if depth >= depth_cap or x in shallow: return
         done = set()
         for l, y, t, f in out.get(x, ()):
             if y in done or y not in keep: continue
@@ -809,6 +1047,12 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     marks = {}
     for x in {x for _d, x, _v, again in steps if again is None}:
         m = [f"leaves the graph: {nm}() L{l} ({why})" for l, nm, why in sorted(set(exits.get(x, ())))[:2]]
+        for (l, nm), ms in sorted(wide.get(x, {}).items()):
+            ms = sorted(set(ms), key=lambda y: (g.sym[y].get('file') or '', g.sym[y].get('line') or 0))
+            names = [g.disp(y) + (f" ({g.loc(y)})" if (g.sym[y].get('name') or '<').startswith('<') else '') for y in ms]
+            m.append(f"dispatch point: {nm}() L{l} runs one of {len(ms)} registered: " + ', '.join(names[:DISPATCH_NAMED])
+                     + (f" … +{len(ms) - DISPATCH_NAMED} more" if len(ms) > DISPATCH_NAMED else '')
+                     + " — `--from <one>` follows it")
         if not any(y in keep for _l, y, _t, _f in out.get(x, ())) and not gaps.get(x) and bodiless(g, x):
             bound = text_bindings(g, [x], want_ext=('.xml', '.sql'))[:1]      # the best-proven one: a mapper of this type
             m.append("no body in the graph (interface/abstract): the flow cannot continue from here"
@@ -821,6 +1065,32 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
 # with --source: fewer steps, each with its code, sized to ONE page. The flow is a reading order; split across pages,
 # its second half went unread in every measured run that was split (no agent asked for page 2).
 FLOW_SOURCE_STEPS, FLOW_SOURCE_LINES, FLOW_SOURCE_CHARS = 16, 8, 3800   # code for the earliest steps until the budget, then names only
+
+
+def type_members(g, types, scored):
+    """the methods declared inside each of `types` (symbols with no method of their own), in the order the types come:
+    within one type, the member matching the task best first, then one that calls something (a flow to show), then
+    the first declared. A member is a method whose span lies inside the type's span in the type's file, which reads the
+    same in every language."""
+    methods, kinds = collections.defaultdict(list), collections.defaultdict(list)
+    for x, sy in g.sym.items():
+        if not sy.get('line') or sy.get('is_test'): continue
+        if sy.get('method_id'):
+            if not is_synthetic(sy.get('name')): methods[sy.get('file') or ''].append(x)
+        elif sy.get('type_id'):
+            kinds[sy.get('file') or ''].append((sy['line'], sy.get('end_line') or sy['line']))
+    out = []
+    for t in types:
+        ty = g.sym.get(t) or {}
+        if ty.get('method_id') or not ty.get('type_id') or not ty.get('line'): continue
+        f, a, b = ty.get('file') or '', ty['line'], ty.get('end_line') or ty['line']
+        # a member of a type nested inside this one belongs to that type, not to this one
+        nested = [(c, d) for c, d in kinds.get(f, ()) if a < c and d <= b and (c, d) != (a, b)]
+        inner = [x for x in methods.get(f, ()) if a <= g.sym[x]['line'] <= b
+                 and not any(c <= g.sym[x]['line'] <= d for c, d in nested)]
+        inner.sort(key=lambda x: (bodiless(g, x), -(scored.get(x, (0, []))[0]), x not in g.callers_ids, g.sym[x]['line']))
+        out += [x for x in inner[:1] if x not in out]
+    return out
 
 
 def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
@@ -847,8 +1117,14 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
             head, where = f"{pad}{arrow} {g.disp(x)}", (f"called at L{l}: {src}" if src else f"called at L{l}")
             if t == 'value':
                 where = "held by the step above: assigned or passed where it is expected, so a call to it runs this"
+            if t == 'handoff':
+                by = HANDOFF.get((x, l, f))
+                where = (f"runs next: registered after it by {g.disp(by) if by else '?'} at {g.site_file(f)}:{l}"
+                         + (f": {src}" if src else '') + " — the step above hands on by calling its parameter")
         else:
-            head, where = g.disp(x), "entry point"
+            head, where = g.disp(x), "entry point" + (f" · {ENTRY_NOTE[x]}" if x in ENTRY_NOTE else '')
+        mk_by = made_by(g, x)
+        if mk_by: where += f" · made by {g.disp(mk_by)}"
         n += 1
         print(f"  {n:2} {head:60.60}  {g.loc(x)}")
         print(f"     {pad}   {where}")
@@ -915,8 +1191,26 @@ def main(argv):
     RESULT['task'], RESULT['repo'] = task, g.repo
 
     body = task_text(task)
+    # before anything that can stop the answer (no terms, no scope): a name the code calls and nobody declares is an
+    # answer on its own, and "implement <that name>" is often all the task says
+    undecl = called_undeclared(g, body)
+    RESULT['called_undeclared'] = [{'name': n, 'at': f"{f}:{l}", 'in': c, 'code': code} for n, rs in undecl.items() for f, l, c, code in rs]
+    if undecl:
+        print("\ncalled but declared nowhere (the task names them; the code already calls them — this is where they are used):")
+        for n, rs in undecl.items():
+            print(f"    {n}  — {len(rs)} call site(s)")
+            for f, l, c, code in rs: print(f"      {f}:{l}: {code}" + (f"   [in {c}]" if c else ''))
     terms = task_terms(body)
-    if not terms: die("nothing to search for in that task description")
+    if not terms:
+        # the graph's vocabulary is the code's own identifiers, which are English words and names: a task
+        # written in another script matches nothing, and "nothing to search for" read as a parsing fault
+        # rather than a stated limit. A mixed task works — one identifier is enough to land.
+        if any(ord(c) > 127 and c.isalpha() for c in body or ''):
+            die("this task is written in a language the index cannot search: only English task words are supported,"
+                " because the graph's vocabulary is the code's own identifiers."
+                " Rephrase the task in English, or keep your language and include one identifier as written in the"
+                " code (a mixed task works: the identifier lands it).")
+        die("nothing to search for in that task description")
     # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
     # no indexed file is a text scope, not a typo (#1382). Only a scope the index does not know is checked on disk.
     def holds(x):
@@ -937,8 +1231,14 @@ def main(argv):
     RESULT['not_indexed'] = list(notice)
     for ln in notice: print(ln)
     if notice: print()
+    text_only_in = False
     if text_dirs:
+        asked_in = bool(scopes)
         scopes = [x for x in scopes if x.strip('/').lstrip('./') not in text_dirs]
+        text_only_in = asked_in and not scopes and not scope_offered
+        # every --in names text no graph holds: one graph lists it (the one that says so, above), and another has
+        # nothing inside the caller's scope to add — its only package is outside it and would become the next step
+        if fan and text_only_in and not notice: return 3
     # AN --in NO GRAPH HOLDS AND NO DIRECTORY IS was refused with a menu, once per language graph, and no answer: the
     # agent then searched by hand. A typo is not a question about nothing; the task is answered at the root (or under
     # the scopes that are real) and the line says what was dropped and what is close. A scope another language's graph
@@ -982,6 +1282,12 @@ def main(argv):
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
     rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None; flat = False
+    if rank and best_scope(rank) is None and terms:
+        # The headline chooses the place because its words are the subject -- when they land somewhere. A report
+        # titled in prose ("Release 8.4.2", "Disable when developing?", "Make unimported utilities private")
+        # lands nowhere, and the refusal below then answered NOTHING while the body named the code outright
+        # (`@retry(wait=wait_fixed(1))`, `LazyFile`, `make_short_help`). The whole report's words choose it then.
+        rank = rank_dirs(g, terms)
     if not scopes:
         # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
         # the only path there was. This is NOT the offered-scope case above, so it is not marked
@@ -1026,12 +1332,21 @@ def main(argv):
     # is naming a change that spans them, and intersecting those two paths answers nothing (#1029)
     specs = [scope_spec(sc, g.repo) for sc in scopes]
     in_scope = lambda f: any(under_scope(f, sp) for sp in specs)
+    # the text files are narrowed by the CALLER's --in only: the sole package this graph indexes is not a statement
+    # about where its SQL or configuration lives, and a guessed scope narrows nothing
+    fixed_specs = [scope_spec(sc, g.repo) for sc in fixed]
+    text_scope = (lambda f: any(under_scope(f, sp) for sp in fixed_specs)) if fixed_specs else None
     if scopes and not scope_offered:
         scored = {sid: v for sid, v in scored.items() if in_scope(g.sym.get(sid, {}).get('file'))}
     # what the question NAMES comes before what its words match: a declaration spelled out, a route quoted
     named = named_declarations(g, body) + route_seeds(g, body)
     if scopes and not scope_offered:
         named = [(sid, why) for sid, why in named if in_scope(g.sym.get(sid, {}).get('file'))]
+    if not scored and not named and not have_from and text_only_in:
+        # the caller's --in holds only text: its files that use the task's words are the answer, and the package this
+        # graph put in its place holding none of them is no reason to refuse it
+        if not print_text_hits(g, text_dirs, terms): print(f"no file under {', '.join(d + '/' for d in text_dirs)} uses the task's words")
+        return 0
     if not scored and not named and not have_from:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
@@ -1045,7 +1360,7 @@ def main(argv):
     # themselves, and on Python every class has one, so they can be a third of this list while
     # naming nowhere to go.
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
-    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs))
+    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs, scope=text_scope))
 
     RESULT['terms'] = list(terms)
     RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
@@ -1083,14 +1398,39 @@ def main(argv):
                   file=sys.stderr)
         if not roots_:
             # no --from: the entry points this verb already chose, the callable ones, first FLOW_ROOTS of them
-            roots_ = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')][:FLOW_ROOTS]
-        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
+            # A TYPE is not a call: a question naming classes ("how is FooRepository chosen, how does CachedFoo cache")
+            # got entry points that were all types, the flow had no root, and the answer came back with nothing in it.
+            # So a type entry point starts the flow at its own methods, after the callable entry points; and a root
+            # with a body comes before a signature, which is a flow of one step that goes nowhere — unless the task
+            # NAMES the signature, which makes it the subject wherever it is declared.
+            cands = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')]
+            cands += [x for x in type_members(g, [s_ for s_, _t, _sc in seeds], scored) if x not in cands]
+            asked = {s_ for s_, _why in named}
+            roots_ = sorted(cands, key=lambda x: x not in asked and bodiless(g, x))[:FLOW_ROOTS]
+            roots_ = producer_first(g, roots_, [s_ for s_, _t, _sc in seeds], task, terms)
+        # a producer joined only by name is shown as one step: its code holds the call, and the budget goes to the
+        # mechanism the task asked about rather than to everything else the producer does
+        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS,
+                                         shallow=frozenset(ENTRY_NOTE))
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
                            'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]],
+                           'made_by': (g.disp(made_by(g, x)) if made_by(g, x) else None),
+                           'why_here': (ENTRY_NOTE.get(x) if not via else None),
+                           'registered_by': (g.disp(HANDOFF[(x, via[0], via[2])]) if via and via[1] == 'handoff'
+                                             and (x, via[0], via[2]) in HANDOFF else None),
                            'leaves_graph': (marks.get(x, []) if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
-        print_flow(g, roots, steps, gaps, bool(starts), show_source, marks)
+        if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks):
+            # the entry points and files were held back because the flow was to BE the answer; with no flow they are
+            # the answer again, so they are printed, and the reader is told why there is no flow
+            print("\nno call flow: " + ("none of the entry points is a callable, or a type declaring one"
+                                         if not roots_ else "the entry points call nothing the graph resolved")
+                  + " — here are the entry points and the files around them instead; `--from <name>` starts a flow")
+            print(f"\nentry points ({len(seeds)}):")
+            for sid, term, sc in seeds:
+                print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {term or 'best overall match'}")
+            budget = max(budget, 5)
 
     depth = neighbourhood(g, [s for s, _t, _sc in seeds])
     # A file can match the task by NAME and be reachable by no call at all — an enum of flags, a constants
@@ -1238,7 +1578,7 @@ def main(argv):
                 depth[x] = d + 1
         near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], g.disp(x) or '', x))[:300]
         kinds = asked_exts(body)
-        binds = text_bindings(g, near, under=text_dirs, want_ext=kinds)
+        binds = text_bindings(g, near, under=text_dirs, want_ext=kinds, scope=text_scope)
         # the question named a kind of file (SQL: mapper XML or .sql): when some binding is of that kind, the others
         # (a Postman collection, a README table that spells the method) are not what was asked
         if kinds and any(f.endswith(kinds) for f, _l, _d, _n in binds):
@@ -1251,13 +1591,7 @@ def main(argv):
             if len(binds) > BINDINGS_SHOWN: print(f"    … +{len(binds) - BINDINGS_SHOWN} more")
             RESULT['text_bindings'] = [{'file': f, 'line': l, 'declaration': d, 'name': nm} for f, l, d, nm in binds]
         elif text_dirs:
-            hits = text_term_hits(g, text_dirs, terms)
-            if hits:
-                print(f"\ntext files under {', '.join(d + '/' for d in text_dirs)} that use the task's words (not source; "
-                      "matched by word, not by any declaration):")
-                for f, l, ts in hits[:BINDINGS_SHOWN]:
-                    print(f"    {f + ':' + str(l):56}  {', '.join(ts)}")
-                RESULT['text_bindings'] = [{'file': f, 'line': l, 'terms': ts} for f, l, ts in hits]
+            print_text_hits(g, text_dirs, terms)
 
     print("\n" + BOUND)
     print("  narrow with `impact <name> --in <path>` or `path '*' <name> --in <path>`.")
@@ -1286,6 +1620,15 @@ def quoted_text(argv):
         if len(s) < 4 or s.startswith('/') or s in asked: continue            # a route: the graph's route seeds answer it
         if ax_text.declared(repo, re.split(r'[.#:$]', re.sub(r'\(.*\)$', '', s))[-1]): continue
         asked.append(s)
+    # a file the task names that no graph reads (`who runs build.sh`, `what reads schema.sql`): the code that names it,
+    # placed in its declaration ([approx], ax_text.py), instead of only "not indexed: grep it directly"
+    for m in FILE_TOKEN.finditer(task_text(task)):
+        t = m.group(1)
+        if t not in asked and len(asked) < 3 and ax_text.unindexed_file(repo, t): asked.append(t)
+    # an environment variable or a constant-style key the task names bare (`who reads REDIS_URL`) and no graph declares
+    for m in re.finditer(r'(?<![\w.$-])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![\w.$-])', task_text(task)):
+        t = m.group(1)
+        if t not in asked and len(asked) < 3 and not ax_text.declared(repo, t): asked.append(t)
     ax_text.emit(repo, asked[:3], why='quoted', rows=4)
 
 
@@ -1293,14 +1636,21 @@ def cli(argv):
     """--json: the same answer as one document. The prose is produced by the same code path and carried
     in `prose`, so the machine shape is never LESS than the human one — a second traversal to build it
     would be a second implementation to keep in step."""
+    import ax_evidence
+    repo = next((a for a in reversed([x for x in argv if not x.startswith('--')]) if os.path.isdir(a)), '.')
     if '--json' not in argv:
         code = main(argv)
+        # the line that decides each flow step reached through a call that is not an exact edge (ax_evidence.py)
+        if ax_evidence.on() and RESULT.get('flow'):
+            ax_evidence.annotate('context', RESULT, repo)
+            for l in ax_evidence.prose_block(RESULT['flow'], RESULT.get('evidence_more', 0), 'steps'): print(l)
         if code in (0, 2): quoted_text(argv)
         sys.exit(code)
     import contextlib, io, json
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf): code = main(argv)
     RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
+    ax_evidence.annotate('context', RESULT, repo)
     print(json.dumps(RESULT, indent=2))
     sys.exit(code)
 

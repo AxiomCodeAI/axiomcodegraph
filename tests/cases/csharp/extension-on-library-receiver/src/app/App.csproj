@@ -1,0 +1,2 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+<ItemGroup><ProjectReference Include="../../lib/Example.Kit/Example.Kit.csproj" /></ItemGroup></Project>

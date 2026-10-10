@@ -1,0 +1,6 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a get() on what an uninstalled package returned (request(app).get) is listed apart and last, never among the name matches; an `any` receiver stays a plain [by name] row",
+   "run": ["impact", "Store.get", "--grep"],
+   "want": ["anything.get(1);  [by name", "[by name · library receiver"],
+   "avoid": ["expect(200);  [by name]"]}]}

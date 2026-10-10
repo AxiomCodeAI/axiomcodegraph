@@ -17,6 +17,10 @@ run one:
   .codex-plugin/mcp.json       Codex's server entry, a relative path run from the plugin directory
   .cursor-plugin/plugin.json   Cursor's own server entry, with ${CURSOR_PLUGIN_ROOT} replaced as Cursor does
 
+and a server that is already running when the install moves under it answers the next call from the new install:
+through a link retargeted at a newer build, and through a host's install record (in a config
+directory of the test's own) that names a newer version's directory (check_install_move)
+
     python3 tests/mcp.py
 """
 import json, os, shutil, subprocess, sys, tempfile, threading
@@ -25,11 +29,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
 LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
-TOOLS = {'axiomcode_index', 'axiomcode_context', 'axiomcode_path', 'axiomcode_impact',
-         'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph'}
-# every verb whose prose is paged (ax_pages.install) ends a long answer with "ask for page=2 (MCP)", so its tool has
-# to accept one: a footer that points at a parameter the tool does not have strands the agent on page 1 (#1202)
-PAGED = {'axiomcode_context', 'axiomcode_path', 'axiomcode_impact', 'axiomcode_changed', 'axiomcode_test_impact'}
+# THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
+# at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
+# answered as the verb's own flow rather than as places.
+TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target']}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -42,7 +45,7 @@ def exchange(cmd, cwd, env=None, workdir=None):
         # No graph exists in cwd, so the answer is the CLI saying so. What is checked is that a call
         # reaches the CLI and comes back as text, not what the graph says.
         {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
-         'params': {'name': 'axiomcode_path', 'arguments': {'from_': 'a', 'to': 'b', 'repo': cwd}}},
+         'params': {'name': 'path', 'arguments': {'start': 'a', 'end': 'b'}}},
     ]
     # Stdin stays open until the last reply is in, as a real client keeps it: the SDK server stops
     # reading at EOF and drops a call still in flight, which is not how any client drives it.
@@ -104,37 +107,29 @@ def call(cmd, cwd, name, arguments):
 def check_arguments(label, cmd, cwd, lax=False):
     """A call whose arguments do not fit the advertised schema is an error naming the field, never an answer.
 
-    A string sent for `targets: list[str]` was splatted into characters and impact answered about `u` (#1243).
-    The well-formed calls are the control: each must NOT be refused, or a validator that refuses everything
-    would pass."""
+    A list sent for a string, a missing parameter, or an option the tool does not take (#1243, #1567) is refused. The
+    well-formed calls are the control: each must NOT be refused, or a validator that refuses everything would pass."""
     bad = []
-    wrong = [('axiomcode_impact', {'targets': 'Excluder.excludeClass', 'repo': cwd}, 'targets'),
-             ('axiomcode_changed', {'repo': cwd, 'files': 'a.py'}, 'files'),
-             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': '2'}, 'depth'),
-             ('axiomcode_impact', {'targets': ['A.f', 3], 'repo': cwd}, 'targets'),
-             ('axiomcode_impact', {'repo': cwd}, 'targets'),
-             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'nope': 1}, 'nope'),
-             # a CLI flag's name sent as an argument (#1567): refused, naming the parameter it is here, not dropped
-             # so that the unnarrowed answer came back as if it had been narrowed
-             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'in': 'src'}, 'is in_path= here'),
-             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'tests_only': True}, 'is tests= here'),
-             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'from': 'main'}, 'is from_= here'),
-             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'lang': 'java'}, 'lang: unexpected argument')]
+    wrong = [('impact', {'name': ['Excluder.excludeClass']}, 'name'),
+             ('path', {'start': 'a'}, 'end'),
+             ('path', {'start': 'a', 'end': 'b', 'nope': 1}, 'nope'),
+             # the options the old tools took are refused, not dropped so that an unnarrowed answer comes back as if
+             # it had been narrowed (#1567): the repository is the session's, and there are no flags
+             ('path', {'start': 'a', 'end': 'b', 'in_path': 'src'}, 'in_path: unexpected argument'),
+             ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
+             ('tests', {'why': True}, 'why: unexpected argument'),
+             ('context', {}, 'task'),
+             ('context', {'task': 'x', 'budget': 3}, 'budget: unexpected argument')]
     for name, args, field in wrong:
-        if lax and args.get('depth') == '2':
-            continue                     # the SDK coerces the string "2" to 2 (pydantic's lax mode): harmless, not refused
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
         # the fallback says "invalid arguments", the SDK's own validation "validation error"; both name the field
         if not res.get('isError') or field not in text or not ('invalid arguments' in text or 'validation error' in text):
             bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
     # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
-    right = [('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': 2, 'tests': True}),
-             ('axiomcode_changed', {'repo': cwd, 'files': ['a.py']}),
-             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'limit': 5, 'delete': True, 'in_path': 'src'}),
-             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'in_path': 'src', 'from_': 'main'}),
-             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'limit': 5}),
-             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'limit': 3})]
+    right = [('impact', {'name': 'A.f'}), ('impact', {}),
+             ('path', {'start': 'a', 'end': 'b'}), ('tests', {}),
+             ('context', {'task': 'x'}), ('context', {'task': 'x', 'source': True})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
@@ -143,88 +138,140 @@ def check_arguments(label, cmd, cwd, lax=False):
     return bad
 
 
-def check_words():
-    """An answer's CLI flags are written as the MCP parameters they are (#1567), and nothing else is touched: quoted
-    code, flags only the CLI has, a flag's name inside a longer word, and a flag followed by prose rather than a value."""
-    sys.path.insert(0, os.path.dirname(SERVER))
-    import server
-    cases = [("pass --in <path> to narrow", "pass in_path=<path> to narrow"),
-             ("  … +12 (--limit N)", "  … +12 (limit=N)"),
-             ("    --tests-only lists all 22 by rung and file; --why adds each one's route",
-              "    tests=True lists all 22 by rung and file; why=True adds each one's route"),
-             ("ask for --page 2", "ask for page=2"),
-             # `--page all` is the string "all" here, and the footer names one spelling per surface, never both
-             ("ask for the next with --page 2, or all of it with --page all; --budget N changes the page size",
-              'ask for the next with page=2, or all of it with page="all"; budget=N changes the page size'),
-             ("narrow instead with --in <path>, --depth N or --tests-only", "narrow instead with in_path=<path>, depth=N or tests=True"),
-             ("--page N|all", 'page=N or page="all"'),
-             ("narrow with `impact <name> --in <path>` or `path '*' <name> --in parser/src`.",
-              "narrow with `impact <name> in_path=<path>` or `path '*' <name> in_path=parser/src`."),
-             ("start at --from <start>", "start at from_=<start>"),
-             ("no --in was given, so", "no in_path was given, so"),
-             # the controls: these must come back unchanged
-             ("    --in parser/src                             --in-offered  11302 symbol(s)",
-              "    in_path=parser/src                             --in-offered  11302 symbol(s)"),
-             ("print it with --json", "print it with --json"),
-             ("           49 |   args = ['--in', path, '--tests-only']", "           49 |   args = ['--in', path, '--tests-only']"),
-             ("              | … +23 more line(s) --limit", "              | … +23 more line(s) --limit"),
-             ("a pre-built --lang java graph", "a pre-built --lang java graph"),
-             ('grep -rnw "all" . lists them', 'grep -rnw "all" . lists them'),
-             # a site of a grep-shaped answer is the file's own text: a flag written in that code stays as written
-             ("tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]",
-              "tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]"),
-             # and the footer under the sites is prose, rewritten as ever
-             ("… +3 more not listed: 3 [text] — pass --in <path> to narrow", "… +3 more not listed: 3 [text] — pass in_path=<path> to narrow")]
-    return [f"mcp_words({src!r}) gave {server.mcp_words(src)!r}, want {want!r}"
-            for src, want in cases if server.mcp_words(src) != want]
-
-
-def check_grep_default():
-    """A list of sites comes one per line (--grep) by default; full=True, and every parameter asking for what only the
-    prose carries (a flow's code, test routes, a delete verdict, a later page), gives the verb's own answer."""
+def check_front_door():
+    """Each tool asks its verb with no flag, in the session's own directory, so the dispatcher answers as places with
+    their code (it sees AXIOMCODE_SURFACE=mcp); impact with no name asks about the working tree's edits."""
     sys.path.insert(0, os.path.dirname(SERVER))
     import server
     seen = []
     real, server.run = server.run, (lambda args, *a, **k: seen.append(args) or '')
+    cwd = os.getcwd()
     try:
-        grep = [lambda: server.axiomcode_impact(['A.f']), lambda: server.axiomcode_path('a', 'b'),
-                lambda: server.axiomcode_context('how'), lambda: server.axiomcode_test_impact(),
-                lambda: server.axiomcode_impact(['A.f'], tests=True, limit=5)]
-        prose = [lambda: server.axiomcode_impact(['A.f'], full=True), lambda: server.axiomcode_impact(['A.f'], delete=True),
-                 lambda: server.axiomcode_impact(['A.f'], why=True, tests=True), lambda: server.axiomcode_impact(['A.f'], page=2),
-                 lambda: server.axiomcode_impact(['A.f'], page='all'), lambda: server.axiomcode_impact(['A.f'], page='2'),
-                 lambda: server.axiomcode_path('a', 'b', full=True), lambda: server.axiomcode_context('how', source=True),
-                 lambda: server.axiomcode_context('how', from_='main'), lambda: server.axiomcode_test_impact(why=True),
-                 lambda: server.axiomcode_changed()]
         bad = []
-        for f in grep:
-            seen.clear(); f()
-            if '--grep' not in seen[0]: bad.append(f"sites answer without --grep: {seen[0]}")
-        # limit=N caps the sites on every tool whose footer says "limit=N lists more": context took no limit, and
-        # test_impact's went to the prose's --limit, so the sites were never capped
-        for f in (grep[-1], lambda: server.axiomcode_context('how', limit=5), lambda: server.axiomcode_test_impact(limit=5),
-                  lambda: server.axiomcode_path('a', 'b', limit=5)):
-            seen.clear(); f()
-            if '--grep-limit' not in seen[0]: bad.append(f"limit=5 did not cap the sites: {seen[0]}")
-            if '--limit' in seen[0]: bad.append(f"limit=5 passed as the prose's --limit under --grep: {seen[0]}")
-        seen.clear(); server.axiomcode_test_impact(limit=5, why=True)       # the control: the prose keeps its --limit
-        if '--limit' not in seen[0] or '--grep-limit' in seen[0]: bad.append(f"test_impact prose lost --limit: {seen[0]}")
-        for f in prose:
-            seen.clear(); f()
-            if any(a.startswith('--grep') for a in seen[0]): bad.append(f"prose asked for, got --grep: {seen[0]}")
-        # page="all" is what an answer's footer tells an MCP caller to send: it reaches the CLI as --page all, and the
-        # SDK-free server's schema takes it as it takes a number (the control: a boolean is still refused)
-        seen.clear(); server.axiomcode_impact(['A.f'], page='all')
-        if '--page all' not in ' '.join(seen[0]): bad.append(f"page='all' did not ask for --page all: {seen[0]}")
-        seen.clear(); server.axiomcode_impact(['A.f'], page=1)
-        if '--page' in seen[0]: bad.append(f"page=1 passed --page: {seen[0]}")
-        import _fallback
-        sch = _fallback._schema_for(server.Page, 1)
-        for v, ok in (('all', True), (2, True), (True, False)):
-            if _fallback._conforms(v, sch) != ok: bad.append(f"fallback schema {sch} {'refused' if ok else 'took'} page={v!r}")
+        for call, want in ((lambda: server.context('how is a total computed'), ['context', 'how is a total computed', cwd]),
+                           (lambda: server.impact('A.f'), ['impact', 'A.f', cwd]),
+                           (lambda: server.impact(''), ['impact', cwd]),
+                           (lambda: server.impact(), ['impact', cwd]),
+                           (lambda: server.path('a', 'b'), ['path', 'a', 'b', cwd]),
+                           (lambda: server.tests(), ['tests', cwd])):
+            seen.clear(); call()
+            if seen != [want]: bad.append(f"front door: ran {seen}, want {[want]}")
+            if any(a.startswith('-') for a in (seen[0] if seen else [])): bad.append(f"front door: a flag was passed: {seen}")
         return bad
     finally:
         server.run = real
+
+class Session:
+    """one started server, called as many times as a test needs, as a client keeps it for a whole session"""
+    def __init__(self, cmd, cwd, env):
+        self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=cwd, env=env, text=True)
+        self.timer = threading.Timer(120, self.p.kill)
+        self.timer.start()
+        self.n = 0
+        self.ask('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'tests', 'version': '0'}})
+        self.p.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n')
+        self.p.stdin.flush()
+
+    def ask(self, method, params):
+        self.n += 1
+        self.p.stdin.write(json.dumps({'jsonrpc': '2.0', 'id': self.n, 'method': method, 'params': params}) + '\n')
+        self.p.stdin.flush()
+        for line in self.p.stdout:
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get('id') == self.n:
+                return m.get('result') or {}
+        return {}
+
+    def text(self, name, arguments):
+        return ''.join(c.get('text', '') for c in self.ask('tools/call', {'name': name, 'arguments': arguments}).get('content', []))
+
+    def close(self):
+        self.timer.cancel()
+        self.p.stdin.close()
+        self.p.wait()
+        self.p.stdout.close()
+        self.p.stderr.close()
+
+
+def check_install_move(work):
+    """The install moves while a server runs: the next call is answered by the new install's scripts, byte for byte, and
+    only when the new install's server.py differs from the running one does a warning come, on the answer's first line.
+    Each fake build's CLI prints which build it is; nothing here touches the real host config (HOME and the config
+    directory variable are the test's own)."""
+    bad = []
+    top = os.path.join(work, 'install-move')
+    home = os.path.join(top, 'home')
+    os.makedirs(home)
+
+    def build(dest, name):
+        shutil.copytree(os.path.join(ROOT, 'plugins', 'axiomcode'), dest, symlinks=True)
+        cli = os.path.join(dest, 'skills', 'axiomcode', 'scripts', 'axiomcode')
+        with open(cli, 'w') as f:
+            f.write(f'#!/usr/bin/env bash\necho "answer from {name}"\necho "IMPACT_VERSION {name}"\n')
+        os.chmod(cli, 0o755)
+        return f'answer from {name}\nIMPACT_VERSION {name}'
+
+    base = {k: v for k, v in os.environ.items() if not k.endswith('PLUGIN_ROOT') and k != 'CLAUDE_CONFIG_DIR'}
+    base.update(HOME=home, CLAUDE_CONFIG_DIR=os.path.join(top, 'claude'), AXIOMCODE_REFRESH_INTERVAL='0')
+    repo = os.path.join(top, 'repo')
+    os.mkdir(repo)
+    ask = ('path', {'start': 'a', 'end': 'b'})
+    warn = 'WARNING: this axiomcode MCP server is older than the install'
+
+    def expect(label, got, want, warned=False):
+        first, _, rest = got.partition('\n')
+        if warned and not (first.startswith(warn) and rest == want):
+            bad.append(f"install move, {label}: want the warning on the first line and then {want!r}, got {got[:400]!r}")
+        elif not warned and got != want:
+            bad.append(f"install move, {label}: want exactly {want!r}, got {got[:400]!r}")
+
+    # 1. A LINK TO THE INSTALL, retargeted at a newer build. The server is started through the link with no
+    # AXIOMCODE_PLUGIN_ROOT, as a host that expands nothing starts it; node resolves the link in the launcher's path.
+    a = build(os.path.join(top, 'builds', 'old', 'plugins', 'axiomcode'), 'the old build')
+    b = build(os.path.join(top, 'builds', 'new', 'plugins', 'axiomcode'), 'the new build')
+    link = os.path.join(top, 'install')
+    os.symlink(os.path.join(top, 'builds', 'old'), link)
+    s = Session(['node', os.path.join(link, 'plugins', 'axiomcode', 'mcp', 'launch.js')], repo, base)
+    try:
+        expect('link, before the move', s.text(*ask), a)
+        tmp = link + '.next'
+        os.symlink(os.path.join(top, 'builds', 'new'), tmp)
+        os.replace(tmp, link)
+        expect('link, after the move (same server.py)', s.text(*ask), b)
+        with open(os.path.join(top, 'builds', 'new', 'plugins', 'axiomcode', 'mcp', 'server.py'), 'a') as f:
+            f.write('\n# a newer server\n')
+        expect('link, after the move (newer server.py)', s.text(*ask), b, warned=True)
+    finally:
+        s.close()
+
+    # 2. A HOST THAT INSTALLS EACH VERSION INTO ITS OWN DIRECTORY and records which one is current. The near miss: a
+    # newer entry of another plugin, in another directory, is not this one's install.
+    cache = os.path.join(top, 'claude', 'plugins', 'cache', 'mkt', 'axiomcode')
+    v1, v2 = os.path.join(cache, '0.0.1'), os.path.join(cache, '0.0.2')
+    other = os.path.join(top, 'claude', 'plugins', 'cache', 'mkt', 'another', '9.9.9')
+    a = build(v1, 'version 0.0.1')
+    b = build(v2, 'version 0.0.2')
+    build(other, 'another plugin')
+    record = os.path.join(top, 'claude', 'plugins', 'installed_plugins.json')
+
+    def write_record(current):
+        with open(record, 'w') as f:
+            json.dump({'version': 2, 'plugins': {
+                'axiomcode@mkt': [{'scope': 'user', 'installPath': current, 'lastUpdated': '2026-01-0%dT00:00:00.000Z' % (1 if current == v1 else 2)}],
+                'another@mkt': [{'scope': 'user', 'installPath': other, 'lastUpdated': '2026-12-31T00:00:00.000Z'}]}}, f)
+    write_record(v1)
+    s = Session(['node', os.path.join(v1, 'mcp', 'launch.js')], repo, dict(base, AXIOMCODE_PLUGIN_ROOT=v1))
+    try:
+        expect('recorded install, before the update', s.text(*ask), a)
+        write_record(v2)
+        expect('recorded install, after the update', s.text(*ask), b)
+    finally:
+        s.close()
+    return bad
 
 
 def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
@@ -237,13 +284,13 @@ def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
     init = replies.get(1, {}).get('result')
     if not init or 'serverInfo' not in init:
         bad.append(f"{label}: no initialize result (stderr: {err.strip()[:200]})")
-    names = {t['name'] for t in replies.get(2, {}).get('result', {}).get('tools', [])}
-    if names != TOOLS:
-        bad.append(f"{label}: tools/list gave {sorted(names)}, want {sorted(TOOLS)}")
-    unpaged = sorted(t['name'] for t in replies.get(2, {}).get('result', {}).get('tools', [])
-                     if t['name'] in PAGED and 'page' not in (t.get('inputSchema') or {}).get('properties', {}))
-    if unpaged:
-        bad.append(f"{label}: paged answers whose tool takes no page: {unpaged}")
+    listed = {t['name']: list((t.get('inputSchema') or {}).get('properties', {}))
+              for t in replies.get(2, {}).get('result', {}).get('tools', [])}
+    if set(listed) != set(TOOLS):
+        bad.append(f"{label}: tools/list gave {sorted(listed)}, want {sorted(TOOLS)}")
+    for name, params in listed.items():
+        if name in TOOLS and (sorted(params) != sorted(TOOLS[name]) or len(params) > 2):
+            bad.append(f"{label}: {name} takes {params}, want {TOOLS[name]} (at most two)")
     content = replies.get(3, {}).get('result', {}).get('content', [])
     if not any(c.get('type') == 'text' and c.get('text') for c in content):
         bad.append(f"{label}: tools/call returned no text: {replies.get(3)}")
@@ -262,8 +309,9 @@ def main():
         bad += check('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
         # the SDK when the launcher finds one, which ignored an argument it did not know (#1567); else the fallback again
         bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
-        bad += check_words()
-        bad += check_grep_default()
+        bad += check_front_door()
+        if os.name != 'nt':
+            bad += check_install_move(work)
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
@@ -329,6 +377,20 @@ def main():
                            env=dict(os.environ, AXIOMCODE_BASH=os.path.join(work, 'no-bash')))
         if r.returncode != 127 or 'AXIOMCODE_BASH' not in r.stderr:
             bad.append(f"axiomcode with a missing AXIOMCODE_BASH: exit {r.returncode}, stderr {r.stderr.strip()[:200]!r}")
+        # A bare name is a program on PATH, not a file in the working directory: the command exports AXIOMCODE_BASH=bash
+        # on POSIX, and the MCP launcher it starts warned that every tool would fail while they all worked (#1357).
+        # Named but not on PATH is still the error above, said as such.
+        if os.name != 'nt':
+            find = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'find-bash.js')
+            probe = f"const r = require({json.dumps(find)}).findBash(); process.stdout.write(JSON.stringify(r))"
+            for name, ok in (('bash', True), ('no-such-bash-1357', False)):
+                p = subprocess.run(['node', '-e', probe], capture_output=True, text=True, cwd=work,
+                                   env=dict(os.environ, AXIOMCODE_BASH=name))
+                got = json.loads(p.stdout or '{}')
+                if ok and not (got.get('bash') and os.path.isabs(got['bash']) and not got.get('error')):
+                    bad.append(f"AXIOMCODE_BASH={name}, a program on PATH: {got}")
+                if not ok and 'is not on PATH' not in (got.get('error') or ''):
+                    bad.append(f"AXIOMCODE_BASH={name}, on no PATH: {got}")
     for b in bad:
         print('FAIL', b)
     print('ok' if not bad else f'{len(bad)} failure(s)')

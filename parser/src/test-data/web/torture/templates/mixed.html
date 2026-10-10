@@ -1,0 +1,19 @@
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+  <link rel="stylesheet" th:href="@{/css/app.css}" href="../css/app.css">
+  <script th:src="@{/js/app.js}" src="../js/app.js"></script>
+</head>
+<body>
+  <div th:text="${title}" th:class="${cls}" class="wrapper" th:classappend="${active} ? 'is-active'" sec:authorize="isAuthenticated()">x</div>
+  <div class="[[${cls}]] static">thymeleaf inline</div>
+  <div *ngIf="items.length" [class.on]="open" [ngClass]="{ 'is-active': active }" (click)="toggle()" [(ngModel)]="v" #ref class="ng-static">angular</div>
+  <div v-if="ok" :class="{ on: open, 'is-active': active }" v-bind:class="cls" @click="go()" v-on:click.prevent="go2()" class="vue-static">vue</div>
+  <div x-data="{ open: false }" x-bind:class="open ? 'is-open' : ''" :class="{ 'is-active': open }" @click="open = !open" x-on:click.away="open = false" class="alpine-static">alpine</div>
+  <div hx-get="/items" hx-target="#list" hx-swap="innerHTML" hx-trigger="click" class="htmx-static">htmx</div>
+  <div wire:click="save" wire:model="name" phx-click="inc" _="on click toggle .open on me" data-bind="css: { on: isOn }">livewire, liveview, hyperscript, knockout</div>
+  <div class="<%= cls %>" onclick="<%= handler %>()"><%= body %></div>
+  <div class="<?= $cls ?>" id="<?php echo $id; ?>"></div>
+  <ul>@foreach (var i in Model.Items) { <li class="@(i.Active ? "on" : "off")">@i.Name</li> }</ul>
+  <p>${name} and #{expr} and @{link} and {#block}</p>
+</body>
+</html>

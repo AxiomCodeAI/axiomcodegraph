@@ -1,0 +1,60 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	Bus#subscribe(string,Handler) @L12 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	MiniBus#on(string,(p: unknown) =) @L50 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	bus#<module-init>() @L47 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	bus#<module-init>() @L7 -> -
+ambiguous_unknown	FUNCTION_CALL	MiniBus#<arrow@55>(?) @L55 -> -
+ambiguous_unknown	FUNCTION_CALL	MiniBus#fire(string,unknown) @L54 -> -
+ambiguous_unknown	METHOD_CALL	Bus#<arrow@16>() @L17 -> -
+ambiguous_unknown	METHOD_CALL	Bus#count(string) @L31 -> -
+ambiguous_unknown	METHOD_CALL	Bus#dispatch(string,unknown) @L40 -> -
+ambiguous_unknown	METHOD_CALL	Bus#subscribe(string,Handler) @L10 -> -
+ambiguous_unknown	METHOD_CALL	Bus#subscribe(string,Handler) @L13 -> -
+ambiguous_unknown	METHOD_CALL	Bus#subscribe(string,Handler) @L15 -> -
+ambiguous_unknown	METHOD_CALL	Bus#subscribeAll(Record) @L23 -> -
+ambiguous_unknown	METHOD_CALL	Indexer#dropped(unknown) @L30 -> -
+ambiguous_unknown	METHOD_CALL	Indexer#indexed(unknown) @L27 -> -
+ambiguous_unknown	METHOD_CALL	MiniBus#fire(string,unknown) @L54 -> -
+ambiguous_unknown	METHOD_CALL	MiniBus#fire(string,unknown) @L55 -> -
+ambiguous_unknown	METHOD_CALL	MiniBus#on(string,(p: unknown) =) @L50 -> -
+ambiguous_unknown	METHOD_CALL	app#onA() @L55 -> -
+ambiguous_unknown	METHOD_CALL	app#onAll() @L58 -> -
+ambiguous_unknown	METHOD_CALL	app#onAnything(unknown) @L13 -> -
+ambiguous_unknown	METHOD_CALL	app#onB() @L61 -> -
+ambiguous_unknown	METHOD_CALL	app#onCreated(unknown) @L7 -> -
+ambiguous_unknown	METHOD_CALL	app#onRemoved(unknown) @L10 -> -
+callback_registered	METHOD_CALL	MiniBus#fire(string,unknown) @L55 -> MiniBus#<arrow@55>(?)
+event_dispatch	METHOD_CALL	app#create() @L40 -> Indexer#<arrow@21>(?)
+event_dispatch	METHOD_CALL	app#create() @L40 -> app#onAnything(unknown)
+event_dispatch	METHOD_CALL	app#create() @L40 -> app#onCreated(unknown)
+event_dispatch	METHOD_CALL	app#go() @L67 -> app#onA()
+event_dispatch	METHOD_CALL	app#go() @L67 -> app#onAll()
+event_dispatch	METHOD_CALL	app#relay({ type: string }) @L47 -> Indexer#<arrow@21>(?)
+event_dispatch	METHOD_CALL	app#relay({ type: string }) @L47 -> Indexer#<arrow@22>(?)
+event_dispatch	METHOD_CALL	app#relay({ type: string }) @L47 -> app#onAnything(unknown)
+event_dispatch	METHOD_CALL	app#relay({ type: string }) @L47 -> app#onCreated(unknown)
+event_dispatch	METHOD_CALL	app#relay({ type: string }) @L47 -> app#onRemoved(unknown)
+event_dispatch	METHOD_CALL	app#remove() @L43 -> Indexer#<arrow@22>(?)
+event_dispatch	METHOD_CALL	app#remove() @L43 -> app#onAnything(unknown)
+event_dispatch	METHOD_CALL	app#remove() @L43 -> app#onRemoved(unknown)
+known_edge	CONSTRUCTOR_CALL	app#<module-init>() @L37 -> Indexer#<new>(Bus)
+known_edge	CONSTRUCTOR_CALL	app#<module-init>() @L4 -> Bus#<new>()
+known_edge	CONSTRUCTOR_CALL	app#<module-init>() @L53 -> MiniBus#<new>()
+known_edge	FUNCTION_CALL	Bus#dispatch(string,unknown) @L41 -> bus#<arrow@3>(unknown)
+known_edge	FUNCTION_CALL	Bus#publish(string,unknown) @L36 -> Bus#run()
+known_edge	METHOD_CALL	Bus#run() @L35 -> Bus#dispatch(string,unknown)
+known_edge	METHOD_CALL	Bus#subscribeAll(Record) @L25 -> Bus#subscribe(string,Handler)
+known_edge	METHOD_CALL	Indexer#<arrow@21>(?) @L21 -> Indexer#indexed(unknown)
+known_edge	METHOD_CALL	Indexer#<arrow@22>(?) @L22 -> Indexer#dropped(unknown)
+known_edge	METHOD_CALL	Indexer#start() @L20 -> Bus#subscribeAll(Record)
+known_edge	METHOD_CALL	app#<module-init>() @L34 -> Bus#subscribe(string,Handler)
+known_edge	METHOD_CALL	app#<module-init>() @L35 -> Bus#subscribe(string,Handler)
+known_edge	METHOD_CALL	app#<module-init>() @L36 -> Bus#subscribe(string,Handler)
+known_edge	METHOD_CALL	app#<module-init>() @L37 -> Indexer#start()
+known_edge	METHOD_CALL	app#<module-init>() @L63 -> MiniBus#on(string,(p: unknown) =)
+known_edge	METHOD_CALL	app#<module-init>() @L64 -> MiniBus#on(string,(p: unknown) =)
+known_edge	METHOD_CALL	app#<module-init>() @L65 -> MiniBus#on(string,(p: unknown) =)
+known_edge	METHOD_CALL	app#create() @L40 -> Bus#publish(string,unknown)
+known_edge	METHOD_CALL	app#go() @L67 -> MiniBus#fire(string,unknown)
+known_edge	METHOD_CALL	app#relay({ type: string }) @L47 -> Bus#publish(string,unknown)
+known_edge	METHOD_CALL	app#remove() @L43 -> Bus#publish(string,unknown)
+known_edge	METHOD_CALL	app#size() @L50 -> Bus#count(string)

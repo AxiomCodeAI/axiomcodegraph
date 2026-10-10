@@ -96,6 +96,19 @@ expr_element_type(prov, e, gk) :-
     type_ref_module(prov, tr, mod),
     name_to_type(prov, mod, n, gk).
 
+// (c') THE PROTOCOL THROUGH A FRAMEWORK ENUMERATOR. A collection in source whose
+// GetEnumerator returns `IEnumerator<MemberMap>` (an iterator, usually) yields
+// MemberMap: the framework's Current is not staged, but the enumerator's one type
+// argument is written on the method.
+expr_element_type(prov, e, gk) :-
+    expr_type(prov, e, recvGk),
+    member_method(prov, recvGk, "GetEnumerator", getEnum),
+    method_return_type_ref(prov, getEnum, tr),
+    type_ref_name(prov, tr, en), (en = "IEnumerator" ; en = "IAsyncEnumerator"),
+    type_ref_argc(prov, tr, "1"),
+    type_ref_arg(prov, tr, "0", argRef),
+    type_ref_resolves(prov, argRef, gk).
+
 // (d) THE RETURN OF A STAGED METHOD. `h.Items()[0]` where Items returns `Item[]`
 // from a library: the rank and the element name are on the library's own type
 // reference, so the clauses above -- which read the reference under the caller's
@@ -274,6 +287,140 @@ expr_new_type(prov, e, gk) :-
 expr_type(prov, e, gk) :-
     expr_target_any(prov, e, m), method_return_type_group(prov, e2gk, gk), e2gk = m.
 
+// ── ...AND WHERE THAT RETURN TYPE IS THE METHOD'S OWN TYPE PARAMETER ────────
+// `T Dep<T>()` and `T Echo<T>(T value)`: the return type is a reference to a type
+// parameter, which resolves to no type on purpose (generics.dl), so the clause above
+// types `_p.Dep<Widget>()` as nothing and `.Spin()` on it was labelled external:T.Spin
+// (#1549). The CALL says what T is, in one of two places, and both are the compiler's
+// own answer rather than an approximation of it:
+//
+//   EXPLICIT: the type argument written at the call, matched to the parameter by
+//   POSITION, as type_arg_for does for a type's parameters.
+//   INFERRED: with no type argument written, the static type of the argument passed
+//   to a parameter declared exactly `T`. An argument typed as a set gives the set.
+//
+// THE RETURN TYPE MUST BE `T` ITSELF. `T[]` and `List<T>` HAVE the parameter and
+// are not it; typing either as T would make the call's result its element.
+// THE PARAMETER MUST BE THE METHOD'S. A method of a generic TYPE returning the
+// type's `T` is #1448, answered by the receiver's type arguments, not the call's.
+// NOT INFERRED FOR AN EXTENSION METHOD, whose receiver is parameter 0 and not an
+// ARGUMENT child: every ordinal would be one off, and `Pick<T>(this Foo f, T a, Bar b)`
+// would take T from `b`. Nor through a named argument, a `params` parameter or a
+// `T[]` parameter, where the ordinal or the element does not line up.
+gm_return_param(prov, m, tp) :-
+    method_return_type_ref(prov, m, tr), type_ref_type_param(prov, tr, tp),
+    !type_ref_array_rank(prov, tr, _),
+    type_param_owner(prov, tp, m, "METHOD").
+
+// A type argument written at the call: `Dep<Widget>()`, root references only.
+call_method_type_arg(prov, e, pos, tr) :-
+    type_ref_owner(prov, tr, e, "EXPRESSION"), type_ref_context(prov, tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent(prov, tr, _, _, _),
+    type_ref_root_position(prov, tr, pos).
+
+expr_type(prov, e, gk) :-
+    expr_target_any(prov, e, m), gm_return_param(prov, m, tp),
+    type_param_decl(prov, m, "METHOD", pos, _, tp),
+    call_method_type_arg(prov, e, pos, atr), type_ref_resolves(prov, atr, gk).
+// A type argument that is itself a type parameter in scope, `Dep<TW>()` inside a
+// method `where TW : Widget`, is typed by its constraint, as a value declared TW is.
+expr_type(prov, e, gk) :-
+    expr_target_any(prov, e, m), gm_return_param(prov, m, tp),
+    type_param_decl(prov, m, "METHOD", pos, _, tp),
+    call_method_type_arg(prov, e, pos, atr),
+    type_ref_type_param(prov, atr, atp), type_param_bound(prov, atp, gk).
+
+// NOT INFERRED BESIDE A NON-GENERIC TWIN: `T Echo<T>(T v)` and `Widget Echo(Gadget g)`
+// in one type, called `Echo(new Gadget())`. Both are applicable with the same parameter
+// types and C# picks the non-generic one, but overload selection may keep both, and
+// the generic's inferred T would then give the call a second result type. The twin
+// is found by name and parameter count on the declaration alone, so the guard is
+// conservative: it gives up the inference rather than guessing which one wins.
+gm_plain_twin(prov, m) :-
+    gm_return_param(prov, m, _),
+    method_in_type(prov, gk, m), method_name(prov, m, n), method_paramc(prov, m, pc),
+    method_in_type(prov, gk, m2), method_name(prov, m2, n), method_paramc(prov, m2, pc),
+    method_type_arity(prov, m2, "0").
+
+// A parameter declared exactly the method's type parameter, by ordinal.
+gm_infer_param(prov, m, k) :-
+    gm_return_param(prov, m, tp),
+    !method_is_extension(prov, m), !gm_plain_twin(prov, m),
+    param_decl(prov, m, pos, _, p), param_type_ref(prov, p, ptr),
+    type_ref_type_param(prov, ptr, tp), !type_ref_array_rank(prov, ptr, _),
+    !param_is_params(prov, p),
+    k = to_number(pos).
+
+// The argument's ORDINAL among the ARGUMENT children, as overload-args.dl counts it,
+// at a site with no type argument written and no named argument.
+gm_arg_at(prov, e, k, a) :-
+    call_type_argc(prov, e, "0"), !call_has_named_args(prov, e),
+    expr_argument(prov, e, pos, a), p = to_number(pos),
+    k = count : { expr_argument(prov, e, q, _), to_number(q) < p }.
+
+expr_type(prov, e, gk) :-
+    expr_target_any(prov, e, m), gm_infer_param(prov, m, k),
+    gm_arg_at(prov, e, k, a), expr_type(prov, a, gk).
+
+// ── ...AND A SERVICE LOCATOR, TYPED BY THE TYPE IT IS ASKED FOR ────────────
+// `sp.GetRequiredService<IOrderJob>()` returns an IOrderJob, and the knob table
+// already says so (framework-behavior/knobs.dl, cs_di_resolve). The method itself is
+// an extension in a package the run is rarely given, so it resolves to nothing and
+// the clauses above never see its `T`: `job.Run()` on the result was a by-name lead
+// and `sp.GetRequiredService<Worker>().Start()` had no receiver type (#1471).
+// Typed here from the ONE type argument written at the call, the same argument the
+// explicit clause above reads for an in-source generic method, so a staged
+// declaration of the locator, whose return is its own `T`, gives the same answer.
+// NOT for a name the client declares itself: a project's own `GetService<T>()`
+// is typed by its own declaration, whatever it returns. The non-generic
+// `GetService(typeof(T))` returns object and is typed by the cast around it.
+expr_type(prov, e, gk) :-
+    call_callee_name(prov, e, n), cs_di_resolve(n), !cs_di_resolve_declared(n),
+    call_type_argc(prov, e, "1"),
+    call_method_type_arg(prov, e, "0", atr), type_ref_resolves(prov, atr, gk).
+cs_di_resolve_declared(n) :- cs_di_resolve(n), method_name("client", _, n).
+
+// ── ...AND WHERE IT IS THE DECLARING TYPE'S PARAMETER ───────────────────────
+// `T Create()` on `interface IFactory<T>`: here the RECEIVER says what T is, not the
+// call. `IFactory<OrderStore> f; f.Create().Count()` typed the call as the parameter,
+// so `.Count()` was labelled external:T.Count (#1448), while `f.Current.Count()`
+// through a property declared `T` resolved: member_type_substituted below does this
+// for properties and fields, and this is the same substitution for a method's return.
+// It is the shape of `IDbContextFactory<TContext>.CreateDbContext()`.
+//
+// Each clause mirrors one of the property clauses below, so the two cannot disagree
+// about which argument fills which parameter: the receiver's own reference
+// (type_arg_for), a generic base the reference's type passed its parameter to
+// (base_param_fill), and a base closed with a concrete argument (type_arg_fixed).
+// As there, the return type must be `T` itself, not `T[]` or `List<T>`, and the
+// parameter is matched through its OWNER'S group rather than its spelling alone, so
+// a derived type that renames the parameter substitutes nothing by coincidence.
+decl_return_param(prov, m, ownerGk, pname) :-
+    method_return_type_ref(prov, m, tr), type_ref_type_param(prov, tr, tp),
+    !type_ref_array_rank(prov, tr, _),
+    type_param_owner(prov, tp, t, "TYPE"), type_param_name(prov, tp, pname),
+    type_group(prov, t, ownerGk).
+// A staged generic type's method, called from the client: the declaration is the
+// library's and the reference that supplies the argument is the client's, as for
+// `IOptions<T>.Value` below.
+decl_return_param("client", m, ownerGk, pname) :- decl_return_param("lib", m, ownerGk, pname).
+
+expr_type(prov, e, argGk) :-
+    expr_target_any(prov, e, m), decl_return_param(prov, m, gk, pname),
+    call_receiver_expr(prov, e, r), expr_type_via_ref(prov, r, tr),
+    type_ref_resolves(prov, tr, gk),
+    type_arg_for(prov, tr, pname, argGk).
+expr_type(prov, e, argGk) :-
+    expr_target_any(prov, e, m), decl_return_param(prov, m, baseGk, basePname),
+    call_receiver_expr(prov, e, r), expr_type_via_ref(prov, r, tr),
+    type_ref_resolves(prov, tr, gk), type_group(prov, derivedT, gk),
+    base_param_fill(prov, derivedT, baseGk, basePname, derivedPname),
+    type_arg_for(prov, tr, derivedPname, argGk).
+expr_type(prov, e, argGk) :-
+    expr_target_any(prov, e, m), decl_return_param(prov, m, baseGk, basePname),
+    call_recv_type(prov, e, recvGk),
+    type_arg_fixed(prov, recvGk, baseGk, basePname, argGk).
+
 // A LIBRARY METHOD'S RETURN TYPE, READ FROM A CLIENT SITE. Resolved in the
 // LIBRARY's scope and then mirrored, rather than resolved in the client's:
 // `string` inside a library file means what that file's scope says it means, and
@@ -323,6 +470,25 @@ expr_type(prov, e, gk) :-
     expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
     expr_written_name(prov, nameExpr, n),
     expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
+
+// A STATIC member read through its TYPE NAME: `Context.Current.Factory.Create()`.
+// The qualifier `Context` names a type, not a value, so it has no expr_type and the
+// two clauses above cannot start from it: the getter of `Current` is an edge
+// (properties.dl reads the type name), and these give its RESULT a type, so that
+// `.Factory` and every call after it resolve. ref_names_type already refuses a name
+// that also binds a value, which is the language's member-over-type rule.
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "property", p), property_type(prov, p, gk).
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, qgk),
     member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
 
 // ── A GENERIC ARGUMENT, SUBSTITUTED FOR THE PARAMETER IT FILLS ──────────────

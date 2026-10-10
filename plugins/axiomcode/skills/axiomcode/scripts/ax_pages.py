@@ -48,7 +48,14 @@ def _parse(lines):
     # a field and a method): it stays on top of every page instead of sinking into the footer with the qualifiers
     while lines and lines[0].startswith('note:'):
         head.append(lines.pop(0))
-    while lines and (lines[0].startswith('change:') or (head and lines[0].startswith('  ') and not lines[0].startswith('    '))):
+    # impact --why prints, under each `change:` line, a block that says how the name was resolved: its first line is
+    # indented like the other lines under `change:`, its detail deeper, and the whole block stays in the head
+    why = False
+    while lines:
+        l = lines[0]
+        if l.startswith('change:'): why = False
+        elif head and l.startswith('  ') and not l.startswith('    '): why = l.startswith("  why '")
+        elif not (why and l.startswith('    ')): break
         head.append(lines.pop(0))
     quals = [l for l in lines if QUALIFIER.match(l)]
     sections, cur = [], None                                   # a line at column 0 opens a section
@@ -195,6 +202,9 @@ def next_path(text):
     sites = list(dict.fromkeys(re.findall(r'call @ ' + LOC + r'\]', text)))
     if sites:
         multi = ' — one hop is [multi_inferred], one of several candidates: check that call site only if the answer depends on which' if 'multi_inferred ·' in text else ''
+        # a hop no call site makes (#1469) has no line in that list: its two ends are on the note under the chain
+        if re.search(r'\[(remote|framework) · ', text):
+            multi += (' — and a hop no call site makes ([remote] / [framework]): check it at the two ends its note names')
         return (f"next: the chain is verified (every printed hop is an edge in the graph); its {len(sites)} call "
                 f"site(s): {', '.join(sites[:6])}{' …' if len(sites) > 6 else ''}{multi}. For a change, those sites are "
                 "what to check; to explain how it works, read each hop's body — `context \"how does …\" --from <start>` "
@@ -215,6 +225,11 @@ def next_path(text):
                 + ', '.join(f"{n} {loc}" for n, loc in first)
                 + (" — read it" if len(first) == 1 else " — read those") + "; farther hops matter only if these pass the change on"
                 + (f" (of {total.group(1)} in all)" if total else ''))
+    # nothing resolved calls it, and impact's [by name] callers are listed (#1421): they are the only leads there are
+    bn = re.findall(r'^\s+\[by name\] (\S+)\s+' + LOC, text, re.M)
+    if bn:
+        return (f"next: no resolved call reaches it; the {len(bn)} [by name] site(s) are leads, not calls: read "
+                + ', '.join(f"{loc}" for _, loc in bn[:4]) + " and check whether the receiver there is this method's type")
     # a framework hop (#1509) is the connection when no call is: both ends are printed, so point at them
     fw = re.findall(r'a framework connects them: (\S+) ' + LOC + r' → (\S+) ' + LOC, text)
     if fw:
@@ -227,6 +242,11 @@ def next_path(text):
     if 'which is the key it is registered under' in text:
         return ("next: the start writes the key the other is registered under (named above), so a framework connects "
                 "them and no call does; the `impact … --tests` command printed there follows that hop")
+    if 'an HTTP hop the graph did not link' in text:
+        m = re.search(r'sends a request the graph does not follow: `[^`]*` in \S+ at (\S+:\d+)', text)
+        return ("next: not shown to be independent — " + (f"read {m.group(1)}, " if m else "read the request named above, ")
+                + "find the path and method it sends, and compare them with the routes named above; a route that serves "
+                  "them is the connection")
     if 'NOT shown to be independent' in text:
         return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
                 "that makes them — one that publishes, schedules or registers what the entered method handles connects "
@@ -280,10 +300,17 @@ def next_context(text):
                 "step's BODY, not only the line shown, since the body is the explanation and the flow is only its spine "
                 "(`--source` prints it)." + gap)
     m = re.search(r'^\s+(?:hop \d+|name only, no call path)\s+(\S+)\s+\(\d+ symbol\(s\)\)[^\n]*\n\s+-> ([^\n]+)', text, re.M)
+    if m:
+        f = m.group(1); syms = [x.strip() for x in m.group(2).split(',') if x.strip()][:2]
+        return (f"next: read {f} first — it holds {' and '.join(syms)}; then `impact <the one you will change>` for what a change "
+                "to it reaches. The other files are ranked context, not a reading list")
+    # --source prints each file's declarations as code (`name  (file:line)` and its lines) instead of the `->` list
+    m = re.search(r'^\s+(?:hop \d+|name only, no call path)\s+(\S+)\s+\(\d+ symbol\(s\)\)[^\n]*\n((?:\s+\S+  \(\S+:\d+\)\n(?:\s+(?:\d+|) \| [^\n]*\n)*)+)',
+                  text, re.M)
     if not m: return ''
-    f = m.group(1); syms = [x.strip() for x in m.group(2).split(',') if x.strip()][:2]
-    return (f"next: read {f} first — it holds {' and '.join(syms)}; then `impact <the one you will change>` for what a change "
-            "to it reaches. The other files are ranked context, not a reading list")
+    syms = re.findall(r'^\s+(\S+)  \(\S+:\d+\)$', m.group(2), re.M)[:2]
+    return (f"next: answer from the code of {m.group(1)} shown first above — {' and '.join(syms)}; then `impact <the one you will "
+            "change>` for what a change to it reaches. The other files are ranked context, not a reading list")
 
 def next_changed(text):
     if re.search(r'^(no change|no git base)', text, re.M): return ''
@@ -294,7 +321,7 @@ def next_test_impact(text):
     # When a text tier adds the tests that load a changed fixture, it prints the command(s) for both after
     # "with the tests above:", and the first command alone left those tests out of the step an agent takes: the
     # LAST such block wins, with every command that continues it
-    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|python manage\.py test|python -m unittest|python(?= \S+\.py$)|dotnet|go) [^\n]+)$', text, re.M))
+    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|python manage\.py test|python -m unittest|python(?= \S+\.py$)|python3(?= \S+\.py\b)|bash(?= \S+\.sh\b)|dotnet|go) [^\n]+)$', text, re.M))
     if not ms: return ''
     last = max((i for i, m in enumerate(ms) if m.group(1)), default=0)
     cmds = [m.group(2).strip() for m in ms[last:]]

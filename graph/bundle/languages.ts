@@ -149,6 +149,13 @@ export interface LanguageAdapter {
      * relation and absent from `fields`, so the join lost the row silently.
      */
     configBinding?: RawSource;
+    /**
+     * (site, name), #1441. The accessor name of a site the IR gives no written name, where
+     * the engine knows it: a property read on a receiver with no type is a site with no
+     * target, and without the name a by-name lookup cannot offer it. Fills callee_name only
+     * where the IR left it NULL.
+     */
+    siteNames?: RawSource;
   };
   ir: {
     methods: MethodsIR;
@@ -159,6 +166,8 @@ export interface LanguageAdapter {
     callSites?: CallSitesIR;
     decorators?: DecoratorsIR;
     localSites?: LocalSitesIR;
+    /** field access sites that are not expressions (TypeScript: a `typeof X` type reference), positioned from this table */
+    fieldSites?: LocalSitesIR;
     /** absent where the front end writes no skipped-files report */
     skipped?: SkippedIR;
   };
@@ -270,6 +279,11 @@ const TYPESCRIPT: LanguageAdapter = {
       startLine: 'startLine', startColumn: 'startColumn',
       fileVia: { column: 'tsModuleLinkHash', through: 'modules' },
     },
+    // a module variable read in a TYPE (`typeof X`): the field_access site is the type reference
+    fieldSites: {
+      file: 'all-typescript-type-references.csv', id: 'tsTypeReferenceUniqueHash', startLine: 'startLine', endLine: 'endLine',
+      fileVia: { column: 'tsModuleLinkHash', through: 'modules' },
+    },
     skipped: { file: 'skipped-typescript-files.csv', filePath: 'filePath', reason: 'reason', detail: 'detail' },
   },
 };
@@ -330,6 +344,9 @@ const JAVASCRIPT: LanguageAdapter = {
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [0, 1] },
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
+    // site, caller, variable, provenance, tier, access: a module variable an identifier reads,
+    // directly or through an import binding (the field is the variable's own hash)
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
   },
   ir: {
     // No signature and no owner qualified name: JavaScript declares neither.
@@ -376,6 +393,11 @@ const CSHARP: LanguageAdapter = {
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     // (prov, type) — no "how"; every row is a construction
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [1], constant: 'new' },
+    // site, caller, field, fieldProvenance, tier, access: the Java shape (#1445). Only resolved
+    // sites have a row; a property is a call and stays in call edges through its accessor.
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    // (site, recv, accessor name): an unresolved member access, get_X or set_X
+    siteNames: { file: 'site-unresolved-member.csv', columns: [0, 2] },
   },
   ir: {
     // A C# method row carries BOTH its module and its type, and the type is empty for a

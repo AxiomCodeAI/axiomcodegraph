@@ -1,0 +1,30 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "`with Session() as session` where Session.__enter__ is unannotated and returns self: session IS the Session, so session.request() resolves",
+   "run": [
+    "impact",
+    "send_bytes",
+    "--tests"
+   ],
+   "want": [
+    "test_fetch.py"
+   ]
+  },
+  {
+   "why": "CONTROL: an unannotated __enter__ that returns something else does not type its target as the context manager: conn.request() stays a by-name match, never a resolved call",
+   "run": [
+    "impact",
+    "Pool.request"
+   ],
+   "want": [
+    "[by name] fetch_pooled"
+   ],
+   "avoid": [
+    "[resolved] fetch_pooled"
+   ]
+  }
+ ]
+}

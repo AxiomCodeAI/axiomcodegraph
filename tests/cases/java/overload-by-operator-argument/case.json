@@ -1,0 +1,18 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an arithmetic argument (`all.size() - 1`) is a number, so it never reaches the varargs Node constructor",
+   "run": ["impact", "Sizer.shrink", "--depends"],
+   "want": ["Bag.Bag"],
+   "avoid": ["one of a set"]},
+  {"why": "`--i` is a number: drop(String) is not a candidate",
+   "run": ["impact", "Sizer.rewind", "--depends"],
+   "want": ["Bag.drop"],
+   "avoid": ["one of a set"]},
+  {"why": "a comparison is a boolean: flag(Node) is not a candidate",
+   "run": ["impact", "Sizer.mark", "--depends"],
+   "want": ["Bag.flag"],
+   "avoid": ["one of a set"]},
+  {"why": "control: a Node argument reaches the Node overload and not the int one",
+   "run": ["impact", "Sizer.wrap", "--depends"],
+   "want": ["Bag.Bag"],
+   "avoid": ["one of a set"]}]}

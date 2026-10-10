@@ -1,0 +1,123 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a field holding an arrow, written as an element's event handler, is handed to the element: the component that renders it reaches what the handler calls",
+   "run": [
+    "path",
+    "Board.render",
+    "hitTest"
+   ],
+   "want": [
+    "hitTest",
+    "callback_registered"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "an inline arrow written as an attribute is handed over the same way",
+   "run": [
+    "path",
+    "Board.render",
+    "persist"
+   ],
+   "want": [
+    "persist"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "a tag that builds a class component hands the renderer its render and lifecycle methods: mounting it reaches what they call",
+   "run": [
+    "path",
+    "mountBoard",
+    "startClock"
+   ],
+   "want": [
+    "Board.componentDidMount",
+    "startClock"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026render included, so a test that mounts the component reaches the handlers its render hands out",
+   "run": [
+    "path",
+    "mountBoard",
+    "hitTest"
+   ],
+   "want": [
+    "Board.render",
+    "hitTest"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "a module function handed by name, and a render callback handed to a component, are reached from the function component that writes them",
+   "run": [
+    "impact",
+    "drawRow"
+   ],
+   "want": [
+    "Toolbar"
+   ],
+   "avoid": [
+    "nothing calls"
+   ]
+  },
+  {
+   "why": "a module function handed by name to an intrinsic element",
+   "run": [
+    "path",
+    "Toolbar",
+    "onSave"
+   ],
+   "want": [
+    "onSave",
+    "callback_registered"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "CONTROL: a class with a render method that no tag builds is not a component; constructing it does not run render",
+   "run": [
+    "path",
+    "makeReport",
+    "measure"
+   ],
+   "want": [
+    "no chain of resolved calls"
+   ],
+   "avoid": [
+    "callback_registered"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "CONTROL: an attribute that is a call hands over what the call returns, not the function it calls; the call itself stays an ordinary resolved call",
+   "run": [
+    "path",
+    "Badge",
+    "measure"
+   ],
+   "want": [
+    "measure"
+   ],
+   "avoid": [
+    "callback_registered",
+    "no chain of resolved calls"
+   ]
+  }
+ ]
+}

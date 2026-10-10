@@ -1,0 +1,1 @@
+{ "name": "@acme/shared", "version": "0.0.0", "main": "./dist/topics.js", "types": "./dist/topics.d.ts" }

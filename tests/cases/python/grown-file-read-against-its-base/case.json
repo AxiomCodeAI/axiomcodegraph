@@ -1,0 +1,60 @@
+{
+ "lang": "python",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a graph from a later text than the base: a parameter inserted into a def header written one per line is its signature change; new methods at the end of a class and a function after it are one inserted block, and the function is named at the top level, not dropped nor read as a member",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.py",
+    "--new",
+    "{repo}/new.py",
+    "--file",
+    "src/service.py"
+   ],
+   "want": [
+    "signature  Service.__init__",
+    "+gateway",
+    "added      Service.pay",
+    "added      report"
+   ],
+   "avoid": [
+    "removed",
+    "Service.total",
+    "Service.base",
+    "Service.report",
+    "new line(s)"
+   ]
+  },
+  {
+   "why": "control: a method added after a class's last method, at the same indentation, is not that method's body; a line appended inside `__init__` is",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.py",
+    "--new",
+    "{repo}/new.py",
+    "--file",
+    "src/service.py"
+   ],
+   "want": [
+    "signature  Service.__init__"
+   ],
+   "avoid": [
+    "body       Service.get",
+    "inside Service"
+   ]
+  },
+  {"why": "a graph from a later text than both sides: lines removed from a method that the later text has shorter are that method's body, and a parameter removed above it is the signature of `__init__`; the unchanged method below, whose lines shifted, is not listed",
+   "run": ["changed", "{repo}", "--old", "{repo}/old-writer.py", "--new", "{repo}/new-writer.py", "--file", "src/writer.py"],
+   "want": ["signature  Writer.__init__", "body       Writer.write"],
+   "avoid": ["Writer.priority", "added"]},
+  {"why": "control: an edit only inside the method below is that method's body and nothing else",
+   "run": ["changed", "{repo}", "--old", "{repo}/new-writer.py", "--new", "{repo}/later-writer.py", "--file", "src/writer.py"],
+   "want": ["body       Writer.priority"],
+   "avoid": ["Writer.write", "Writer.__init__"]}
+ ]
+}

@@ -5,6 +5,7 @@
 # Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L] [--debug]
 #        run-souffle.sh --language L --print-engine-id      the canonical id of L's compiled engine
 #        run-souffle.sh --language L --emit-program FILE    the Soufflé program CI compiles for L
+#        run-souffle.sh --language L --prepare              make L's engine binary ready (packaged, cached or compiled)
 #
 # NO SOUFFLÉ NEEDED TO RUN. The rules compile to one self-contained executable that is
 # project-independent; CI builds it for every platform and publishes it on npm as
@@ -33,7 +34,7 @@ JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). De
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
 LIB_DEPTH=""  # max external-lib-hop depth. OPTIONAL — empty = UNCAPPED (dive deep into the client's
               # real deps, no sink catalog there). Set with --lib-depth to bound a runaway library.
-DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAULT 20 (measured):
+DISPATCH_CAP="${DISPATCH_CAP:-}"     # fan-width cap on virtual dispatch. DEFAULT 20, off for Python (below) (measured):
               # on cassandra 6.0-alpha2 it lifts change-impact precision d2 0.782->0.920 and
               # d3 0.569->0.753 at ZERO recall cost against the must-have bytecode set (recall
               # 1.000/0.996/0.988 unchanged), and halves fabricated false positives. Cap 10 is
@@ -45,7 +46,10 @@ DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAUL
 LANG_ARG=""   # which rule set under graph/<lang>/ to run. Default java.
 TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (dataflow/taint.dl). Also
               # settable via env AXIOM_TAINT_GATING=on. Empty = ungated (default behavior).
-MODE="run"    # run | print-engine-id | emit-program — the last two need no IR and no souffle
+CLOSED_WORLD="" # --closed-world on → narrow the dispatch fan to types the program constructs (RTA),
+              # and record every edge that drops as an assumption row. Env AXIOM_DISPATCH_CLOSED_WORLD=on.
+              # Empty = the fan is every declared override (default). See #473.
+MODE="run"   # run | print-engine-id | emit-program | prepare — none but run needs IR; the id and the program need no souffle
 EMIT=""
 while [ $# -gt 0 ]; do case "$1" in
   --client-ir) CLIENT="$2"; shift 2;; --library) LIB="$2"; shift 2;;
@@ -54,9 +58,11 @@ while [ $# -gt 0 ]; do case "$1" in
   --dispatch-cap) DISPATCH_CAP="$2"; shift 2;;
   --lib-depth) LIB_DEPTH="$2"; shift 2;;
   --taint) TAINT="$2"; shift 2;;
+  --closed-world) CLOSED_WORLD="$2"; shift 2;;
   --language) LANG_ARG="$2"; shift 2;;
   --print-engine-id) MODE="print-engine-id"; shift;;
   --emit-program) MODE="emit-program"; EMIT="$2"; shift 2;;
+  --prepare) MODE="prepare"; shift;;
   # graph.sqlite is the deliverable; csv/*.csv is a debugging view of the same core
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
@@ -71,8 +77,13 @@ PKG="$(cd "$SRC/.." && pwd)"   # the package root: package.json, node_modules, p
 . "$SRC/pipeline/portable-stat.sh"
 # shellcheck source=lib-cache-key.sh
 . "$SRC/pipeline/lib-cache-key.sh"
+# shellcheck source=compile-lock.sh
+. "$SRC/pipeline/compile-lock.sh"
 # Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
+# Python's cap is off by default: a Python site over the cap is dropped outright, and for test selection a missed
+# test costs more than an extra one. Every other language keeps 20. An explicit --dispatch-cap still wins.
+if [ -z "$DISPATCH_CAP" ]; then [ "$LANG_ARG" = python ] && DISPATCH_CAP=off || DISPATCH_CAP=20; fi
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
 # shellcheck source=souffle-include.sh
@@ -193,9 +204,10 @@ write_program(){
   _SU=()
   t+="#include \"$LANG_ARG/souffle/decls_base.dl\"$nl#include \"$LANG_ARG/souffle/decls_all.dl\"$nl"
   map_rels_su "$TPL/client-ir.map" || return 1
+  if [ -f "$TPL/client-extra.map" ]; then map_rels_su "$TPL/client-extra.map" || return 1; fi
   map_rels_su "$TPL/lib.map" sig || return 1
   for r in $LIB_BODY; do _SU+=("$r"); done
-  _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap)
+  _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world)
   sort_unique_su
   PROGRAM_INPUTS=(${_SU[@]+"${_SU[@]}"})
   # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
@@ -246,8 +258,9 @@ write_program(){
 # lost on either side shows up as a difference. Every .input and .output line must be exactly
 # the expected one, each exactly once, with nothing extra. Exit status only: no pipe to lose.
 verify_program(){
-  awk -v cmap="$TPL/client-ir.map" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
-      -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap" '
+  local xmap=""; [ -f "$TPL/client-extra.map" ] && xmap="$TPL/client-extra.map"
+  awk -v cmap="$TPL/client-ir.map" -v xmap="$xmap" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
+      -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world" '
     function want(line) { if (!(line in need)) { need[line] = 1; n++ } }
     function inp(r) { want(".input " r "(IO=file, filename=\"" r ".facts\", delimiter=\"\\t\", rfc4180=true)") }
     function maprels(path, sigonly,   l, rc, r, k) {
@@ -261,7 +274,7 @@ verify_program(){
       close(path)
     }
     BEGIN {
-      maprels(cmap, 0); maprels(lmap, 1)
+      maprels(cmap, 0); maprels(lmap, 1); if (xmap != "") maprels(xmap, 0)
       m = split(extra, e, " "); for (i = 1; i <= m; i++) if (e[i] != "") inp(e[i])
       while ((rc = (getline l < man)) > 0) {
         sub(/^\t+/, "", l); k = index(l, "\t"); p = l; f = ""
@@ -310,14 +323,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-4\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 9 ));; esac   # 9 = "souffle=" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-4" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -328,21 +341,7 @@ engine_id_of(){
   fi
   ENGINE_ID="$h"
 }
-case "$MODE" in
-  print-engine-id)
-    _pd="$(mktemp -d "${TMPDIR:-/tmp}/axiom-program.XXXXXX")" && [ -d "$_pd" ] || { echo "❌ mktemp failed" >&2; exit 1; }
-    if program_file "$_pd/program.dl" && { engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl"; }; then rm -rf "$_pd"
-    else rm -rf "$_pd"; exit 1; fi
-    printf '%s\n' "$ENGINE_ID" || exit 1
-    exit 0;;
-  emit-program) program_file "$EMIT" || exit 1; exit 0;;
-esac
-
-[ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
-FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
-# raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
-# earlier run and be mistaken for this one's output.
-RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
+set_cache_root(){
 # Shared, machine-scoped cache root. Holds BOTH project-independent artefacts: the
 # compiled engine binary, and the staged library signature facts.
 #
@@ -364,6 +363,429 @@ else
     || CACHE_ROOT="$SRC/../.souffle-cache"
 fi
 mkdir -p "$CACHE_ROOT"
+}
+# engine_binary: the engine binary for $PROG (whose id is $ENGINE_ID), in $BIN — the packaged one, the cached one,
+# or one compiled here into the cache. Exits when there is none. Uses $INT for the generated C++.
+engine_binary(){
+# What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
+# into C++, c++ compiles it) — NOT the souffle tool. It depends only on the engine (rules +
+# decls) and is PROJECT-INDEPENDENT (relative .input/.output), so one binary serves every
+# project. It lives in a shared, machine-scoped cache keyed by the engine id — NOT in the
+# per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
+# gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
+CACHE_DIR="$CACHE_ROOT"
+# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
+# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
+# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
+# target instead, as the published engines are (build-engines.yml). Any other value is
+# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
+# cache across machines keys it on the setting (ci.yml does).
+case "${AXIOM_ENGINE_MARCH:-native}" in
+  portable) MARCH_FLAG=();;
+  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
+esac
+# ── PARALLEL SOLVE ────────────────────────────────────────────────────────────
+# Soufflé emits parallel loops only when the program is GENERATED with -j — without it
+# the C++ holds zero parallel sections, which is why every engine before this was
+# sequential by construction. Compiled WITHOUT OpenMP the same generated code runs
+# serially (pfor degrades to for), so generation always asks for the parallel loops and
+# OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
+# 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
+# flavors; the bundle loads rows into sqlite, which keeps no order).
+# GATED PER PLATFORM. darwin-arm64's nondeterministic parallel segfaults — a different
+# rule each crash, g++/libgomp and apple-clang/libomp alike — were two weak-ordering
+# holes, both closed by the header overlay below: the write-entry RMW (seqlock-fix-1)
+# and the unfenced publication of freshly split btree nodes (seqlock-fix-2), which is
+# why the crashes needed memory pressure (a recycled page holds garbage where a fresh
+# one holds zeros). darwin-arm64 now runs parallel by default, like linux-x64; Linux
+# enables OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
+# anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
+# The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
+# answer with different row orders, and a cache hit must reproduce the flavor that ran
+# yesterday, not whichever compiled first.
+# THE SEQLOCK FIX (overlay). Soufflé's OptimisticReadWriteLock enters its write phase
+# with fetch_or(..., memory_order_acquire): the version-odd store may become visible
+# AFTER the write section's data stores on a weakly-ordered CPU, so a reader can read a
+# half-mutated node and still pass validate() against the stale even version. On x86's
+# TSO stores never reorder, which is why this only ever fired on arm64 (nondeterministic
+# segfaults in a different rule each run, any toolchain, Soufflé 2.5 and master alike).
+# seq_cst on the entry RMW pins the odd version BEFORE any data store; on x86 a locked
+# RMW is already a full barrier, so the change costs nothing there.
+# THE PUBLICATION FIX (fix-2, BTree.h). The residual arm64 crash under memory pressure:
+# a split publishes a freshly built node with PLAIN pointer stores — insert_inner's
+# `getChildren()[pos + 1] = newNode` and grow_parent's `*root = new_root` — and on a
+# weakly-ordered CPU that pointer can become visible BEFORE the node's own field stores,
+# including its lock's start_write. An optimistic reader then descends into memory whose
+# lock reads as free and whose children are whatever the allocator left there: zeros on a
+# fresh page (survivable), garbage on recycled memory — which is exactly the observed
+# "under memory pressure, a different rule each run" (TSAN: 66 atomic-vs-plain write pairs,
+# all BTree.h insert/split against a node's lock word). A release fence before each
+# publication orders every initialization store first; the reader's dereference is
+# address-dependent, which arm64 orders by itself. The engine id carries
+# "+seqlock-fix-4", so no unpatched cache entry or package is ever taken for a patched one.
+souffle_overlay(){
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-4"
+  local hdr="$overlay/souffle/utility/ParallelUtil.h"
+  if [ ! -f "$hdr" ]; then
+    rm -rf "$overlay.tmp.$$"
+    mkdir -p "$overlay.tmp.$$"
+    cp -R "$inner/." "$overlay.tmp.$$/" || return 1
+    local h="$overlay.tmp.$$/souffle/utility/ParallelUtil.h"
+    [ -f "$h" ] || return 1
+    # three write-entry RMWs: start_write (two), try_start_write, try_upgrade_to_write
+    sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
+    grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
+    grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
+    # fix-3: a release fence before EVERY store that makes a new node reachable — the child
+    # links fix-2 fenced, and the parent-pointer publications it missed (split's reparenting,
+    # grow_parent's this->parent/sibling->parent, insert_inner's late newNode->parent, which
+    # is reordered to before the link). The lock-parents walk reads exactly those pointers.
+    # ...and the MINGW-COMPILE guards: souffle maps __builtin_popcountll to MSVC's
+    # __popcnt64 and pulls intrin.h for ALL of _WIN32, which breaks g++ on MinGW — the
+    # one toolchain a Windows developer who clones this repository compiles with. Both
+    # are MSVC-only concerns, so the guards narrow to _MSC_VER; every other platform's
+    # preprocessed output is bit-identical.
+    local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
+    [ -f "$b" ] || return 1
+    python3 - "$b" <<'PYEOF' || return 1
+import glob, os, sys
+p = sys.argv[1]; s = open(p).read()
+root = os.path.dirname(os.path.dirname(p))
+F = "std::atomic_thread_fence(std::memory_order_release);  // publication fence (seqlock-fix-3)"
+# split(): fill the sibling completely (children, counts), fence, THEN reparent — each
+# children[j]->parent = other makes the new sibling reachable from an existing node.
+a1 = """            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;"""
+r1 = """            // move child pointers: the sibling's own fields first (private until reparented)
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                }
+            }
+            sibling->numElements = maxKeys - split_point - 1;
+            """ + F + """
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;"""
+# grow_parent(): new_root is fully filled above; the parent stores are its first publication.
+a2 = """                // link this and the sibling node to new root
+                this->parent = new_root;"""
+r2 = """                // link this and the sibling node to new root
+                """ + F + """
+                this->parent = new_root;"""
+a3 = "                // switch root node\n                *root = new_root;"
+r3 = "                // switch root node\n                " + F + "\n                *root = new_root;"
+# insert_inner(): give newNode its parent and position BEFORE the link that publishes it.
+a4 = """            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;"""
+r4 = """            keys[pos] = key;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+            """ + F + """
+            getChildren()[pos + 1] = newNode;"""
+# spec-descent-guard (seqlock-fix-4): the insert descent dereferences the child it read
+# under a still-unvalidated optimistic lease; a concurrent split exposes a null slot.
+# CAPTURED on darwin-arm64: ldapr of the child's seqlock version at address null+8,
+# inside btree::insert, java -j8 under souffle-g memory load. A null child is a failed
+# validation and restarts the insert -- never a dereference. Applied to BTree.h and
+# its BTreeDelete.h twin.
+d = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+dr = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // spec-descent-guard (seqlock-fix-4): a concurrent split can expose a
+                // null child slot under an optimistic lease; treat it as a failed
+                // validation, never dereference it.
+                if (next == nullptr) {
+                    return insert(k, hints);
+                }
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+if s.count(d) != 1: sys.exit(1)
+s = s.replace(d, dr)
+bd = os.path.join(os.path.dirname(p), "BTreeDelete.h")
+t = open(bd).read()
+if t.count(d) != 1: sys.exit(1)
+open(bd, "w").write(t.replace(d, dr))
+for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
+    if s.count(a) != 1: sys.exit(1)
+    s = s.replace(a, r)
+open(p, 'w').write(s)
+# mingw-compile guards, in every copy the include layout holds
+m1 = "#if _WIN64\n#define __builtin_popcountll __popcnt64\n#else\n#define __builtin_popcountll __popcnt\n#endif"
+m1r = "#if defined(_MSC_VER)\n" + m1 + "\n#endif  // _MSC_VER (mingw-compile): MinGW has the gcc builtins"
+m2 = "#ifdef _WIN32\n#include <intrin.h>"
+m2r = "#if defined(_MSC_VER)  // (mingw-compile): intrin.h only for MSVC\n#include <intrin.h>"
+hit1 = hit2 = 0
+for q in glob.glob(root + "/**/MiscUtil.h", recursive=True) + glob.glob(root + "/**/PiggyList.h", recursive=True):
+    t = open(q).read(); n = 0
+    if m1 in t: t = t.replace(m1, m1r); hit1 += 1; n = 1
+    if m2 in t: t = t.replace(m2, m2r); hit2 += 1; n = 1
+    if n: open(q, "w").write(t)
+if hit1 < 1 or hit2 < 1: sys.exit(1)
+# spec-fetch-guard (seqlock-fix-4): an optimistic BTree reader may hand the flyweight a
+# SPECULATIVELY-READ index before validating its seqlock. A torn or stale index must come
+# back as a harmless empty value that the validation then discards -- never a dereference
+# of an unassigned (null) or out-of-range slot. Observed as a segfault in a varying rule,
+# javascript -j8 on darwin-arm64 under memory-pressure load (4 hits in two runs).
+fw = glob.glob(root + "/**/ConcurrentFlyweight.h", recursive=True)[0]
+t = open(fw).read()
+fa = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        assert(Idx < SlotCount.load(std::memory_order_relaxed));
+        return Slots[Idx]->first;
+    }"""
+fr = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        // spec-fetch-guard (seqlock-fix-4): tolerate a speculative index, see overlay notes.
+        if (Idx >= SlotCount.load(std::memory_order_relaxed) || Slots[Idx] == nullptr) {
+            static const Key Empty{};
+            return Empty;
+        }
+        return Slots[Idx]->first;
+    }"""
+if t.count(fa) != 1: sys.exit(1)
+open(fw, "w").write(t.replace(fa, fr))
+rt = glob.glob(root + "/**/RecordTableImpl.h", recursive=True)[0]
+t = open(rt).read()
+ua = """    const RamDomain* unpack(RamDomain Index) const override {
+        return fetch(Index).data();
+    }"""
+ur = """    const RamDomain* unpack(RamDomain Index) const override {
+        // spec-fetch-guard (seqlock-fix-4): an empty generic record has a null data();
+        // give a speculative reader zeroed storage to misread instead.
+        const auto& R = fetch(Index);
+        if (R.data() == nullptr) {
+            static const RamDomain Zeros[64] = {};
+            return Zeros;
+        }
+        return R.data();
+    }"""
+if t.count(ua) != 1: sys.exit(1)
+open(rt, "w").write(t.replace(ua, ur))
+PYEOF
+    [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$b")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/BTreeDelete.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/ConcurrentFlyweight.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/RecordTableImpl.h")" = "1" ] || return 1
+    mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
+    rm -rf "$overlay.tmp.$$"
+  fi
+  [ -f "$hdr" ] && printf '%s' "$overlay"
+}
+OMP_FLAG=(); PAR_SUFFIX=""
+probe_openmp(){
+  # the flags this platform needs for a working OpenMP compile, or nothing.
+  # Linux: -fopenmp everywhere. Darwin: Apple clang only lowers the pragmas with the
+  # frontend flag plus Homebrew's libomp (-Xpreprocessor defines _OPENMP without
+  # lowering anything — a silently sequential binary, which is how this stayed hidden).
+  case "$(uname -s)" in
+    Linux|MINGW*|MSYS*|CYGWIN*)
+      # MSYS2/Git-Bash `c++` is g++, which takes -fopenmp exactly as Linux does
+      if printf 'int main(){return 0;}' | c++ -fopenmp -x c++ -o /dev/null - 2>/dev/null; then
+        printf '%s' "-fopenmp"; return 0
+      fi ;;
+    Darwin)
+      local omp
+      for omp in /opt/homebrew/opt/libomp /usr/local/opt/libomp; do
+        [ -f "$omp/lib/libomp.dylib" ] || continue
+        if printf 'int main(){return 0;}' | c++ -Xclang -fopenmp -I "$omp/include" -L "$omp/lib" -lomp -x c++ -o /dev/null - 2>/dev/null; then
+          printf '%s' "-Xclang -fopenmp -I $omp/include -L $omp/lib -lomp"; return 0
+        fi
+      done ;;
+  esac
+  return 1
+}
+# Default: Linux x86_64 only. The seqlock entry fix above repairs the diagnosed
+# ordering hole (quiet-machine runs went clean), but a residual crash mode remains on
+# arm64 under memory pressure, so weakly-ordered CPUs stay serial by default until it
+# is found; AXIOM_SOLVE_PARALLEL=1 opts any machine in for experiments.
+case "${AXIOM_SOLVE_PARALLEL:-}" in
+  0) ;;
+  1) if _OMP="$(probe_openmp)"; then
+       OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+     fi ;;
+  "") # Parallel by default on every platform with evidence behind it. The two arm64
+      # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
+      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
+      # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
+      # where neither hole is observable. Windows local compiles probe like the rest
+      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
+      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
+      # rollback to serial anywhere, no rebuild.
+      if _OMP="$(probe_openmp)"; then
+        # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
+        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+      fi ;;
+esac
+EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
+BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$PAR_SUFFIX$EXE"
+
+# The platform string, in npm's spelling (process.platform-process.arch), because that is
+# how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
+engine_platform(){
+  local os arch
+  case "$(uname -s)" in
+    Linux) os=linux;; Darwin) os=darwin;; MINGW*|MSYS*|CYGWIN*) os=win32;;
+    *) echo "unsupported platform: $(uname -s)" >&2; return 1;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;;
+    *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
+  esac
+  # a bash started from an Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64; npm installed
+  # the arm64 engine, and an arm64 binary runs natively even from a translated process.
+  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
+  printf '%s-%s\n' "$os" "$arch"
+}
+# 1. the engine package npm installed for this machine, if it was built from exactly these
+#    rules. Found by walking up from the package root the way node would, so a checkout's own
+#    node_modules and a global install both work.
+PACKAGED=""
+platform="$(engine_platform 2>/dev/null || true)"
+# this machine's package first, then the same OS's other architecture: npm installs exactly one per machine, so when
+# the first is absent the installed one is the one npm chose here.
+if [ -n "$platform" ]; then
+  case "$platform" in *-arm64) other="${platform%-arm64}-x64";; *) other="${platform%-x64}-arm64";; esac
+  for p in "$platform" "$other"; do
+    d="$PKG"
+    while [ "$d" != / ] && [ ! -d "$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$p" ]; do d="$(dirname "$d")"; done
+    if [ "$d" != / ]; then platform="$p"; break; fi
+  done
+  d="$PKG"
+  while [ "$d" != / ]; do
+    pkgdir="$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"
+    if [ -d "$pkgdir" ]; then
+      have="$(tr -d '[:space:]' < "$pkgdir/$LANG_ARG/ENGINE_ID" 2>/dev/null || true)"
+      cand="$pkgdir/$LANG_ARG/axiomcode-engine-$LANG_ARG$EXE"
+      if [ "$have" = "$ENGINE_ID" ] && [ -f "$cand" ]; then PACKAGED="$cand"; chmod +x "$cand" 2>/dev/null || true
+      elif [ -n "$have" ]; then echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform holds $LANG_ARG at ${have:0:12}…, these rules are ${ENGINE_ID:0:12}… — not using it (publish a new engine version for these rules)"
+      else echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform has no $LANG_ARG engine"; fi
+      break
+    fi
+    d="$(dirname "$d")"
+  done
+fi
+
+if [ -n "$PACKAGED" ]; then
+  BIN="$PACKAGED"; echo "▶ using packaged engine $ENGINE_PACKAGE_SCOPE/engine-$platform ($LANG_ARG)"
+elif [ -x "$BIN" ]; then
+  echo "▶ reusing cached binary"
+elif command -v souffle >/dev/null 2>&1; then
+  # ONE COMPILE PER ENGINE ID, under a lock whose owner must be dead, not merely old, before
+  # another run takes it over (compile-lock.sh).
+  COMPILE_LOCK="$BIN.lock"
+  compile_lock_take "$COMPILE_LOCK"
+  trap 'compile_lock_drop "$COMPILE_LOCK"' EXIT
+fi
+if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
+  echo "▶ reusing the binary another run compiled"
+elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
+  echo "▶ compiling souffle program (cache miss)..."
+  INNER="$(find_souffle_include)"
+  # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
+  # the two install layouts apart, so it would pass a path that then fails at the compiler.
+  if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
+    echo "❌ soufflé is on PATH but its headers are not. Set AXIOM_SOUFFLE_INCLUDE." >&2; exit 1
+  fi
+  have="$(souffle --version 2>/dev/null | sed -n 's/^Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)"
+  [ "$have" = "$SOUFFLE_VERSION" ] || echo "  ! local souffle is $have, the pinned version is $SOUFFLE_VERSION — a locally compiled engine may differ from CI's"
+  # Generate C++. souffle's "No rules/facts defined" warnings (for the intentionally
+  # unstaged lib-body relations — inert paths) aren't silenced by -w, so filter those 3-
+  # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
+  # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
+  # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
+  if ! souffle -I "$SRC" -j 8 -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
+    cat "$INT/.souffle-gen.log" >&2; exit 1
+  fi
+  awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
+  [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
+  CXX_PLATFORM=""
+  case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
+  OVERLAY="$(souffle_overlay "$INNER" || true)"
+  [ -n "$OVERLAY" ] || { echo "❌ could not prepare the patched soufflé headers (seqlock fix)" >&2; exit 1; }
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} ${OMP_FLAG[@]+"${OMP_FLAG[@]}"} -w $CXX_PLATFORM -I "$OVERLAY" -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+    rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
+  fi
+  # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
+  # land under $ENGINE_ID unless it is a whole binary built from the program that id names:
+  # the temp binary must be a non-empty executable, and the program must still hash to the id
+  # (a program or rule file that changed during the compile would otherwise be cached under
+  # the old id). Only then the atomic rename.
+  _built_id="$ENGINE_ID"
+  if [ ! -s "$BIN.tmp.$$" ] || [ ! -x "$BIN.tmp.$$" ] || ! engine_id_of "$PROG" || [ "$ENGINE_ID" != "$_built_id" ]; then
+    rm -f "$BIN.tmp.$$"
+    echo "❌ the compiled engine did not verify (program now hashes to ${ENGINE_ID:-nothing}, built as $_built_id); not caching it" >&2
+    exit 1
+  fi
+  mv -f "$BIN.tmp.$$" "$BIN"
+fi
+if [ -n "${COMPILE_LOCK:-}" ]; then compile_lock_drop "$COMPILE_LOCK"; trap - EXIT
+elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
+  echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
+  echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
+  echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases)." >&2
+  exit 1
+fi
+}
+case "$MODE" in
+  print-engine-id)
+    _pd="$(mktemp -d "${TMPDIR:-/tmp}/axiom-program.XXXXXX")" && [ -d "$_pd" ] || { echo "❌ mktemp failed" >&2; exit 1; }
+    if program_file "$_pd/program.dl" && { engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl"; }; then rm -rf "$_pd"
+    else rm -rf "$_pd"; exit 1; fi
+    printf '%s\n' "$ENGINE_ID" || exit 1
+    exit 0;;
+  emit-program) program_file "$EMIT" || exit 1; exit 0;;
+  # The engine binary without a project: what an install or a build runs (`axiomcode prepare`), so the first index
+  # finds it cached instead of paying the C++ compile — minutes, against seconds for the index itself. The same
+  # program text, id, cache entry and lock as a run, so a run that starts meanwhile waits for this compile.
+  prepare)
+    set_cache_root
+    INT="$(mktemp -d "${TMPDIR:-/tmp}/axiom-prepare.XXXXXX")" && [ -d "$INT" ] || { echo "❌ mktemp failed" >&2; exit 1; }
+    PROG="$INT/souffle-program.dl"; _t0=$(date +%s)
+    program_file "$PROG" || { rm -rf "$INT"; exit 1; }
+    engine_id_of "$PROG" || engine_id_of "$PROG" || engine_id_of "$PROG" \
+      || { rm -rf "$INT"; echo "❌ could not compute the engine id of $PROG" >&2; exit 1; }
+    engine_binary
+    rm -rf "$INT"
+    echo "✓ $LANG_ARG engine ready in $(( $(date +%s) - _t0 )) s: $BIN"
+    exit 0;;
+esac
+
+[ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
+FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
+# raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
+# earlier run and be mistaken for this one's output.
+RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
+set_cache_root
 START_EPOCH=$(date +%s); START_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Library roots: --library is a comma-separated list of IR roots (each with jdk-style
@@ -396,7 +818,7 @@ while IFS=$'\t' read -r rel csv; do
   if [ -f "$CLIENT/$csv.csv" ]; then awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
   else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
-done < <(read_map "$TPL/client-ir.map")
+done < <(read_map "$TPL/client-ir.map"; if [ -f "$TPL/client-extra.map" ]; then read_map "$TPL/client-extra.map"; fi)
 
 # --- LIB: signature relations, concatenated across every module of every root ---
 # CACHED. This concatenation reads the ENTIRE library IR (the JDK alone is 2.0 GB in,
@@ -504,6 +926,17 @@ echo "▶ taint gating = $( [ -s "$FACTS/taint_gating.facts" ] && echo 'on (opt-
 CAP_EFF="${AXIOM_DISPATCH_CAP:-$DISPATCH_CAP}"
 case "$CAP_EFF" in off|none|no|0|"") CAP_EFF="";; esac
 [ -n "$CAP_EFF" ] && printf '%s\n' "$CAP_EFF" > "$FACTS/dispatch_cap.facts"
+
+# dispatch_closed_world — OPT-IN RTA narrowing of the dispatch fan (#473). The file always exists
+# so its .input directive is generated; EMPTY = the fan is every declared override (the default,
+# and what every golden pins). "on" admits only overrides a constructed or escaping type can
+# reach, and exports each dropped edge as an assumption row: the narrowing is sound only when
+# every construction is in the analysed code, so the bundle says it was made. Only front ends
+# that read the relation change; the others ignore it.
+: > "$FACTS/dispatch_closed_world.facts"
+CW_EFF="${AXIOM_DISPATCH_CLOSED_WORLD:-$CLOSED_WORLD}"
+case "$CW_EFF" in on|yes|1|true) CW_EFF="on"; printf 'on\n' > "$FACTS/dispatch_closed_world.facts";; *) CW_EFF="off";; esac
+echo "▶ dispatch closed world = $CW_EFF"
 echo "▶ dispatch cap = $( [ -s "$FACTS/dispatch_cap.facts" ] && echo "$(cat "$FACTS/dispatch_cap.facts") (default; --dispatch-cap off for unbounded reachability)" || echo 'OFF — uncapped/sound (sink & taint traversal)' )"
 
 # engine-ii (lib-frontier forward-chain) is GATED — default OFF so the build is CLIENT-ONLY
@@ -529,137 +962,7 @@ engine_id_of "$PROG" || engine_id_of "$PROG" || engine_id_of "$PROG" \
   || { echo "❌ could not compute the engine id of $PROG; refusing to guess a cache entry" >&2; exit 1; }
 echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 
-# What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
-# into C++, c++ compiles it) — NOT the souffle tool. It depends only on the engine (rules +
-# decls) and is PROJECT-INDEPENDENT (relative .input/.output), so one binary serves every
-# project. It lives in a shared, machine-scoped cache keyed by the engine id — NOT in the
-# per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
-# gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
-CACHE_DIR="$CACHE_ROOT"
-# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
-# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
-# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
-# target instead, as the published engines are (build-engines.yml). Any other value is
-# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
-# cache across machines keys it on the setting (ci.yml does).
-case "${AXIOM_ENGINE_MARCH:-native}" in
-  portable) MARCH_FLAG=();;
-  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
-esac
-EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
-BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
-
-# The platform string, in npm's spelling (process.platform-process.arch), because that is
-# how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
-engine_platform(){
-  local os arch
-  case "$(uname -s)" in
-    Linux) os=linux;; Darwin) os=darwin;; MINGW*|MSYS*|CYGWIN*) os=win32;;
-    *) echo "unsupported platform: $(uname -s)" >&2; return 1;;
-  esac
-  case "$(uname -m)" in
-    x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;;
-    *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
-  esac
-  # a bash started from an Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64; npm installed
-  # the arm64 engine, and an arm64 binary runs natively even from a translated process.
-  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
-  printf '%s-%s\n' "$os" "$arch"
-}
-# 1. the engine package npm installed for this machine, if it was built from exactly these
-#    rules. Found by walking up from the package root the way node would, so a checkout's own
-#    node_modules and a global install both work.
-PACKAGED=""
-platform="$(engine_platform 2>/dev/null || true)"
-# this machine's package first, then the same OS's other architecture: npm installs exactly one per machine, so when
-# the first is absent the installed one is the one npm chose here.
-if [ -n "$platform" ]; then
-  case "$platform" in *-arm64) other="${platform%-arm64}-x64";; *) other="${platform%-x64}-arm64";; esac
-  for p in "$platform" "$other"; do
-    d="$PKG"
-    while [ "$d" != / ] && [ ! -d "$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$p" ]; do d="$(dirname "$d")"; done
-    if [ "$d" != / ]; then platform="$p"; break; fi
-  done
-  d="$PKG"
-  while [ "$d" != / ]; do
-    pkgdir="$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"
-    if [ -d "$pkgdir" ]; then
-      have="$(tr -d '[:space:]' < "$pkgdir/$LANG_ARG/ENGINE_ID" 2>/dev/null || true)"
-      cand="$pkgdir/$LANG_ARG/axiomcode-engine-$LANG_ARG$EXE"
-      if [ "$have" = "$ENGINE_ID" ] && [ -f "$cand" ]; then PACKAGED="$cand"; chmod +x "$cand" 2>/dev/null || true
-      elif [ -n "$have" ]; then echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform holds $LANG_ARG at ${have:0:12}…, these rules are ${ENGINE_ID:0:12}… — not using it (publish a new engine version for these rules)"
-      else echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform has no $LANG_ARG engine"; fi
-      break
-    fi
-    d="$(dirname "$d")"
-  done
-fi
-
-if [ -n "$PACKAGED" ]; then
-  BIN="$PACKAGED"; echo "▶ using packaged engine $ENGINE_PACKAGE_SCOPE/engine-$platform ($LANG_ARG)"
-elif [ -x "$BIN" ]; then
-  echo "▶ reusing cached binary"
-elif command -v souffle >/dev/null 2>&1; then
-  # ONE COMPILE PER ENGINE ID. Concurrent runs that miss the cache together (a suite's
-  # concurrent cases, several agents on one machine) each compiled the same engine: a
-  # multi-GB c++ per run, enough of them at once to exhaust memory. The first takes the
-  # lock and compiles; the others wait, then reuse its binary. A lock older than 30 min
-  # is a dead compile's (killed, out of memory) and is taken over.
-  COMPILE_LOCK="$BIN.lock"; _waited=0
-  until mkdir "$COMPILE_LOCK" 2>/dev/null; do
-    if [ -n "$(find "$COMPILE_LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; continue; fi
-    [ "$_waited" = 1 ] || echo "▶ another run is compiling this engine; waiting for it..."
-    _waited=1; sleep 3
-  done
-  trap 'rmdir "$COMPILE_LOCK" 2>/dev/null || true' EXIT
-fi
-if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
-  echo "▶ reusing the binary another run compiled"
-elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
-  echo "▶ compiling souffle program (cache miss)..."
-  INNER="$(find_souffle_include)"
-  # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
-  # the two install layouts apart, so it would pass a path that then fails at the compiler.
-  if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
-    echo "❌ soufflé is on PATH but its headers are not. Set AXIOM_SOUFFLE_INCLUDE." >&2; exit 1
-  fi
-  have="$(souffle --version 2>/dev/null | sed -n 's/^Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)"
-  [ "$have" = "$SOUFFLE_VERSION" ] || echo "  ! local souffle is $have, the pinned version is $SOUFFLE_VERSION — a locally compiled engine may differ from CI's"
-  # Generate C++. souffle's "No rules/facts defined" warnings (for the intentionally
-  # unstaged lib-body relations — inert paths) aren't silenced by -w, so filter those 3-
-  # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
-  # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
-  # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
-  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
-    cat "$INT/.souffle-gen.log" >&2; exit 1
-  fi
-  awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
-  [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
-  CXX_PLATFORM=""
-  case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
-    rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
-  fi
-  # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
-  # land under $ENGINE_ID unless it is a whole binary built from the program that id names:
-  # the temp binary must be a non-empty executable, and the program must still hash to the id
-  # (a program or rule file that changed during the compile would otherwise be cached under
-  # the old id). Only then the atomic rename.
-  _built_id="$ENGINE_ID"
-  if [ ! -s "$BIN.tmp.$$" ] || [ ! -x "$BIN.tmp.$$" ] || ! engine_id_of "$PROG" || [ "$ENGINE_ID" != "$_built_id" ]; then
-    rm -f "$BIN.tmp.$$"
-    echo "❌ the compiled engine did not verify (program now hashes to ${ENGINE_ID:-nothing}, built as $_built_id); not caching it" >&2
-    exit 1
-  fi
-  mv -f "$BIN.tmp.$$" "$BIN"
-fi
-if [ -n "${COMPILE_LOCK:-}" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; trap - EXIT
-elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
-  echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
-  echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
-  echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases)." >&2
-  exit 1
-fi
+engine_binary
 # --- STAGE↔SOLVE loop: solve → stage the bodies of methods reached so far → re-solve, until
 #     reachable_method stops growing. Soufflé loads facts up front and can't fetch bodies mid-
 #     solve, so the driver feeds them in reachability order. Each round loads the bodies of ALL
@@ -737,7 +1040,22 @@ while [ "$iter" -lt 50 ]; do
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
-    rc=0; "$BIN" -F "$FACTS" -D "$RAW" || rc=$?
+    # -j is passed ALWAYS (a serial binary ignores it silently — verified); more than one
+    # thread only for a binary of the parallel flavor: one this run compiled with OpenMP,
+    # or a packaged/cached one whose builder left a .parallel marker beside it.
+    SOLVE_J=1
+    if [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
+      cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
+      SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
+    fi
+    # AXIOM_DL_PROFILE=<file>: solve this run in the souffle INTERPRETER with per-rule profiling
+    # written to <file> (souffleprof reads it). Slower than the compiled engine, same answer; for
+    # finding the rules a solve spends its time in, as the java local-use hoist was found.
+    if [ -n "${AXIOM_DL_PROFILE:-}" ] && command -v souffle >/dev/null 2>&1; then
+      rc=0; souffle -I "$SRC" -j "$SOLVE_J" -p "$AXIOM_DL_PROFILE" -F "$FACTS" -D "$RAW" "$PROG" || rc=$?
+    else
+    rc=0; "$BIN" -j "$SOLVE_J" -F "$FACTS" -D "$RAW" || rc=$?
+    fi
     if [ "$rc" -ne 0 ]; then
       if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
         rm -f "$BIN"
@@ -776,7 +1094,7 @@ done
 # here (it's in the shared cache), and facts must stay per-run (never shared) so concurrent
 # analyses of different projects don't collide. Runs only on success (set -e bails earlier
 # on failure, leaving the facts for debugging).
-rm -rf "$FACTS" "$INT/souffle-program.cpp"
+[ "${AXIOM_KEEP_FACTS:-0}" = "1" ] || rm -rf "$FACTS" "$INT/souffle-program.cpp"
 SOLVE_EPOCH=$(date +%s)
 echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 
@@ -803,7 +1121,7 @@ BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
 "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
-  --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
+  --meta "dispatch_cap=${CAP_EFF:-off}" --meta "dispatch_closed_world=$CW_EFF" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
   --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))" \
   ${EXTRA_META[@]+"${EXTRA_META[@]}"}
 

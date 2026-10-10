@@ -36,7 +36,7 @@ import { extractExports } from '@/parsers/typescript/extractors/ts-export-extrac
 import { TsExpressionExtractor } from
   '@/parsers/typescript/extractors/ts-expression-extractor';
 import { TsExpressionWalker } from '@/parsers/typescript/extractors/ts-expression-walker';
-import { TsImportExtractor } from '@/parsers/typescript/extractors/ts-import-extractor';
+import { TsImportExtractor, WorkspaceModule } from '@/parsers/typescript/extractors/ts-import-extractor';
 import { extractModules } from '@/parsers/typescript/extractors/ts-module-extractor';
 import {
   EngineHandoff,
@@ -92,6 +92,8 @@ export interface TsFileExtractionOptions {
   readonly projectModuleHashes: ReadonlyMap<string, string>;
   /** Absolute path -> project-relative path, extension stripped. */
   readonly toProjectRelative: (absolutePath: string) => string;
+  /** A bare specifier naming a package this repository declares -> its walked source module. */
+  readonly resolveWorkspaceModule?: (specifier: string) => WorkspaceModule | undefined;
   /**
    * How `sourceText` parses, when the file's extension cannot say: a `.vue`
    * component's virtual script is TS or TSX by its `lang`, not by its name.
@@ -181,15 +183,18 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
       );
       const fileName = resolved.resolvedModule?.resolvedFileName
         ?? resolveVueSpecifier(specifier, options.absoluteFilePath);
-      if (!fileName) {
-        return undefined;
-      }
-      const absolute = path.normalize(fileName);
+      const absolute = fileName ? path.normalize(fileName) : '';
       const moduleHash = options.projectModuleHashes.get(absolute);
-      if (!moduleHash) {
-        return undefined;
+      if (moduleHash) {
+        return { moduleHash, relativePath: options.toProjectRelative(absolute) };
       }
-      return { moduleHash, relativePath: options.toProjectRelative(absolute) };
+      // `declare module '@scope/lib'` augmenting a package this repository declares.
+      const workspace = absolute.includes(`${path.sep}node_modules${path.sep}`)
+        ? undefined
+        : options.resolveWorkspaceModule?.(specifier);
+      return workspace === undefined
+        ? undefined
+        : { moduleHash: workspace.moduleHash, relativePath: options.toProjectRelative(workspace.absolutePath) };
     },
     ambientModuleHashes: modules.ambientModuleHashes,
   });
@@ -203,6 +208,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     serviceVersionLinkHash: options.serviceVersionLinkHash,
     projectModuleHashes: options.projectModuleHashes,
     toProjectRelative: options.toProjectRelative,
+    resolveWorkspaceModule: options.resolveWorkspaceModule,
   });
   const importResult = importExtractor.run();
 
@@ -498,7 +504,12 @@ function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[]
 }
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
-  return filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  if (filePath.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  // a JavaScript file joins a TypeScript program when it imports it (a .js test of .ts source):
+  // parsed as JavaScript, where JSX is allowed and type syntax is not
+  if (filePath.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.[cm]?js$/.test(filePath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 /**

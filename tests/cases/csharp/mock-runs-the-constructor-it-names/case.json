@@ -1,0 +1,88 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "a class mock built with constructor arguments runs the constructor they select: new Mock<C>(args) and Substitute.ForPartsOf<C>(args) reach C(decimal) beside the direct new C(2m) (#1495)",
+   "run": [
+    "impact",
+    "Shop/PriceRule.cs:5",
+    "--tests"
+   ],
+   "want": [
+    "PriceRuleTests::MoqWithRate",
+    "PriceRuleTests::PartsOfWithRate",
+    "PriceRuleTests::DirectWithRate",
+    "PriceRuleTests::FeeIsStubbed"
+   ],
+   "avoid": [
+    "PriceRuleTests::MoqWithFloor",
+    "PriceRuleTests::MoqFromLambda"
+   ]
+  },
+  {
+   "why": "near miss: a leading MockBehavior is not a constructor argument, so new Mock<C>(MockBehavior.Loose, 2m, 1m) selects C(decimal, decimal); a mock built from a lambda reaches it through the lambda's own new; that lambda is inside one test, so it reaches that test and no other test of the class (#1556)",
+   "run": [
+    "impact",
+    "Shop/PriceRule.cs:6",
+    "--tests"
+   ],
+   "want": [
+    "PriceRuleTests::MoqWithFloor",
+    "PriceRuleTests::MoqFromLambda"
+   ],
+   "avoid": [
+    "PriceRuleTests::MoqWithRate",
+    "PriceRuleTests::PartsOfWithRate",
+    "PriceRuleTests::DirectWithRate",
+    "PriceRuleTests::FeeIsStubbed"
+   ]
+  },
+  {
+   "why": "a protected member Moq's Protected().Setup/Verify names by string is stubbed there: a rename breaks the test at run time, so it is listed as a stub (#1540)",
+   "run": [
+    "impact",
+    "PriceRule.Fee",
+    "--tests"
+   ],
+   "want": [
+    "[stubs it]",
+    "Shop.Tests/PriceRuleTests.cs"
+   ]
+  },
+  {
+   "why": "the Protected() call may end the line above the Setup that names the member",
+   "run": [
+    "impact",
+    "PriceRule.Tip",
+    "--tests"
+   ],
+   "want": [
+    "[stubs it]"
+   ]
+  },
+  {
+   "why": "near miss: a protected member of the same name on a type the test does not mock, and a protected member the string does not name, are not stubbed",
+   "run": [
+    "impact",
+    "Coupon.Fee",
+    "--tests"
+   ],
+   "avoid": [
+    "[stubs it]",
+    "stub it on a mock"
+   ]
+  },
+  {
+   "why": "near miss: Levy is not named by the setup",
+   "run": [
+    "impact",
+    "PriceRule.Levy",
+    "--tests"
+   ],
+   "avoid": [
+    "[stubs it]",
+    "stub it on a mock"
+   ]
+  }
+ ]
+}

@@ -62,6 +62,8 @@ http_route_deco(dp) :- decorator_text("client", dp, _, argc, _), argc != "0",
 // — a path-absolute is the only form a router accepts). Nothing else about the argument
 // is assumed: not its position (`@routes.route("GET", "/x")` puts the verb first), not
 // its spelling (`{key}`, `<key>`, `:key` are all path parameters), not its length.
+// The one path that does not begin with "/" is the empty one, handled by the second
+// clause below.
 //
 // THIS CONDITION IS WHY THE VERB LIST IS SAFE. `patch` is an HTTP method AND the name of
 // the stdlib's mock entry point, so `mock.patch` satisfies <receiver>.<verb> exactly.
@@ -72,9 +74,35 @@ http_route_deco(dp) :- decorator_text("client", dp, _, argc, _), argc != "0",
 .decl http_route_path(deco:symbol)
 http_route_path(d) :- annotation_arg("client", _, v, _, _, "false", d, _),
     strlen(v) > 0, substr(v, 0, 1) = "/".
+// The one path that does not begin with "/": the empty one, first and written as a string, which a router
+// mounted under a prefix serves at the prefix itself (`APIRouter(prefix="/orders")` + `@router.post("")`).
+http_route_path(d) :- annotation_arg("client", _, "", "STRING_LITERAL", "0", "false", d, _).
+
+// THE EMPTY PATH (#1519). A router or blueprint that carries a prefix serves the prefix
+// itself with "": `APIRouter(prefix="/orders")` + `@router.get("")` is `GET /orders`, and
+// a Flask blueprint with url_prefix does the same with `@bp.route("")`. The patch target
+// the rule above keeps out cannot reach this clause: `mock.patch("")` raises TypeError at
+// decoration time, so no module that imports carries it. Only the FIRST POSITIONAL
+// argument may be empty, and only a plain string literal: an empty second argument
+// (`@x.route("GET", "")`) is not the path.
+http_route_path(d) :- annotation_arg("client", _, "", "STRING_LITERAL", "0", "false", d, _).
 
 entry_point(m, "http") :- decorator_target("client", _, m, h),
     decorator_text("client", dp, _, _, h), http_route_deco(dp), http_route_path(h).
+
+// THE SAME REGISTRATION WRITTEN AS A CALL (#1524): `router.add_api_route("/x", fn)`,
+// `app.add_url_rule("/x", view_func=fn)`. The method must be catalogued and, like the
+// decorator, carry a URL path, so a registry's `add_route("name", fn)` is not a route. The
+// handler is the argument that denotes a def, by position or by a catalogued keyword; the
+// path string never does.
+.decl http_route_call(e:symbol)
+http_route_call(e) :- call_decl("client", _, meth, _, e, _), py_http_route_register_method(meth),
+    call_arg(e, _, a), expr_node("client", "LITERAL", _, v, a),
+    strlen(v) > 0, substr(v, 0, 1) = "/".
+entry_point(m, "http") :- http_route_call(e), call_arg(e, _, a),
+    expr_denotes_method("client", a, m), m != "".
+entry_point(m, "http") :- http_route_call(e), py_http_route_endpoint_kw(k),
+    call_kwarg(e, k, a), expr_denotes_method("client", a, m), m != "".
 
 // Only the HTTP rule is written here. A `__main__` guard and a CLI command are also
 // entry points, but neither was MEASURED on a subject yet, and an unmeasured rule is how

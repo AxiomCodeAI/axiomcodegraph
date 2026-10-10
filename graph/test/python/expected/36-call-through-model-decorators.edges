@@ -1,0 +1,17 @@
+ambiguous_unknown	DECORATOR_APPLICATION	app.orders.<module> -> -
+ambiguous_unknown	DECORATOR_BARE	app.orders.<module> -> -
+ambiguous_unknown	DECORATOR_BARE	app.orders.Order.<classbody> -> -
+boundary_lib	DECORATOR_BARE	app.orders.Order.<classbody> -> builtin:property
+boundary_lib	DECORATOR_CALL	app.orders.<module> -> external:pydantic.validate_call
+boundary_lib	METHOD_CALL	app.checkout.show -> builtin:float.hex
+boundary_lib	SIMPLE_CALL	app.orders.apply_discount -> builtin:round
+boundary_lib	SIMPLE_CALL	app.orders.apply_tax -> builtin:round
+known_edge	DECORATOR_BARE	app.orders.<module> -> app.orders.audit
+known_edge	PROPERTY_READ	app.checkout.show -> app.orders.Order.grand_total
+known_edge	PROPERTY_READ	app.checkout.show -> app.orders.Order.net_total
+known_edge	PROPERTY_READ	app.checkout.show -> app.orders.Order.tax_due
+known_edge	SIMPLE_CALL	app.checkout.checkout -> app.orders.apply_discount
+known_edge	SIMPLE_CALL	app.checkout.checkout_coupon -> app.orders.apply_coupon
+known_edge	SIMPLE_CALL	app.checkout.checkout_replaced -> app.orders.audit.<locals>.wrapper
+known_edge	SIMPLE_CALL	app.checkout.checkout_taxed -> app.orders.apply_tax
+known_edge	SIMPLE_CALL	app.orders.audit.<locals>.wrapper -> app.orders.replaced

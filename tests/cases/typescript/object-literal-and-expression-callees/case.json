@@ -17,7 +17,7 @@
   {
    "why": "a literal bound to a const declared as the interface implements it too",
    "run": ["path", "usePool", "src/pool.ts:16"],
-   "want": ["[dispatch] <arrow>   src/pool.ts:16"],
+   "want": ["[dispatch] fixed.run   src/pool.ts:16"],
    "avoid": ["no chain of resolved calls"]
   },
   {

@@ -1,0 +1,76 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a call binds to an overload SIGNATURE, which has no body; the implementation is what runs, so a test calling the function reaches an edit to it",
+   "run": [
+    "impact",
+    "src/lib.ts:5",
+    "--tests-only"
+   ],
+   "want": [
+    "src/lib.test.ts ("
+   ],
+   "avoid": [
+    "0 of",
+    "not found"
+   ]
+  },
+  {
+   "why": "the same for an overloaded method",
+   "run": [
+    "impact",
+    "src/lib.ts:16",
+    "--tests-only"
+   ],
+   "want": [
+    "src/lib.test.ts ("
+   ],
+   "avoid": [
+    "0 of"
+   ]
+  },
+  {
+   "why": "and further down: what the implementation calls is reached through it",
+   "run": [
+    "impact",
+    "normalize",
+    "--tests-only"
+   ],
+   "want": [
+    "src/lib.test.ts ("
+   ],
+   "avoid": [
+    "0 of"
+   ]
+  },
+  {
+   "why": "path walks from the test into the implementation through the signature the call selected",
+   "run": [
+    "path",
+    "src/lib.test.ts",
+    "src/lib.ts:5"
+   ],
+   "want": [
+    "[overload] pick",
+    "verified: every printed hop"
+   ],
+   "avoid": [
+    "the two are independent"
+   ]
+  },
+  {
+   "why": "control: a same-named function in another module is not in that overload set",
+   "run": [
+    "impact",
+    "src/other.ts:2",
+    "--tests-only"
+   ],
+   "want": [],
+   "avoid": [
+    "src/lib.test.ts ("
+   ]
+  }
+ ]
+}

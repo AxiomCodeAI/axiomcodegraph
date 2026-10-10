@@ -26,8 +26,23 @@ cs_grpc_client_member_not_rpc("NewInstance").
 cs_framework_namespace_root("System").
 cs_framework_namespace_root("Microsoft").
 
+// The gRPC runtime's own namespaces. A file `using` them says nothing about which
+// namespace a generated service is in, so they never tell two same-named services apart.
+cs_grpc_runtime_namespace("Grpc.Core").
+cs_grpc_runtime_namespace("Grpc.Net.Client").
+cs_grpc_runtime_namespace("Grpc.Net.ClientFactory").
+cs_grpc_runtime_namespace("Grpc.AspNetCore.Server").
+cs_grpc_runtime_namespace("Google.Protobuf").
+cs_grpc_runtime_namespace("Google.Protobuf.WellKnownTypes").
+// A factory whose type argument is the client it returns:
+// `factory.CreateClient<Orders.OrdersClient>("orders")` (Grpc.Net.ClientFactory).
+cs_client_factory_generic("CreateClient").
+
 cs_remote_transport_grpc("grpc").
 cs_remote_confidence_exact("exact").
+// a gRPC send whose service name several services share, none in a namespace the
+// client can see: every one is kept, a rung below exact
+cs_remote_confidence_service_name("service_name").
 
 // ── HTTP: ASP.NET Core on the server ────────────────────────────────────────
 // Attribute routing. `Route` carries a template and no verb; each Http<Verb> carries a
@@ -44,12 +59,38 @@ cs_http_verb_attr("HttpOptions", "OPTIONS"). cs_http_verb_attr("HttpOptionsAttri
 // The suffix ASP.NET strips from a controller's class name for the [controller] token.
 cs_http_controller_suffix("Controller").
 // Minimal APIs: `app.MapGet(template, handler)`, and a route group's prefix.
+// Controllers: the bases that make a class a controller whatever its name, the attribute
+// that keeps a public method from being an action, an [Area], and [ApiController], which
+// requires attribute routing (conventional routes never reach it).
+cs_http_controller_base("Controller").
+cs_http_controller_base("ControllerBase").
+cs_http_non_action_attr("NonAction").      cs_http_non_action_attr("NonActionAttribute").
+cs_http_area_attr("Area").                 cs_http_area_attr("AreaAttribute").
+cs_http_api_controller_attr("ApiController"). cs_http_api_controller_attr("ApiControllerAttribute").
+// Conventional routes: the method and the argument its pattern is in. The default route
+// has its pattern fixed; an area route names the area in one argument, the pattern in another.
+cs_http_conventional_route("MapControllerRoute", 1).
+cs_http_conventional_route("MapRoute", 1).
+cs_http_area_route("MapAreaControllerRoute", 1, 2).
+cs_http_area_route("MapAreaRoute", 1, 2).
+cs_http_default_route("MapDefaultControllerRoute", "{controller=Home}/{action=Index}/{id?}").
+// the route values a pattern or its defaults name, and what may follow a token's name
+cs_http_route_value_key("controller"). cs_http_route_value_key("action"). cs_http_route_value_key("area").
+cs_route_token_end("}"). cs_route_token_end("="). cs_route_token_end(":"). cs_route_token_end("?").
 cs_http_map_verb("MapGet", "GET").
 cs_http_map_verb("MapPost", "POST").
 cs_http_map_verb("MapPut", "PUT").
 cs_http_map_verb("MapDelete", "DELETE").
 cs_http_map_verb("MapPatch", "PATCH").
 cs_http_map_group("MapGroup").
+// `app.MapMethods(template, verbs, handler)`: the verbs are a collection in argument 1,
+// each a literal or a `HttpMethods.Head` member (cs_http_method_member below), and the
+// handler is argument 2.
+cs_http_map_methods("MapMethods").
+// The builder types an endpoint-mapping helper takes, `this RouteGroupBuilder g`: the
+// prefix of the group each call site passes carries into the helper's MapX calls.
+cs_http_route_builder_type("RouteGroupBuilder").
+cs_http_route_builder_type("IEndpointRouteBuilder").
 
 // ── HTTP: the client ────────────────────────────────────────────────────────
 // A receiver whose written type is HttpClient, and the verb each of its calls sends.
@@ -234,6 +275,26 @@ cs_test_lifecycle_attr("OneTimeSetUp").     cs_test_lifecycle_attr("OneTimeTearD
 cs_test_lifecycle_attr("TestInitialize").   cs_test_lifecycle_attr("TestCleanup").
 cs_test_lifecycle_attr("ClassInitialize").  cs_test_lifecycle_attr("ClassCleanup").
 cs_test_lifecycle_attr("AssemblyInitialize"). cs_test_lifecycle_attr("AssemblyCleanup").
+// MSTest 3.10+: run around EVERY test of the assembly (#1503)
+cs_test_lifecycle_attr("GlobalTestInitialize"). cs_test_lifecycle_attr("GlobalTestCleanup").
+
+// cs_main_return(Written) / cs_main_param(Written): the shapes C# accepts as a program's
+// entry point. A static `Main` of any other shape, `static string Main()` on a helper, is
+// an ordinary method its callers reach, and was a main entry point (#1451).
+cs_main_return("void"). cs_main_return("int"). cs_main_return("Int32"). cs_main_return("System.Int32").
+cs_main_return("Task"). cs_main_return("Task<int>"). cs_main_return("Task<Int32>").
+cs_main_return("System.Threading.Tasks.Task"). cs_main_return("System.Threading.Tasks.Task<int>").
+cs_main_param("string[]"). cs_main_param("String[]"). cs_main_param("System.String[]").
+
+// cs_mock_new_type(Type) / cs_mock_factory(Receiver, Method): building a CLASS mock runs the
+// mocked type's constructor with the arguments given, through the proxy subclass the
+// library generates: `new Mock<C>(args)` (Moq) and `Substitute.ForPartsOf<C>(args)`,
+// `Substitute.For<C>(args)` (NSubstitute). cs_mock_behavior_arg is a leading argument
+// that configures the mock and is not passed on (Moq's `MockBehavior.Strict`) (#1495).
+cs_mock_new_type("Mock").
+cs_mock_factory("Substitute", "ForPartsOf").
+cs_mock_factory("Substitute", "For").
+cs_mock_behavior_arg("MockBehavior").
 // cs_framework_callback(Base, Method, Reason): a framework calls Method on a type that
 // derives from Base or implements it, directly or through the project's own bases.
 // Base is the written simple name without type arguments. Method "*" is every public

@@ -1,6 +1,7 @@
 import_cause     components/List.svelte:2:12  svelte  not_staged
 import_cause     components/Price.vue:4:10  vue  not_staged
 import_cause     main.js:2:10  vue  not_staged
+library_receiver main.js:5:1  createApp(Price).mount  vue
 package_entry    single-file-component-scripts  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       components/Legacy.vue:7:26  METHOD_CALL $emit  member_absent
 unresolved       components/List.svelte:5:3  FUNCTION_CALL onMount  callee_untyped

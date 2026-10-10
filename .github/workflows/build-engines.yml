@@ -73,7 +73,9 @@ jobs:
             id="$(bash graph/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"; printf '%s' "$id" > "gen/$lang.id"
             bash graph/pipeline/run-souffle.sh --language "$lang" --emit-program "gen/$lang.dl"
-            souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
+            # -j makes souffle EMIT the parallel loops (without it the C++ has none); whether a
+            # platform's binary runs them in parallel is decided at compile time below.
+            souffle -I graph -j 8 -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
             awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
           done
           # the query programs: self-contained (no #include), keyed by dl_program.py itself
@@ -89,6 +91,33 @@ jobs:
           bash .github/scripts/query-smoke.sh expect gen/queries
           cp .github/scripts/query-smoke.sh gen/queries/smoke.sh
           cp -r /usr/include/souffle gen/souffle
+          # the seqlock fix (see souffle_overlay in run-souffle.sh): the write-entry RMW
+          # must be seq_cst or a weakly-ordered CPU lets data stores pass the version-odd
+          # store and readers validate garbage. Patched here so every platform's binary
+          # is built from the same fixed headers; the engine id carries +seqlock-fix-4,
+          # so these headers must carry the SAME patches run-souffle's overlay applies —
+          # a binary labeled fix-4 but built from lesser headers is the exact mislabeling
+          # the salt exists to prevent.
+          # the header layout differs by install (deb: souffle/utility; brew: souffle/souffle/utility),
+          # so the patched files are FOUND, not assumed — a miss fails the build here, loudly
+          PU=$(find gen/souffle -name ParallelUtil.h | head -1); [ -n "$PU" ]
+          sed -i 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$PU"
+          grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$PU"
+          ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$PU"
+          # fix-3: the publication fences, applied by the same anchored patch the local
+          # overlay uses (extracted from run-souffle.sh so the two cannot drift)
+          BT=$(find gen/souffle -name BTree.h | head -1); [ -n "$BT" ]
+          awk '/^import glob, os, sys$/,/^PYEOF$/' graph/pipeline/run-souffle.sh | sed '$d' > /tmp/fences.py
+          python3 /tmp/fences.py "$BT"
+          [ "$(grep -c 'seqlock-fix-3' "$BT")" = "4" ]
+          # fix-4: the speculative-fetch guards, applied by the same extracted patch
+          FW=$(find gen/souffle -name ConcurrentFlyweight.h | head -1); [ -n "$FW" ]
+          RT=$(find gen/souffle -name RecordTableImpl.h | head -1); [ -n "$RT" ]
+          [ "$(grep -c 'seqlock-fix-4' "$FW")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$RT")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BT")" = "1" ]
+          BD=$(find gen/souffle -name BTreeDelete.h | head -1); [ -n "$BD" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BD")" = "1" ]
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
@@ -104,8 +133,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { os: ubuntu-24.04,     platform: linux-x64 }
-          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: ubuntu-24.04,     platform: linux-x64,   manylinux: quay.io/pypa/manylinux_2_28_x86_64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64, manylinux: quay.io/pypa/manylinux_2_28_aarch64 }
           - { os: windows-2025,     platform: win32-x64 }
     runs-on: ${{ matrix.target.os }}
     steps:
@@ -119,14 +148,31 @@ jobs:
           path: engines
           key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
           restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
-      - name: Compile every language (Linux)
+      # THE GLIBC FLOOR. A binary links against the glibc of the machine that built it, and runs only where that
+      # glibc or a newer one is installed. Built on ubuntu-24.04 (glibc 2.39) every engine needed GLIBC_2.38, so it
+      # would not start on Ubuntu 22.04, Debian 12, RHEL 9 or Amazon Linux 2023: the official python and node
+      # Docker images, most CI and most servers. The compile therefore runs inside manylinux_2_28 (glibc 2.28,
+      # the floor Python wheels use), and the step after it fails the build if any binary asks for more.
+      - name: Compile every language (Linux, manylinux_2_28)
         if: startsWith(matrix.target.platform, 'linux')
+        env:
+          MANYLINUX: ${{ matrix.target.manylinux }}
         run: |
           set -e
+          docker run --rm -v "$PWD:/w" -w /w -e LANGUAGES="$LANGUAGES" -u "$(id -u):$(id -g)" "$MANYLINUX" bash -ec '
+          c++ --version | head -1; ldd --version | head -1
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            # OpenMP on BOTH architectures: the arm64 crash mode was two weak-ordering
+            # holes in the vendored headers (write-entry RMW + unfenced node publication),
+            # both patched above and validated 10/10 under load on linux-arm64 and
+            # darwin-arm64 (seqlock-fix-3). libgomp links STATICALLY so the binary runs on
+            # machines with no gcc runtime. The .parallel marker beside the binary is what
+            # run-souffle.sh reads to pass a real -j at run time.
+            OMP="-fopenmp -Wl,-Bstatic,-lgomp,-Bdynamic"
+            c++ -std=c++17 -O3 -w $OMP -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            [ -n "$OMP" ] && touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
           mkdir -p engines/queries
@@ -136,7 +182,19 @@ jobs:
             c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "$cpp" -o "engines/queries/axiomcode-query-$q"
             cp "gen/queries/$q.id" "engines/queries/$q.id"
           done
+          '
           ls -la engines/*; ldd engines/java/axiomcode-engine-java || true
+      - name: Linux binaries need no glibc newer than 2.28
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*; do
+            need="$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
+            echo "$f needs glibc $need"
+            if [ "$(printf '%s\n2.28\n' "$need" | sort -V | tail -1)" != 2.28 ]; then echo "::error::$f needs glibc $need (> 2.28)"; bad=1; fi
+          done
+          exit $bad
       - uses: ilammy/msvc-dev-cmd@v1
         if: startsWith(matrix.target.platform, 'win32')
         with: { arch: x64 }
@@ -148,8 +206,9 @@ jobs:
             fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
             if errorlevel 1 (
               if not exist engines\%%L mkdir engines\%%L
-              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /openmp /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
               if errorlevel 1 exit /b 1
+              type nul > engines\%%L\axiomcode-engine-%%L.exe.parallel
               copy /y gen\%%L.id engines\%%L\ENGINE_ID
             ) else (
               echo %%L: cached, rules unchanged

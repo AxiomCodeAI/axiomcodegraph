@@ -1,0 +1,48 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "an arrow that is the value of an object-literal key is named for the key and owned by the variable the literal initialises: `impact Articles.all` answered `not declared here` because the arrow was `<arrow>` (#1585)",
+   "run": ["impact", "Articles.all"],
+   "want": ["change: Articles.all   [method]", "[resolved] run   src/use.ts:4"],
+   "avoid": ["not declared here", "nothing named"]
+  },
+  {
+   "why": "a function expression under a key is named the same way",
+   "run": ["impact", "Articles.get"],
+   "want": ["change: Articles.get   [method]", "[resolved] run   src/use.ts:5"],
+   "avoid": ["not declared here", "<function-expression>"]
+  },
+  {
+   "why": "a literal nested under a key is owned by the key chain",
+   "run": ["impact", "Articles.tags.list"],
+   "want": ["change: Articles.tags.list   [method]", "[resolved] run   src/use.ts:7"],
+   "avoid": ["not declared here", "<arrow>"]
+  },
+  {
+   "why": "obj.x = function is named x and owned by obj",
+   "run": ["impact", "titleCase"],
+   "want": ["change: helpers.titleCase   [method]"],
+   "avoid": ["not declared here", "as written at"]
+  },
+  {
+   "why": "a literal under `as const` is still owned by the variable it initialises",
+   "run": ["impact", "Routes.home"],
+   "want": ["change: Routes.home   [method]", "run   src/use.ts:3"],
+   "avoid": ["not declared here", "nothing named"]
+  },
+  {
+   "why": "CONTROL: a named function expression keeps its own name, not the property's",
+   "run": ["impact", "realName"],
+   "want": ["change: realName   [method]"],
+   "avoid": ["alias"]
+  },
+  {
+   "why": "CONTROL: an arrow passed as an argument has no property to take a name from and stays a placeholder; method shorthand keeps its name",
+   "run": ["impact", "src/api.ts:29", "del"],
+   "want": ["<arrow>", "del"],
+   "avoid": ["Articles.del", "map"]
+  }
+ ]
+}

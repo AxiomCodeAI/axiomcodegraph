@@ -175,4 +175,30 @@ export const ENTITY_IDENTIFIERS = {
   CS_PARSE_GAP: 'CS_PARSE_GAP',
   CS_PREPROC_REGION: 'CS_PREPROC_REGION',
   CS_DECLARATION_GROUP: 'CS_DECLARATION_GROUP',
+
+  // ------------------------------------------------------------------- Web
+  // HTML and CSS share one front end (constants/web-constants.ts). HTML_DOCUMENT
+  // and CSS_STYLESHEET are the two roots; every child key chains off its parent's
+  // hash, never off a re-derived name, because a web name collides by design:
+  // every page has a `div`, every stylesheet has a `.active`, and one `--gap` is
+  // declared in `:root` and again in every theme. A `<style>` element is a
+  // CSS_STYLESHEET whose key chains off the HTML element that holds it, so the
+  // same CSS text in two pages stays two stylesheets.
+  HTML_DOCUMENT: 'HTML_DOCUMENT',
+  HTML_ELEMENT: 'HTML_ELEMENT',
+  HTML_ATTRIBUTE: 'HTML_ATTRIBUTE',
+  HTML_CLASS_REFERENCE: 'HTML_CLASS_REFERENCE',
+  HTML_REFERENCE: 'HTML_REFERENCE',
+  HTML_SCRIPT: 'HTML_SCRIPT',
+  HTML_HANDLER_CALL: 'HTML_HANDLER_CALL',
+  HTML_TEMPLATE_EXPRESSION: 'HTML_TEMPLATE_EXPRESSION',
+  HTML_PARSE_GAP: 'HTML_PARSE_GAP',
+  CSS_STYLESHEET: 'CSS_STYLESHEET',
+  CSS_RULE: 'CSS_RULE',
+  CSS_SELECTOR: 'CSS_SELECTOR',
+  CSS_SELECTOR_PART: 'CSS_SELECTOR_PART',
+  CSS_DECLARATION: 'CSS_DECLARATION',
+  CSS_VALUE_REFERENCE: 'CSS_VALUE_REFERENCE',
+  CSS_COMMENT: 'CSS_COMMENT',
+  CSS_PARSE_GAP: 'CSS_PARSE_GAP',
 } as const;

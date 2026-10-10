@@ -1,0 +1,13 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a decorator returning functools.update_wrapper(wrapper, f) hands back `wrapper`: a call to the decorated method resolves to the wrapper, and the caller reaches the method through it rather than by name",
+   "run": ["impact", "Scaffold.other"],
+   "want": ["2 hop(s)  App.use"],
+   "avoid": ["[by name] App.use"]},
+  {"why": "the typed spelling `return t.cast(F, update_wrapper(wrapper, f))`, typing imported as an alias, is the same shape",
+   "run": ["impact", "Scaffold.route"],
+   "want": ["2 hop(s)  App.get"],
+   "avoid": ["[by name] App.get"]},
+  {"why": "CONTROL: an undecorated method keeps its resolved caller",
+   "run": ["impact", "Scaffold.add"],
+   "want": ["[resolved] Scaffold.route"]}]}

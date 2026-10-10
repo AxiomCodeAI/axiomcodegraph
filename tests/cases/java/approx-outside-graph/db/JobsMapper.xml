@@ -1,0 +1,3 @@
+<mapper namespace="app.Jobs">
+  <select id="countLines">SELECT count(*) FROM order_lines</select>
+</mapper>

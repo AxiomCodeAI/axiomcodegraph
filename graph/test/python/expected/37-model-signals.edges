@@ -1,0 +1,12 @@
+ambiguous_unknown	DECORATOR_APPLICATION	models.<module> -> -
+ambiguous_unknown	METHOD_CALL	views.create_order -> -
+ambiguous_unknown	METHOD_CALL	views.drop_invoice -> -
+ambiguous_unknown	METHOD_CALL	views.drop_order -> -
+ambiguous_unknown	METHOD_CALL	views.rename_order -> -
+ambiguous_unknown	METHOD_CALL	views.save_draft -> -
+ambiguous_unknown	METHOD_CALL	views.touch_invoice -> -
+boundary_lib	DECORATOR_CALL	models.<module> -> external:receiver
+boundary_lib	METHOD_CALL	models.<module> -> external:post_save.connect
+boundary_lib	METHOD_CALL	models.Invoice.<classbody> -> external:models.IntegerField
+boundary_lib	METHOD_CALL	models.Order.<classbody> -> external:models.CharField
+known_edge	METHOD_CALL	views.save_cache -> views.Cache.save

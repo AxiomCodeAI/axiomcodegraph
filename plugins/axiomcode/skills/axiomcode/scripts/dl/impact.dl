@@ -5,7 +5,7 @@
 //   edge(a, b, t)                     a calls b (the path finder's facts: resolved client edges, dispatch, defines)
 //   named(n, m)                       a client callable m declared with simple name n
 //   calls(c, m, tier, f, l)           a resolved call site in c to client method m, at f:l
-//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method), at f:l
+//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method | stub | library), at f:l
 //   member(T, s, n, k)                symbol s named n of kind k (method, constructor, field, const, enum_member …) declared in type T
 //   owner(c, T)                       callable c is declared in type T
 //   typ(T, n, k)                      type T has simple name n and kind k (class | interface | enum | record)
@@ -46,7 +46,11 @@
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
 .decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
+// rejected(c, m, f, l)   a lead at c's site f:l to m someone rejected (axiomcode link --not; ax_links.suppressed): not walked
+.decl rejected(c:symbol, m:symbol, f:symbol, l:number) .input rejected
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
+// a `new T()` of a type with no written constructor (C#): no constructor to call, so no `calls` row, but the engine knows the type (#1473)
+.decl implicit_new(c:symbol, t:symbol, f:symbol, l:number) .input implicit_new
 .decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
 .decl owner(c:symbol, t:symbol)                                   .input owner
 .decl typ(t:symbol, n:symbol, k:symbol)                           .input typ
@@ -80,6 +84,8 @@
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl reexport_from(f:symbol, l:number, src:symbol)               .input reexport_from
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
+// field_holder(fl, h): fl is a key of an OBJECT named h, not a member of a type (`TOPICS` of `TOPICS.CREATED`)
+.decl field_holder(fl:symbol, h:symbol)                           .input field_holder
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl faccess(c:symbol, fl:symbol, acc:symbol, tier:symbol, f:symbol, l:number) .input faccess
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
@@ -100,6 +106,9 @@
 .decl fixture_scope(fx:symbol, n:symbol, p:symbol)                .input fixture_scope
 .decl file_scope(f:symbol, p:symbol)                              .input file_scope
 .decl autouse_fixture(fx:symbol)                                  .input autouse_fixture
+//   runs_before(m, fx)                a C# set-up the runner runs for tests outside its type: an NUnit [SetUpFixture]'s
+//                                     [OneTimeSetUp] for its namespace, MSTest's assembly-wide initializers for the project
+.decl runs_before(m:symbol, fx:symbol)                            .input runs_before
 //   injects(m, fx)                    the language engine resolved m's request to fixture fx (Python: the runner's own
 //                                     visibility, the decorator's `name=`, star imports and `pytest_plugins`)
 //   injected_fixture(fx)              fx is injected by name and runs only for what requests it: not every test of its file
@@ -108,6 +117,14 @@
 //   usefixtures_scope(p, n)           a usefixtures marker no declaration carries: a module's `pytestmark` (p is that
 //                                     file) or the ini option (p is the directory holding the ini file)
 .decl usefixtures_scope(p:symbol, n:symbol)                       .input usefixtures_scope
+//   cs_data_source(m, tn, n)          C# test m's [MemberData] / [TestCaseSource] / [DynamicData] names member n of type
+//                                     tn ("" = the test's own class and its bases)
+//   cs_data_type(m, tn)               C# test m's [ClassData(typeof(tn))] / [TestCaseSource(typeof(tn))]
+//   cs_fixture_type(t, xn)            xUnit builds type xn before each test of class t (IClassFixture<xn>, or a
+//                                     collection whose definition is ICollectionFixture<xn>)
+.decl cs_data_source(m:symbol, tn:symbol, n:symbol)               .input cs_data_source
+.decl cs_data_type(m:symbol, tn:symbol)                           .input cs_data_type
+.decl cs_fixture_type(t:symbol, xn:symbol)                        .input cs_fixture_type
 .decl kind(s:symbol, k:symbol)                                    .input kind
 .decl decl_file(s:symbol, f:symbol)                               .input decl_file
 .decl lex_parent(inner:symbol, outer:symbol)                       .input lex_parent
@@ -116,6 +133,8 @@
 .decl field_type(fl:symbol, n:symbol)                             .input field_type
 .decl target(q:symbol, k:symbol, s:symbol, x:symbol)              .input target
 .decl textuse(c:symbol, n:symbol, f:symbol, l:number)             .input textuse
+.decl sigtype(c:symbol, t:symbol, ctx:symbol, d:number)          .input sigtype
+.decl persist_field(m:symbol, fl:symbol, how:symbol)             .input persist_field
 .decl importuse(c:symbol, n:symbol, f:symbol, l:number)           .input importuse
 .decl inside_target(q:symbol, c:symbol)                           .input inside_target
 //   config(key, m, why)               a configuration key the engine bound to a method (@Value, @ConfigurationProperties, a .yml/.properties key)
@@ -131,6 +150,9 @@
 .decl nonsource(n:symbol, f:symbol, l:number)                     .input nonsource
 .decl qual_name(s:symbol, n:symbol)                               .input qual_name
 .decl config(k:symbol, m:symbol, why:symbol)                      .input config
+//   cs_config_literal(k, c, cert, f, l) a C# string literal inside c spelling the configuration key k (lowercased `A:B`);
+//                                     cert is `by name` where the line reads IConfiguration, `text` elsewhere (#1443)
+.decl cs_config_literal(k:symbol, c:symbol, cert:symbol, f:symbol, l:number) .input cs_config_literal
 .decl config_key_known(k:symbol)                                  .input config_key_known
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
 .decl bean_factory(m:symbol, t:symbol)                            .input bean_factory
@@ -233,6 +255,12 @@ contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m)
 .decl implements_pair(b:symbol, m:symbol)                          .input implements_pair
 contract(q, b, "it implements this — the engine records a dispatch candidate here and no override row") :-
     target(q, "method", m, _), implements_pair(b, m), !value_pair(b, m), !override(b, m), !override(m, b), !target(q, _, b, _).
+// …and the other direction, asked of the BASE. Java's override row puts an implementation under "overrides it";
+// a structurally typed language has no such row, so an interface method's own implementations were missing from
+// its answer entirely: nothing calls them through it (the dispatch edge runs candidate -> base) and no contract
+// named them, though a change to the interface method's signature breaks every one of them.
+contract(q, m, "implements it — the engine records a dispatch candidate here and no override row") :-
+    target(q, "method", b, _), implements_pair(b, m), !value_pair(b, m), !override(b, m), !override(m, b), !target(q, _, m, _).
 // A FUNCTION STORED IN A FIELD (#1206). `value_pair(b, m)`: m flows into a field whose declared type is the
 // function type b — `this.getPath = options.getPath ?? getPath`, `fetch: T = (req) => …`. A call through the field
 // is typed to b, so its caller is a DIRECT user of m: without this row the answer said "directly touches it:
@@ -271,6 +299,7 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 // a CONFIGURATION KEY: the methods the container binds it into — no call reaches them, so nothing else would find these
 direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved", "", 0) :- target(q, "config", k, _), config(k, m, why).
 // the binding site: the line that ties the key to the code, and the one that must be edited with it
+direct(q, c, "reads", "reads this configuration key by its string (the C# engine has no configuration facts: joined on the key as written)", cert, f, l) :- target(q, "config", k, _), cs_config_literal(k, c, cert, f, l).
 direct(q, c, "produces", cat("BINDS the key here, at the @", dn, " placeholder — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
 
 // a type the container INJECTS: its consumers receive it without a call the graph can see
@@ -393,8 +422,11 @@ direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m,
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c), !rejected(c, m, f, l).
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
+// A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
+// the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
+direct(q, c, "uses", "calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "library", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
@@ -442,7 +474,16 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
-fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll).
+fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
+    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)), !other_field_line(q, f, l).
+// the key that DECLARES another object's same-named key (`QUEUES = { CREATED: … }`) is that declaration, not a use of this one
+.decl key_decl_at(n:symbol, f:symbol, l:number)
+key_decl_at(n, f, l) :- field_holder(fl, _), field(fl, _, n, f, l).
+// a key of a module-level const table: the line that DECLARES another table's key of the same name writes that name
+// as its own key, not a read of this one — `GATEWAY_ROUTES = { products: … }` beside `CATALOG_ROUTES = { products: … }`.
+// Only for a target owned by its module: a type's field keeps the keys written for it (`{ eventId: … } satisfies T`).
+.decl other_field_line(q:symbol, f:symbol, l:number)
+other_field_line(q, f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), kind(t, "module"), field(fl2, _, n, f, l), fl2 != fl.
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
@@ -483,6 +524,10 @@ const_holds(ff, fll, m) :- init_alias(ff, fll, n), named(n, m).
 .decl const_handed(q:symbol, c:symbol, f:symbol, l:number, ff:symbol, fll:number)
 const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
     fref(q, c, _, f, l), route_site(f, l), route_arg(c, f, l, n).
+// the same where the engine bound the name to this const (an imported or module-level const read through its binding):
+// fref leaves such a line to fa_bound, and the hand-off is still a registration, not a read
+const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
+    fa_bound(c, fl, _, f, l), route_site(f, l), route_arg(c, f, l, n).
 .decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
 const_route_edge(q, c, m, f, l) :- const_handed(q, c, f, l, ff, fll), const_holds(ff, fll, m), handoff_at(c, m, f, l).
 .decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
@@ -504,11 +549,21 @@ const_routed(q, c, f, l) :- const_route_byname(q, c, f, l).
 fa_bound(c, fl, acc, f, l) :- faccess(c, fl, acc, tier, f, l), tier != "ambiguous_unknown".
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "write", f, l).
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
-direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l).
+direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l), !const_routed(q, c, f, l).
 direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
 // a caller the engine bound — to this field, or to a DIFFERENT field of the same name. Either way its
 // name matches say nothing further: the first is already reported above with its direction, and the
 // second touches another declaration entirely and was previously printed as touching this one.
+// A LINE the engine bound, to this field or to another field of the same name: a name match on that line says nothing
+// more, whichever callable the line is attributed to. fa_known works per caller, and a lambda written on the same line
+// as the access (`m.GetOrAdd(T.Culture + k, x => ...)`) is a different callable, so its name match on T.Culture came
+// back as a second, [in scope] reader that reads nothing (#1445).
+// An object literal's KEY on that line is not the access the engine bound, and no field_access row ever covers one:
+// `const meta: EventMeta = { eventId: options.eventId }` binds `options.eventId` to PublishOptions.eventId, and the key
+// `eventId` is EventMeta's. fref keeps a ref of entity kind OBJECT_PROPERTY_KEY (TypeScript) past fa_line.
+.decl fa_line(q:symbol, f:symbol, l:number)
+fa_line(q, f, l) :- target(q, "field", fl, _), fa_bound(_, fl, _, f, l).
+fa_line(q, f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(_, fl2, _, f, l), fl2 != fl, field(fl2, _, n, _, _).
 .decl fa_known(q:symbol, c:symbol)
 fa_known(q, c) :- target(q, "field", fl, _), fa_bound(c, fl, _, _, _).
 fa_known(q, c) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(c, fl2, _, _, _), fl2 != fl, field(fl2, _, n, _, _).
@@ -519,7 +574,7 @@ direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, rol
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
@@ -531,13 +586,25 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
+// A KEY OF A MODULE-LEVEL OBJECT, read behind the object's own name: `TOPICS.CREATED` reads TOPICS's key wherever it is
+// written, as `Order.TAX` reads Order's constant. The object is one value, read by its own name, so behind any OTHER
+// name (`QUEUES.CREATED`, `upstreams.workspaces`) it is another object's member, and the by-name rules above leave it
+// out (field_holder); a field of a TYPE read behind an object that holds a key of that name is left out too (holds_key)
+.decl holds_key(h:symbol, n:symbol)
+holds_key(h, n) :- field_holder(fl, h), field(fl, _, n, _, _).
+// TypeScript records the member of `TOPICS.CREATED` as a BARE name, so the qualifier decides for a bare reference too.
+// A bare name with no such qualifier is never an object's key -- a key is only ever read behind its object -- so the
+// bare rules below leave object keys out: `workspaces.close()` is a variable, not OFFSETS.workspaces
+direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, _, f, l), target(q, "field", fl, _), field(fl, t, n, _, _), field_holder(fl, h),
+    !scope(t, c), qualifier(f, l, n, h), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l).
-direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f).
+    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l), !field_holder(fl, _).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f),
+    !field_holder(fl, _).
 // a bare name in a file that declares ANOTHER field of that name is that file's own: `const listAdmins = ['root']` in
 // one module and a wrapped handler of the same name in another are two declarations, and each answer carried the
 // other's readers. A function of that name declared in the file is its own the same way: `module.exports = { createUser }`
@@ -551,14 +618,28 @@ shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, ff, _), name
 // claimed certainty the bundle does not record -- on a single-module library, 10 of 57 sampled accessor rows stood
 // on a call whose only tier was multi_inferred. The row itself is right either way (the caller does reach the field
 // through that accessor), so nothing is dropped; only the certainty stops being overstated.
-direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
-direct(q, c, "reads", cat("reads it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
+// A GENERATED one-argument member named like the field is its builder or fluent SETTER (`email(v)` on the synthesized
+// builder, `label(v)` under @Accessors(fluent = true)), so the fluent name's read door must not claim it: the engine
+// resolves these calls now (#1405, #1406), and each would otherwise be listed as a read.
+.decl gen_setter(a:symbol)
+gen_setter(a) :- member(_, a, _, _), match("generated:.*/1", a).
+direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), !gen_setter(a), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "reads", cat("reads it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), !gen_setter(a), calls(c, a, "multi_inferred", f, l).
 direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
 direct(q, c, "writes", cat("writes it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
 // a GENERATED accessor: the unresolved sites written with its name (the decoration says it exists)
 direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), named_site(c, an, k, f, l), !ctor_kind(k).
 direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), named_site(c, an, k, f, l), !ctor_kind(k).
-direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), named_site(c, n, k, f, l), !ctor_kind(k).
+// the builder / fluent setter the ENGINE resolved: the call is on this type's own builder chain or receiver (#1409)
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), member(t, a, n, _), gen_setter(a), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), member(t, a, n, _), gen_setter(a), calls(c, a, "multi_inferred", f, l).
+// ...and a same-named call it did NOT resolve. While the engine resolves none of them (a library type, an older engine) it
+// is the only lead and stays a writer. Once it resolves one, the setter is modelled, and a same-named call left
+// unresolved is on some other chain (`UserView.newBuilder().email(e)`): a lead, not a writer (#1409).
+.decl gen_modelled(t:symbol, n:symbol)
+gen_modelled(t, n) :- member(t, a, n, _), gen_setter(a).
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), !gen_modelled(t, n), named_site(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "uses", cat("calls a same-named ", n, "() that the engine did not place on this type's builder or accessors"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), gen_modelled(t, n), named_site(c, n, k, f, l), !ctor_kind(k).
 direct(q, c, "reads", cat("reads it through the generated accessor ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, "fluent_read"), named_site(c, n, k, f, l), !ctor_kind(k).
 direct(q, c, "writes", "passes it to the generated constructor", "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "ctor"), typ(t, tn, _), named_site(c, tn, k, f, l).
 // a string literal equal to its name: a serialized name, a map key, a request parameter
@@ -579,12 +660,24 @@ direct(q, c, "produces", why, cert, f, l) :- produces(q, c, why, cert, f, l), !i
 .decl tmember(q:symbol, m:symbol, n:symbol, k:symbol)
 tmember(q, m, n, k) :- target(q, "type", t, _), member(t, m, n, k).
 direct(q, c, "produces", "instantiates it", "resolved", f, l) :- tmember(q, m, _, "constructor"), calls(c, m, _, f, l), !inside_target(q, c).
+direct(q, c, "produces", "instantiates it", "resolved", f, l) :- target(q, "type", t, _), implicit_new(c, t, f, l), !inside_target(q, c).
 direct(q, c, "uses", cat("calls ", n), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, t, f, l), t != "multi_inferred", !inside_target(q, c).
 direct(q, c, "uses", cat("calls ", n), "one of a set", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, "multi_inferred", f, l), !inside_target(q, c).
 direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), unresolved(c, n, k, f, l), ctor_kind(k), !inside_target(q, c).
 direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
 direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
-direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c), !typeref_other(q, c, f, l).
+// A NAME THE ENGINE ALREADY TIED TO ANOTHER TYPE OF THAT NAME IS THAT TYPE'S. `new App.Entities.Basket()` builds the
+// entity; the type_ref row keeps only the simple name `Basket`, so read by name it was also a use of a view component
+// `Basket` in another namespace, and --delete on the component said NOT SAFE for a by-name row that constructs the
+// entity. Where the same caller, at the same line, constructs another type of the name (a resolved constructor call, or
+// an implicit `new T()`, #1473) and not the target, the name at that line is that other type's.
+.decl typeref_own_new(q:symbol, c:symbol, f:symbol, l:number)
+typeref_own_new(q, c, f, l) :- target(q, "type", t, _), implicit_new(c, t, f, l).
+typeref_own_new(q, c, f, l) :- target(q, "type", t, _), member(t, k, _, "constructor"), calls(c, k, _, f, l).
+.decl typeref_other(q:symbol, c:symbol, f:symbol, l:number)
+typeref_other(q, c, f, l) :- target(q, "type", t, _), typ(t, n, _), typ(t2, n, _), t2 != t, implicit_new(c, t2, f, l), !typeref_own_new(q, c, f, l).
+typeref_other(q, c, f, l) :- target(q, "type", t, _), typ(t, n, _), typ(t2, n, _), t2 != t, member(t2, k, _, "constructor"), calls(c, k, _, f, l), !typeref_own_new(q, c, f, l).
 // the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such alias,
 // and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes and never writes MapState.
 .decl alias_over(q:symbol, a:symbol)
@@ -598,7 +691,37 @@ direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked agai
 // LiteralNode and never writes the name, so an added required property breaks it
 direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "'"), "by name", f, l) :- target(q, "type", t, _), discriminant(t, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
 direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "' of ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), discriminant(s, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
-direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c).
+// a persistence query that names the property (#1461, #1462): a derived repository method name, @Query / named-query
+// text, or a whole-entity select that loads it. No call or reference connects them; the rename fails when it is parsed.
+.decl persist_words(how:symbol, w:symbol)
+persist_words("direct", "its persistence query names the property: a rename breaks the query when it is parsed, not the compile").
+persist_words("nested", "its persistence query reads it through an association path").
+persist_words("projection", "its persistence query selects the whole entity, which loads this column").
+direct(q, m, "reads", w, "resolved", "", 0) :- target(q, "field", fl, _), persist_field(m, fl, how), persist_words(how, w), !inside_target(q, m).
+// A MAPPER STATEMENT'S PARAMETER PROPERTY: `#{it.quantity}` in the statement a mapper method's namespace and id
+// bind, where the path's root is typed by that method's parameters (axiomcode-impact mapper_params). MyBatis reads the
+// property by name when the statement runs, so a rename breaks the statement and not the compile. The row is the
+// method, at the marker's line in the XML.
+.decl mapper_param(m:symbol, fl:symbol, e:symbol, f:symbol, l:number) .input mapper_param
+direct(q, m, "reads", cat("its mapper statement binds it as a parameter property (#{", e, "})"), "resolved", f, l) :- target(q, "field", fl, _), mapper_param(m, fl, e, f, l), !inside_target(q, m).
+// A VALUE HANDED TO A REFLECTIVE PROPERTY COPY (`BeanUtil.copyProperties(item, ItemView.class)`): the copy reads the
+// field by name, so a rename drops the value and nothing fails. The copy INTO the type is the producer rule above
+// (`reflects on T.class`); this is the value going out. The argument is typed by its declaration's written type
+// (axiomcode-impact bean_copies), so it is `by name`.
+.decl bean_copy(c:symbol, fl:symbol, tn:symbol, n:symbol, f:symbol, l:number) .input bean_copy
+direct(q, c, "uses", cat("hands a value of ", tn, " to ", n, "(), which copies its properties by name through reflection: a rename or a retype drops the value silently"), "by name", f, l) :- target(q, "field", fl, _), bean_copy(c, fl, tn, n, f, l), !inside_target(q, c).
+// a signature the engine RESOLVED to the type (#1422): a parameter, a return, or a type argument of either. Java's
+// type_refs carry no line, so no typeref row held these, and the textuse grep below labelled each one `text`
+.decl sig_words(ctx:symbol, w:symbol)
+sig_words("METHOD_PARAM", "a parameter"). sig_words("METHOD_RETURN", "the return type").
+.decl sig_resolved(q:symbol, c:symbol)
+sig_resolved(q, c) :- target(q, "type", t, _), sigtype(c, t, _, _), !inside_target(q, c).
+// a signature typeref already names at its line (the rule above, by name with a site) gets no second, lineless row
+.decl sig_at_line(q:symbol, c:symbol, ctx:symbol)
+sig_at_line(q, c, ctx) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, _, _), sig_words(ctx, _).
+direct(q, c, "uses", cat("names it in its signature (", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, 0), sig_words(ctx, w), !inside_target(q, c), !sig_at_line(q, c, ctx).
+direct(q, c, "uses", cat("names it in its signature (a type argument of ", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, d), d > 0, sig_words(ctx, w), !inside_target(q, c), !sig_at_line(q, c, ctx).
+direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c), !sig_resolved(q, c).
 direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
 direct(q, c, "writes", cat("calls the generated setter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "set"), field(fl, t, _, _, _), accessor(fl, an, "write"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
@@ -609,7 +732,7 @@ direct(q, c, role, cat(why, " — first use runs the static initializer"), cert,
 // a PARAMETER: the method itself, its callers, (the overrides are the contract)
 direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, _).
 direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
-direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "library".
 
 // a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
 direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", _, x), textuse(c, x, f, l).
@@ -696,6 +819,7 @@ seed_of(q, m) :- target(q, "decoration", m, _).
 seed_of(q, t) :- target(q, "newconst", t, _).
 seed_of(q, c) :- target(q, "newconst", t, _), switch_over(c, t, _).
 seed_of(q, m) :- target(q, "config", k, _), config(k, m, _).
+seed_of(q, c) :- target(q, "config", k, _), cs_config_literal(k, c, _, _, _).
 seed_of(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
 seed_of(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
 seed_of(q, t) :- target(q, "type", t, _).
@@ -716,6 +840,8 @@ direct_edge(q, c, a) :- target(q, "field", fl, _), field(fl, t, _, _, _), access
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), member(t, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), holds(h, t), member(h, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, m) :- tmember(q, m, _, _), calls(c, m, _, _, _).
+// an instantiation of a type that writes no constructor lands on the type itself: the engine's ctor_implicit_type row (#1473)
+direct_edge(q, c, t) :- target(q, "type", t, _), implicit_new(c, t, _, _).
 direct_edge(q, c, m) :- target(q, "param", m, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
 .output direct_edge
@@ -741,7 +867,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), k != "stub", k != "library", !seed(q, c), !rejected(c, m, f, l).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
@@ -762,13 +888,59 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), walk_edge(a, b, _), !state_gate(a, b, _), d < 40.
+// A CALLABLE WRITTEN INSIDE A JAVA INITIALIZER IS NOT RUN BY IT. `static { ACCESS = new Access() { void m() {..} }; }` and
+// `static final Comparator<T> BY_NAME = (a, b) -> ..` build an object; its method runs when someone calls it on that
+// object, which the call edges into it already say. The `defines` hop from the initializer (a <clinit>, an <init_block>,
+// or the TYPE the engine names as the caller of a field initializer) handed the method to the initializer, and the
+// `at load` hop then to every user of the type. A `defines` hop from a method body is kept: a lambda written in a method usually runs while it does.
+.decl init_defines(a:symbol, b:symbol)
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<clinit>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<init_block>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), typ(a, _, _).
+.decl walk_edge(a:symbol, b:symbol, t:symbol)
+walk_edge(a, b, t) :- edge(a, b, t), t != "defines".
+walk_edge(a, b, "defines") :- edge(a, b, "defines"), !init_defines(a, b).
 up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
+// ── WHAT ONE INSTANCE WAS GIVEN: the edge holds for some receivers only ──────────────────────────────────────────
+// `new Bus({ validate: check })` and `b.on(handleA)` give ONE bus a callback, and `Bus.emit` calls it through what
+// that bus holds. The engine's edge emit -> check is one edge for every bus, so the closure used to hand check to
+// every caller of emit: a test that emits on a bus built without `validate` reached it. The engine now says which
+// edges are of that kind and which allocations were given the callback (JavaScript resolution/instance-state.dl):
+//   state_gate(a, f, T)          every call a makes to f reaches f only through what the receiver instance holds
+//   state_world(m, T)            m runs with an instance of T as `this` (T's instance code, and what it nests)
+//   state_gate_alloc(T, f, s)    the allocation s (a `new T(...)`) was given f
+//   state_call_alloc(c, m, s)    c calls the T member m on a receiver that may be s
+//   state_call_open(c, m)        c calls m on a receiver whose allocation is unknown: it keeps every callback
+// The gate travels with the walk through T's own code (`this.deliver()` -> `this.#invoke()` -> `handler()`), and is
+// applied where the walk leaves it: a caller outside T keeps the route when one of its receivers may be an
+// allocation given f, or when the engine knows none. An edge with no call-site record (a dispatch choice) keeps it.
+.decl state_gate(a:symbol, f:symbol, t:symbol)                    .input state_gate
+.decl state_world(m:symbol, t:symbol)                             .input state_world
+.decl state_gate_alloc(t:symbol, f:symbol, s:symbol)              .input state_gate_alloc
+.decl state_call_alloc(c:symbol, m:symbol, s:symbol)              .input state_call_alloc
+.decl state_call_open(c:symbol, m:symbol)                         .input state_call_open
+.decl state_call_known(c:symbol, m:symbol)
+state_call_known(c, m) :- state_call_alloc(c, m, _).
+state_call_known(c, m) :- state_call_open(c, m).
+.decl state_exit(c:symbol, a:symbol, t:symbol, f:symbol)
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), state_call_open(c, a).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_call_alloc(c, a, s), state_gate_alloc(t, f, s).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), !state_call_known(c, a).
+// upg(q, m, T, f, d): m is reached only on the instances of T that were given f
+.decl upg(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+upg(q, a, t, f, d+1) :- up(q, f, d), state_gate(a, f, t), edge(a, f, _), d < 40.
+upg(q, c, t, f, d+1) :- upg(q, a, t, f, d), edge(c, a, _), state_world(c, t), d < 40.
+up(q, c, d+1) :- upg(q, a, t, f, d), state_exit(c, a, t, f), d < 40.
+up(q, a, d+1) :- upg(q, b, _, _, d), fw_edge(a, b, _), d < 40.
+.decl up_all(q:symbol, m:symbol, d:number)
+up_all(q, m, d) :- up(q, m, d).
+up_all(q, m, d) :- upg(q, m, _, _, d).
 .decl reach(q:symbol, m:symbol, d:number)
-reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
+reach(q, m, d) :- up_all(q, m, d), d = min x : up_all(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
-parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
+parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, walk_edge(a, b, t).
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_edge(a, b, t).
 // The import hop is taken from a MODULE BODY, and only when that module body is reached by edges which actually
 // RUN. `up` walks `defines` as well, which is right for it — a change to an inner function does concern the
@@ -779,14 +951,39 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_
 // shape — which is the whole argument for keeping cases beside a corpus.
 .decl up_running(q:symbol, m:symbol, d:number)
 up_running(q, m, 0) :- seed(q, m).
-up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), d < 40.
+// a module body's call made only under `if __name__ == "__main__":` runs when the file is a script, never on import
+.decl guard_only(a:symbol, b:symbol)                              .input guard_only
+up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_gate(a, b, _), !guard_only(a, b), d < 40.
+// the same gate as `up` (above): a caller that leaves the instance code keeps the route only on an instance given f
+.decl up_running_g(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+up_running_g(q, a, t, f, d+1) :- up_running(q, f, d), state_gate(a, f, t), edge(a, f, "known_edge"), d < 40.
+up_running_g(q, c, t, f, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_world(c, t), d < 40.
+up_running(q, c, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_exit(c, a, t, f), d < 40.
+// A module-level CONST asked about is reached by its module body only because that body declares it: its value is
+// read by the callables that import it (resolved reads, listed as such), and importing the module runs nothing new
+// for them. Hopping on from that module named every importer's module as broken at import, the readers again.
+.decl declares_seed_const(q:symbol, mod:symbol)
+declares_seed_const(q, mod) :- target(q, "field", fl, _), field(fl, mod, _, _, _), kind(mod, "module").
 .decl import_hop(q:symbol, a:symbol, b:symbol)
-import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), decl_file(mod, g), imports_file(f, g),
-                         decl_file(a, f), kind(a, "module"), a != mod.
+import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), !declares_seed_const(q, mod), decl_file(mod, g),
+                         imports_file(f, g), decl_file(a, f), kind(a, "module"), a != mod.
 up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
 parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach
 .output parent_up
+// WHAT RUNS WHILE A TEST FILE LOADS: a declaration in test code that reaches the change through calls alone (a resolved
+// call or one of a resolved set; never `defines`, never a hand-over, which runs later or not at all), so a module body
+// or a describe() block that is one of these runs the change before any test does. A mocha run requires every spec and
+// runs every describe() in one process, and a throw there fails the whole run (axiomcode-test-impact reads this as
+// `at_load` on the test it credits). Walked only as far as test code: the first test-file declaration ends the walk.
+.decl load_up(q:symbol, m:symbol)
+load_up(q, m) :- seed(q, m).
+load_up(q, a) :- load_up(q, b), !load_stop(b), edge(a, b, t), (t = "known_edge" ; t = "multi_inferred"), !state_gate(a, b, _).
+.decl load_stop(m:symbol)
+load_stop(m) :- decl_file(m, f), is_test_file(f), !kind(m, "module").
+.decl load_run(q:symbol, m:symbol)
+load_run(q, m) :- load_up(q, m), decl_file(m, f), is_test_file(f).
+.output load_run
 
 // the same closure from the seeds that are an exact edge only: what is reached ONLY through a [by name] / [text] /
 // [one of a set] dependent is everything outside it, and the answer says how much of itself rests on those
@@ -801,7 +998,7 @@ strong_direct(q, c) :- direct(q, c, _, _, "resolved", _, _).
 strong_direct(q, c) :- direct(q, c, _, _, "in scope", _, _).
 .decl up_sure(q:symbol, m:symbol, d:number)
 up_sure(q, m, 0) :- seed_sure(q, m).
-up_sure(q, a, d+1) :- up_sure(q, b, d), edge(a, b, _), d < 40.
+up_sure(q, a, d+1) :- up_sure(q, b, d), walk_edge(a, b, _), d < 40.
 .decl reach_sure(q:symbol, m:symbol)
 reach_sure(q, m) :- up_sure(q, m, _).
 .output reach_sure
@@ -829,8 +1026,18 @@ reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
 // decoration argument is not always a registration (`@ValueSource(strings = {"p"})` is test DATA). A key written
 // everywhere identifies nothing either, whichever side the fan is on, and this needs no catalogue of which
 // decorations register and which do not.
+// A HANDLER TABLE'S KEY (kind "table": `{ [TOPICS.CREATED]: onCreated }`, ax_registration.table_registrations) is a
+// message type. Its writers are the services that publish it AND the tests that publish it to drive the consumer, and a
+// suite that exercises one event type from ten tests has not made the type identify nothing: only the PRODUCTION
+// writers count against the cap. And a handler registered under the key that writes it again (to log it, to pass it
+// on) consumes that type; it is not a producer of it.
+//   test_code(c)                      c is declared in a test file
+.decl test_code(c:symbol)                                         .input test_code
+.decl table_key(k:symbol)
+table_key(k) :- reg_key(_, "table", k).
 .decl key_written(c:symbol, k:symbol)
-key_written(c, k) :- literal(c, k, _, _).
+key_written(c, k) :- literal(c, k, _, _), !table_key(k).
+key_written(c, k) :- literal(c, k, _, _), table_key(k), !test_code(c), !reg_key(c, "table", k).
 .decl key_use_fan(k:symbol, n:number)
 key_use_fan(k, n) :- key_written(_, k), n = count : { key_written(_, k) }.
 .decl key_capped(k:symbol)
@@ -847,7 +1054,7 @@ key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .decl reg_verb(b:symbol, k:symbol, v:symbol)                      .input reg_verb
 .decl lit_verb(a:symbol, k:symbol, v:symbol)                      .input lit_verb
 .decl key_join(a:symbol, b:symbol, k:symbol, w:symbol)
-key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b.
+key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b, !reg_key(a, "table", k).
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
 key_join(a, b, r, w) :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
 .decl verb_fits(a:symbol, b:symbol, k:symbol, w:symbol)
@@ -859,11 +1066,17 @@ reg_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
 // the writers of the key as registered (an alias spelling is not counted, as before). A helper relation, not
 // `count : { verb_fits(_, b, k, k) }`: Soufflé 2.5 counts an aggregate atom with a repeated variable as 1.
 .decl exact_fit(a:symbol, b:symbol, k:symbol)
-exact_fit(a, b, k) :- verb_fits(a, b, k, k).
+exact_fit(a, b, k) :- verb_fits(a, b, k, k), !table_key(k).
+exact_fit(a, b, k) :- verb_fits(a, b, k, k), table_key(k), !test_code(a).
 .decl use_fan_for(b:symbol, k:symbol, n:number)
 use_fan_for(b, k, n) :- reg_key(b, _, k), n = count : { exact_fit(_, b, k) }.
 .decl fw_edge(a:symbol, b:symbol, how:symbol)
 fw_edge(a, b, "by key") :- verb_fits(a, b, k, _), !reg_capped(k), use_fan_for(b, k, n), key_use_cap(c), n <= c.
+// and the other direction for a HANDLER TABLE, as for `remote`: what a publisher writes is what the handler registered
+// under its type receives, so a change to the publisher's payload is a change to the handler's input. A direct row
+// only, never a seed: whoever else reaches the handler does not thereby depend on this publisher.
+direct(q, c, "uses", cat("handles what this publishes: registered in a handler table under \"", cat(k, "\" — whatever dispatches the table by that key calls it, no call does")), "by key", "", 0)
+    :- target(q, "method", m, _), fw_edge(m, c, "by key"), verb_fits(m, c, k, _), table_key(k), c != m.
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
@@ -883,13 +1096,60 @@ fw_edge(a, b, "spawns") :- spawns_fact(a, b), a != b.
 .decl dec_decl(d:symbol, w:symbol)
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
-fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// WHO RUNS WHAT THE DECORATOR RETURNED, NOT WHO WAS DECORATED. That hop, taken from the decorated declaration to
+// the decorator's body, made the decorated function a caller of the decorator: `@bp.route("/") def index` put `index`,
+// and through it every test that requests "/", above everything `route` calls. Nothing runs `route` when `index` is
+// called: the decoration ran it once, where the `def` is. What a caller of the decorated NAME runs is whatever the
+// decorator RETURNED for it: a wrapper (`def wrapper(*a): … return f(*a)`, which may reach the change), or the
+// function itself (`return f`, a registration), which adds nothing. Where the decoration is written as a call
+// (`@route("/")`), the decorator applied is what `route` returned, and it is THAT one's return the name denotes.
+//   fn_returns(m, w)        m returns the function w (Python ext_method_returns_method)
+//   fn_returns_param(m)     m returns an argument it was handed
+//   decorated_call(s, d)    s carries the decoration d written as a call
+// Where what the decorator returns is unknown, the hop stays as it was: the walk keeps a route it cannot judge.
+.decl fn_returns(m:symbol, w:symbol)                              .input fn_returns
+.decl fn_returns_param(m:symbol)                                  .input fn_returns_param
+.decl decorated_call(s:symbol, d:symbol)                          .input decorated_call
+.decl deco_applied(s:symbol, x:symbol)
+deco_applied(s, b) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d).
+deco_applied(s, x) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x).
+.decl deco_wrapper(s:symbol, w:symbol)
+deco_wrapper(s, w) :- deco_applied(s, x), fn_returns(x, w), w != s.
+.decl deco_known(s:symbol, d:symbol)
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns(b, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns_param(b).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns(x, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns_param(x).
+// The decorated declaration stands for its wrapper: whatever reaches the name (a call, a route, a registry key) runs it.
+// The engine leaves a call to a name whose decorator it could not resolve unresolved, so the hop is taken from the
+// declaration itself rather than from its callers.
+fw_edge(s, w, "decorator by name") :- deco_wrapper(s, w).
+fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b, !deco_known(a, d).
 // A CLIENT ACROSS A PROCESS: the sender depends on the handler it reaches (#1293). `remote` above makes the client a
 // DIRECT row; walked only there, a test that drives the client never reached a change to the handler, so
 // test-impact stopped at the route while impact named the client one line up. Walked here as its own tier, the
 // test route carries the `remote` rung, so it is never read as a call chain. One direction only: a handler does
 // not depend on who sends to it.
 fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
+// A SERVLET FILTER A TEST'S CONTEXT HOLDS. A filter handed to HttpSecurity in a configuration the test class loads
+// (@Import, @ContextConfiguration, a whole-application @SpringBootTest), or a filter that is a component of the
+// application, runs on every request the test sends, and no call site says so (ax_registration.filter_links). Only
+// the test methods that send a request get the hop; its own rung, `registered`, never a call chain.
+.decl filter_run(a:symbol, b:symbol, how:symbol)                  .input filter_run
+fw_edge(a, b, "filter") :- filter_run(a, b, _), a != b.
+// A LIBRARY CALLING BACK INTO THE CLIENT. The engine's lib_callback_edge (Python framework-behavior/library-callbacks.dl):
+// a call into an installed library that the library's own source is summarised to hand back to a client member -- a
+// test client's get() running the open() a client subclass overrides, a runner running the command it was handed.
+// No call site names the client member, so without this hop a test that drives the library never reached it. Its own
+// rung, `library callback`: a library's behaviour joined by a member name, never a resolved call.
+.decl libcb(a:symbol, b:symbol, callee:symbol, member:symbol)     .input libcb
+fw_edge(a, b, "library callback") :- libcb(a, b, _, _), a != b.
+// and the member's own answer names who reaches it that way, worded as a framework hop
+direct(q, c, "uses", cat("framework-mediated, not a call: a library it calls hands this back (", cat(callee, cat(" calls ", cat(member, ")")))), "framework", "", 0)
+    :- target(q, "method", m, _), libcb(c, m, callee, member), c != m.
+// and the filter's own answer names who runs it, worded as a framework hop (the `framework` rule above)
+direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", cat(how, " [registered]")), "framework", "", 0)
+    :- target(q, "method", m, _), filter_run(c, m, how), c != m.
 // THE PROTOCOL MEMBERS OF A TYPE YOU CONSTRUCT. `with Audit(...) as a`, `for line in audit`, `a == b`, `len(x)`,
 // `x[k]` — each runs a method, and none of them writes its name, so `__enter__`, `__iter__`, `__eq__` and their
 // siblings have no call site at all and a test that drives them looks unrelated. The one thing the graph does see
@@ -899,17 +1159,81 @@ fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
 // twice, which is the shape that made an override count as both contract and reached.
 .decl protocol_member(t:symbol, m:symbol)
 protocol_member(t, m) :- member(t, m, n, _), match("__.*__", n), n != "__init__".
+// Showing a value (`__repr__`, `__str__`, `__format__`), pickling or copying it (`__getstate__`, `__setstate__`,
+// `__reduce__`, ...) and deleting from it (`__delitem__`, `__delattr__`, `__del__`) happen only when some code asks,
+// so a constructor deep inside other code says nothing about whether they run, and taking the hop from every one of
+// them named every test above it. A TEST that builds the object is the one that asks: for these the hop is taken
+// from test code only.
+.decl protocol_on_demand(n:symbol)
+protocol_on_demand("__repr__"). protocol_on_demand("__str__"). protocol_on_demand("__format__").
+protocol_on_demand("__getstate__"). protocol_on_demand("__setstate__"). protocol_on_demand("__getnewargs__").
+protocol_on_demand("__getnewargs_ex__"). protocol_on_demand("__reduce__"). protocol_on_demand("__reduce_ex__").
+protocol_on_demand("__delitem__"). protocol_on_demand("__delattr__"). protocol_on_demand("__del__").
 .decl constructs(c:symbol, t:symbol)
 constructs(c, t) :- member(t, i, "__init__", _), edge(c, i, _), c != i.
+// THE SAME SHAPE IN JAVA: the members a LIBRARY runs on a client object. `equals`, `hashCode` and `toString` are run
+// by a HashMap key, a StringBuilder, String.format, an assertion; an override of a library method (`iterator` of an
+// Iterable, `compareTo`, `close`, `size` of a Collection) by the for-each loop, the sort, try-with-resources, the
+// collection itself. The call is written on a library receiver or not written at all, and Object's members are not
+// fanned to client overrides on purpose (resolution/virtual-dispatch.dl: the CHA blow-up), so a change to one had no
+// caller and selected no test. Whoever constructs the type, or a subtype of it, holds the object those calls run on.
+// Still only from the CHANGE itself, as above.
+protocol_member(t, m) :- member(t, m, n, _), java_decl(m), (n = "equals" ; n = "hashCode" ; n = "toString").
+protocol_member(t, m) :- member(t, m, _, _), java_decl(m), override(b, m), !decl_file(b, _).
+constructs(c, t) :- java_decl(t), kind(i, "constructor"), owner(i, t), edge(c, i, _), c != i.
+constructs(c, t) :- java_decl(t), extends(s, t), kind(i, "constructor"), owner(i, s), edge(c, i, _), c != i.
 // The hop is taken only where the CHANGE ITSELF is a protocol member, not wherever one turns up in the closure.
 // As a global edge it was logically fine and empirically noisy: any closure that happened to contain a protocol
 // member pulled in every constructor of that type and, through them, their tests. Measured across three subjects
 // that cost 115 false pairs for 46 true ones. Narrowed to the seed it keeps what it was written for — a
 // declaration with NO call site by design, whose callers are whoever built the object — and drops the rest.
 .decl protocol_hop(q:symbol, c:symbol, m:symbol)
-protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), constructs(c, t), c != m.
+protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), member(t, m, n, _), !protocol_on_demand(n), constructs(c, t), c != m.
+protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), member(t, m, n, _), protocol_on_demand(n), constructs(c, t), c != m,
+                         decl_file(c, f), is_test_file(f).
 up(q, c, 1) :- protocol_hop(q, c, _).
 parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, protocol_hop(q, a, b).
+// WHAT RUNS WHEN A TYPE IS LOADED OR BUILT (Java). A call written in a field initializer has no method around it, so
+// the engine names the TYPE as its caller (call_chain.dl `call_from`), and a `static { }` / `{ }` block is a
+// <clinit> / <init_block> callable. Nothing calls either: the JVM runs them when the type is first used or an
+// instance is built. So the walk stopped at the type, and a factory whose `INSTANCE = new Factory()` throws — which
+// breaks every test that touches the factory, by an ExceptionInInitializerError — selected none of them.
+// The hop goes from that initializer to whoever uses the type in a way that runs it: calls one of its members (a
+// static method, a constructor, a method of an instance), constructs a subtype, or reads or writes one of its fields.
+// The type's own members count too: once its initialization has failed, every one of them fails with it.
+// Taken only where the walk ARRIVES at the type as a caller (d > 0): a type that is the change itself, or the owner
+// of a changed field, is a seed for other reasons, and its users are already the direct rows of those rules.
+//
+// WHICH INITIALIZER, AND WHAT RUNS IT. A static initializer (a static field's or enum constant's initializer, a
+// `static { }` block) runs once, when the type is initialized, and what initializes a type is fixed by JLS 12.4.1:
+// a `new` of it or of a subtype, a call of one of its STATIC methods, a use of one of its static fields. Calling an
+// instance method or reading an instance field is not one: the instance exists, so its type was initialized before.
+// Taking the hop from every user of the type named everything that touched one instance. An INSTANCE initializer (an instance field's initializer, an `{ }` block) runs inside every constructor of the
+// type and of its subtypes (through their super() call): its hop goes to those constructors, and the walk takes
+// their callers from there.
+//   jstatic(m)            m belongs to the class: a static method or field, an enum constant, an interface field
+//   init_call(t, b, k)    the type t calls b from a field initializer of kind k (static | instance)
+.decl jstatic(m:symbol)                                           .input jstatic
+.decl init_call(t:symbol, b:symbol, k:symbol)                     .input init_call
+.decl init_trigger(a:symbol, t:symbol)
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), jstatic(m).
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), kind(m, "constructor").
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", kind(m, "constructor"), owner(m, s), extends(s, t).
+init_trigger(a, t) :- faccess(a, fl, _, _, _, _), field(fl, t, _, _, _), jstatic(fl).
+.decl init_ctor(i:symbol, t:symbol)
+init_ctor(i, t) :- java_decl(t), kind(i, "constructor"), owner(i, t).
+init_ctor(i, t) :- java_decl(t), extends(s, t), kind(i, "constructor"), owner(i, s).
+// the type reached as a caller, through an initializer of kind k (the callee it calls there is in the walk)
+.decl type_init(q:symbol, t:symbol, k:symbol)
+type_init(q, t, k) :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), init_call(t, b, k).
+type_init(q, t, "static") :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), !init_call(t, b, _).
+.decl load_hop(q:symbol, a:symbol, r:symbol)
+load_hop(q, a, t) :- type_init(q, t, "static"), init_trigger(a, t), a != t.
+load_hop(q, i, t) :- type_init(q, t, "instance"), init_ctor(i, t), i != t.
+load_hop(q, a, r) :- up(q, r, _), member(t, r, "<clinit>", _), java_decl(r), init_trigger(a, t), a != r.
+load_hop(q, i, r) :- up(q, r, _), member(t, r, "<init_block>", _), java_decl(r), init_ctor(i, t), i != r.
+up(q, a, d+1) :- up(q, r, d), load_hop(q, a, r), d < 40.
+parent_up(q, a, b, "at load") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, load_hop(q, a, b).
 // WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,
 // so breaking Settings.__init__ breaks importing that module, and with it every module that imports it and every
 // test in those files. The graph records the module body's call to the constructor and records nothing at all about
@@ -919,11 +1243,18 @@ parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d
 // (`imports()` in axiomcode-impact, per language). Only a target that resolves to a file IN THIS REPOSITORY is
 // kept: a stdlib or third-party import names no file here and is dropped rather than guessed.
 .decl imports_fact(f:symbol, g:symbol)                            .input imports_fact
+// ASKED FOR, NOT PRECOMPUTED (#1033). `import_hop` only ever reads the files that import a module the change
+// reaches, so the closure is walked backwards from those files and nowhere else. The whole-project closure this
+// replaces was the same for every question and quadratic to build (imports_file joined to itself): on a
+// 3.6k-file TypeScript graph it was 1.2M rows and 27 s of a 38 s solve, the flat floor under every `impact`.
+.decl import_goal(g:symbol)
+import_goal(g) :- up_running(_, mod, _), kind(mod, "module"), decl_file(mod, g).
 .decl imports_file(f:symbol, g:symbol)
-imports_file(f, g) :- imports_fact(f, g).
+imports_file(f, g) :- import_goal(g), imports_fact(f, g).
 // and transitively: a test file imports the module that imports the settings object. The chain is what makes
-// the rule worth anything — the file that breaks is almost never the file the test names.
-imports_file(f, h) :- imports_file(f, g), imports_file(g, h), f != h.
+// the rule worth anything — the file that breaks is almost never the file the test names. Linear in the chain:
+// any path of imports from f to g with f != g yields the pair, the same set the self-join derived.
+imports_file(f, g) :- imports_fact(f, h), imports_file(h, g), f != g.
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
@@ -949,7 +1280,64 @@ test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s,
 // JUnit file holds several @Nested classes, and a helper private to one of them is not written for a sibling's
 // tests. A helper that belongs to no type -- a module-level function, an arrow beside the describe block -- has no
 // scope narrower than the file, and keeps it.
-test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), decl_file(c, f), is_test_file(f).
+// ...except a callable written INSIDE a test method (a C# or Java lambda, a local function): it belongs to that test,
+// not to its type. Owned by the class, a `mock.Setup(s => ...)` or `Func<int> f = () => ...` in one test carried its
+// callees to every test of the class as [fixture], and the test holding it lost its own route (#1556).
+// Java (#1416) and C# (#1499) test-class members are scoped by their own rules below, not by their class.
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), !in_test_body(c), decl_file(c, f), is_test_file(f), !java_decl(c), !cs_decl(c).
+.decl in_test_body(c:symbol)
+in_test_body(c) :- lex_in(m, c), test_method(m), !test_method(c).
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, _), in_test_body(c), lex_in(m, c), test_method(m).
+// JAVA: A HELPER METHOD OF A TEST CLASS IS NOT A FIXTURE (#1416). JUnit runs a @BeforeEach / @BeforeAll / @Before /
+// @BeforeClass method, a JUnit 3 setUp, a constructor or an initializer before the tests of its class, and those are
+// `fixture` and carried by the fixture rule above; a teardown runs after each of them (java_teardown below). Anything else the class declares runs only when something calls it,
+// and every Java call is a recorded edge: a test that calls the helper reaches the change through it on its own route
+// (`usesHelper -> one -> parse`), and a fixture that calls it carries it as a fixture. Crediting the helper to every
+// test of the class listed tests that never call it, as `[fixture]`, and kept the calling test's own resolved route
+// out of the answer because the one-hop carrier route was nearer. A helper nothing calls credits no test at all.
+// What is left is a callable no call site names that a test body still runs: a lambda or an anonymous class written
+// inside the test, invoked through its functional interface. It serves the test that encloses it, and no sibling:
+// the in_test_body rule just above carries it (#1556), for Java as for every language.
+.decl java_decl(c:symbol)
+java_decl(c) :- decl_file(c, f), match(".*[.]java", f).
+// A TEARDOWN runs for every test of its class as a setUp does, after the body instead of before it: @AfterEach,
+// @AfterAll, @After, @AfterClass (and TestNG's @AfterMethod and kin), and a JUnit 3 tearDown. A change it reaches
+// fails every one of those tests, so it is carried like a fixture. graph_sql's FIXTURE_DECOR already makes these
+// `fixture` (#1417); this rule is the Java backstop for a teardown that table misses, since the helper rule above no
+// longer carries a Java method that is not a fixture.
+.decl java_teardown(c:symbol)
+java_teardown(c) :- java_decl(c), decorated(c, n), match("After.*", n), owner(c, _), !test_method(c).
+java_teardown(c) :- java_decl(c), member(_, c, "tearDown", _), owner(c, _), !test_method(c).
+test_hit(q, m, d, c) :- reach(q, c, d), java_teardown(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
+// C#: A MEMBER OF A TEST CLASS SERVES THE TESTS THE RUNNER OR A CALL LINKS IT TO, NOT EVERY TEST OF THE CLASS (#1499).
+// xUnit, NUnit and MSTest run a test class's constructor and its set-up and tear-down members (the fixture rule
+// above), its IDisposable / IAsyncLifetime members (cs_lifecycle below), the data source a test's attribute names
+// (uses_fixture), and a callable written inside the test (in_test_body above). Any other member runs when something
+// calls it, and C# calls are recorded edges, so a test that calls a helper reaches the change through it on its own
+// route. Crediting a helper to every test of its class listed tests that never call it, as [fixture]: a [MemberData]
+// source on the test's own class was credited to every test of the class, not to the one that names it. A member
+// nothing calls or names credits no test.
+.decl cs_decl(c:symbol)
+cs_decl(c) :- decl_file(c, f), match(".*[.]cs", f).
+// the members an xUnit runner calls around every test of their class by the interface the class implements, which no
+// decoration marks: IAsyncLifetime's InitializeAsync / DisposeAsync and IDisposable.Dispose. A change one of them
+// reaches fails each of those tests. The decorated set-up and tear-down members are `fixture` already.
+.decl cs_lifecycle(c:symbol)
+cs_lifecycle(c) :- cs_decl(c), owner(c, t), !test_method(c), member(t, c, n, _), (n = "InitializeAsync" ; n = "DisposeAsync" ; n = "Dispose").
+test_hit(q, m, d, c) :- reach(q, c, d), cs_lifecycle(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
+// xUnit builds a class fixture (IClassFixture<X>) or a collection fixture (ICollectionFixture<X>, joined through the
+// collection's name) before the tests of each class that names it, and disposes it after: X's constructors and
+// lifecycle members run for those tests, though X declares no test and no call site names it (#1498). So does a
+// member of X that nothing in the graph calls: an override the framework base calls (a WebApplicationFactory's
+// CreateHost / ConfigureWebHost, which builds the application every such test talks to). A member of X that a test
+// calls on the injected instance is carried by that call instead. A fixture type no test class names reaches no test.
+.decl cs_fixture_member(c:symbol, x:symbol)
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), kind(c, "constructor").
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), member(x, c, n, _), (n = "InitializeAsync" ; n = "DisposeAsync" ; n = "Dispose").
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), member(x, c, _, _), !cs_called(c).
+.decl cs_called(c:symbol)
+cs_called(c) :- edge(a, c, t), t != "defines", a != c.
+test_hit(q, m, d, c) :- reach(q, c, d), cs_fixture_member(c, x), typ(x, xn, _), cs_fixture_type(t, xn), cs_decl(t), scope(t, s), member(s, m, _, _), test_method(m).
 // A helper no type owns is scoped by the innermost declaration that lexically encloses it: a
 // `describe` callback holds its own helpers and its own tests, not a sibling block's; a module holds
 // its file, which is the file rule kept where it was right. TypeScript has no other scope to use --
@@ -1016,7 +1404,23 @@ uses_fixture(m, fx) :- dec_literal(t, "usefixtures", n, _, _), typ(t, _, _), sco
 // A module's `pytestmark` and the ini `usefixtures` option apply the marker to every test under their path (#1528).
 uses_fixture(m, fx) :- usefixtures_scope(p, n), decl_file(m, f), file_scope(f, p), test_method(m),
                        fixture_scope(fx, n, q), file_scope(f, q), m != fx.
+uses_fixture(m, fx) :- runs_before(m, fx), test_method(m).
 uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
+// JUnit 5's `@MethodSource("prices")` names the factory that supplies a parameterized test's arguments, and JUnit calls
+// it before that test, for that test only: no call site records it (#1416, #1424). The factory is looked up in the
+// test's class and the classes it extends or is nested in; without a value it is the factory named like the test.
+// The `Other#factory` form names a method of another class and is not read here.
+uses_fixture(m, fx) :- dec_literal(m, "MethodSource", n, _, _), test_method(m), java_decl(m), owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, fx) :- decorated(m, "MethodSource"), !dec_literal(m, "MethodSource", _, _, _), test_method(m), java_decl(m), member(_, m, n, _),
+                       owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
+// A C# data attribute names the member that supplies a parameterized test's rows, and the runner calls it for that
+// test only (#1499): [MemberData(nameof(Rows))] in the test's class or a class it extends or is nested in, and
+// [MemberData(nameof(Cases.Rows), MemberType = typeof(Cases))] (NUnit's [TestCaseSource(typeof(C), nameof(X))] and
+// MSTest's [DynamicData(nameof(X), typeof(C))] alike) in the type it names. [ClassData(typeof(C))] builds C and
+// enumerates it: every callable C declares serves that test.
+uses_fixture(m, fx) :- cs_data_source(m, "", n), test_method(m), owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, fx) :- cs_data_source(m, tn, n), tn != "", test_method(m), typ(t, tn, _), cs_decl(t), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, c) :- cs_data_type(m, tn), test_method(m), typ(t, tn, _), cs_decl(t), owner(c, t), c != m, !test_method(c).
 // a fixture may request another fixture, and then both run before the test
 uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
 test_hit(q, m, d, fx) :- reach(q, fx, d), uses_fixture(m, fx), test_method(m).
@@ -1048,7 +1452,13 @@ stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
 .decl test_stub(q:symbol, m:symbol)
 test_stub(q, m) :- stub_near(q, m), test_method(m).
 test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
-test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), !in_test_body(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f), !java_decl(c), !cs_decl(c).
+// a Java helper holding the stub is walked up to its callers by the edge rule, and a lambda in a test body reaches its
+// test through stub_near's lex_in step (#1416, #1556); a teardown is credited to every test of its class
+test_stub(q, m) :- stub_near(q, c), java_teardown(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
+// C#: a stub written in a helper or a lambda is walked up to the test that calls or holds it by the rules above; only a
+// lifecycle member is credited to every test of its class, as the test_hit rules do (#1556)
+test_stub(q, m) :- stub_near(q, c), cs_lifecycle(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
 .output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────

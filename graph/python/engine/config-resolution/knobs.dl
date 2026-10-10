@@ -40,6 +40,21 @@ py_http_route_verb("patch").
 py_http_route_verb("head").
 py_http_route_verb("options").
 py_http_route_verb("websocket").
+// `@router.api_route("/bulk", methods=[...])`: one handler for the verbs it lists (#1524).
+py_http_route_verb("api_route").
+
+// ── py_http_route_register_method(Name) / py_http_route_endpoint_kw(Keyword) ──
+// The imperative spelling of the same registration: `router.add_api_route("/x", fn)`,
+// `app.add_url_rule("/x", view_func=fn)`, `app.add_route("/x", fn)`. Matched only with a
+// URL path argument (a string starting with "/"), exactly like the decorator, so a
+// registry's own `add_route("name", fn)` is not a route.
+py_http_route_register_method("add_api_route").
+py_http_route_register_method("add_api_websocket_route").
+py_http_route_register_method("add_route").
+py_http_route_register_method("add_websocket_route").
+py_http_route_register_method("add_url_rule").
+py_http_route_endpoint_kw("endpoint").
+py_http_route_endpoint_kw("view_func").
 
 // ── py_grpc_servicer_suffix(Suffix) / py_grpc_generated_module_suffix(Suffix) ──
 // The two names protoc chooses, and the only two this ecosystem needs.
@@ -136,6 +151,12 @@ py_fixture_name_kw("name").
 // the session, not only to the directory of the module that listed them.
 py_fixture_plugins_var("pytest_plugins").
 
+// ── py_fixture_value_method(Name): a fixture requested by name from the body ──
+// `request.getfixturevalue("admin_user")` asks the runner for the fixture at run time,
+// on the request object every test and fixture can take. The name is a string, so no
+// parameter carries the request and the fixture reached no test (#1514).
+py_fixture_value_method("getfixturevalue").
+
 // ── py_parametrize_deco(Tail) and its keywords: a value supplied DIRECTLY ────
 // `@pytest.mark.parametrize("user", [...])` passes the value in, and the fixture called
 // `user` is NOT run for that test. With `indirect=True`, or with the name in an
@@ -144,6 +165,14 @@ py_parametrize_deco("parametrize").
 py_parametrize_argnames_kw("argnames").
 py_parametrize_indirect_kw("indirect").
 py_parametrize_indirect_all("True").
+// The VALUES the runner hands in: the decorator's second argument (or `argvalues=`), a
+// fixture's `params=`, a row wrapped as `pytest.param(v, ..., id=...)`, and, inside a fixture
+// declared with params, the attribute `request.param` it reads the current one from.
+py_parametrize_argvalues_kw("argvalues").
+py_fixture_params_kw("params").
+py_param_row_wrapper("param").
+py_fixture_request_param("request").
+py_request_param_attr("param").
 
 // ── py_argnames_sep / py_argnames_lead: how "a, b" separates argument names ──
 // The runner splits the string on "," and strips each piece. Souffle cannot split, so a
@@ -170,6 +199,13 @@ py_route_table("url_patterns").
 py_route_entry_fn("path").
 py_route_entry_fn("re_path").
 py_route_entry_fn("url").
+// Starlette's route table entries: `routes = [Route("/x", fn), WebSocketRoute("/ws", fn)]` (#1524).
+py_route_entry_fn("Route").
+py_route_entry_fn("WebSocketRoute").
+
+// ── py_route_endpoint_kw(Keyword): an entry's view passed by keyword ─────────
+// `WebSocketRoute("/feed", endpoint=feed)`.
+py_route_endpoint_kw("endpoint").
 
 // ── py_route_include_fn(Name) — mounts another table under a prefix ──────────
 // `path("orders/", include(order_patterns))`. The argument is a table like
@@ -194,6 +230,14 @@ py_view_handler_name("head").
 py_view_handler_name("options").
 py_view_handler_name("trace").
 
+// ── py_endpoint_handler_name(Name): what the framework calls on an endpoint CLASS ─
+// `Route("/widgets", Widgets)` with `class Widgets(HTTPEndpoint)`: the method named for
+// the request's verb, as for as_view(); a websocket endpoint's three handlers besides.
+py_endpoint_handler_name(n) :- py_view_handler_name(n).
+py_endpoint_handler_name("on_connect").
+py_endpoint_handler_name("on_receive").
+py_endpoint_handler_name("on_disconnect").
+
 // ── py_signal_receiver_deco(Tail) — attaches a handler to a signal ───────────
 // `@receiver(order_placed)`. The publisher writes `order_placed.send(sender=...)`;
 // the two ends are joined by the SIGNAL OBJECT and never by a call.
@@ -206,6 +250,28 @@ py_signal_receiver_deco("receiver").
 py_signal_connect_method("connect").
 py_signal_send_method("send").
 py_signal_send_method("send_robust").
+py_signal_send_method("asend").
+py_signal_send_method("asend_robust").
+
+// ── py_model_signal_method(Signal, Method) — signals the ORM sends itself ───
+// A model's `save()` sends pre_save and post_save, `delete()` pre_delete and post_delete,
+// and the manager's `create()` / `get_or_create()` / `update_or_create()` save through
+// `save()`. The client writes no `send` for these, so the write IS the publisher. Matched
+// only for a signal IMPORTED from outside the client and a receiver scoped by `sender=`
+// to the class being written.
+py_model_signal_method("pre_save", "save").
+py_model_signal_method("post_save", "save").
+py_model_signal_method("pre_save", "create").
+py_model_signal_method("post_save", "create").
+py_model_signal_method("pre_save", "get_or_create").
+py_model_signal_method("post_save", "get_or_create").
+py_model_signal_method("pre_save", "update_or_create").
+py_model_signal_method("post_save", "update_or_create").
+py_model_signal_method("pre_delete", "delete").
+py_model_signal_method("post_delete", "delete").
+py_signal_sender_kw("sender").
+// `Order.objects.create(...)`: the class attribute holding the default manager.
+py_model_manager_attr("objects").
 
 // ── py_di_marker(Name) — a default value naming a provider to call ───────────
 // `def handler(svc = Depends(get_service))`. The marker takes the provider as a
@@ -214,6 +280,19 @@ py_signal_send_method("send_robust").
 py_di_marker("Depends").
 py_di_marker("Security").
 
+// ── py_di_marker_kwarg(Name): the keyword a marker takes its provider by ─────
+// `Depends(dependency=get_service)` is the same marker as `Depends(get_service)`.
+py_di_marker_kwarg("dependency").
+
+// ── py_di_dependencies_kwarg(Name): a list of markers guarding routes ────────
+// `@router.get("/", dependencies=[Depends(check)])`, `APIRouter(dependencies=[...])`,
+// `app.include_router(r, dependencies=[...])`. Each provider in it runs per request.
+py_di_dependencies_kwarg("dependencies").
+
+// ── py_annotated_form(Name): `Annotated[T, *metadata]`, whose metadata a marker ──
+// may sit in: `svc: Annotated[Service, Depends(get_service)]`.
+py_annotated_form("Annotated").
+
 // ── py_orm_hook_deco(Tail) — a lifecycle or validation hook the library calls ─
 // `@event.listens_for(User, "before_insert")`, `@validates("email")`,
 // `@field_validator("name")`. The library invokes these; no client call site does.
@@ -221,6 +300,63 @@ py_orm_hook_deco("listens_for").
 py_orm_hook_deco("validates").
 py_orm_hook_deco("field_validator").
 py_orm_hook_deco("model_validator").
+// The v1 spellings and the serializers (#1536). A serializer runs on dump, not on build.
+py_orm_hook_deco("validator").
+py_orm_hook_deco("root_validator").
+py_orm_hook_deco("field_serializer").
+py_orm_hook_deco("model_serializer").
+
+// ── py_model_construct_hook_deco(Tail): the hooks that run when a model is BUILT ─
+// `Widget(**data)` and `Widget.model_validate(data)` run these; see py_model_build (#1532).
+py_model_construct_hook_deco("field_validator").
+py_model_construct_hook_deco("model_validator").
+py_model_construct_hook_deco("validator").
+py_model_construct_hook_deco("root_validator").
+
+// ── py_model_lifecycle_method(Name): a method the library calls on every instance ─
+// `def model_post_init(self, ctx)` on a model class (one whose lineage leaves the client).
+py_model_lifecycle_method("model_post_init").
+
+// ── py_model_build_method(Name): a classmethod that builds and validates a model ─
+py_model_build_method("model_validate").
+py_model_build_method("model_validate_json").
+py_model_build_method("parse_obj").
+py_model_build_method("parse_raw").
+
+// ── py_default_factory_kw(Keyword): a field default the constructor calls ────
+// `Field(default_factory=new_id)`, `field(default_factory=list)`.
+py_default_factory_kw("default_factory").
+
+// ── py_app_hook_deco(Tail): an application lifecycle registration (#1523) ────
+// `@app.middleware("http")`, `@app.exception_handler(ValueError)`, `@app.errorhandler(404)`,
+// `@app.on_event("startup")`. Matched only with an argument naming what it hooks.
+py_app_hook_deco("middleware").
+py_app_hook_deco("exception_handler").
+py_app_hook_deco("errorhandler").
+py_app_hook_deco("on_event").
+
+// ── py_app_lifecycle_kw(Keyword): an application argument holding callables it runs ─
+// `FastAPI(lifespan=lifespan)`, `Starlette(on_startup=[boot], on_shutdown=[stop])`.
+py_app_lifecycle_kw("lifespan").
+py_app_lifecycle_kw("on_startup").
+py_app_lifecycle_kw("on_shutdown").
+
+// ── py_middleware_register_fn(Name) / py_middleware_handler_name(Name) ──────
+// `app.add_middleware(Timing)` and `Middleware(Timing)` hand the framework a CLASS; it
+// builds it and calls `dispatch` (a BaseHTTPMiddleware) or `__call__` (a plain ASGI one).
+py_middleware_register_fn("add_middleware").
+py_middleware_register_fn("Middleware").
+py_middleware_handler_name("dispatch").
+py_middleware_handler_name("__call__").
+
+// ── py_command_* : a management command (#1520) ──────────────────────────────
+// `<app>/management/commands/<name>.py` declares `class Command(BaseCommand)` with a
+// `handle` method; the runner (and `call_command("<name>")`) runs it by the file name.
+py_command_dir("/management/commands/").
+py_command_package("management.commands.").
+py_command_class("Command").
+py_command_handler_name("handle").
+py_command_call_fn("call_command").
 
 // ── py_fixture_scope_file(Basename) — the file whose fixtures are inherited ──
 // A fixture is NOT visible by name alone. The runner resolves it at the TEST'S

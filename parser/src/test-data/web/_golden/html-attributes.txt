@@ -1,0 +1,113 @@
+name=#default	prefix=	value={ item }	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=8	startColumn=15
+name=#list	prefix=	value=	attributeKind=TEMPLATE_DIRECTIVE	hasValue=false	startLine=2	startColumn=63
+name=(click)	prefix=	value=toggle()	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=2	startColumn=44
+name=*ngFor	prefix=	value=let item of items; let i = index	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=3	startColumn=7
+name=*ngIf	prefix=	value=items.length	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=2	startColumn=5
+name=:class	prefix=	value={ on: open }	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=1	startColumn=84
+name=:key	prefix=	value=row.id	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=7	startColumn=32
+name=@click	prefix=	value=open = !open	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=1	startColumn=46
+name=@keyup.enter	prefix=	value=search()	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=10	startColumn=31
+name=@select	prefix=	value=pick(row)	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=7	startColumn=65
+name=[(ngModel)]	prefix=	value=item.qty	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=3	startColumn=49
+name=[class.on]	prefix=	value=open	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=2	startColumn=26
+name=action	prefix=	value=/submit	attributeKind=URL	hasValue=true	startLine=29	startColumn=11
+name=alt	prefix=	value=	attributeKind=OTHER	hasValue=true	startLine=11	startColumn=55
+name=alt	prefix=	value=	attributeKind=OTHER	hasValue=true	startLine=27	startColumn=95
+name=alt	prefix=	value=hero	attributeKind=OTHER	hasValue=true	startLine=28	startColumn=101
+name=aria-label	prefix=	value=Main	attributeKind=ARIA	hasValue=true	startLine=25	startColumn=97
+name=async	prefix=	value=	attributeKind=OTHER	hasValue=false	startLine=10	startColumn=30
+name=charset	prefix=	value=utf-8	attributeKind=OTHER	hasValue=true	startLine=4	startColumn=9
+name=class	prefix=	value=card card--wide	attributeKind=CLASS	hasValue=true	startLine=25	startColumn=18
+name=class	prefix=	value=home dark	attributeKind=CLASS	hasValue=true	startLine=17	startColumn=7
+name=class	prefix=	value=item	attributeKind=CLASS	hasValue=true	startLine=20	startColumn=11
+name=class	prefix=	value=item	attributeKind=CLASS	hasValue=true	startLine=22	startColumn=11
+name=class	prefix=	value=item hidden	attributeKind=CLASS	hasValue=true	startLine=21	startColumn=11
+name=class	prefix=	value=label	attributeKind=CLASS	hasValue=true	startLine=2	startColumn=9
+name=class	prefix=	value=link	attributeKind=CLASS	hasValue=true	startLine=3	startColumn=35
+name=class	prefix=	value=nav	attributeKind=CLASS	hasValue=true	startLine=18	startColumn=8
+name=class	prefix=	value=partial	attributeKind=CLASS	hasValue=true	startLine=1	startColumn=6
+name=class	prefix=	value=title	attributeKind=CLASS	hasValue=true	startLine=10	startColumn=12
+name=class	prefix=	value=tpl	attributeKind=CLASS	hasValue=true	startLine=37	startColumn=21
+name=class	prefix=	value=widget	attributeKind=CLASS	hasValue=true	startLine=1	startColumn=6
+name=class	prefix=	value=wrapper	attributeKind=CLASS	hasValue=true	startLine=3	startColumn=31
+name=class	prefix=	value=x	attributeKind=CLASS	hasValue=true	startLine=15	startColumn=26
+name=content	prefix=	value=5; url=index.html	attributeKind=OTHER	hasValue=true	startLine=4	startColumn=28
+name=data-role	prefix=	value=main	attributeKind=DATA	hasValue=true	startLine=25	startColumn=80
+name=defer	prefix=	value=	attributeKind=OTHER	hasValue=false	startLine=11	startColumn=48
+name=disabled	prefix=	value=	attributeKind=OTHER	hasValue=false	startLine=30	startColumn=70
+name=for	prefix=	value=q	attributeKind=FOR	hasValue=true	startLine=30	startColumn=14
+name=form	prefix=	value=f	attributeKind=ID_REFERENCE	hasValue=true	startLine=12	startColumn=23
+name=formaction	prefix=	value=/alt	attributeKind=URL	hasValue=true	startLine=31	startColumn=15
+name=href	prefix=	value=	attributeKind=URL	hasValue=true	startLine=13	startColumn=4
+name=href	prefix=	value=/	attributeKind=URL	hasValue=true	startLine=6	startColumn=9
+name=href	prefix=	value=/about#team	attributeKind=URL	hasValue=true	startLine=20	startColumn=27
+name=href	prefix=	value=javascript:toggle()	attributeKind=URL	hasValue=true	startLine=34	startColumn=8
+name=href	prefix=	value=javascript:void(0)	attributeKind=URL	hasValue=true	startLine=35	startColumn=8
+name=href	prefix=	value=js/app.js	attributeKind=URL	hasValue=true	startLine=9	startColumn=29
+name=href	prefix=	value=mailto:hi@example.com	attributeKind=URL	hasValue=true	startLine=22	startColumn=27
+name=href	prefix=	value=page.html?x=1#top	attributeKind=URL	hasValue=true	startLine=21	startColumn=34
+name=href	prefix=	value=static/css/app.css	attributeKind=URL	hasValue=true	startLine=3	startColumn=49
+name=href	prefix=	value=static/css/app.css	attributeKind=URL	hasValue=true	startLine=7	startColumn=26
+name=href	prefix=	value=static/img/favicon.png	attributeKind=URL	hasValue=true	startLine=8	startColumn=20
+name=href	prefix=	value=static/img/sprite.svg#icon	attributeKind=URL	hasValue=true	startLine=38	startColumn=35
+name=href	prefix=	value={{ url_for('home') }}	attributeKind=URL	hasValue=true	startLine=3	startColumn=6
+name=href	prefix=xlink	value=#local	attributeKind=URL	hasValue=true	startLine=38	startColumn=75
+name=http-equiv	prefix=	value=refresh	attributeKind=OTHER	hasValue=true	startLine=4	startColumn=7
+name=hx-get	prefix=	value=/items	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=1	startColumn=68
+name=id	prefix=	value=choices	attributeKind=ID	hasValue=true	startLine=12	startColumn=54
+name=id	prefix=	value=dup	attributeKind=ID	hasValue=true	startLine=15	startColumn=6
+name=id	prefix=	value=main	attributeKind=ID	hasValue=true	startLine=25	startColumn=8
+name=id	prefix=	value=q	attributeKind=ID	hasValue=true	startLine=30	startColumn=42
+name=id	prefix=	value=top	attributeKind=ID	hasValue=true	startLine=10	startColumn=5
+name=id	prefix=	value=tpl-row	attributeKind=ID	hasValue=true	startLine=45	startColumn=34
+name=id	prefix=	value=vue-root	attributeKind=ID	hasValue=true	startLine=6	startColumn=6
+name=lang	prefix=	value=en	attributeKind=OTHER	hasValue=true	startLine=2	startColumn=7
+name=list	prefix=	value=choices	attributeKind=ID_REFERENCE	hasValue=true	startLine=12	startColumn=8
+name=method	prefix=	value=post	attributeKind=OTHER	hasValue=true	startLine=29	startColumn=28
+name=name	prefix=	value=q	attributeKind=NAME	hasValue=true	startLine=30	startColumn=49
+name=onclick	prefix=	value=app.submit(event)	attributeKind=EVENT_HANDLER	hasValue=true	startLine=32	startColumn=29
+name=onclick	prefix=	value=if (confirm('?')) remove(1)	attributeKind=EVENT_HANDLER	hasValue=true	startLine=31	startColumn=33
+name=onclick	prefix=	value=save(	attributeKind=EVENT_HANDLER	hasValue=true	startLine=5	startColumn=11
+name=onclick	prefix=	value=track('nav', this); return go()	attributeKind=EVENT_HANDLER	hasValue=true	startLine=20	startColumn=46
+name=onclick	prefix=	value={{ handler }}	attributeKind=EVENT_HANDLER	hasValue=true	startLine=35	startColumn=34
+name=onload	prefix=	value=start()	attributeKind=EVENT_HANDLER	hasValue=true	startLine=9	startColumn=7
+name=poster	prefix=	value=static/img/poster.png	attributeKind=URL	hasValue=true	startLine=39	startColumn=33
+name=rel	prefix=	value=icon	attributeKind=REL	hasValue=true	startLine=8	startColumn=9
+name=rel	prefix=	value=modulepreload	attributeKind=REL	hasValue=true	startLine=9	startColumn=9
+name=rel	prefix=	value=stylesheet	attributeKind=REL	hasValue=true	startLine=3	startColumn=34
+name=rel	prefix=	value=stylesheet	attributeKind=REL	hasValue=true	startLine=7	startColumn=9
+name=role	prefix=	value=region	attributeKind=ARIA	hasValue=true	startLine=25	startColumn=115
+name=src	prefix=	value=//cdn.example.com/x.js	attributeKind=URL	hasValue=true	startLine=8	startColumn=9
+name=src	prefix=	value=/assets/main.js	attributeKind=URL	hasValue=true	startLine=2	startColumn=15
+name=src	prefix=	value=data:image/gif;base64,R0lGODlhAQABAAAAACw=	attributeKind=URL	hasValue=true	startLine=11	startColumn=6
+name=src	prefix=	value=https://cdn.example.com/lib.js	attributeKind=URL	hasValue=true	startLine=11	startColumn=11
+name=src	prefix=	value=js/vendor.js	attributeKind=URL	hasValue=true	startLine=10	startColumn=11
+name=src	prefix=	value=media/clip.mp4	attributeKind=URL	hasValue=true	startLine=39	startColumn=12
+name=src	prefix=	value=partials/frame.html	attributeKind=URL	hasValue=true	startLine=36	startColumn=13
+name=src	prefix=	value=static/img/hero.png	attributeKind=URL	hasValue=true	startLine=28	startColumn=75
+name=src	prefix=	value=static/img/logo.png	attributeKind=URL	hasValue=true	startLine=27	startColumn=10
+name=srcset	prefix=	value=static/img/hero.webp	attributeKind=SRCSET	hasValue=true	startLine=28	startColumn=22
+name=srcset	prefix=	value=static/img/logo.png 1x, static/img/logo@2x.png 2x	attributeKind=SRCSET	hasValue=true	startLine=27	startColumn=36
+name=style	prefix=	value=color: ; margin: 0	attributeKind=STYLE	hasValue=true	startLine=4	startColumn=9
+name=style	prefix=	value=color: var(--brand); margin:0	attributeKind=STYLE	hasValue=true	startLine=25	startColumn=42
+name=th:text	prefix=	value=${title}	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=3	startColumn=12
+name=type	prefix=	value=application/ld+json	attributeKind=TYPE	hasValue=true	startLine=46	startColumn=11
+name=type	prefix=	value=image/webp	attributeKind=TYPE	hasValue=true	startLine=28	startColumn=52
+name=type	prefix=	value=importmap	attributeKind=TYPE	hasValue=true	startLine=15	startColumn=11
+name=type	prefix=	value=module	attributeKind=TYPE	hasValue=true	startLine=41	startColumn=11
+name=type	prefix=	value=speculationrules	attributeKind=TYPE	hasValue=true	startLine=5	startColumn=9
+name=type	prefix=	value=submit	attributeKind=TYPE	hasValue=true	startLine=32	startColumn=15
+name=type	prefix=	value=text	attributeKind=TYPE	hasValue=true	startLine=12	startColumn=32
+name=type	prefix=	value=text	attributeKind=TYPE	hasValue=true	startLine=30	startColumn=58
+name=type	prefix=	value=text/babel	attributeKind=TYPE	hasValue=true	startLine=6	startColumn=9
+name=type	prefix=	value=text/x-mathjax-config	attributeKind=TYPE	hasValue=true	startLine=7	startColumn=9
+name=type	prefix=	value=text/x-template	attributeKind=TYPE	hasValue=true	startLine=45	startColumn=11
+name=v-for	prefix=	value=row in rows	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=7	startColumn=12
+name=v-model	prefix=	value=selected	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=7	startColumn=46
+name=v-model.trim	prefix=	value=query	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=10	startColumn=10
+name=viewBox	prefix=	value=0 0 10 10	attributeKind=OTHER	hasValue=true	startLine=38	startColumn=10
+name=x-data	prefix=	value={ open: false }	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=1	startColumn=21
+name=x-data	prefix=	value={ open: false }	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=11	startColumn=8
+name=x-ref	prefix=	value=panel	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=11	startColumn=33
+name=x-show	prefix=	value=open	attributeKind=TEMPLATE_DIRECTIVE	hasValue=true	startLine=11	startColumn=47
+name=xmlns:th	prefix=	value=http://www.thymeleaf.org	attributeKind=NAMESPACE	hasValue=true	startLine=1	startColumn=7

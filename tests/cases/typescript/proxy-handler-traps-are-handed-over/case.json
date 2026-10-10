@@ -1,0 +1,50 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "new Proxy(base, traps) hands the runtime the handler's traps: whoever creates the draft reaches what get and set call",
+   "run": [
+    "path",
+    "createDraft",
+    "readThrough"
+   ],
+   "want": [
+    "readThrough",
+    "callback_registered"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "a handler passed in as a parameter, to Proxy.revocable, is followed to the object literal handed to it",
+   "run": [
+    "path",
+    "createAudited",
+    "auditValue"
+   ],
+   "want": [
+    "auditValue"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "CONTROL: an object with a get method handed to a built-in that is not Proxy is not a proxy handler",
+   "run": [
+    "path",
+    "frozenTable",
+    "computeEntry"
+   ],
+   "want": [
+    "no chain of resolved calls"
+   ],
+   "avoid": [
+    "callback_registered"
+   ],
+   "expect_error": true
+  }
+ ]
+}

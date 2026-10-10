@@ -1,0 +1,6 @@
+boundary_lib	SIMPLE_CALL	order_service.<module> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	signals.<module> -> builtin:object.__init__
+known_edge	METHOD_CALL	api.cancel_endpoint -> order_service.OrderService.cancel
+known_edge	METHOD_CALL	order_service.same_module_caller -> order_service.OrderService.cancel
+known_edge	METHOD_CALL	publisher.publish -> signals.Signal.send
+known_edge	METHOD_CALL	use_pkg.run -> pkg.tools.helper

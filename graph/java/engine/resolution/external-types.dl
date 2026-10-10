@@ -78,6 +78,23 @@ name_resolves_in_file(tn, fp) :- ref_file(_, tn, fp), type_resolves_java_lang(_,
 // on an inferred local got an `external:var.<m>` boundary beside its real target (3,842 of 85,025
 // edges on a 1,360-file project). Its type is the initializer's: local-flow.dl carries a client
 // one, and the `var` clause of expr_type below an external one. #1401.
+//
+// A TYPE VARIABLE is not a type name either. A field written `protected M mapper` in `Base<M>`
+// arrives as a CLASS reference named `M`, which nothing declares, so a call through it became a
+// library boundary on `external:M` (#1412). The variable is in scope from its declaring type, a
+// type enclosing that, or the generic method whose signature or body writes it.
+ref_names_tvar(ref) :- java_type_reference(_, _, encl, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    tn != "", java_type_parameter(tn, _, _, _, _, _, encl, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, encl, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    tn != "", type_in_type("client", encl, outer), java_type_parameter(tn, _, _, _, _, _, outer, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, m, "METHOD", ref),
+    tn != "", java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, p, "METHOD_PARAM", ref),
+    tn != "", java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p),
+    java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, l, "LOCAL_VARIABLE", ref),
+    tn != "", java_local_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, l),
+    java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
 candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _, "0", tn, ctn, _, _, _, _, _, _, _, ref),
     ext_ref_kind(kind),
     ext_ref_context(ctx),
@@ -85,7 +102,8 @@ candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _,
     tn != "var",
     ref_file(ref, tn, fp),
     !name_resolves_in_file(tn, fp),
-    !simple_name_declared(tn).
+    !simple_name_declared(tn),
+    !ref_names_tvar(ref).
 
 // ── ref_external_name(Ref, QualifiedName) ───────────────────────────────────
 ref_external_name(ref, q) :- candidate_ref(ref, tn, _, fp),
@@ -133,7 +151,24 @@ local_creation_init(local) :- java_expression("ANONYMOUS_CLASS_CREATION", "ROOT"
 local_reassigned(local) :- java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
     expr_ultimate_method("client", e, m).
-local_creation_pinned(local) :- local_creation_init(local), !local_reassigned(local).
+local_creation_pinned(local) :- local_creation_init(local), !local_reassigned(local), !local_creation_external(local).
+// ...but a creation of a type no staged IR declares pins nothing: `final StringBuilder sb = new StringBuilder()`
+// with no JDK staged has no flow type at all, so `sb.toString()` was an unresolved site -- and every unresolved
+// `toString` / `append` was a by-name caller of each client method of that name. The declared type is then the
+// answer, exactly as for an initializer that is not a creation: an external receiver, a library boundary.
+.decl creation_ref_external(ref:symbol)
+creation_ref_external(ref) :- java_type_reference(kind, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    ext_ref_kind(kind),
+    tn != "",
+    ref_file(ref, tn, fp),
+    !name_resolves_in_file(tn, fp),
+    !simple_name_declared(tn),
+    !ref_names_tvar(ref).
+.decl local_creation_external(local:symbol)
+local_creation_external(local) :-
+    java_expression("OBJECT_CREATION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, obj),
+    java_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, obj, "EXPRESSION", ref),
+    creation_ref_external(ref).
 
 expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
     expr_ultimate_type("client", e, encl),
@@ -160,9 +195,8 @@ expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
 // with `Format source()` unstaged), the local is that external type exactly as `Format f` would
 // be. Without it the receiver has no external type at all and the call is a declared unknown.
 // java_local_variable (19): 11 isVarInferred 13 method 18 hash
-expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
-    expr_ultimate_method("client", e, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, "true", _, m, _, _, _, _, local),
+expr_type("external", e, x) :- local_use(e, local),
+    java_local_variable(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, local),
     local_init_expr(local, init),
     expr_type("external", init, x).
 expr_type("external", e, x) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
@@ -213,6 +247,20 @@ expr_call_candidate(call, m) :- call_site(call, name, recv),
 external_target(call, label) :- call_site(call, name, recv),
     expr_type("external", recv, x),
     label = cat(x, cat(".", name)).
+//   (a') the receiver is a TYPE NAME no staged IR declares: a static call on the platform or a dependency,
+//       `Character.charCount(cp)`, `Objects.equals(a, b)`, `Collections.unmodifiableMap(m)`. A static call never
+//       dispatches, so no client method runs behind it. The parser writes the receiver as an identifier it read as a
+//       type (not ambiguous with a variable) with the qualified name its imports give; left unresolved, each one was a
+//       by-name caller of every client method called `equals`, `valueOf`, `max`, `get`.
+.decl external_static_receiver(recv:symbol, q:symbol)
+external_static_receiver(recv, q) :-
+    java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, n, _, _, _, "TYPE", "", _, q, "false", _, _, _, _, _, recv),
+    q != "", n != "",
+    !qualified_name_declared(q),
+    !simple_name_declared(n).
+external_target(call, label) :- call_site(call, name, recv),
+    external_static_receiver(recv, q),
+    label = cat("external:", cat(q, cat(".", name))).
 // The parser writes parameterCount as text, so the written arity is compared as text.
 call_arity(call, pc) :- call_argc(call, n), pc = to_string(n).
 call_arity(call, "0") :- call_site(call, _, _), !call_has_args(call).

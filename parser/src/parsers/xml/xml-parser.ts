@@ -1,9 +1,26 @@
+import * as path from 'path';
 import * as sax from 'sax';
 
 import { XmlAttribute } from '@/analysis-types/xml/XmlAttribute';
 import { XmlElement } from '@/analysis-types/xml/XmlElement';
 import { XmlValueReference } from '@/analysis-types/xml/XmlValueReference';
 import { XmlValueReferenceType } from '@/enums/xml/XmlValueReferenceType';
+
+/**
+ * The path an XML id hashes: `filePath` relative to `root`, '/'-separated.
+ *
+ * Every XML element, attribute and value-reference id used to hash the absolute file path
+ * (and an element's the absolute project path too), so the same file analysed from two
+ * directories got two sets of ids. A value reference's id is what a declared unknown names
+ * (config_unresolved), so it differed in every checkout. Relative to the analysis root it
+ * is still unique within a run, since each file is analysed once, under one owner.
+ * A file outside `root` keeps its absolute path rather than a `../` path.
+ */
+export function toIdPath(root: string, filePath: string): string {
+  const rel = path.relative(root, filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return filePath;
+  return rel.split(path.sep).join('/');
+}
 
 /**
  * Internal state for tracking an open element during SAX parsing.
@@ -38,13 +55,17 @@ export class XmlParser {
    * @param filePath Absolute path to the XML file
    * @param baseMservPath Project root path
    * @param serviceVersionLinkHash Service version hash
+   * @param idPath The file's path relative to the analysis root, which every id hashes in
+   *   place of the absolute filePath (see XmlElement.withIdPath). Defaults to the path
+   *   relative to the project path.
    * @returns Tuple of [XmlElement[], XmlAttribute[], XmlValueReference[]]
    */
   parse(
     content: string,
     filePath: string,
     baseMservPath: string,
-    serviceVersionLinkHash: string
+    serviceVersionLinkHash: string,
+    idPath: string = toIdPath(baseMservPath, filePath)
   ): [XmlElement[], XmlAttribute[], XmlValueReference[]] {
     const elements: XmlElement[] = [];
     const attributes: XmlAttribute[] = [];
@@ -118,6 +139,7 @@ export class XmlParser {
       )
         .withNamespace(resolvedUri)
         .withNamespacePrefix(prefix)
+        .withIdPath(idPath)
         .withParentElementHash(
           elementStack.length > 0
             ? elementStack[elementStack.length - 1]!.elementHash
@@ -170,6 +192,7 @@ export class XmlParser {
           serviceVersionLinkHash
         )
           .withNamespace(attrNsUri)
+          .withIdPath(idPath)
           .build();
 
         attributes.push(xmlAttr);
@@ -183,7 +206,8 @@ export class XmlParser {
           baseMservPath,
           startLine,
           startLine,
-          serviceVersionLinkHash
+          serviceVersionLinkHash,
+          idPath
         );
         valueReferences.push(...attrRefs);
       }
@@ -222,6 +246,7 @@ export class XmlParser {
       )
         .withNamespace(state.namespace)
         .withNamespacePrefix(state.prefix)
+        .withIdPath(idPath)
         .withTextContent(trimmedText)
         .withIsSelfClosing(isSelfClosing)
         .withChildCount(state.childCount)
@@ -240,7 +265,8 @@ export class XmlParser {
           baseMservPath,
           state.startLine,
           endLine,
-          serviceVersionLinkHash
+          serviceVersionLinkHash,
+          idPath
         );
         valueReferences.push(...textRefs);
       }
@@ -283,7 +309,8 @@ export class XmlParser {
     baseMservPath: string,
     startLine: number,
     endLine: number,
-    serviceVersionLinkHash: string
+    serviceVersionLinkHash: string,
+    idPath: string
   ): XmlValueReference[] {
     const references: XmlValueReference[] = [];
     let pos = 0;
@@ -307,6 +334,7 @@ export class XmlParser {
           serviceVersionLinkHash
         )
           .withOwnerAttributeName(ownerAttributeName)
+          .withIdPath(idPath)
           .build();
 
         references.push(ref);
@@ -347,7 +375,8 @@ export class XmlParser {
           serviceVersionLinkHash
         )
           .withOwnerAttributeName(ownerAttributeName)
-          .withDefaultValue(defaultValue);
+          .withDefaultValue(defaultValue)
+          .withIdPath(idPath);
 
         references.push(refBuilder.build());
 
@@ -361,7 +390,8 @@ export class XmlParser {
             baseMservPath,
             startLine,
             endLine,
-            serviceVersionLinkHash
+            serviceVersionLinkHash,
+            idPath
           );
           // Set depth on nested refs
           for (const nested of nestedRefs) {
@@ -379,6 +409,7 @@ export class XmlParser {
               .withOwnerAttributeName(ownerAttributeName)
               .withDefaultValue(nested.getDefaultValue())
               .withDepth(nested.getDepth() + 1)
+              .withIdPath(idPath)
               .build();
             references.push(nestedWithDepth);
           }

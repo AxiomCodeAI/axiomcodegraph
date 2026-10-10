@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# axiomcode — build a call graph from a source tree.
+# axiomcode — ask a repository's call graph. `axiomcode --help` prints the dispatcher's help
+# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, context, impact, path and tests.
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERNAL COMMANDS, not advertised: the build, the engine suites and the MCP server, which
+# the dispatcher, the test suites and the agent manifests call.
 #
 # Usage:
 #   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
@@ -25,12 +29,18 @@
 #
 # Engine options:
 #   --dispatch-cap <N|off>   --lib-depth <N>   --jdk-depth <N>   --taint <on|off>
+#   --closed-world <on|off>  narrow the dispatch fan to constructed types (TypeScript), recording
+#                            each dropped edge as an assumption row
 #
 # Commands:
 #   parser <src-dir> <ir-dir> [--version V] [--exclude-tests]
 #                          Parse only; writes <ir-dir>/<lang>/.
 #   engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
 #                          Solve previously parsed IR.
+#   prepare [--language L[,…]] [--background]
+#                          Make each language's engine binary ready (packaged, cached, or compiled
+#                          now), so the first index does not pay the compile. `npm run build` runs it
+#                          in the background; AXIOMCODE_NO_PREPARE=1 or CI skips that.
 #   test [java|typescript|python|javascript|csharp|parser|all] [suite options]
 #                          Run the test suites.
 #   mcp                    Serve the graph to an agent as MCP tools over stdio. Any MCP client
@@ -86,31 +96,30 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 # (`--verbs`, derived from its own dispatch table) so the two entry points cannot drift: a new
 # capability is a new row in one case statement, not a new copy here.
 QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
-# `tests` is the frontend's alias for test-impact; `test` is THIS command's engine suite. One letter
-# apart, entirely different jobs, and putting both on one command is a trap — so the alias is not
-# routed here, and the name is refused below with both readings spelled out.
-# The list is read from the frontend's own dispatch table, the lines `  <verb>[|<alias>]) exec …` that its `--verbs`
-# prints, so the two entry points still cannot drift -- but read here, in this shell, instead of by a second bash, a
-# sed, a tr and two greps on every query.
+# `tests` is a query verb (the tests an edit reaches); `test` is THIS command's engine suite. The query
+# surface advertises `tests`; `test` is internal.
+# THE LIST IS THE SUPPORTED SURFACE: the `#   axiomcode <verb>` lines of the frontend's own leading help (what its
+# `--verbs` prints), so the two entry points cannot drift -- read here, in this shell, instead of by a second bash.
+# The frontend still dispatches internal verbs (context, changed, test-impact) for the hooks and the suites, which
+# call it directly; this command refuses them, so the installed surface is only what the help teaches.
 QVERBS=()
 load_verbs(){
   [ ${#QVERBS[@]} -gt 0 ] && return 0; [ -f "$QUERY" ] || return 0
-  local l v x re='^  ([a-z|-]*)\) *exec '
+  local l re='^#   axiomcode ([a-z][a-z-]*)'
   while IFS= read -r l || [ -n "$l" ]; do
-    [[ $l =~ $re ]] || continue; v="${BASH_REMATCH[1]}"
-    for x in ${v//|/ }; do [ "$x" = tests ] || QVERBS+=("$x"); done
+    [ "${l:0:1}" = '#' ] || { [ -n "${QVERBS[*]:-}" ] && break; continue; }
+    [[ $l =~ $re ]] && QVERBS+=("${BASH_REMATCH[1]}")
   done < "$QUERY"
 }
 query_verbs(){ load_verbs; [ ${#QVERBS[@]} -gt 0 ] && printf '%s\n' "${QVERBS[@]}"; return 0; }
 is_query_verb(){ load_verbs; local x; for x in ${QVERBS[@]+"${QVERBS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
 usage(){
-  awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'
-  if [ -f "$QUERY" ]; then
-    echo
-    echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
-    bash "$QUERY" --help | sed -n 's/^  \(axiomcode [a-z].*\)$/  \1/p'
-  fi
+  # the query surface is the dispatcher's own help, so the two cannot drift; the build commands above are internal
+  if [ -f "$QUERY" ]; then bash "$QUERY" --help
+  else awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'; fi
 }
+# the verbs the help advertises (`  axiomcode <verb>` lines), for the message a typo gets
+public_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --help | sed -n 's/^  axiomcode \([a-z][a-z-]*\).*/\1/p'; return 0; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
@@ -127,25 +136,22 @@ case "$cmd" in
     if [ $# -gt 1 ] && is_query_verb "$2"; then exec bash "$QUERY" help "$2"; fi ;;
   "") ;;
   # THE MCP SERVER IS THE PLUGIN'S, NOT A SECOND ONE. The package already ships plugins/axiomcode/,
-  # so an agent that is not Claude Code gets the same seven tools from one line of MCP config and
+  # so an agent that is not Claude Code gets the same four tools from one line of MCP config and
   # no plugin install. launch.js picks the interpreter and falls back to a built-in protocol
   # implementation, so nothing beyond the python3 the query verbs already need has to be installed.
   mcp) shift
        export AXIOMCODE_PLUGIN_ROOT="$ROOT/plugins/axiomcode"
        exec node "$ROOT/plugins/axiomcode/mcp/launch.js" "$@" ;;
-  tests) echo "axiomcode: 'tests' is ambiguous here — 'axiomcode test-impact' for the tests an edit needs," >&2
-         echo "           'axiomcode test' for this package's own engine suite." >&2; exit 2 ;;
-  *) if is_query_verb "$cmd"; then shift; exec bash "$QUERY" "$cmd" "$@"; fi ;;
+  # the installed command is a front door: a query asked here with no flags answers as places with their code
+  *) if is_query_verb "$cmd"; then shift; export AXIOMCODE_FRONT=1; exec bash "$QUERY" "$cmd" "$@"; fi ;;
 esac
 # A NAME THAT IS NOT A VERB AND NOT A DIRECTORY IS A TYPO, NOT A BUILD. `*) cmd=all` is convenient
 # for `axiomcode ./src out/` and wrong for everything else: a misspelled verb used to be parsed as a
 # source tree and fail with advice about building the parser.
 case "$cmd" in
-  parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
+  parser|engine|prepare|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
   *) [ -d "$cmd" ] || { echo "axiomcode: '$cmd' is neither a verb nor a directory." >&2
-       echo "  build:  parser  engine  all  test   (or: axiomcode <src-dir> <out-dir>)" >&2
-       echo "  serve:  mcp" >&2
-       echo "  ask:    $(query_verbs | tr '\n' ' ')" >&2
+       echo "  ask:    $(public_verbs | tr '\n' ' ')" >&2
        echo "  \`axiomcode help\` for what each one does." >&2; exit 2; }
      cmd=all;;
 esac
@@ -188,6 +194,37 @@ case "$cmd" in
     has --library || args+=(--library "")
     bash "$ROOT/graph/pipeline/run-souffle.sh" "${args[@]}"
     ;;
+  prepare)
+    # EVERY LANGUAGE'S ENGINE BINARY, BEFORE THE FIRST INDEX ASKS FOR IT. On a cache miss the engine is compiled to C++
+    # and built by the C++ compiler: minutes, whatever the size of the repository, while the index it serves takes
+    # seconds. Left to the first index, that cost landed on whoever indexed first after an install or a rule change,
+    # and on a query that had to build a graph. `npm run build` runs this in the background (postbuild), so an install
+    # or a refresh starts the compiles; an index that starts meanwhile waits on the same lock instead of compiling twice.
+    langs=""; bg=false
+    while [ $# -gt 0 ]; do case "$1" in
+      --language) langs="$2"; shift 2;; --background) bg=true; shift;;
+      *) die "usage: axiomcode prepare [--language L[,…]] [--background]";; esac; done
+    if [ -z "$langs" ]; then
+      for d in "$ROOT"/graph/*/engine; do [ -d "$d" ] && { d="${d%/engine}"; langs="$langs,${d##*/}"; }; done
+      langs="${langs#,}"
+    fi
+    IFS=',' read -ra want <<< "$langs"
+    for l in ${want[@]+"${want[@]}"}; do [ -d "$ROOT/graph/$l/engine" ] || die "prepare: no engine for --language=$l"; done
+    if $bg; then
+      # a CI job compiles the engines it tests itself, with its own cache and -march; a background compile there only
+      # competes with the job for the machine
+      if [ -n "${AXIOMCODE_NO_PREPARE:-}" ] || [ -n "${CI:-}" ]; then echo "▶ engines not prepared (${AXIOMCODE_NO_PREPARE:+AXIOMCODE_NO_PREPARE}${CI:+CI} is set)"; exit 0; fi
+      log="${TMPDIR:-/tmp}/axiomcode-prepare-$(id -u 2>/dev/null || echo 0).log"
+      nohup bash "$0" prepare --language "$langs" > "$log" 2>&1 < /dev/null &
+      echo "▶ preparing the engines for ${langs//,/, } in the background (log: $log)"
+      exit 0
+    fi
+    # one compile per language, side by side: each is one single-threaded compiler process of a few hundred MB
+    ncpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"; jobs="${AXIOM_PREPARE_JOBS:-$(( ncpu / 2 ))}"
+    [ "$jobs" -ge 1 ] 2>/dev/null || jobs=1; [ "$jobs" -le ${#want[@]} ] || jobs=${#want[@]}
+    printf '%s\n' "${want[@]}" | xargs -P "$jobs" -I{} bash -c \
+      'set -o pipefail; bash "$1" --language "$2" --prepare 2>&1 | sed "s/^/[$2] /"' _ "$ROOT/graph/pipeline/run-souffle.sh" {}
+    ;;
   all)
     need_parser
     lang=""; src=""; out=""; version=""; libs=""; progress=""; popts=(); rest=(); pos=()
@@ -195,7 +232,7 @@ case "$cmd" in
       --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
       --library) libs="$2"; shift 2;; --progress) progress="$2"; shift 2;;
       --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
-      --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
+      --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint|--closed-world) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
       --*) die "unknown option $1 (try --help)";;
       *) pos+=("$1"); shift;; esac; done
@@ -258,6 +295,13 @@ case "$cmd" in
     echo "▶ parsing $src → IR"
     "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
     head -1 "$int/parse.log"
+    # WHAT AN INSTALLED PYTHON LIBRARY HANDS BACK to the objects the client gives it (graph/python/libsum): read from
+    # the project's environment, cached by package and version, staged beside the client IR. Never fatal -- without
+    # it the engine sees no library hand-backs, exactly as before. AXIOMCODE_LIB_CALLBACKS=0 turns it off.
+    if [ -d "$ir/python" ] && [ "${AXIOMCODE_LIB_CALLBACKS:-1}" != 0 ]; then
+      python3 "$ROOT/graph/python/libsum/libsum.py" --src "$src" --out "$ir/python" > "$int/libsum.log" 2>&1 \
+        && tail -1 "$int/libsum.log" || echo "⚠️  library callback summaries failed (see $int/libsum.log); continuing without them" >&2
+    fi
     # which languages the IR holds — one folder each — and which of them have an engine
     found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
     [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }
@@ -288,16 +332,61 @@ case "$cmd" in
     # a caller that checks it is no worse off. Only the languages that produced a graph are
     # listed at the end, so the output stays a list of files that exist.
     solved=(); failed=()
-    for l in "${langs[@]}"; do
-      echo "▶ solving $l → $out/$l/graph.sqlite"
-      if "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
-           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}; then
-        solved+=("$l"); [ -z "$progress" ] || echo "$l ok $out/$l/graph.sqlite" >> "$progress"
+    # Each language gets its OWN intermediate: run-souffle writes fixed names there
+    # (souffle-program.cpp, .souffle-gen.log), so two concurrent solves into one
+    # directory would overwrite each other's program mid-compile.
+    solve_one(){ local sl="$1"
+      "$0" engine --language "$sl" --client-ir "$ir/$sl" --out "$out/$sl" --intermediate "$int/$sl" --library "$libroots" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+    }
+    record(){ local rl="$1" rrc="$2"
+      if [ "$rrc" -eq 0 ]; then
+        solved+=("$rl"); [ -z "$progress" ] || echo "$rl ok $out/$rl/graph.sqlite" >> "$progress"
       else
-        failed+=("$l"); echo "❌ $l failed; continuing with the remaining languages" >&2
-        [ -z "$progress" ] || echo "$l failed" >> "$progress"
+        failed+=("$rl"); echo "❌ $rl failed; continuing with the remaining languages" >&2
+        [ -z "$progress" ] || echo "$rl failed" >> "$progress"
       fi
-    done
+    }
+    # THE FIRST (LARGEST) LANGUAGE SOLVES ALONE, streaming, exactly as before: its graph is the one a
+    # --progress caller publishes first (#1555), and nothing may compete with it for cores or
+    # interleave its log. Only the languages AFTER it run concurrently — they used to wait in line
+    # behind each other for no reason: their solves share nothing (own IR, own output, own
+    # intermediate). Memory is the tradeoff (each is its own Soufflé process), so the width is
+    # modest by default and AXIOMCODE_SOLVE_JOBS raises or lowers it; 1 restores the strict line.
+    l="${langs[0]}"
+    echo "▶ solving $l → $out/$l/graph.sqlite"
+    rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+    if [ ${#langs[@]} -gt 1 ]; then
+      others=("${langs[@]:1}")
+      JOBS="${AXIOMCODE_SOLVE_JOBS:-2}"
+      case "$JOBS" in (*[!0-9]*|'') JOBS=2;; esac; [ "$JOBS" -ge 1 ] || JOBS=1
+      if [ "$JOBS" -eq 1 ]; then
+        for l in "${others[@]}"; do
+          echo "▶ solving $l → $out/$l/graph.sqlite"
+          rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+        done
+      else
+        # Waves of $JOBS (bash 3.2 has no `wait -n`): start a wave, wait for all of it, replay each
+        # log whole so the build log never interleaves, then record in the wave's order.
+        i=0
+        while [ $i -lt ${#others[@]} ]; do
+          wave=("${others[@]:$i:$JOBS}"); i=$((i + JOBS))
+          wavepids=()
+          for l in "${wave[@]}"; do
+            echo "▶ solving $l → $out/$l/graph.sqlite (concurrent)"
+            { solve_one "$l" > "$int/solve-$l.log" 2>&1; echo $? > "$int/solve-$l.rc"; } &
+            wavepids+=($!)
+          done
+          for wp in "${wavepids[@]}"; do wait "$wp" || true; done
+          for l in "${wave[@]}"; do
+            cat "$int/solve-$l.log" 2>/dev/null
+            rc="$(cat "$int/solve-$l.rc" 2>/dev/null || echo 1)"
+            rm -f "$int/solve-$l.log" "$int/solve-$l.rc"
+            record "$l" "$rc"
+          done
+        done
+      fi
+    fi
     for l in ${solved[@]+"${solved[@]}"}; do echo "$out/$l/graph.sqlite"; done
     if [ ${#failed[@]} -gt 0 ]; then
       echo "❌ ${#failed[@]} of ${#langs[@]} languages failed: ${failed[*]}" >&2
@@ -311,7 +400,7 @@ case "$cmd" in
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
       java|typescript|python|javascript|csharp) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests discovery-tests; do
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests web-tests web-torture discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
       all) for l in java typescript python javascript csharp; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
       *) die "test: unknown suite $which (java | typescript | python | javascript | csharp | parser | all)";;

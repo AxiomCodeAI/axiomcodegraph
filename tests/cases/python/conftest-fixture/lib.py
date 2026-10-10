@@ -4,3 +4,7 @@ def make_widget():
 
 def reset():
     return 0
+
+
+def total():
+    return 2
