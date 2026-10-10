@@ -370,3 +370,79 @@ class_definition_keyword("metaclass").
 // (expression-resolution/expr-type.dl, clause a'), where the convention is the only
 // signal there is: a lambda has no annotation and no `def` to classify.
 instance_receiver_name("self").
+
+// ── builtin_protocol_slot(Builtin, Dunder) / builtin_protocol_fallback ───────
+// The one-dunder builtins: `repr(x)` runs type(x).__repr__, and so on. str() falls back to
+// __repr__ and bool() to __len__ when the class has no slot of its own. Read by
+// call-edge-generation/call_chain.dl's BUILTIN PROTOCOL edges.
+builtin_protocol_slot("repr", "__repr__").
+builtin_protocol_slot("str", "__str__").
+builtin_protocol_slot("len", "__len__").
+builtin_protocol_slot("hash", "__hash__").
+builtin_protocol_slot("bool", "__bool__").
+builtin_protocol_slot("iter", "__iter__").
+builtin_protocol_slot("next", "__next__").
+builtin_protocol_slot("abs", "__abs__").
+builtin_protocol_slot("format", "__format__").
+builtin_protocol_slot("reversed", "__reversed__").
+builtin_protocol_fallback("str", "__str__", "__repr__").
+builtin_protocol_fallback("bool", "__bool__", "__len__").
+
+// ── operator_protocol_slot(Operator, Dunder, ReflectedDunder) ────────────────
+// `a + b` runs type(a).__add__, and type(b).__radd__ when that is missing or returns
+// NotImplemented; a comparison runs the left operand's slot and the right operand's mirror
+// (`a < b` -> b.__gt__, `a == b` -> b.__eq__). The language reference's data model, 3.3.8
+// (numeric) and 3.3.1 (rich comparison). Read by call-edge-generation/call_chain.dl's
+// OPERATOR PROTOCOL edges.
+operator_protocol_slot("+", "__add__", "__radd__").
+operator_protocol_slot("-", "__sub__", "__rsub__").
+operator_protocol_slot("*", "__mul__", "__rmul__").
+operator_protocol_slot("@", "__matmul__", "__rmatmul__").
+operator_protocol_slot("/", "__truediv__", "__rtruediv__").
+operator_protocol_slot("//", "__floordiv__", "__rfloordiv__").
+operator_protocol_slot("%", "__mod__", "__rmod__").
+operator_protocol_slot("**", "__pow__", "__rpow__").
+operator_protocol_slot("<<", "__lshift__", "__rlshift__").
+operator_protocol_slot(">>", "__rshift__", "__rrshift__").
+operator_protocol_slot("&", "__and__", "__rand__").
+operator_protocol_slot("|", "__or__", "__ror__").
+operator_protocol_slot("^", "__xor__", "__rxor__").
+operator_protocol_slot("==", "__eq__", "__eq__").
+operator_protocol_slot("!=", "__ne__", "__ne__").
+operator_protocol_slot("<", "__lt__", "__gt__").
+operator_protocol_slot("<=", "__le__", "__ge__").
+operator_protocol_slot(">", "__gt__", "__lt__").
+operator_protocol_slot(">=", "__ge__", "__le__").
+// `a != b` on a class with no __ne__ of its own runs object.__ne__, which calls __eq__.
+operator_protocol_fallback("__ne__", "__eq__").
+// ── membership_operator(Operator) — `x in c` runs type(c).__contains__ ───────
+// and, for a class with no __contains__, iterates it (__iter__). Data model 3.3.7.
+membership_operator("in").
+membership_operator("not in").
+membership_protocol_slot("__contains__").
+membership_protocol_fallback("__contains__", "__iter__").
+// ── unary_protocol_slot(Operator, Dunder) ────────────────────────────────────
+unary_protocol_slot("-", "__neg__").
+unary_protocol_slot("+", "__pos__").
+unary_protocol_slot("~", "__invert__").
+// ── truth testing — `if x:`, `while x:`, `not x`, `x and y`, `assert x` ───────
+// runs type(x).__bool__, or __len__ when the class has no __bool__ (data model 3.3.1,
+// object.__bool__). truth_negation_operator is the one unary operator that truth-tests its
+// operand; truth_test_root the statement contexts whose expression is truth-tested.
+truth_negation_operator("not").
+truth_protocol_fallback("__bool__", "__len__").
+truth_test_root("IF_CONDITION").
+truth_test_root("WHILE_CONDITION").
+truth_test_root("ASSERT_CONDITION").
+truth_test_role("CONDITION").
+truth_test_role("COMPREHENSION_CONDITION").
+
+// ── dict_view_name / dict_view_slot / dict_items_view — a mapping's views ────
+// `keys()` yields the key (generic position 0), `values()` the value (position 1), and
+// `items()` a (key, value) pair. Read by resolution/iteration.dl.
+dict_view_name("keys").
+dict_view_name("values").
+dict_view_name("items").
+dict_view_slot("keys", "0").
+dict_view_slot("values", "1").
+dict_items_view("items").

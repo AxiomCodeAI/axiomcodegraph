@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""axiomcode link <file:line> <target> [<callee as written>] [<repo>]
+axiomcode link [<repo>]                         every asserted link, and whether the graph took it (--json)
+axiomcode link <file:line> - [<repo>]           remove the links at that site (or --remove <file:line> [<target>])
+
+Records that the call written at file:line reaches <target> — a declaration as the graph names it (Owner.method,
+function) or its file:line — where the graph could not resolve it. The link is kept in axiomcode-links.tsv at the
+repository root, validated against the graph (a call written there, consistent with the target; the target declared;
+the line's text unchanged), and applied at once as an edge of tier `asserted`, which impact, path and tests walk and
+label [asserted]. A stale or rejected link is listed with its reason and never applied. See ax_links.py.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ax_links
+
+if __name__ == '__main__':
+    sys.exit(ax_links.main(sys.argv[1:]))

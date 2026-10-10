@@ -1,0 +1,110 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a plugin's override of a prototype method runs only where the plugin is loaded: the test that loads it is a test of it, the one that never imports the plugin file is not, though the receiver's dispatch set holds the override for every caller",
+   "run": [
+    "impact",
+    "plugins/upper.js:4",
+    "--tests-only"
+   ],
+   "want": [
+    "upper.test.js (",
+    "not counted: 1 test file(s)",
+    "plain.test.js"
+   ],
+   "avoid": [
+    "plain.test.js (",
+    "later.test.js",
+    "audited.test.js"
+   ]
+  },
+  {
+   "why": "a callback one test file hands to a shared function is not run by another test file that calls the same function: later.test.js never loads lib/audit.js",
+   "run": [
+    "impact",
+    "audit",
+    "--tests-only"
+   ],
+   "want": [
+    "audited.test.js (",
+    "not counted: 1 test file(s)"
+   ],
+   "avoid": [
+    "later.test.js ("
+   ]
+  },
+  {
+   "why": "CONTROL: a test that loads a module by a computed name (`require(path.join(...))`) may load the plugin, so it stays",
+   "run": [
+    "impact",
+    "plugins/upper.js:4",
+    "--tests-only"
+   ],
+   "want": [
+    "by-name.test.js ("
+   ]
+  },
+  {
+   "why": "CONTROL: `require('..')`, `require('../')` and `require('../index.js')` load the package root's main file, so a test of the core class through any of them loads lib/core.js and stays selected",
+   "run": [
+    "impact",
+    "Fmt.render",
+    "--tests-only"
+   ],
+   "want": [
+    "plain.test.js (",
+    "upper.test.js (",
+    "by-name.test.js ("
+   ],
+   "avoid": [
+    "not counted"
+   ]
+  },
+  {
+   "why": "CONTROL: a test that imports the package by its own name (`require('fmtlib')`) loads its main file too",
+   "run": [
+    "impact",
+    "later",
+    "--tests-only"
+   ],
+   "want": [
+    "audited.test.js (",
+    "later.test.js ("
+   ],
+   "avoid": [
+    "not counted"
+   ]
+  },
+  {
+   "why": "path from a test file that never loads the target's file says so instead of printing a route through another test file's callback",
+   "run": [
+    "path",
+    "test/later.test.js",
+    "audit"
+   ],
+   "want": [
+    "never loads src/lib/audit.js"
+   ],
+   "avoid": [
+    "call(s):"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "CONTROL: path from the test that loads the plugin still prints its route",
+   "run": [
+    "path",
+    "test/upper.test.js",
+    "plugins/upper.js:4"
+   ],
+   "want": [
+    "call(s)"
+   ],
+   "avoid": [
+    "never loads"
+   ]
+  }
+ ]
+}

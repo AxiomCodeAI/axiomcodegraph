@@ -42,7 +42,7 @@ waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) ma
 takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
 (seconds, default 900) is how long a query that finds no graph waits for a build that is running rather than starting
 its own; AXIOMCODE_NO_GITIGNORE=1 watches (and indexes) directories git ignores."""
-import re, errno, hashlib, json, os, subprocess, sys, time
+import glob, re, errno, hashlib, json, os, subprocess, sys, time
 
 H = os.path.dirname(os.path.abspath(__file__))
 
@@ -230,6 +230,57 @@ def snapshot(repo, lang, src):
         except OSError: pass
     return files
 
+# A GRAPH BUILT WITH --library DEPENDS ON THE DEPENDENCIES TOO. Only source files were compared, so a dependency added,
+# removed or upgraded (a manifest edit, `pip install -U`, `npm install`, `dotnet restore`) left the graph answering from
+# the libraries it was built with until the next source edit. The table of such a graph also records the manifests and
+# lockfiles, and what is installed, cheaply: the dist-info names of a virtual environment, npm's own install record, and
+# the restore output .NET writes.
+DEP_FILES = {'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt', 'pyproject.toml', 'setup.cfg', 'setup.py',
+             'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'package.json', 'package-lock.json', 'yarn.lock',
+             'pnpm-lock.yaml', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradle.lockfile', 'Directory.Packages.props',
+             'packages.lock.json', 'project.assets.json', '.package-lock.json'}
+DEP_PRUNE = {'.git', '.axiomcode', '__pycache__', '.venv', 'venv', 'env', '.env', 'dist', 'build', 'target', 'bin', '.gradle'}
+
+def dep_snapshot(repo):
+    out = {}
+    for root, dirs, files in os.walk(repo):
+        rel_root = os.path.relpath(root, repo)
+        if os.path.basename(root) == 'node_modules':      # npm's install record only, never the packages
+            dirs[:] = []; files = [f for f in files if f == '.package-lock.json']
+        else:
+            dirs[:] = [d for d in dirs if d not in DEP_PRUNE and (d == 'node_modules' or d == 'obj' or not d.startswith('.'))]
+            if rel_root.split(os.sep)[-1:] == ['obj']: dirs[:] = []
+        for f in files:
+            if f in DEP_FILES or f.endswith('.csproj') or f.startswith('requirements') and f.endswith('.txt'):
+                pth = os.path.join(root, f)
+                try: st = os.stat(pth); out[os.path.relpath(pth, repo)] = f'{st.st_size}:{st.st_mtime_ns}'
+                except OSError: pass
+    # a Java dependency is fetched into a repository outside the project (~/.m2, Gradle's cache), which no file here
+    # records: which declared dependencies are present there is part of the fingerprint, so one fetched after the
+    # graph was built (`mvn dependency:resolve`) makes it stale
+    if any(k.endswith(('pom.xml', 'build.gradle', 'build.gradle.kts')) for k in out):
+        try:
+            import ax_libs
+            m2 = ax_libs.maven_repo(repo)
+            gradle = os.path.join(os.path.expanduser('~'), '.gradle', 'caches', 'modules-2', 'files-2.1')
+            have = sorted(f'{g}:{a}:{v}' for g, a, v in set(ax_libs.java_coordinates(repo))
+                          if os.path.isdir(os.path.join(m2, *g.split('.'), a, v) if v and '$' not in v else os.path.join(m2, *g.split('.'), a))
+                          or os.path.isdir(os.path.join(gradle, g, a)))
+            out['java dependencies present'] = hashlib.sha1('|'.join(have).encode()).hexdigest()
+        except Exception:
+            pass
+    for env in ('.venv', 'venv', 'env', '.env'):
+        for sp in glob.glob(os.path.join(repo, env, 'lib*', '*', 'site-packages')) + glob.glob(os.path.join(repo, env, 'Lib', 'site-packages')):
+            try: out[os.path.relpath(sp, repo)] = hashlib.sha1('|'.join(sorted(d for d in os.listdir(sp) if d.endswith('.dist-info'))).encode()).hexdigest()
+            except OSError: pass
+    return out
+
+def dep_changes(t, repo):
+    """the dependency files and environments that differ from the table, for a graph built with --library"""
+    if not t.get('library') or 'deps' not in t: return []
+    old, now = t['deps'], dep_snapshot(repo)
+    return sorted(f'dependency: {k}' for k in set(old) | set(now) if old.get(k) != now.get(k))
+
 def load_table(repo):
     try: return json.load(open(table_path(repo)))
     except (OSError, ValueError): return None
@@ -263,6 +314,7 @@ def changes(repo, table=None):
             for p in watched(src, l):
                 rel = os.path.relpath(p, repo)
                 if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
+    changed += dep_changes(t, repo)
     return sorted(changed), sorted(added), sorted(set(old) - seen)
 
 # ── WHAT BUILT THE GRAPH ───────────────────────────────────────────────────────────────────────────────────────────
@@ -1453,6 +1505,12 @@ def query(repo, verb, argv, fresh=False):
     """run a query verb (argv) against the last good graph, the stale-while-revalidate way (above). Returns its exit code"""
     import ax_exec
     argv = ax_exec.program(argv)                        # `python3` may be a shell shim no native process can start (#1331)
+    # THE ASSERTED LINKS FOLLOW THEIR FILE (ax_links.py): a links file edited by hand, pulled or removed since the graphs
+    # were last given it is re-applied here, O(links), with the derived facts patched in place — never a rebuild
+    try:
+        import ax_links; ax_links.sync(repo)
+    except Exception:
+        pass
     def run():
         return subprocess.run(argv, stdout=subprocess.PIPE)
     def passthrough(): ax_exec.become(argv)             # never os.execvp: on Windows it returns 0 before the answer (#1640)
@@ -1549,7 +1607,7 @@ def main(argv):
         # for a graph an earlier build made (AXIOMCODE_BUILT_BY_UNKNOWN), which must not be credited to this one
         by = {} if os.environ.get('AXIOMCODE_BUILT_BY_UNKNOWN') else dict(built_by=built_by(os.environ.get('AXIOMCODE_ENGINE') or current_engine(repo), lang))
         json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
-                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **by), sys.stdout); return 0
+                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **(dict(deps=dep_snapshot(repo)) if lib else {}), **by), sys.stdout); return 0
     if cmd == 'count':
         # the SOURCE files of each language under repo, walked as the refresher walks (the parser's skip list and git's
         # ignore rules): java typescript python javascript csharp. axiomcode-build picks the main language from these, and

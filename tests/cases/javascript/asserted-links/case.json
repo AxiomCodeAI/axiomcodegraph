@@ -1,0 +1,170 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "BASE: a call through a value read by a key built at run time is unresolved, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "purge",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects purge and audit"
+   ]
+  },
+  {
+   "why": "the unresolved site is listed as a work item",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "src/dispatch.js:15:10  return fn(doc);"
+   ]
+  },
+  {
+   "why": "link records the target of the call at that line",
+   "run": [
+    "link",
+    "src/dispatch.js:15",
+    "onPurge"
+   ],
+   "want": [
+    "linked src/dispatch.js:15:10 `fn` → onPurge [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted]",
+   "run": [
+    "path",
+    "purge",
+    "audit"
+   ],
+   "want": [
+    "[asserted · call @ src/dispatch.js:15] onPurge",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted and selects the test through it",
+   "run": [
+    "impact",
+    "onPurge",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] purge",
+    "dispatch.test.js",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ]
+  },
+  {
+   "why": "a link duplicating an edge the engine resolved adds nothing",
+   "run": [
+    "link",
+    "src/dispatch.js:10",
+    "onLoad"
+   ],
+   "want": [
+    "the graph already had this edge; recorded, nothing added"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "src/dispatch.js:15",
+    "onArchive"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "src/dispatch.js:3",
+    "onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at src/dispatch.js:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "src/dispatch.js:19",
+    "onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling site stays unknown",
+   "run": [
+    "impact",
+    "reload",
+    "--unknown"
+   ],
+   "want": [
+    "src/dispatch.js:24:10  return fn(doc);"
+   ],
+   "avoid": [
+    "→ linked"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "src/dispatch.js",
+    "import * as handlers from './handlers';\n",
+    "import * as handlers from './handlers';\n// dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "purge",
+    "audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ src/dispatch.js:17] onPurge"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: after the rebuild the link is dropped and the answer says so",
+   "edit": [
+    "src/dispatch.js",
+    "  return fn(doc);\n}\n\nexport function saveAndAudit",
+    "  return fn({ ...doc });\n}\n\nexport function saveAndAudit"
+   ],
+   "run": [
+    "path",
+    "purge",
+    "audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects",
+    "not applied",
+    "1 stale"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  }
+ ]
+}

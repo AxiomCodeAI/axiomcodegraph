@@ -1,0 +1,10 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a report titled in prose lands nowhere by its headline; its body names the code, and the answer comes from there instead of a refusal",
+   "run": ["context", "Disable when developing?\n\nIs there a way to make compute_invoice_total skip round_cents while testing?"],
+   "want": ["billing/invoice.py"],
+   "avoid": ["--in <path> is required"]},
+  {"why": "CONTROL: a headline that lands still chooses the place by itself",
+   "run": ["context", "plan route estimate distance"],
+   "want": ["where this task's words land: shipping", "shipping/route.py"],
+   "avoid": ["--in <path> is required"]}]}

@@ -91,3 +91,5 @@ remote_unserved	remote-unserved.csv
 remote_unsent	remote-unsent.csv
 framework_edge	framework-edge.csv
 framework_unjoined	framework-unjoined.csv
+lib_callback_edge	lib-callback-edge.csv
+lib_callback_site	lib-callback-site.csv

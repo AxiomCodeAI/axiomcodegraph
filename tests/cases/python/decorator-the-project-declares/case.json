@@ -3,7 +3,7 @@
  "src": ".",
  "checks": [
   {
-   "why": "a decorator the project declares is a dependency of everything it wraps: `@exporter(\"csv\") def export_csv` means export_csv IS what exporter returned, so a test that drives the handler must run when the decorator changes — and nothing but the @ line says so, since the decorator has no call site and the table is read by a key. The control is a module of its OWN: a sibling in the same file is reached whatever the decorator does, because the decoration runs while that file is being imported",
+   "why": "a decorator the project declares is a dependency of everything it wraps' MODULE: `@exporter(\"csv\") def export_csv` runs exporter(\"csv\") and the function it returned while app.py is being imported, so a test that imports app must run when the decorator changes. Calling export_csv later never runs exporter (it registered the function and handed it back unchanged), so the route is the import, not a hop from the decorated function. The control is a module of its OWN: a sibling in the same file is reached whatever the decorator does, because the decoration runs while that file is being imported",
    "run": [
     "impact",
     "exporter",
@@ -11,7 +11,7 @@
    ],
    "want": [
     "test_export.py",
-    "decorator by name"
+    "at import"
    ],
    "avoid": [
     "test_plain.py"
@@ -32,14 +32,14 @@
    ]
   },
   {
-   "why": "the hop is named for what it is. The decoration carries a simple NAME, so the declaration it denotes is matched by that name and not resolved, and the answer must not sell that as a resolved call",
+   "why": "the hop is named for what it is: the decoration runs at import, and the answer says so rather than selling it as a resolved call",
    "run": [
     "impact",
     "exporter",
     "--tests"
    ],
    "want": [
-    "decorator by name"
+    "at import"
    ],
    "avoid": [
     "how sure each route is: 3 sound"

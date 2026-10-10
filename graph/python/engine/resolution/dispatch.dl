@@ -142,7 +142,31 @@ call_candidate_count(site, n) :-
 
 // ── call_dispatch_over_cap(SiteHash) ─────────────────────────────────────────
 call_dispatch_over_cap(site) :-
-    call_candidate_count(site, n), dispatch_capped_at(cap), n > cap.
+    call_candidate_count(site, n), dispatch_capped_at(cap), n > cap,
+    !call_computed_name_family(site).
+
+// ── call_computed_name_family(SiteHash) — a fan the PROGRAM wrote down ───────
+// The cap guards against a receiver type inferred too wide, where most of the fan is the
+// engine's imprecision. A callee looked up by a name with a written prefix --
+// `getattr(self, f"visit_{...}")`, directly, through the local it was stored in, or
+// through a method that returns it -- is the program's own dispatch table: every member
+// named with the prefix is a target by construction, and a visitor with sixty visit_*
+// methods is sixty targets, not sixty guesses. Refusing it dropped the visitor's whole
+// body from every test that drives it.
+method_returns_computed_name(m) :-
+    method_return_value_expr("client", m, e), getattr_computed_name(e, _, _).
+computed_name_value(e) :- getattr_computed_name(e, _, _).
+computed_name_value(e) :-
+    call_of_expr(e, s), expr_call_candidate(s, m), method_returns_computed_name(m).
+call_computed_name_family(site) :-
+    call_callee_is_value(site), call_callee_expr(site, callee), computed_name_value(callee).
+call_computed_name_family(site) :-
+    call_callee_is_value(site), call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    computed_name_value(val).
 
 // ── expr_resolves_to_method(SiteHash, MethodHash) ────────────────────────────
 // THE DISAMBIGUATED CALLEE SET the edge layer consumes. Same relation name as Java's,
