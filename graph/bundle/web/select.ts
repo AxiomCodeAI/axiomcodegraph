@@ -57,6 +57,8 @@ export interface El {
   /** the class tokens a binding can add (SPEC §3.2 R2): a set, '*' for any, null for none */
   dynTokens: Set<string> | '*' | null;
   dynamicId: boolean;
+  /** attributes a template binding sets at run time (`:href`, `x-bind:data-k`, `[attr.aria-x]`, a `{{ }}` in a value) */
+  dynAttrs: Set<string>;
   lang: string;           // own lang attribute, '' when absent
 }
 
@@ -82,7 +84,7 @@ export function pageCtx(elements: El[], quirks: boolean, docLang: string): PageC
     if (e.idAttr) push(byId, quirks ? e.idAttr.toLowerCase() : e.idAttr, e);
     for (const c of quirks ? e.classesLower : e.classes) push(byClass, c, e);
     push(byTag, e.tagLower, e);
-    if (e.dynamicClass) dyn.push(e);
+    if (e.dynamicClass || e.dynAttrs.size > 0) dyn.push(e);
   }
   const top = elements.filter((e) => e.parent === null);
   return {
@@ -235,6 +237,8 @@ export function unknownOf(cx: Complex, inLogical = false): string {
       if (s.kind === 'RAW') return 'selector_unparsed';
       if ((s.kind === 'PSEUDO_ELEMENT' || s.kind === 'PSEUDO_CLASS') && SHADOW.has(n)) return 'shadow_dom';
       if (s.kind === 'PSEUDO_ELEMENT' || (s.kind === 'PSEUDO_CLASS' && LEGACY_PSEUDO_ELEMENTS.has(n))) { if (inLogical) return 'selector_unparsed'; continue; }
+      // `:not(type="x")`: an argument the parser could not read as a selector list
+      if (s.kind === 'PSEUDO_CLASS' && LOGICAL.has(n) && (!s.args || s.args.length === 0) && s.value.trim() !== '') return 'selector_unparsed';
       if (s.args && s.kind !== 'NESTING') {
         for (const a of s.args) { const u = unknownOf(a, inLogical || LOGICAL.has(n)); if (u) return u; }
       } else if (s.args) for (const a of s.args) { const u = unknownOf(a, inLogical); if (u) return u; }
@@ -267,6 +271,10 @@ export function usesRoot(cx: Complex): boolean {
 
 
 
+const CI_ATTRIBUTES = new Set(['accept', 'accept-charset', 'align', 'alink', 'axis', 'bgcolor', 'charset', 'checked', 'clear', 'codetype', 'color',
+  'compact', 'declare', 'defer', 'dir', 'direction', 'disabled', 'enctype', 'face', 'frame', 'hreflang', 'http-equiv', 'lang', 'language', 'link',
+  'media', 'method', 'multiple', 'nohref', 'noresize', 'noshade', 'nowrap', 'readonly', 'rel', 'rev', 'rules', 'scope', 'scrolling', 'selected',
+  'shape', 'target', 'text', 'type', 'valign', 'valuetype', 'vlink']);
 const FORM_ELEMENTS = new Set(['button', 'input', 'select', 'textarea', 'optgroup', 'option', 'fieldset']);
 
 /** An+B, with `odd`/`even`; null when it does not parse. */
@@ -297,6 +305,9 @@ export class Matcher {
   private relative = new Map<Complex, Complex>();
 
   /** `dynamic`: an element's class binding counts as carrying the tokens it can add (the dynamic_class pass) */
+  /** inside @scope: the scope root `:scope` (and a nested `&`) stands for */
+  scopeRoot: El | null = null;
+
   constructor(readonly page: PageCtx, readonly dynamic = false) {}
 
   /** Match one complex selector against one element. */
@@ -375,10 +386,12 @@ export class Matcher {
       case 'CLASS': {
         const has = q ? e.classesLower.has(s.name.toLowerCase()) : e.classes.has(s.name);
         if (has) return R_EXACT;
-        if (this.dynamic && e.dynTokens !== null && (e.dynTokens === '*' || e.dynTokens.has(s.name))) return R_EXACT;
+        if (this.dynamic && e.dynTokens !== null && (e.dynTokens === '*' || e.dynTokens.has(s.name))) return cond('dynamic_class');
         return R_NO;
       }
-      case 'ID': return (q ? e.idAttr.toLowerCase() === s.name.toLowerCase() : e.idAttr === s.name) ? R_EXACT : R_NO;
+      case 'ID':
+        if (q ? e.idAttr.toLowerCase() === s.name.toLowerCase() : e.idAttr === s.name) return R_EXACT;
+        return this.dynamic && e.dynAttrs.has('id') ? cond('dynamic_attribute') : R_NO;
       case 'ATTRIBUTE': return this.attribute(s, e);
       case 'PSEUDO_ELEMENT': {
         const n = s.name.toLowerCase();
@@ -397,14 +410,15 @@ export class Matcher {
     const html = e.ns === 'HTML' || e.ns === '';
     let name = s.name; const bar = name.indexOf('|'); if (bar >= 0) name = name.slice(bar + 1);
     const a = e.attrs.get(html ? name.toLowerCase() : name) ?? (html ? undefined : e.attrs.get(name.toLowerCase()));
+    if (this.dynamic && e.dynAttrs.has(name.toLowerCase())) return cond('dynamic_attribute');
     if (a === undefined) {
-      // a class/id bound at run time could be the attribute too
       return R_NO;
     }
     const m = s.matcher;
     if (m === '' ) return R_EXACT;
     if (a.value.length >= 4096) return unknown('value_truncated');
-    const ci = s.flags.toLowerCase() === 'i';
+    // HTML says the values of these attributes compare ASCII case-insensitively unless the selector says `s`
+    const ci = s.flags.toLowerCase() === 'i' || (s.flags.toLowerCase() !== 's' && html && CI_ATTRIBUTES.has(name.toLowerCase()));
     const v = ci ? a.value.toLowerCase() : a.value;
     const want = ci ? s.value.toLowerCase() : s.value;
     let ok: boolean;
@@ -458,7 +472,8 @@ export class Matcher {
       case 'is': case 'where': case 'matches': case '-webkit-any': case '-moz-any':
         return this.list(s.args, e);
       case 'has': return this.has(s, e);
-      case 'root': case 'scope':
+      case 'scope': case 'root':
+        if (n === 'scope' && this.scopeRoot !== null) return this.scopeRoot === e ? R_EXACT : R_NO;
         if (e.parent !== null) return R_NO;
         if (e.tagLower === 'html') return R_EXACT;
         return this.page.hasHtmlRoot ? R_NO : unknown('implied_element');
@@ -559,14 +574,14 @@ export class Matcher {
     const p = this.page;
     const fold = (x: string) => (p.quirks ? x.toLowerCase() : x);
     const idS = last.simples.find((s) => s.kind === 'ID');
-    if (idS) return p.byId.get(fold(idS.name)) ?? [];
-    const clsS = last.simples.find((s) => s.kind === 'CLASS');
-    if (clsS) {
-      const stat = p.byClass.get(fold(clsS.name)) ?? [];
-      if (p.dynamicClassEls.length === 0) return stat;
+    const withDynamic = (stat: El[]): El[] => {
+      if (!this.dynamic || p.dynamicClassEls.length === 0) return stat;
       const set = new Set(stat); for (const d of p.dynamicClassEls) set.add(d);
       return [...set];
-    }
+    };
+    if (idS) return withDynamic(p.byId.get(fold(idS.name)) ?? []);
+    const clsS = last.simples.find((s) => s.kind === 'CLASS');
+    if (clsS) return withDynamic(p.byClass.get(fold(clsS.name)) ?? []);
     const typeS = last.simples.find((s) => s.kind === 'TYPE');
     if (typeS) {
       let name = typeS.name; const bar = name.indexOf('|'); if (bar >= 0) name = name.slice(bar + 1);
@@ -589,4 +604,54 @@ export function splitTopLevel(text: string): string[] {
   }
   out.push(cur);
   return out;
+}
+
+// ── a selector list from text (for an @scope prelude, which has no part rows) ──────────────────
+
+/** Parse a selector list as written into complex selectors; null when it does not read. Enough for @scope preludes. */
+export function parseSelectorList(text: string): Complex[] | null {
+  const out: Complex[] = [];
+  for (const one of splitTopLevel(text)) {
+    const cx = parseComplex(one.trim());
+    if (cx === null) return null;
+    out.push(cx);
+  }
+  return out.length ? out : null;
+}
+
+function parseComplex(t: string): Complex | null {
+  if (!t) return null;
+  const cx: Complex = []; let i = 0; let comb = 'NONE';
+  const simple = (kind: string, name: string, extra: Partial<Simple> = {}): Simple => ({ kind, name, value: '', matcher: '', flags: '', args: null, ...extra });
+  while (i < t.length) {
+    let ws = false;
+    while (i < t.length && /\s/.test(t[i]!)) { i++; ws = true; }
+    if (i >= t.length) break;
+    const c = t[i]!;
+    if (c === '>' || c === '+' || c === '~') { comb = c === '>' ? 'CHILD' : c === '+' ? 'NEXT_SIBLING' : 'SUBSEQUENT_SIBLING'; i++; continue; }
+    if (ws && cx.length > 0 && comb === 'NONE') comb = 'DESCENDANT';
+    const simples: Simple[] = [];
+    while (i < t.length && !/[\s>+~]/.test(t[i]!)) {
+      const rest = t.slice(i);
+      let m: RegExpExecArray | null;
+      if ((m = /^\*/.exec(rest))) simples.push(simple('UNIVERSAL', '*'));
+      else if ((m = /^&/.exec(rest))) simples.push(simple('NESTING', '&'));
+      else if ((m = /^[a-zA-Z][\w-]*(\|[a-zA-Z*][\w-]*)?/.exec(rest))) simples.push(simple('TYPE', m[0]));
+      else if ((m = /^\.(-?[_a-zA-Z -￿][\w\- -￿]*)/.exec(rest))) simples.push(simple('CLASS', m[1]!));
+      else if ((m = /^#([\w\- -￿]+)/.exec(rest))) simples.push(simple('ID', m[1]!));
+      else if ((m = /^\[\s*([\w:-]+)\s*(?:([~|^$*]?=)\s*("[^"]*"|'[^']*'|[^\s\]]+)\s*([is])?)?\s*\]/i.exec(rest))) {
+        simples.push(simple('ATTRIBUTE', m[1]!, { matcher: m[2] ?? '', value: (m[3] ?? '').replace(/^["']|["']$/g, ''), flags: m[4] ?? '' }));
+      } else if ((m = /^::?([\w-]+)(?:\(((?:[^()]|\([^()]*\))*)\))?/.exec(rest))) {
+        const name = m[1]!; const arg = m[2];
+        let args: Complex[] | null = null;
+        if (arg !== undefined && /^(not|is|where|has|matches|-webkit-any|-moz-any)$/i.test(name)) { args = parseSelectorList(arg); if (args === null) return null; }
+        simples.push(simple(m[0].startsWith('::') ? 'PSEUDO_ELEMENT' : 'PSEUDO_CLASS', name, { value: arg ?? '', args }));
+      } else return null;
+      i += m[0].length;
+    }
+    if (simples.length === 0) return null;
+    cx.push({ comb: cx.length === 0 ? 'NONE' : comb, simples });
+    comb = 'NONE';
+  }
+  return cx.length ? cx : null;
 }

@@ -23,7 +23,7 @@ import * as ts from 'typescript';
 import { readRaw } from '@/bundle/csv';
 import type { Row } from '@/bundle/build';
 import {
-  COND, compileParts, EXACT, Matcher, NO, pageCtx, pseudoElementOf, requiredTokens, resolveNesting, specificity, staticReasons, unknownOf, UNKNOWN, usesRoot,
+  COND, compileParts, EXACT, Matcher, NO, pageCtx, parseSelectorList, pseudoElementOf, requiredTokens, resolveNesting, specificity, staticReasons, unknownOf, UNKNOWN, usesRoot,
   type Complex, type El, type PartRow,
 } from '@/bundle/web/select';
 
@@ -231,6 +231,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const r of T.attr.rows) push(attrsOf, g(T.attr, r, 'ownerElementLinkHash'), r);
   const attrRow = new Map<string, string[]>(); for (const r of T.attr.rows) attrRow.set(g(T.attr, r, 'htmlAttributeUniqueHash'), r);
 
+  // the class tokens of each element, in attribute order (html_element.classNames is a comma set)
+  const tokensOf = new Map<string, { pos: number; name: string }[]>();
+  for (const r of T.cls.rows) push(tokensOf, g(T.cls, r, 'ownerElementLinkHash'), { pos: num(g(T.cls, r, 'position')) ?? 0, name: g(T.cls, r, 'className') });
+  for (const a of tokensOf.values()) a.sort((x, y) => x.pos - y.pos);
+
   // ── elements ──
   const elById = new Map<string, El>();
   const elRow = new Map<string, string[]>();
@@ -240,7 +245,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const attrs = new Map<string, { value: string; hasValue: boolean }>();
     const ns = g(T.el, r, 'namespace');
     const html = ns === 'HTML' || ns === '';
-    let dyn: Set<string> | '*' | null = null; let dynId = false;
+    let dyn: Set<string> | '*' | null = null; let dynId = false; const dynAttrs = new Set<string>();
     for (const a of attrsOf.get(id) ?? []) {
       const name = g(T.attr, a, 'name'), prefix = g(T.attr, a, 'prefix');
       const full = prefix ? `${prefix}:${name}` : name;
@@ -252,14 +257,19 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         dyn = dyn === '*' || t === '*' ? '*' : new Set([...(dyn ?? []), ...t]);
       }
       if (DYNAMIC_ID_ATTR.test(full) || (full.toLowerCase() === 'id' && TEMPLATE_IN_VALUE.test(v.value))) dynId = true;
+      // an attribute a binding sets (`:href`, `x-bind:data-k`, `[attr.aria-x]`) or whose value holds a template marker
+      const bound = /^(?::|v-bind:|x-bind:|bind:)([\w-]+)$/i.exec(full) ?? /^\[(?:attr\.)?([\w-]+)\]$/i.exec(full);
+      if (bound && bound[1]!.toLowerCase() !== 'class' && bound[1]!.toLowerCase() !== 'style' && bound[1]!.toLowerCase() !== 'ngclass') dynAttrs.add(bound[1]!.toLowerCase());
+      else if (!bound && full.toLowerCase() !== 'class' && TEMPLATE_IN_VALUE.test(v.value) && !DYNAMIC_CLASS_ATTR.test(full)) dynAttrs.add(full.toLowerCase());
     }
-    const classes = new Set(g(T.el, r, 'classNames').split(/[ \t\n\f\r]+/).filter(Boolean));
+    const tokenList = (tokensOf.get(id) ?? []).map((t) => t.name);
+    const classes = new Set(tokenList);
     const tag = g(T.el, r, 'tagName');
     const e: El = {
       id, idx: 0, tag, tagLower: tag.toLowerCase(), ns, idAttr: g(T.el, r, 'id'), classes,
       classesLower: new Set([...classes].map((c) => c.toLowerCase())), attrs, text: unesc(g(T.el, r, 'textContent')),
       childCount: num(g(T.el, r, 'childElementCount')) ?? 0, position: num(g(T.el, r, 'position')) ?? 0,
-      parent: null, children: [], inert: '', dynamicClass: dyn !== null, dynTokens: dyn, dynamicId: dynId, lang: attrs.get('lang')?.value ?? attrs.get('xml:lang')?.value ?? '',
+      parent: null, children: [], inert: '', dynamicClass: dyn !== null, dynTokens: dyn, dynamicId: dynId, dynAttrs, lang: attrs.get('lang')?.value ?? attrs.get('xml:lang')?.value ?? '',
     };
     elById.set(id, e); elRow.set(id, r);
     const p = pages.get(g(T.el, r, 'documentLinkHash'));
@@ -294,7 +304,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       out('web_elements').push({ uid: e.id, page_uid: p.id, parent_uid: e.parent?.id ?? null, file: p.file,
         line: num(g(T.el, r, 'startLine')), col: num(g(T.el, r, 'startColumn')), end_line: num(g(T.el, r, 'endLine')), end_col: num(g(T.el, r, 'endColumn')),
         tag_name: e.tag, namespace: nz(e.ns), depth: num(g(T.el, r, 'depth')), position: e.position, nth_of_type: nth ? Number(nth[1]) : null,
-        html_id: nz(e.idAttr), class_names: nz(g(T.el, r, 'classNames')), child_count: e.childCount, text: nz(e.text), inert: e.inert ? 1 : 0,
+        html_id: nz(e.idAttr), class_names: nz((tokensOf.get(e.id) ?? []).map((t) => t.name).join(' ')), child_count: e.childCount, text: nz(e.text), inert: nz(e.inert),
         dynamic_class: e.dynamicClass ? 1 : 0, display: `${e.tagLower}${e.idAttr ? '#' + e.idAttr : ''}${[...e.classes].map((c) => '.' + c).join('')}` });
     }
     if (p.kind === 'FRAGMENT') unknownRow('fragment_no_host', p.id, p.id, 'fragment_no_host', 'a fragment page is matched only in a host page that includes it', p.file, 1);
@@ -595,6 +605,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       conditions: n.conditions.length ? n.conditions.join(' && ') : null, in_keyframes: n.matchable ? 0 : 1, important_count: n.important });
   }
   const partsOf = new Map<string, PartRow[]>();
+  const partRaw = new Map<PartRow, string[]>();
   for (const r of T.part.rows) {
     const sid = g(T.part, r, 'selectorLinkHash');
     const p: PartRow = {
@@ -603,10 +614,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       compound: num(g(T.part, r, 'compoundIndex')) ?? 0, position: num(g(T.part, r, 'position')) ?? 0, argIndex: num(g(T.part, r, 'argumentIndex')) ?? 0,
       parent: g(T.part, r, 'parentPartLinkHash'),
     };
-    push(partsOf, sid, p);
-    out('web_selector_parts').push({ uid: p.id, selector_uid: sid, rule_uid: g(T.part, r, 'ruleLinkHash'), line: num(g(T.part, r, 'startLine')), col: num(g(T.part, r, 'startColumn')),
-      part_kind: p.kind, name: nz(p.name), value: nz(p.value), matcher: nz(p.matcher), flags: nz(p.flags), combinator: nz(p.comb), compound_index: p.compound,
-      position: p.position, depth: num(g(T.part, r, 'depth')), argument_index: p.argIndex, parent_uid: nz(p.parent) });
+    push(partsOf, sid, p); partRaw.set(p, r);
   }
   interface SelN { id: string; rule: string; cx: Complex; spec: [number, number, number]; pe: string; req: { classes: string[]; ids: string[] }; unknown: string; root: boolean; reasons: string[]; row: string[] }
   const selsOfRule = new Map<string, SelN[]>();
@@ -614,12 +622,19 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const r of T.sel.rows) {
     const id = g(T.sel, r, 'cssSelectorUniqueHash'), rule = g(T.sel, r, 'ruleLinkHash');
     const parts = partsOf.get(id) ?? [];
+    writtenTypeNames(parts, unesc(g(T.sel, r, 'selectorText')));
+    for (const p of parts) {
+      const pr = partRaw.get(p)!;
+      out('web_selector_parts').push({ uid: p.id, selector_uid: id, rule_uid: g(T.part, pr, 'ruleLinkHash'), line: num(g(T.part, pr, 'startLine')), col: num(g(T.part, pr, 'startColumn')),
+        part_kind: p.kind, name: nz(p.name), value: nz(p.value), matcher: nz(p.matcher), flags: nz(p.flags), combinator: nz(p.comb), compound_index: p.compound,
+        position: p.position, depth: num(g(T.part, pr, 'depth')), argument_index: p.argIndex, parent_uid: nz(p.parent) });
+    }
     const s: SelN = { id, rule, cx: compileParts(parts), spec: [num(g(T.sel, r, 'specificityA')) ?? 0, num(g(T.sel, r, 'specificityB')) ?? 0, num(g(T.sel, r, 'specificityC')) ?? 0],
       pe: '', req: { classes: [], ids: [] }, unknown: parts.length === 0 || gapRules.has(rule) ? 'selector_unparsed' : '', root: false, reasons: [], row: r };
     selById.set(id, s); push(selsOfRule, rule, s);
   }
   for (const a of selsOfRule.values()) a.sort((x, y) => (num(g(T.sel, x.row, 'position')) ?? 0) - (num(g(T.sel, y.row, 'position')) ?? 0));
-  partsOf.clear();
+  partsOf.clear(); partRaw.clear();
   // nesting: a style rule nested in a style rule (possibly through @media/@layer) is relative to the nearest style-rule ancestor
   const nestedDone = new Set<string>();
   const nearestStyleParent = (n: RuleN): RuleN | undefined => {
@@ -702,6 +717,27 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   }
 
   // ── selector -> element, per page (SPEC §3.2) ──
+  // @scope: the rule's nearest @scope ancestor, its root and limit selectors (parsed from the prelude: no part rows)
+  interface ScopeSpec { roots: Complex[] | null; limits: Complex[] | null; unknown: string; reasons: string[]; implicitRoot: boolean }
+  const scopeSpecs = new Map<string, ScopeSpec>();
+  const scopeOf = (n: RuleN): { rule: RuleN; spec: ScopeSpec } | null => {
+    for (let p = n.parent ? rules.get(n.parent) : undefined; p; p = p.parent ? rules.get(p.parent) : undefined) {
+      if (p.at !== 'scope') continue;
+      let sp = scopeSpecs.get(p.id);
+      if (!sp) {
+        const m = /^\s*(?:\(((?:[^()]|\([^()]*\))*)\))?\s*(?:to\s*\(((?:[^()]|\([^()]*\))*)\))?\s*$/i.exec(p.prelude);
+        const roots = m && m[1] !== undefined ? parseSelectorList(m[1]) : null;
+        const limits = m && m[2] !== undefined ? parseSelectorList(m[2]) : null;
+        let unknown = !m || (m[1] !== undefined && roots === null) || (m[2] !== undefined && limits === null) ? 'scope_bound:selector_unparsed' : '';
+        if (!unknown) for (const c of [...(roots ?? []), ...(limits ?? [])]) { const u = unknownOf(c); if (u) { unknown = `scope_bound:${u}`; break; } }
+        const reasons = [...new Set([...(roots ?? []), ...(limits ?? [])].flatMap(staticReasons))].map((r) => `scope_bound:${r}`);
+        sp = { roots, limits, unknown, reasons, implicitRoot: !m || m[1] === undefined };
+        scopeSpecs.set(p.id, sp);
+      }
+      return { rule: p, spec: sp };
+    }
+    return null;
+  };
   const pageMatches = new Map<string, Map<string, Map<string, number>>>(); // page -> rule -> element -> best status
   let styleRows = 0;
   const t0 = Date.now();
@@ -717,6 +753,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const rank = layerRanks(loads);
     const seen = new Set<string>();
     const unmatched = new Map<string, { any: boolean; missing: boolean }>();
+    const fold = (x: string) => (page.quirks ? x.toLowerCase() : x);
     for (const l of loads) {
       const sh = sheets.get(l.sheet)!;
       for (const n of sh.rules) {
@@ -726,57 +763,89 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const atConds = [...l.conds, ...n.conditions];
         const layerRank = rank(joinLayer(l.layer, n.layer || null));
         const conditions = atConds.length ? atConds.join(' && ') : null;
+        const scope = n.inScope ? scopeOf(n) : null;
         for (const s of sels) {
           let st = selStats.get(s.id);
           if (!st) { st = { loading: 0, matched: 0, elements: 0 }; selStats.set(s.id, st); }
           st.loading++;
-          if (s.unknown) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow(s.unknown, s.id, pageId, s.unknown, null, sheetFile(l.sheet), null); } continue; }
-          if (s.root && !page.hasHtml) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
+          const unk = s.unknown || scope?.spec.unknown || '';
+          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
+          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
           if (l.disabled) base.add('alternate_sheet');
-          if (n.inScope) base.add('scope_bound:unsupported');
+          if (scope) for (const r of scope.spec.reasons) base.add(r);
           let u = unmatched.get(s.id); if (!u) { u = { any: false, missing: false }; unmatched.set(s.id, u); }
-          const fold = (x: string) => (page.quirks ? x.toLowerCase() : x);
           const missing = s.req.classes.some((c) => !ctx.classes.has(fold(c))) || s.req.ids.some((c) => !ctx.ids.has(fold(c)));
           const W = new Set<string>();
+          const emit = (e: El, status: string, reason: string, root: El | null) => {
+            const sc = status === 'match' ? EXACT : status === 'conditional' ? COND : UNKNOWN;
+            if (sc !== UNKNOWN || reason !== 'lang_unknown') {
+              let re = ruleEls.get(n.id); if (!re) { re = new Map(); ruleEls.set(n.id, re); }
+              if ((re.get(e.id) ?? NO) < sc) re.set(e.id, sc);
+            }
+            u!.any = true;
+            if (seen.has(`s|${s.id}|${e.id}`)) return;
+            seen.add(`s|${s.id}|${e.id}`); styleRows++;
+            if (status === 'match') st!.elements++;
+            let prox: number | null = null;
+            if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
+            out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status, reason: reason || null,
+              conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
+              sheet_order: l.order, rule_order: n.order, important_count: n.important, scope_root: root?.id ?? null, scope_proximity: prox });
+          };
+          const statusOf = (rs: { s: number; r: string }, e: El): [string, string] => {
+            const reasons = new Set(base);
+            if (e.inert) reasons.add(`inert:${e.inert}`);
+            if (rs.s === UNKNOWN) return ['unknown', rs.r];
+            return [reasons.size ? 'conditional' : 'match', [...reasons].sort().join(';')];
+          };
+          if (scope) {
+            // @scope (SPEC §3.2): the subject is a descendant-or-self of a root matching A (the <style>'s parent when
+            // there is no prelude) and not inside a limit B below that root; a bare selector is `:scope <sel>`
+            const cx: Complex = s.root ? s.cx
+              : [{ comb: 'NONE', simples: [{ kind: 'PSEUDO_CLASS', name: 'scope', value: '', matcher: '', flags: '', args: null }] }, { ...s.cx[0]!, comb: s.cx[0]!.comb === 'NONE' ? 'DESCENDANT' : s.cx[0]!.comb }, ...s.cx.slice(1)];
+            const isRoot = (a: El): boolean => {
+              if (scope.spec.implicitRoot) { const sh2 = sheets.get(scope.rule.sheet); const owner = sh2 ? elById.get(sh2.owner) : undefined; return !!owner && owner.parent === a; }
+              return (scope.spec.roots ?? []).some((c) => m.match(c, a).s !== NO);
+            };
+            const limited = (root: El, e: El): boolean => {
+              if (!scope.spec.limits) return false;
+              for (let b: El | null = e; b && b !== root; b = b.parent) if (scope.spec.limits.some((c) => m.match(c, b!).s !== NO)) return true;
+              return false;
+            };
+            for (const e of live) {
+              for (let a: El | null = e; a; a = a.parent) {
+                if (!isRoot(a) || limited(a, e)) continue;
+                const ms = new Matcher(ctx, false); ms.scopeRoot = a;
+                const r = ms.match(cx, e);
+                if (r.s === NO) continue;
+                W.add(e.id);
+                const [status, reason] = statusOf(r, e);
+                emit(e, status, reason, a);
+                break;
+              }
+            }
+            continue;
+          }
           if (!missing) {
             for (const e of m.candidates(s.cx)) {
               const r = m.match(s.cx, e);
               if (r.s === NO) continue;
               W.add(e.id);
-              const reasons = new Set(base);
-              if (e.inert) reasons.add(`inert:${e.inert}`);
-              let status = reasons.size ? 'conditional' : 'match';
-              let rs = [...reasons].sort().join(';');
-              if (r.s === UNKNOWN) { status = 'unknown'; rs = r.r; }
-              const sc = status === 'match' ? EXACT : status === 'conditional' ? COND : UNKNOWN;
-              let re = ruleEls.get(n.id); if (!re) { re = new Map(); ruleEls.set(n.id, re); }
-              if ((re.get(e.id) ?? NO) < sc) re.set(e.id, sc);
-              u.any = true;
-              if (!seen.has(`s|${s.id}|${e.id}`)) {
-                seen.add(`s|${s.id}|${e.id}`);
-                styleRows++;
-                if (status === 'match') st.elements++;
-                out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status, reason: rs || null,
-                  conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
-                  sheet_order: l.order, rule_order: n.order, important_count: n.important});
-              }
+              const [status, reason] = statusOf(r, e);
+              emit(e, status, reason, null);
             }
           }
-          // a dynamic class binding: elements that would match with the tokens their bindings can add (never a match)
-          if (md && s.req.classes.length + countClasses(s.cx) > 0) {
-            const missingD = s.req.ids.some((c) => !ctx.ids.has(fold(c)));
-            if (!missingD) for (const e of md.candidates(s.cx)) {
-              if (W.has(e.id) || !e.dynamicClass) continue;
+          // a dynamic class or attribute binding: elements that would match with what their bindings can set (never a match)
+          if (md) {
+            for (const e of md.candidates(s.cx)) {
+              if (W.has(e.id)) continue;
               const r = md.match(s.cx, e);
               if (r.s === NO) continue;
-              u.any = true;
-              if (seen.has(`s|${s.id}|${e.id}`)) continue;
-              seen.add(`s|${s.id}|${e.id}`); styleRows++;
-              out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status: 'unknown', reason: 'dynamic_class',
-                conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
-                sheet_order: l.order, rule_order: n.order, important_count: n.important});
+              const why = [...new Set(r.r.split(',').filter((x) => x.startsWith('dynamic_')))].sort().join(';');
+              if (!why) continue;
+              emit(e, 'unknown', why, null);
             }
           }
           if (missing) u.missing = true;
@@ -997,9 +1066,19 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
 
 function decodeSafe(s: string): string { try { return decodeURIComponent(s); } catch { return s; } }
 
-/** how many CLASS parts a selector has anywhere (a dynamic binding can only help a selector that names a class) */
-function countClasses(cx: Complex): number {
-  let n = 0;
-  for (const c of cx) for (const s of c.simples) { if (s.kind === 'CLASS') n++; if (s.args) for (const a of s.args) n += countClasses(a); }
-  return n;
+
+/**
+ * The parser lowercases a TYPE part's name (`linearGradient` -> `lineargradient`); an SVG or MathML element's name is
+ * case-sensitive, so the name is taken back from the selector text as written, part by part in source order.
+ */
+function writtenTypeNames(parts: PartRow[], text: string): void {
+  let cursor = 0;
+  for (const p of [...parts].sort((a, b) => a.position - b.position)) {
+    if (p.kind !== 'TYPE' || !p.name) continue;
+    const bare = p.name.includes('|') ? p.name.slice(p.name.indexOf('|') + 1) : p.name;
+    const re = new RegExp(`(?<![\\w.#:-])${bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'ig');
+    re.lastIndex = cursor;
+    const m = re.exec(text);
+    if (m) { p.name = p.name.slice(0, p.name.length - bare.length) + m[0]; cursor = m.index + m[0].length; }
+  }
 }

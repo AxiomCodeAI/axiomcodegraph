@@ -33,7 +33,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
     description: 'One element as WRITTEN (implied tbody/html/head/body are not rows, LIMIT L1). `display` is tag#id.class1.class2; `position` the 0-based index among the parent\'s element children; `nth_of_type` 1-based; `inert` = 1 inside <template> or <noscript>; `dynamic_class` = 1 when a template directive or interpolation sets the class at run time.',
     columns: [id('uid'), id('page_uid'), id('parent_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'), id('tag_name'), t('namespace'),
       i('depth'), i('position'), i('nth_of_type'), id('html_id', 'the id attribute'), t('class_names', 'as written, space-separated'), i('child_count'),
-      t('text', 'direct text, cut at 1,024 chars'), i('inert'), i('dynamic_class'), t('display')],
+      t('text', 'direct text, cut at 1,024 chars'), t('inert', 'template | noscript | iframe_text (markup inside <iframe>, text to a browser: never styled) | NULL'), i('dynamic_class'), t('display')],
   },
   {
     name: 'web_attributes',
@@ -145,7 +145,8 @@ export const WEB_TABLES: readonly TableSpec[] = [
     name: 'web_styles',
     description: 'selector -> element: the rule applies to the element on that page (only through sheets the page loads). `reason` lists every condition, sorted, \';\'-joined. Cascade order fields per SPEC §3.3: sort by (important_count>0, layer_rank, spec_a, spec_b, spec_c, sheet_order, rule_order). `pseudo_element` set when the rule styles a ::before/::after/… of the element.',
     columns: [id('selector_uid'), id('rule_uid'), id('stylesheet_uid'), id('element_uid'), id('page_uid'), t('status'), t('reason'), t('conditions'), t('pseudo_element'),
-      i('spec_a'), i('spec_b'), i('spec_c'), i('layer_rank'), i('sheet_order'), i('rule_order'), i('important_count')],
+      i('spec_a'), i('spec_b'), i('spec_c'), i('layer_rank'), i('sheet_order'), i('rule_order'), i('important_count'),
+      id('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element')],
   },
   {
     name: 'web_var_def',
@@ -227,12 +228,12 @@ export const WEB_VIEWS: readonly string[] = [
        FROM pairs p JOIN anc a ON a.vref = p.vref AND a.page_uid = p.page_uid
        JOIN def_els de ON de.def_uid = p.def_uid AND de.page_uid = p.page_uid AND de.elem = a.a
       GROUP BY 1, 2, 3)
-   SELECT p.use_uid, p.vref AS value_ref_uid, p.name, p.def_uid, p.page_uid,
+   SELECT p.vref AS use, p.def_uid AS def, p.page_uid AS page, p.use_uid AS use_declaration, p.name,
           CASE WHEN p.is_property OR b.b = 2 THEN 'match' WHEN b.b = 1 THEN 'conditional' ELSE 'unknown' END AS status,
           CASE WHEN p.is_property OR b.b IS NOT NULL THEN NULL ELSE 'not_inherited' END AS reason
      FROM pairs p LEFT JOIN best b ON b.vref = p.vref AND b.def_uid = p.def_uid AND b.page_uid = p.page_uid
    UNION ALL
-   SELECT DISTINCT us.use_uid, us.vref, us.name, NULL, us.page_uid, 'unknown',
+   SELECT DISTINCT us.vref, NULL, us.page_uid, us.use_uid, us.name, 'unknown',
           CASE WHEN vr.fallback_text IS NOT NULL THEN 'fallback_only' ELSE 'no_definition_in_scope' END
      FROM use_scope us JOIN web_value_refs vr ON vr.uid = us.vref
     WHERE NOT EXISTS (SELECT 1 FROM def_scope ds WHERE ds.name = us.name AND ds.page_uid = us.page_uid)`,
