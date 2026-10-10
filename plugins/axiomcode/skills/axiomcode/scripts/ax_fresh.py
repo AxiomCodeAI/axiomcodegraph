@@ -255,6 +255,20 @@ def dep_snapshot(repo):
                 pth = os.path.join(root, f)
                 try: st = os.stat(pth); out[os.path.relpath(pth, repo)] = f'{st.st_size}:{st.st_mtime_ns}'
                 except OSError: pass
+    # a Java dependency is fetched into a repository outside the project (~/.m2, Gradle's cache), which no file here
+    # records: which declared dependencies are present there is part of the fingerprint, so one fetched after the
+    # graph was built (`mvn dependency:resolve`) makes it stale
+    if any(k.endswith(('pom.xml', 'build.gradle', 'build.gradle.kts')) for k in out):
+        try:
+            import ax_libs
+            m2 = ax_libs.maven_repo(repo)
+            gradle = os.path.join(os.path.expanduser('~'), '.gradle', 'caches', 'modules-2', 'files-2.1')
+            have = sorted(f'{g}:{a}:{v}' for g, a, v in set(ax_libs.java_coordinates(repo))
+                          if os.path.isdir(os.path.join(m2, *g.split('.'), a, v) if v and '$' not in v else os.path.join(m2, *g.split('.'), a))
+                          or os.path.isdir(os.path.join(gradle, g, a)))
+            out['java dependencies present'] = hashlib.sha1('|'.join(have).encode()).hexdigest()
+        except Exception:
+            pass
     for env in ('.venv', 'venv', 'env', '.env'):
         for sp in glob.glob(os.path.join(repo, env, 'lib*', '*', 'site-packages')) + glob.glob(os.path.join(repo, env, 'Lib', 'site-packages')):
             try: out[os.path.relpath(sp, repo)] = hashlib.sha1('|'.join(sorted(d for d in os.listdir(sp) if d.endswith('.dist-info'))).encode()).hexdigest()

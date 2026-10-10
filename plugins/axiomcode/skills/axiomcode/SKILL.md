@@ -94,7 +94,8 @@ after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same list.
 
 The choice is kept with the graph. Every rebuild after it stages the libraries again (`auto` discovers them
 again, so a new dependency is picked up), and with libraries on, a dependency change alone (a manifest or lockfile
-edit, `pip install -U`, `npm install`, `dotnet restore`) also marks the graph stale and rebuilds it. A graph built
+edit, `pip install -U`, `npm install`, `dotnet restore`, a Maven or Gradle fetch of a dependency that was missing)
+also marks the graph stale and rebuilds it. A graph built
 without `--library` never gains libraries by itself; `AXIOMCODE_REINDEX=1 axiomcode index` turns them off again.
 
 With them, a call into a dependency resolves to its declaration and a chain is typed through its declared return
