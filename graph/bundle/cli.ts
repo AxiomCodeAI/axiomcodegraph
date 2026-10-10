@@ -22,6 +22,10 @@ import { catalogExt, readLibMap } from '@/bundle/catalog';
 import { adapterFor } from '@/bundle/languages';
 import { renderSchemaMarkdown, SCHEMA_VERSION } from '@/bundle/schema';
 import { sqliteAvailable, writeCoreCsv, writeSqlite } from '@/bundle/write';
+import { buildWeb } from '@/bundle/web/build';
+import { WebDb } from '@/bundle/web/write';
+import { writeDomTouch } from '@/bundle/dom-touch';
+import type { CoreTables, Row } from '@/bundle/build';
 
 interface Args {
   language?: string; src?: string; clientIr?: string; raw?: string; out?: string;
@@ -56,6 +60,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   for (const [k, v] of Object.entries({ '--language': a.language, '--src': a.src, '--client-ir': a.clientIr, '--raw': a.raw, '--out': a.out })) {
     if (!v) throw new Error(`${k} is required`);
   }
+  if (a.language === 'web') { await mainWeb(a); return; }
   const adapter = adapterFor(a.language!);
   const langDir = path.join(a.src!, adapter.language);
   const log = (s: string) => console.log(s);
@@ -97,6 +102,57 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     fs.rmSync(dbPath, { force: true });
     console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.13) — graph.sqlite NOT written; csv/*.csv is complete`);
   }
+  // the JavaScript graph's DOM-touch table, with the selector tokens split (graph/bundle/dom-touch.ts)
+  if (haveSqlite && (adapter.language === 'javascript' || adapter.language === 'typescript')) await writeDomTouch(dbPath, a.raw!, log);
+  log(`▶ bundle complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+}
+
+/**
+ * THE WEB GRAPH (#1908): no call graph, so no adapter. The core tables are written EMPTY (a reader that asks a web
+ * graph for methods gets none, not an error), `skipped` holds the two skipped-files reports, and the named web
+ * tables (graph/bundle/web/) carry the pages, elements, stylesheets, rules and the in-web edges.
+ */
+async function mainWeb(a: Args): Promise<void> {
+  const log = (s: string) => console.log(s);
+  const t0 = Date.now();
+  const meta: Record<string, string> = {
+    schema_version: SCHEMA_VERSION, language: 'web', client_ir: path.resolve(a.clientIr!), library_roots: '',
+    raw_dir: path.resolve(a.raw!), created_at: new Date().toISOString(), ...a.meta,
+  };
+  log(`▶ bundling web output → ${a.out}`);
+  if (!sqliteAvailable()) { console.error('  ! no node:sqlite — the web graph needs it (Node >= 22.13); graph.sqlite NOT written'); process.exitCode = 1; return; }
+  const dbPath = path.join(a.out!, 'graph.sqlite');
+  const langDir = path.join(a.src!, 'web');
+  // the core and catalog first, empty but present, then every web row straight into the same database
+  const empty: CoreTables = {
+    run: Object.entries(meta).map(([k, v]) => [k, v]), methods: [], types: [], call_sites: [], call_edges: [], type_ancestors: [],
+    dispatch_candidates: [], overrides: [], entry_points: [], entry_reachable: [], unresolved_sites: [], type_instantiated: [],
+    fields: [], field_access: [], type_use: [], skipped: [],
+  };
+  await writeSqlite({ dbPath, language: 'web', core: empty, ext: catalogExt(langDir), rawDir: a.raw!, log });
+  const sink = await WebDb.open(dbPath, log);
+  let web: { skipped: Row[] };
+  try {
+    web = await buildWeb({ clientIrDir: a.clientIr!, rawDir: a.raw!, sourceDir: a.meta.source_dir, log, sink: sink.push });
+  } finally {
+    sink.close();
+  }
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    const ins = db.prepare('INSERT OR IGNORE INTO skipped VALUES (?, ?, ?, ?, ?, ?)');
+    for (const r of web.skipped) ins.run(...(r as (string | number | null)[]));
+    db.close();
+  }
+  const core: CoreTables = {
+    run: Object.entries(meta).map(([k, v]) => [k, v]), methods: [], types: [], call_sites: [], call_edges: [], type_ancestors: [],
+    dispatch_candidates: [], overrides: [], entry_points: [], entry_reachable: [], unresolved_sites: [], type_instantiated: [],
+    fields: [], field_access: [], type_use: [], skipped: web.skipped,
+  };
+  const graphDir = path.join(a.out!, 'csv');
+  fs.rmSync(graphDir, { recursive: true, force: true });
+  if (a.debug) writeCoreCsv(graphDir, core, log);
+  log(`▶ wrote ${dbPath}`);
   log(`▶ bundle complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 

@@ -36,7 +36,9 @@ BY_EXT = {'.py': ('python',), '.pyi': ('python',), '.java': ('java',), '.cs': ('
           '.ts': ('typescript',), '.tsx': ('typescript',), '.mts': ('typescript',), '.cts': ('typescript',),
           '.js': ('javascript', 'typescript'), '.jsx': ('javascript', 'typescript'), '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript'),
           # single-file components: only the JavaScript front end reads their <script> blocks
-          '.vue': ('javascript',), '.svelte': ('javascript',), '.astro': ('javascript',)}
+          '.vue': ('javascript',), '.svelte': ('javascript',), '.astro': ('javascript',),
+          # pages and stylesheets: the web graph (HTML + CSS); a page's inline scripts are the javascript graph's too
+          '.html': ('web',), '.htm': ('web',), '.xhtml': ('web',), '.css': ('web',)}
 
 
 def owners(repo, files):

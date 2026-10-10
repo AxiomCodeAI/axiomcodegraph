@@ -4549,6 +4549,8 @@ def main(argv):
     return 0
 
 if __name__ == '__main__':
+    # a WEB graph (HTML + CSS) has no call graph: its own module answers (ax_web.py), per language
+    import ax_web; ax_web.maybe_answer('impact', sys.argv[1:])
     if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
     import ax_pages; ax_pages.install('impact')       # --page / --budget, and the answer printed in pages (#1198)
     if '--json' in sys.argv[1:]:

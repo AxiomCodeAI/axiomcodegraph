@@ -1658,5 +1658,7 @@ def cli(argv):
 
 
 if __name__ == '__main__':
+    # a WEB graph (HTML + CSS) has no call graph: its own module answers (ax_web.py), per language
+    import ax_web; ax_web.maybe_answer('context', sys.argv[1:])
     import ax_pages; ax_pages.install('context')      # pages and a next step (#1202)
     cli(sys.argv[1:])

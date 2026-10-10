@@ -22,12 +22,14 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
-INDEX_VERSION = '8'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+INDEX_VERSION = '9'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
                          # v6: TypeScript class-property arrows named after their field;
                          # v7: data keys of module-level const objects declared, Object.freeze seen through;
                          # v8: literals carry numbers and booleans with a kind column, and the name of the constant
-                         #     a scalar initializes — a spec's numbers were the one thing the graph could not answer); the query
+                         #     a scalar initializes — a spec's numbers were the one thing the graph could not answer;
+                         # v9: the web graph (HTML + CSS) is indexed: pages, stylesheets, .classes, #ids, --properties,
+                         #     @keyframes/@font-face/@layer/@container, selectors and inline scripts are symbols); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -41,6 +43,10 @@ REPO = os.path.realpath(os.path.join(GDIR, '..'))   # the repository root: .axio
 con = sqlite3.connect(DB); con.row_factory = sqlite3.Row; c = con.cursor()
 run = {r['key']: r['value'] for r in c.execute("SELECT key, value FROM run")}
 LANG = run.get('language', 'java')
+if LANG == 'web':
+    # HTML + CSS: no methods, no IR adapter. Its names come from the web_* tables the bundle wrote (ax_web.py)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_web
+    con.close(); ax_web.index(DB, REPO, INDEX_VERSION); sys.exit(0)
 SRC = run.get('source_dir') or REPO
 IR = run.get('client_ir') or ''
 if not os.path.isdir(IR):

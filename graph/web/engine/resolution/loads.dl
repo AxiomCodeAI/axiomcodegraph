@@ -1,0 +1,63 @@
+// ============================================================================
+// WEB — what a page loads, and what links where. Pure joins over the parser's resolved
+// paths (html_reference.resolvedFilePath / css_value_reference.resolvedFilePath against
+// css_stylesheet.filePath / html_document.filePath, both absolute). Everything that needs
+// ordering, string folding or tree walking (cascade order, selector matching) is the
+// bundle's (graph/bundle/web/), over these relations and the IR.
+// Every reference that does NOT land on an indexed node is a row of an *_unknown relation
+// with its reason; nothing is dropped and nothing is guessed.
+// ============================================================================
+
+// A page loads a .css file through <link rel="stylesheet" href> that resolves to an indexed sheet.
+// (page, sheet, reference, link element)
+web_link_sheet(page, sheet, ref, elem) :-
+  html_reference("STYLESHEET", _, _, _, _, _, file, "true", _, _, _, _, elem, _, page, _, ref),
+  css_stylesheet(_, _, file, _, _, "FILE", _, _, _, _, _, _, _, _, _, _, sheet).
+
+web_ref_indexed_sheet(ref) :- web_link_sheet(_, _, ref, _).
+
+// A <link rel="stylesheet"> that loads no indexed sheet, with why: a CDN/absolute URL, a URL that
+// resolves to no file, a template-generated URL, or a file on disk the walk never read.
+// (page, reference, reason, url as written)
+web_link_sheet_unknown(page, ref, "external_url", url) :-
+  html_reference("STYLESHEET", url, uk, _, _, _, _, _, _, _, _, _, _, _, page, _, ref),
+  web_external_url_kind(uk).
+web_link_sheet_unknown(page, ref, "template_url", url) :-
+  html_reference("STYLESHEET", url, "TEMPLATE_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, page, _, ref).
+web_link_sheet_unknown(page, ref, "unresolved_url", url) :-
+  html_reference("STYLESHEET", url, uk, _, _, _, _, "false", _, _, _, _, _, _, page, _, ref),
+  web_local_url_kind(uk).
+web_link_sheet_unknown(page, ref, "not_indexed", url) :-
+  html_reference("STYLESHEET", url, _, _, _, _, _, "true", _, _, _, _, _, _, page, _, ref),
+  !web_ref_indexed_sheet(ref).
+
+web_external_url_kind("ABSOLUTE"). web_external_url_kind("PROTOCOL_RELATIVE"). web_external_url_kind("OTHER_SCHEME").
+web_local_url_kind("RELATIVE"). web_local_url_kind("ROOT_RELATIVE").
+
+// @import: (importing sheet, imported sheet, the IMPORT value reference)
+web_import(from, to, vref) :-
+  css_value_reference("IMPORT", _, _, _, file, "true", _, _, _, _, _, from, _, vref),
+  css_stylesheet(_, _, file, _, _, "FILE", _, _, _, _, _, _, _, _, _, _, to).
+
+web_vref_indexed_import(vref) :- web_import(_, _, vref).
+
+// An @import that lands on no indexed sheet. (importing sheet, value reference, reason, url)
+web_import_unknown(from, vref, "external_url", url) :-
+  css_value_reference("IMPORT", url, _, uk, _, _, _, _, _, _, _, from, _, vref),
+  web_external_url_kind(uk).
+web_import_unknown(from, vref, "unresolved_url", url) :-
+  css_value_reference("IMPORT", url, _, uk, _, "false", _, _, _, _, _, from, _, vref),
+  web_local_url_kind(uk).
+web_import_unknown(from, vref, "not_indexed", url) :-
+  css_value_reference("IMPORT", url, _, _, _, "true", _, _, _, _, _, from, _, vref),
+  !web_vref_indexed_import(vref).
+
+// A page -> page link: an anchor, a form action, a frame/iframe or a meta refresh whose URL resolves
+// to an indexed page. (element, page, target page, reference, kind). What does not land on a page is
+// classified by the bundle, which also knows which attribute of which element is a navigation.
+web_link_kind("ANCHOR"). web_link_kind("FORM_ACTION"). web_link_kind("FRAME"). web_link_kind("META_REFRESH").
+web_links_to(elem, page, to, ref, kind) :-
+  web_link_kind(kind),
+  html_reference(kind, _, _, _, _, _, file, "true", _, _, _, _, elem, _, page, _, ref),
+  html_document(_, _, file, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, to).
+

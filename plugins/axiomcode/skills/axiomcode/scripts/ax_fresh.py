@@ -55,27 +55,42 @@ H = os.path.dirname(os.path.abspath(__file__))
 # watched that the parser skips costs only a needless rebuild. Watched, not counted: SOURCE below still decides which
 # languages a repository has, so a component alone does not add a language.
 COMPONENT_EXT = ('.vue', '.svelte', '.astro')
+# PAGES AND STYLESHEETS (#1908): HTML and CSS are the `web` language, with a graph of their own; a page's inline
+# <script> bodies and on* attributes are JavaScript modules of the javascript graph, so that graph watches pages too.
+WEB_EXT = ('.html', '.htm', '.xhtml', '.css')
+PAGE_EXT = ('.html', '.htm', '.xhtml')
 EXT = {
     'java': ('.java', '.properties', '.xml', '.yml', '.yaml', '.gradle', '.kts', '.toml'),
     'typescript': ('.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT,
-    'javascript': ('.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT,
+    'javascript': ('.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT + PAGE_EXT,
     'python': ('.py', '.pyi'),
+    'web': WEB_EXT,
     'csharp': ('.cs', '.csproj', '.props', '.targets', '.sln'),
 }
 # the SOURCE files of each language: what makes a repository "have" that language (axiomcode-build counts the same)
-SOURCE = {'java': ('.java',), 'typescript': ('.ts', '.tsx'), 'python': ('.py',), 'javascript': ('.js', '.mjs', '.cjs', '.jsx'), 'csharp': ('.cs',)}
+SOURCE = {'java': ('.java',), 'typescript': ('.ts', '.tsx'), 'python': ('.py',), 'javascript': ('.js', '.mjs', '.cjs', '.jsx'), 'csharp': ('.cs',),
+          'web': WEB_EXT}
 NAMES = {
     'java': ('lombok.config',),
     'typescript': ('package.json',),
     'javascript': ('package.json',),
     'python': ('pyproject.toml', 'setup.cfg', 'setup.py'),
     'csharp': ('global.json', 'Directory.Build.props'),
+    'web': (),
 }
 # EXTENSION CASE (#1771). The JavaScript parser matches an extension whatever its case (jsExtensionOf lower-cases the
 # name, so Main.JS and Up.VUE are read) and the C# parser reads *.CS (discoverCsFiles); the others match it exactly.
 # Matched exactly here, such a file was parsed but left out of the table: an edit to it was invisible and `index` said
 # "graph up to date". These are the extensions each parser folds; every other one stays case-sensitive, as its parser is.
 FOLD = {'javascript': frozenset(EXT['javascript']), 'csharp': frozenset({'.cs'})}
+
+INLINE_JS = re.compile(rb'<script(?![^>]*\bsrc\s*=)(?![^>]*\btype\s*=\s*["\']?(?:application/(?:ld\+)?json|text/(?:template|x-template|html)|importmap|speculationrules))[^>]*>\s*\S|\son[a-z]+\s*=', re.I)
+
+def inline_js(p):
+    """True when the page at p holds an inline script body or an on* attribute (read: the first 2 MB)"""
+    try:
+        with open(p, 'rb') as h: return bool(INLINE_JS.search(h.read(2 << 20)))
+    except OSError: return False
 
 def has_ext(lang, name, exts):
     """True when the parser of `lang` takes file `name` as ending in one of `exts`"""
@@ -110,8 +125,11 @@ SKIP = {
     'python': frozenset({'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox', 'dist', '.eggs', '.mypy_cache',
                          '.pytest_cache', '_build', 'site-packages'}),
     'csharp': frozenset({'obj', 'bin', '.git', 'node_modules', 'packages', '.vs'}),
+    #   web         parser/src/workflows/web/web-project-analyzer.ts WEB_EXCLUDED_DIRS (EXCLUDED_DIRS less dist/build/out,
+    #               #1909), and dot directories
+    'web': frozenset({'node_modules', '.git', '.idea', '.vscode', 'target', '__pycache__', '.pytest_cache', 'venv', 'env'}),
 }
-SKIP_HIDDEN = {'java', 'typescript'}                     # the parsers that skip every directory named .<something>
+SKIP_HIDDEN = {'java', 'typescript', 'web'}                     # the parsers that skip every directory named .<something>
 ALWAYS = frozenset({'.axiomcode', '.git'})
 PY_BUILD_ARTIFACT = re.compile(r'^(lib(\.|$)|temp\.|scripts-|bdist\.)')
 
@@ -1616,7 +1634,12 @@ def main(argv):
         for l in SOURCE:
             for p in watched(repo, l):
                 if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
-        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp']); return 0
+        # the 6th number is web (pages and stylesheets); the 7th the pages holding inline JavaScript (an inline <script>
+        # body or an on* attribute), which the javascript graph reads even where no .js file exists
+        inline = 0
+        for p in watched(repo, 'web'):
+            if p.lower().endswith(PAGE_EXT) and inline_js(p): inline += 1
+        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp'], n['web'], inline); return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
         n = 0

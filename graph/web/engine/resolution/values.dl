@@ -1,0 +1,15 @@
+// ============================================================================
+// WEB — value-level names, page-independent: which declarations define a custom property and
+// which var() uses name it. The page-scoped resolution (a use is satisfied only by a definition in
+// a sheet the SAME page loads, with the match status of the defining rule; @keyframes, @font-face and
+// @container likewise per page) is the bundle's, since it needs the per-page load set and the matcher.
+// ============================================================================
+
+// A declaration defines custom property `name` (`--x: …`). (declaration, name)
+web_defines_var(decl, name) :-
+  css_declaration(name, _, _, "true", _, _, _, _, _, _, _, _, _, _, decl).
+
+// A var(--x) use. (value reference, name, owning declaration)
+web_uses_var(vref, name, decl) :-
+  css_value_reference("VARIABLE", name, _, _, _, _, _, _, _, decl, _, _, _, vref).
+

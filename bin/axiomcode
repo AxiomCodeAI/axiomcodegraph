@@ -22,7 +22,7 @@
 #                          v1.0.0 outside a checkout.
 #   --exclude-tests        Exclude test code. Included by default.
 #   --language <L>[,…]     Restrict the run to these languages: java, typescript, python,
-#                          javascript or csharp.
+#                          javascript, csharp or web (HTML and CSS).
 #   --debug                Also write csv/*.csv and keep raw/ beside each graph.
 #   --progress <file>      Append "<lang> ok <graph>" or "<lang> failed" to <file> as each language
 #                          finishes, so a caller can use one graph while the next is solved.
@@ -41,7 +41,7 @@
 #                          Make each language's engine binary ready (packaged, cached, or compiled
 #                          now), so the first index does not pay the compile. `npm run build` runs it
 #                          in the background; AXIOMCODE_NO_PREPARE=1 or CI skips that.
-#   test [java|typescript|python|javascript|csharp|parser|all] [suite options]
+#   test [java|typescript|python|javascript|csharp|web|parser|all] [suite options]
 #                          Run the test suites.
 #   mcp                    Serve the graph to an agent as MCP tools over stdio. Any MCP client
 #                          can start it as: npx -y @axiomcode/code-graph mcp
@@ -181,7 +181,7 @@ case "$cmd" in
     # exit 3 is "the parser ran and found nothing", apart from 1 for a parser that failed:
     # `all` reads it for a library entry, whose absence is a warning rather than a reason to
     # abort every other library and language in the run (#709).
-    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 3; }
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python, JavaScript, C#, HTML or CSS source under $src" >&2; exit 3; }
     echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
   engine)
@@ -255,7 +255,7 @@ case "$cmd" in
     # from `parser`, or a JDK-style root of module folders). Folder NAMES prove nothing — a
     # source tree may well have a java/ directory.
     is_ir(){ local d="$1" m sub
-      for m in all-types.csv all-typescript-modules.csv all-python-modules.csv all-javascript-modules.csv all-csharp-modules.csv; do
+      for m in all-types.csv all-typescript-modules.csv all-python-modules.csv all-javascript-modules.csv all-csharp-modules.csv all-html-documents.csv all-css-stylesheets.csv; do
         [ -f "$d/$m" ] && return 0
         for sub in "$d"/*/; do [ -f "$sub$m" ] && return 0; done
       done; return 1; }
@@ -399,11 +399,11 @@ case "$cmd" in
     rc=0
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
-      java|typescript|python|javascript|csharp) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests web-tests web-torture discovery-tests; do
+      java|typescript|python|javascript|csharp|web) run_suite "$which" "$@";;
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests web-tests web-torture web-plumbing-tests discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
-      all) for l in java typescript python javascript csharp; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
-      *) die "test: unknown suite $which (java | typescript | python | javascript | csharp | parser | all)";;
+      all) for l in java typescript python javascript csharp web; do [ -f "$ROOT/graph/test/$l/run-tests.sh" ] && run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
+      *) die "test: unknown suite $which (java | typescript | python | javascript | csharp | web | parser | all)";;
     esac
     exit $rc
     ;;

@@ -2385,6 +2385,8 @@ def _guess_lang(files):
 
 
 if __name__ == '__main__':
+    # a WEB graph (HTML + CSS) has no call graph: its own module answers (ax_web.py), per language
+    import ax_web; ax_web.maybe_answer('tests', sys.argv[1:])
     import ax_pages; ax_pages.install('test-impact')  # pages and a next step (#1202)
     if '--json' in sys.argv[1:]:
         # an answer that selects nothing (no changed declaration the graph can name, no graph) is printed as prose;

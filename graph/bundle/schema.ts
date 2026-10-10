@@ -15,8 +15,8 @@
 
 export const SCHEMA_VERSION = '1';
 
-export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp';
-export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp'];
+export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp' | 'web';
+export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp', 'web'];
 
 export interface ColumnSpec {
   name: string;

@@ -328,6 +328,11 @@ def main(argv):
     r = subprocess.run(ax_exec.program(cmd + ['--json']), stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
     try: doc = json.loads(r.stdout)
     except ValueError: doc = None
+    import ax_web
+    doc, web_lines = ax_web.split_web(doc)        # the web graph's answer is prose, printed after the sites (#1908)
+    if doc is None:
+        print('\n'.join(web_lines).lstrip('\n')); return r.returncode
+    if web_lines: import atexit; atexit.register(lambda: print('\n'.join(web_lines)))
     if not isinstance(doc, dict) or r.returncode:
         # a refusal, as the verb said it: its prose when the document carries it ("no chain connects…"), else its text
         if isinstance(doc, dict) and isinstance(doc.get('prose'), list): print('\n'.join(doc['prose']))

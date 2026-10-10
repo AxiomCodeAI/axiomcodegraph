@@ -1,0 +1,20 @@
+# Soufflé input-relation -> client IR CSV basename (the file staged as that relation's facts).
+# One relation per line: <relation><TAB><csv-basename>. All 17 relations of the web (HTML + CSS)
+# fact schema the parser emits into <ir>/web/.
+html_document	all-html-documents
+html_element	all-html-elements
+html_attribute	all-html-attributes
+html_class_reference	all-html-class-references
+html_reference	all-html-references
+html_script	all-html-scripts
+html_handler_call	all-html-handler-calls
+html_template_expression	all-html-template-expressions
+html_parse_gap	all-html-parse-gaps
+css_stylesheet	all-css-stylesheets
+css_rule	all-css-rules
+css_selector	all-css-selectors
+css_selector_part	all-css-selector-parts
+css_declaration	all-css-declarations
+css_value_reference	all-css-value-references
+css_comment	all-css-comments
+css_parse_gap	all-css-parse-gaps

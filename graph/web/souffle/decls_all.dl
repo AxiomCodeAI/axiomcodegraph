@@ -1,0 +1,20 @@
+// Every derived relation of the web engine (graph/web/engine/). Exported ones are listed in
+// export_manifest.tsv; the bundle (graph/bundle/web/) reads them from raw/.
+.decl web_external_url_kind(k:symbol)
+.decl web_local_url_kind(k:symbol)
+.decl web_link_sheet(page:symbol, sheet:symbol, ref:symbol, elem:symbol)
+.decl web_ref_indexed_sheet(ref:symbol)
+.decl web_link_sheet_unknown(page:symbol, ref:symbol, reason:symbol, url:symbol)
+.decl web_import(from:symbol, to:symbol, vref:symbol)
+.decl web_vref_indexed_import(vref:symbol)
+.decl web_import_unknown(from:symbol, vref:symbol, reason:symbol, url:symbol)
+.decl web_link_kind(kind:symbol)
+.decl web_links_to(elem:symbol, page:symbol, to:symbol, ref:symbol, kind:symbol)
+.decl web_defines_var(decl:symbol, name:symbol)
+.decl web_uses_var(vref:symbol, name:symbol, decl:symbol)
+// ── executor knobs (written by run-souffle.sh for every language; unread here) ──
+.decl dispatch_cap(c0:symbol)
+.decl dispatch_closed_world(c0:symbol)
+.decl jdk_max_depth(c0:number)
+.decl lib_max_depth(c0:number)
+.decl taint_gating(c0:symbol)

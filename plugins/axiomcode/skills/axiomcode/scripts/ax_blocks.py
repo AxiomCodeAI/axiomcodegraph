@@ -301,6 +301,11 @@ def main(argv):
     r, doc = verb_json(cmd)
     if not isinstance(doc, dict):
         sys.stdout.write(r.stdout); return r.returncode
+    import ax_web
+    doc, web_lines = ax_web.split_web(doc)        # the web graph's answer is prose, printed after the places (#1908)
+    if doc is None:
+        print('\n'.join(web_lines).lstrip('\n')); return 0 if r.returncode in (0, 1) else r.returncode
+    if web_lines: import atexit; atexit.register(lambda: print('\n'.join(web_lines)))
     lines = render(verb, doc, repo) if r.returncode in (0, 1) or doc.get('called_undeclared') else None
     if lines is None:
         # a refusal or an answer with no place in it: the verb's own words are the answer

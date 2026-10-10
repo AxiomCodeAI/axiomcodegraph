@@ -4,7 +4,7 @@
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
 #   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
-#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp, or a comma list of them, the first being
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp | web, or a comma list of them, the first being
 #                     the main one (default: every language with files; the main one is the language with the most).
 #                     A rebuild that names no language keeps the ones an earlier --lang chose (and its --src); pass
 #                     --lang again, or AXIOMCODE_REINDEX=1, to choose again
@@ -125,7 +125,8 @@ case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC=
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
-read -r ja ts py js cs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0)"
+read -r ja ts py js cs wb wjs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0 0 0)"
+wb="${wb:-0}"; wjs="${wjs:-0}"
 LANG_ARG="${AXIOMCODE_LANG:-}"
 # EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
 # without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
@@ -136,10 +137,15 @@ if [ -z "$LANG_ARG" ]; then
   [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
+  # WEB (HTML + CSS, #1908) is the main language only when no other language has a file: an older reader of the main
+  # graph expects a call graph there. Pages whose inline scripts are JavaScript give the javascript graph its files even
+  # where no .js file exists (the parser reads them as modules of their page).
+  [ "$best" -eq 0 ] && [ "$wb" -gt 0 ] && { LANG_ARG=web; best=$wb; }
   LANGS="$LANG_ARG"
-  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs; do
+  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs web:$wb; do
     [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
   done
+  if [ "$wjs" -gt 0 ] && [ "$js" -eq 0 ] && [ "$ts" -eq 0 ]; then LANGS="$LANGS,javascript"; js=$wjs; fi
   export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
 else
   LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
@@ -151,7 +157,7 @@ OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 # it is part of the stamp and the file table, and a new order there would rebuild every mixed repository once.
 SOLVE="$LANG_ARG"
 if [ -n "$OTHER_LANGS" ]; then
-  files_of(){ case "$1" in (java) echo "$ja";; (typescript) echo "$ts";; (python) echo "$py";; (javascript) echo "$js";; (csharp) echo "$cs";; (*) echo 0;; esac; }
+  files_of(){ case "$1" in (java) echo "$ja";; (typescript) echo "$ts";; (python) echo "$py";; (javascript) echo "$js";; (csharp) echo "$cs";; (web) echo "$wb";; (*) echo 0;; esac; }
   for l in $(for o in ${OTHER_LANGS//,/ }; do echo "$(files_of "$o") $o"; done | sort -s -k1,1nr | cut -d' ' -f2); do SOLVE="$SOLVE,$l"; done
 fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
@@ -309,8 +315,8 @@ python3 "$H/dl_program.py" --no-wait || true   # say whether the query rules are
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
   AXIOMCODE_BUILT_BY_UNKNOWN=1 python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
-if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
-else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"; fi
+if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"
+else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"; fi
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
 # it, and that tree need not be the commit in the stamp: uncommitted edits are indexed too. `changed` compared the
 # working tree against the COMMIT, so after an index with edits every position was off, and a span past the end of the

@@ -27,7 +27,7 @@
 # AXIOMCODE_SURFACE=mcp) a query with no flag answers as places with their code (ax_blocks.py), and any flag,
 # AXIOMCODE_RAW=1 or a direct call gives the verb's own answer.
 #
-#   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
+#   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp|web] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
 #   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh]
 #       internal (the orient hook, the suites): the files and callables a task touches, from the problem statement.

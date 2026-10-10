@@ -1,0 +1,3 @@
+# The web IR is client-only (decls_base_web.dl): a dependency's pages and stylesheets are not the
+# project's, and a vendor sheet inside the repository is a CLIENT sheet with a vendor flag (SPEC D3).
+# No library relation is staged.
