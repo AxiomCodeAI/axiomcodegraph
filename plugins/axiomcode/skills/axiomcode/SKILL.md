@@ -69,9 +69,20 @@ identifier as written in the code.
 
 ## index
 
-`axiomcode index` builds the graph explicitly; `--lang`, `--src` and `--library` narrow it. Never re-run it on an
+`axiomcode index` builds the graph explicitly; `--lang` and `--src` narrow it. Never re-run it on an
 existing graph: the graph rebuilds itself after edits, and an answer given before that finishes says so on a
 `graph refresh:` line.
+
+`--library` stages the project's dependencies, one entry per dependency, comma-separated with no spaces:
+
+    axiomcode index --library .venv/lib/python3.12/site-packages/requests,.venv/lib/python3.12/site-packages/click
+
+Each entry is a dependency's source directory (its package directory under `site-packages` or `node_modules`) or a
+pre-built library IR, relative to the repository or absolute (`~` is not expanded). `AXIOMCODE_LIBRARY` takes the same
+list. Without it every call into a dependency is *unknown*; with it the call resolves to the dependency's declaration,
+and a chain is typed through the dependency's declared return types (`client.post(...).json()`). Library bodies are
+not walked, so a dependency calling back into the project is not found this way. The roots are kept with the graph:
+a later bare `index` reuses them.
 
 ## What it cannot see — say so instead of guessing
 
