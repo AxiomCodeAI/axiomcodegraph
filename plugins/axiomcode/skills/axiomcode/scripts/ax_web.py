@@ -125,6 +125,7 @@ def js_page_answer(db, repo, argv):
         except ValueError: doc = {}
         if not isinstance(doc, dict): doc = {'answer': doc}
         doc['dom_touch'] = tt
+        doc.setdefault('language', 'javascript')
         if as_json: print(json.dumps(doc, indent=1, default=str))
         else:
             sys.stdout.write(subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-impact')] + list(argv), env=env, capture_output=True, text=True).stdout)
