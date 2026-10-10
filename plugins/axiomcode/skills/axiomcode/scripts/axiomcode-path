@@ -1904,10 +1904,49 @@ def grep_for(g, name):
     """the exact search that finds what the graph could not: the name as a whole word in the source roots"""
     return f'grep -rnw "{name}" {grep_roots(g)}'
 
+# ── a JavaScript test file that never loads the target ────────────────────────────────────────────────────────────
+JS_EXT = ('.js', '.mjs', '.cjs', '.jsx')
+def never_loads(g, A, B):
+    """(test file, target files) when every start is in ONE JavaScript test file whose imports, followed through the
+    project, never reach a file the target is declared in; else None. Such a file cannot run the target, whatever route
+    the call graph has: the route goes through a callable another test file declares (a callback handed to a shared
+    function) or an override a plugin installs only where it is loaded. Read from impact's import facts
+    (imports_fact), only when they were written for this graph; where either end has no import at all the scan cannot
+    say (a path alias, a file loaded by a computed name), and nothing is gated. impact drops the same tests the same way."""
+    fa = {g.sym[m].get('file') for m in A if m in g.sym}
+    fb = {g.sym[m].get('file') for m in B if m in g.sym} - {None, '<library>', '<written>'}
+    if len(fa) != 1 or not fb: return None
+    fa = next(iter(fa))
+    if not fa or not fa.endswith(JS_EXT) or fa in fb or not all(g.sym[m].get('is_test') for m in A if m in g.sym): return None
+    D = os.path.join(g.facts, 'impact')
+    try:
+        if not open(os.path.join(D, 'stamp')).read().startswith(f"{g.db_mtime}:"): return None
+        fwd, rev = collections.defaultdict(set), collections.defaultdict(set)
+        for ln in open(os.path.join(D, 'imports_fact.facts'), encoding='utf-8', errors='replace'):
+            x, _, y = ln.rstrip('\n').partition('\t')
+            if x and y: fwd[x].add(y); rev[y].add(x)
+        dyn = {ln.rstrip('\n') for ln in open(os.path.join(D, 'imports_dynamic.facts'), encoding='utf-8', errors='replace')}
+    except OSError:
+        return None
+    if not fwd.get(fa) or not all(rev.get(f) for f in fb): return None
+    seen, todo = {fa}, [fa]
+    while todo:
+        for y in fwd.get(todo.pop(), ()):
+            if y not in seen: seen.add(y); todo.append(y)
+    # a file on the way that loads a module by a computed name (`require(path.join(dir, f))`) may load the target
+    return (fa, sorted(fb)) if not (seen & fb) and not (seen & dyn) else None
+
 # ── the query────────────────────────────────────────────────────────────────────────────────────────────────────
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
+    nl = never_loads(g, A, B)
+    if nl:
+        RESULT['never_loads'] = {'test_file': nl[0], 'target_files': nl[1]}
+        print(f"no route: {nl[0]} never loads {', '.join(nl[1])} — none of the files it imports, followed through the project,"
+              f" imports it, so no run of that test executes {lb}. The call graph's routes between them go through code that"
+              f" file never loads (a callback another test file hands to a shared function, an override a plugin installs).")
+        return 1
     g.add_outside_call_edges()
     res = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
     if not res['hit']['fwd'] and not res['hit']['rev']:                      # nothing resolved connects them: now, and only now, the by-name closure

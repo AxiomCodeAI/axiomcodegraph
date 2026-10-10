@@ -1425,12 +1425,12 @@ def _script_for(repo, pkg, prel):
     return None
 
 
-def js_plan(repo, files):
+def js_plan(repo, files, cap=40):
     """(commands, files no runner collects): each file with the runner its own package would run it with."""
     by_runner = collections.OrderedDict()
     singles, unrun = [], []
     repo = os.path.realpath(repo)
-    for f in sorted(files)[:40]:
+    for f in (sorted(files)[:cap] if cap else sorted(files)):
         # the nearest directory whose runner collects the file runs it: a member's own config first, then the
         # root's (a workspace member with no runner of its own is run by the root's, with paths from the root)
         hit, any_pkg, d = None, False, os.path.dirname(f)
@@ -1990,6 +1990,10 @@ def main(argv):
         # say it back, not a declaration the graph lacks. `Owner.m(p)` still refused is asked as `Owner.m` (the tests
         # that reach the method are the ones a parameter edit can fail); a batch still refused is asked one by one, so
         # one bad target does not cost the others their tests
+        # a JavaScript function that is also a constructor (`function MarkdownIt(opts)`, `function Route(path)`) is a type
+        # to `changed` and has no type declaration impact can name at that line: it is asked as the function it is
+        if rc != 0 and tk == 'type':
+            rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope)
         if rc != 0 and len(batch) == 1 and '(' in batch[0]:
             bare = re.sub(r'\(.*\)$', '', batch[0])
             rc, o, e = run('axiomcode-impact', [bare, repo, '--tests', '--json', '--kind', 'method'] + scope)
@@ -2067,6 +2071,74 @@ def main(argv):
     ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at') and not r.get('script')]   # a script is its file
     run_files = sorted(set(files) | set(edited))
     lang = (changed.get('lang') or '').lower() or _guess_lang(run_files or changed_files)
+    # A SELECTED JAVASCRIPT FILE NO RUNNER COLLECTS is not a test run: a benchmark or interop script under test/ that no
+    # include glob or package script names (`test/autobahn.js` beside `test/*.test.js`), or a file the runner only
+    # reaches through another test file that requires it (`require('./es2017/asyncFunctions.js')`). It is replaced by
+    # the collected test files that import it, through the project's imports, and where none does it moves to
+    # `not_collected` and out of the selection. Where a test file loads modules by a computed name
+    # (`require(path.join(dir, f))`) nothing can be said, and the file stays.
+    rehomed = {}
+    if lang == 'javascript' and (files or further):
+        sel = sorted(set(files) | set(further))
+        unrun = [f for f in js_plan(repo, sel, cap=None)[1] if f.endswith(('.js', '.mjs', '.cjs', '.jsx'))]
+        if unrun:
+            D = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or ax_fresh.graph_dir(repo_), 'out', 'dl', 'impact')
+            rev = collections.defaultdict(set); dyn = None
+            try:
+                for ln in open(os.path.join(D, 'imports_fact.facts'), encoding='utf-8', errors='replace'):
+                    a, _, b = ln.rstrip('\n').partition('\t')
+                    if a and b: rev[b].add(a)
+                dyn = {ln.rstrip('\n') for ln in open(os.path.join(D, 'imports_dynamic.facts'), encoding='utf-8', errors='replace')}
+            except OSError:
+                dyn = None                                  # no import facts: say nothing, move nothing
+            # a collected test file that loads modules by a computed name (`fs.readdirSync(dir).forEach(f => require(f))`)
+            # may be what runs a file nothing requires by its path: such a file stays
+            dyn_runner = dyn is not None and any(not js_plan(repo, [x], cap=None)[1] and graph_sql.TEST_REGISTRAR.search(_read(os.path.join(repo, x), 400_000) or '')
+                                                 for x in sorted(dyn) if x.endswith(('.js', '.mjs', '.cjs', '.jsx')))
+            if dyn is not None:
+                for f in unrun:
+                    seen, todo = {f}, [f]
+                    while todo:
+                        for a in rev.get(todo.pop(), ()):
+                            if a not in seen: seen.add(a); todo.append(a)
+                    if seen & dyn: continue
+                    ups = sorted(seen - {f})
+                    if not ups and dyn_runner: continue
+                    runs = [u for u in ups if not js_plan(repo, [u], cap=None)[1] and graph_sql.TEST_REGISTRAR.search(_read(os.path.join(repo, u), 400_000) or '')]
+                    rehomed[f] = runs
+                if rehomed:
+                    new_near = [x for x in files if x not in rehomed] + [r for f in files if f in rehomed for r in rehomed[f]]
+                    new_far = [x for x in further if x not in rehomed] + [r for f in further if f in rehomed for r in rehomed[f]]
+                    files = sorted(set(new_near)); further = sorted(set(new_far) - set(files))
+                    run_files = sorted(set(files) | set(edited))
+    # A CHANGE THAT RUNS WHILE MOCHA LOADS THE SPECS FAILS THE WHOLE RUN. mocha requires every spec file, and runs every
+    # describe() body, in ONE process before it runs a single test; a throw there aborts the run and every spec file
+    # in it fails, the ones that never touch the change included. A test reached at load time -- through its file's
+    # module body (an `at import` route, or the module as the route) or through the describe() block around it -- is
+    # therefore every file that mocha run collects, not just its own. jest and vitest load each file in its own
+    # module registry, where the same throw fails that file alone, so only a mocha run is widened.
+    load_wide = {}
+    if lang == 'javascript' and tests:
+        for f in sorted({(r.get('at') or '').rpartition(':')[0] for r in tests.values() if r.get('at_load')} - {''}):
+            d = os.path.dirname(f); hit = None
+            while hit is None:
+                drel = f[len(d) + 1:] if d else f
+                hit = next(((d, name, collects) for name, collects, _c in _runners_of(repo, d) if collects(drel)), None)
+                if not d: break
+                d = os.path.dirname(d)
+            if not hit or hit[1] != 'mocha' or hit[0] in load_wide: continue
+            base = os.path.join(repo, hit[0]) if hit[0] else repo
+            run_list = []
+            for root, dirs, fs in os.walk(base):
+                dirs[:] = [x for x in dirs if x not in ('node_modules', '.git', '.axiomcode', 'dist', 'coverage') and not x.startswith('.')]
+                for x in fs:
+                    rel = os.path.relpath(os.path.join(root, x), base).replace(os.sep, '/')
+                    if x.endswith(('.js', '.mjs', '.cjs', '.jsx', '.ts')) and hit[2](rel):
+                        run_list.append(f"{hit[0]}/{rel}" if hit[0] else rel)
+            if len(run_list) > 1: load_wide[hit[0]] = sorted(run_list)
+        if load_wide:
+            files = sorted(set(files) | {x for v in load_wide.values() for x in v}); further = sorted(set(further) - set(files))
+            run_files = sorted(set(files) | set(edited))
     # the graph `impact` answered from, asked again for which selected classes are abstract (command_for)
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or ax_fresh.graph_dir(repo_), 'out', 'graph.sqlite')
     # the classes the command names: every owner, and a test that has none by its file (a class that inherits a
@@ -2090,7 +2162,9 @@ def main(argv):
                           'edited_test_files': edited,
                           'command': cmd_all,
                           'abstract_replaced': replaced,
-                          'not_collected': js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else [],
+                          'not_collected': sorted(set(js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else []) | set(rehomed)),
+                          **({'run_by_importer': {f: r for f, r in rehomed.items() if r}} if any(rehomed.values()) else {}),
+                          **({'whole_run_at_load': {d or '.': len(v) for d, v in load_wide.items()}} if load_wide else {}),
                           'not_reached_from': unseen,
                           'framework_entries': list(fw_entries.values()), 'framework_grep': fw_greps,
                           'stub_only_not_selected': [dict(r, stubs=sorted(stub_by[i])) for i, r in stub_only.items() if i not in tests],
@@ -2195,6 +2269,17 @@ def main(argv):
         if cmd_all:
             print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
+        for d_, v_ in sorted(load_wide.items()):
+            print(f"\n  the change runs while mocha loads the specs (a module body or a describe() block reaches it), and a throw"
+                  f" there fails the whole run: every one of the {len(v_)} spec file(s) mocha collects in {d_ or '.'} is listed")
+        moved = {f: r for f, r in rehomed.items() if r}; gone = sorted(f for f, r in rehomed.items() if not r)
+        if moved:
+            print(f"\n  {len(moved)} file(s) the graph reached are run only through the test files that require them, which are"
+                  " listed instead: " + '; '.join(f"{f} <- {', '.join(r[:2])}" + (f" +{len(r) - 2}" if len(r) > 2 else '') for f, r in sorted(moved.items())[:4])
+                  + (f" … +{len(moved) - 4}" if len(moved) > 4 else ''))
+        if gone:
+            print(f"\n  not selected: {len(gone)} file(s) under the tests reach it but no runner collects them and no test file requires"
+                  " them (a script or benchmark beside the tests): " + ', '.join(gone[:4]) + (f" … +{len(gone) - 4}" if len(gone) > 4 else ''))
         if cmd_further:
             print("\n  then, further out: " + cmd_further.replace("\n", "\n  "))
     elif edited and cmd_all:

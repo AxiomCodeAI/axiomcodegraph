@@ -244,6 +244,7 @@
 .decl binding_element_lib_type(c0:symbol,c1:symbol)
 .decl param_declared_type_by_parser(c0:symbol,c1:symbol,c2:symbol)
 .decl union_operand(c0:symbol,c1:symbol,c2:symbol)
+.decl param_class_object_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl type_ref_element(c0:symbol,c1:symbol,c2:symbol)
 .decl annotation_owner_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl annotation_container_kind(c0:symbol)
