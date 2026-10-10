@@ -957,6 +957,19 @@ up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
 parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach
 .output parent_up
+// WHAT RUNS WHILE A TEST FILE LOADS: a declaration in test code that reaches the change through calls alone (a resolved
+// call or one of a resolved set; never `defines`, never a hand-over, which runs later or not at all), so a module body
+// or a describe() block that is one of these runs the change before any test does. A mocha run requires every spec and
+// runs every describe() in one process, and a throw there fails the whole run (axiomcode-test-impact reads this as
+// `at_load` on the test it credits). Walked only as far as test code: the first test-file declaration ends the walk.
+.decl load_up(q:symbol, m:symbol)
+load_up(q, m) :- seed(q, m).
+load_up(q, a) :- load_up(q, b), !load_stop(b), edge(a, b, t), (t = "known_edge" ; t = "multi_inferred"), !state_gate(a, b, _).
+.decl load_stop(m:symbol)
+load_stop(m) :- decl_file(m, f), is_test_file(f), !kind(m, "module").
+.decl load_run(q:symbol, m:symbol)
+load_run(q, m) :- load_up(q, m), decl_file(m, f), is_test_file(f).
+.output load_run
 
 // the same closure from the seeds that are an exact edge only: what is reached ONLY through a [by name] / [text] /
 // [one of a set] dependent is everything outside it, and the answer says how much of itself rests on those
