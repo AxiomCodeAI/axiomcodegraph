@@ -1111,8 +1111,11 @@ deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_re
 // The decorated declaration stands for its wrapper: whatever reaches the name (a call, a route, a registry key) runs it.
 // The engine leaves a call to a name whose decorator it could not resolve unresolved, so the hop is taken from the
 // declaration itself rather than from its callers.
-fw_edge(s, w, "decorator by name") :- deco_wrapper(s, w).
-fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b, !deco_known(a, d).
+// NOT FOR C#. A C# decoration is an ATTRIBUTE: a class the runtime instantiates as metadata, never a function
+// that wraps the declaration it is written on. Read as a decorator, `[Test]` on every test method named the one
+// project method called Test, and a change to that method reached every test in the suite.
+fw_edge(s, w, "decorator by name") :- deco_wrapper(s, w), substr(s, 0, 3) != "CS_".
+fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b, !deco_known(a, d), substr(a, 0, 3) != "CS_".
 // A CLIENT ACROSS A PROCESS: the sender depends on the handler it reaches (#1293). `remote` above makes the client a
 // DIRECT row; walked only there, a test that drives the client never reached a change to the handler, so
 // test-impact stopped at the route while impact named the client one line up. Walked here as its own tier, the

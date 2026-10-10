@@ -1,0 +1,58 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a call the arguments bind to Check(T) does not fan out to the sibling overload's override: a runtime type's lookup by name and count is not the member",
+   "run": [
+    "impact",
+    "src/A.cs:13"
+   ],
+   "avoid": [
+    "[one of a set] Use.ByItem",
+    "[resolved] Use.ByItem"
+   ]
+  },
+  {
+   "why": "control: the call bound to the virtual overload still reaches its override",
+   "run": [
+    "impact",
+    "src/A.cs:13"
+   ],
+   "want": [
+    "Use.ByCtx"
+   ]
+  },
+  {
+   "why": "an extension method's overloads are narrowed by the lambda's parameter count",
+   "run": [
+    "impact",
+    "src/A.cs:19"
+   ],
+   "want": [
+    "[resolved] Use.Lambda"
+   ]
+  },
+  {
+   "why": "and the other one is not called",
+   "run": [
+    "impact",
+    "src/A.cs:20"
+   ],
+   "avoid": [
+    "[resolved] Use.Lambda",
+    "[one of a set] Use.Lambda"
+   ]
+  },
+  {
+   "why": "control: a C# attribute is not a decorator: `[Step]` does not make the method it is written on depend on a method named Step",
+   "run": [
+    "impact",
+    "Use.Step"
+   ],
+   "avoid": [
+    "decorator by name"
+   ]
+  }
+ ]
+}

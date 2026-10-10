@@ -312,6 +312,7 @@
 .decl dispatch_excluded_hiding(c0:symbol,c1:symbol,c2:symbol)
 .decl dispatch_has_runtime(c0:symbol,c1:symbol)
 .decl dispatch_is_exact(c0:symbol,c1:symbol)
+.decl dispatch_related(c0:symbol,c1:symbol)
 .decl dispatch_runtime_shape(c0:symbol,c1:symbol,c2:symbol)
 .decl dispatch_runtime_target(c0:symbol,c1:symbol,c2:symbol)
 .decl dispatch_target(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
