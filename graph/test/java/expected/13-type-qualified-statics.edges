@@ -1,5 +1,6 @@
 ambiguous_unknown	method	TypeQualifiedStatics#main(String[]) -> -
-ambiguous_unknown	method	TypeQualifiedStatics#viaLibraryType(String) -> -
+boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> external:java.lang.Integer.parseInt
+boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> external:java.lang.String.valueOf
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaLibraryType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaNestedType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaOwnTypeName(String)
