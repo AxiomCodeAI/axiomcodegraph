@@ -797,11 +797,12 @@ class G:
         if m: s = m.group(1) + '.' + m.group(1).split('.')[-1]
         star = s.endswith('.*'); base = s[:-2] if star else s
         rows = self.q("""SELECT DISTINCT m.id, m.qualified_name q FROM call_edges e JOIN methods m ON m.id = e.callee_method_id
-                         WHERE e.tier = 'boundary_lib' AND m.provenance <> 'client' AND (m.qualified_name = ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ?)""",
-                      base, f"%.{base}", f"{base}.%" if star else base, f"%.{base}.%" if star else base)
+                         WHERE e.tier = 'boundary_lib' AND m.provenance <> 'client' AND (m.qualified_name = ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ?)""",
+                      base, f"%.{base}", f"{base}.%" if star else base, f"%.{base}.%" if star else base,
+                      f"%#{base}", f"%#{base}.%" if star else base)
         if not rows: return None
         if not star:                                                                          # exact tail only: Files.readAllBytes, not Files.readAllBytesX
-            rows = [r for r in rows if r['q'] == base or r['q'].endswith('.' + base)]
+            rows = [r for r in rows if r['q'] == base or r['q'].endswith('.' + base) or r['q'].endswith('#' + base)]   # TypeScript: module#Member
             if not rows: return None
         for r in rows: self.sym.setdefault(r['id'], {'id': r['id'], 'display': r['q'], 'file': '<library>', 'line': None, 'end_line': None, 'kind': 'library', 'owner': r['q'].rsplit('.', 1)[0], 'is_test': 0, 'name': r['q'].rsplit('.', 1)[-1], 'method_id': r['id']})
         return (f"{s} (library" + (f": {len(rows)} methods" if len(rows) > 1 else '') + ")"), [r['id'] for r in rows]

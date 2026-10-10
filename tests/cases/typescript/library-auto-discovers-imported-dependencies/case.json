@@ -1,0 +1,9 @@
+{"lang": "typescript", "src": ".",
+ "checks": [
+  {"why": "`--library auto` stages the packages the project imports from node_modules, and only those",
+   "run": ["index", "{repo}", "--library", "auto"],
+   "want": ["auto: 1 JavaScript / TypeScript package(s) the project imports"]},
+  {"why": "a chain is typed through the package's declaration: hello() returns Greeting, so shout() resolves into the library, and the library method is found by its member name (the module part is written module#Member)",
+   "run": ["path", "welcome", "Greeting.shout"],
+   "want": ["[library · call @ src/main.ts:4] index#Greeting.shout"],
+   "avoid": ["nothing named 'Greeting.shout'"]}]}
