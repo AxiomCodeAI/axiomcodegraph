@@ -188,6 +188,8 @@
 .decl field_has_declared_type(c0:symbol)
 .decl field_in_enclosing(c0:symbol,c1:symbol,c2:symbol)
 .decl holder_value(c0:symbol,c1:symbol)
+.decl object_assign_ref(c0:symbol)
+.decl object_assign_call(c0:symbol)
 // #1208: nested element access, static callable fields, expression callees, object literals typed by context
 .decl ref_via_alias(c0:symbol,c1:symbol)
 .decl ref_elem_ref(c0:symbol,c1:symbol)

@@ -431,6 +431,22 @@ value_branch(root, x) :- value_branch(root, e),
     expr_kind_is_transparent(k),
     expr_child("client", e, r, _, x),
     edge_role_is_operand(r).
+// `Object.assign(target, …sources)` evaluates to its TARGET. A callable API is often a function object built this way
+// (`export const widget: Factory = assign(createWidget, members)`, `Object.assign(task, { started, finished })`)
+// and typed by a callable interface whose call signature has no body: the holder held the call's result, which the
+// platform's merge never returned a function for, so a call of it ran nothing. The merge is read the same way when
+// it is reached through an alias (`export const assign = Object.assign`), never by the name `assign` alone.
+value_branch(root, x) :- value_branch(root, e),
+    object_assign_call(e),
+    expr_child("client", e, "ARGUMENT", "0", x).
+object_assign_ref(x) :- property_access_recv(x, "assign", q),
+    expr_name("client", "Object", q),
+    expr_kind("client", "IDENTIFIER_REFERENCE", _, q).
+object_assign_call(e) :- call_callee_expr(_, e, ne), object_assign_ref(ne).
+object_assign_call(e) :- call_callee_expr(_, e, ne),
+    expr_holder(ne, h),
+    holder_value(h, v),
+    object_assign_ref(v).
 binary_op_yields_operand("??", "LEFT_OPERAND").
 binary_op_yields_operand("??", "RIGHT_OPERAND").
 binary_op_yields_operand("||", "LEFT_OPERAND").

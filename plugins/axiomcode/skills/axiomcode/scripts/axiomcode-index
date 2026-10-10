@@ -70,7 +70,11 @@ if not HAVE_IR and prev.get('ir_present') == 'true' and '--force' not in sys.arg
         raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
         c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
     c.execute("DELETE FROM index_meta WHERE key='index_version'"); c.execute("INSERT INTO index_meta VALUES ('index_version', ?)", (INDEX_VERSION,))   # or every query would retry this
-    con.commit(); print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
+    con.commit()
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_links; ax_links.apply_db(DB, REPO, ax_links.Reader(REPO))
+    except Exception: pass
+    print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
 
 # ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
 # ref:      expression rows that are a use of a name.  kinds -> the expression kinds; name -> the
@@ -791,4 +795,16 @@ meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', 
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
 con.execute("VACUUM")                 # the tables above are dropped and recreated on every run; without this the file only grows
+con.close()
+# THE ASSERTED LINKS (ax_links.py, axiomcode-links.tsv) are applied to every graph as it is indexed, after the engine's
+# export and before the graph is published, so a rebuild keeps them and no query ever sees a graph without them: each is
+# validated against THIS graph and this tree's text, O(links), and one whose line changed is dropped and reported.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import ax_links
+    _t0 = time.time(); _res = ax_links.apply_db(DB, REPO, ax_links.Reader(REPO))
+    if _res: print(f"links: {sum(1 for _l, r in _res if r['status'] in ('applied', 'moved'))} of {len(_res)} asserted link(s) applied in {(time.time() - _t0) * 1000:.0f} ms")
+except Exception as e:                # a links file can never cost the graph
+    print(f"links: not applied ({e})")
+con = sqlite3.connect(DB); c = con.cursor()
 print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))
