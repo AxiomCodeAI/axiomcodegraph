@@ -268,3 +268,30 @@ export async function writeMethodNames(dbPath: string, irDir: string, log: (s: s
     db.close();
   }
 }
+
+/**
+ * Each module's source provenance (PROJECT, BUNDLED, …; a minified or bundled file is the site's own code all the
+ * same), and the module each method belongs to: the methods table carries a file, and a page's inline modules share it.
+ */
+export async function writeModuleProvenance(dbPath: string, irDir: string, log: (s: string) => void): Promise<void> {
+  const f = (n: string) => path.join(irDir, `all-javascript-${n}.csv`);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  let n = 0, m = 0;
+  try {
+    db.exec(`BEGIN; DROP TABLE IF EXISTS ext_module_provenance; DROP TABLE IF EXISTS ext_method_module;
+      CREATE TABLE ext_module_provenance (module TEXT PRIMARY KEY, file TEXT, qualified_name TEXT, provenance TEXT);
+      CREATE TABLE ext_method_module (method_id TEXT PRIMARY KEY, module TEXT);`);
+    const a = db.prepare('INSERT OR IGNORE INTO ext_module_provenance VALUES (?, ?, ?, ?)');
+    for await (const { h, r } of rows(f('modules'))) { a.run(r[h.get('jsModuleUniqueHash')!]!, r[h.get('filePath')!]!, r[h.get('qualifiedName')!]!, r[h.get('sourceProvenance')!] ?? null); n++; }
+    const b = db.prepare('INSERT OR IGNORE INTO ext_method_module VALUES (?, ?)');
+    for await (const { h, r } of rows(f('methods'))) { b.run(r[h.get('jsMethodUniqueHash')!]!, r[h.get('ownerModuleLinkHash')!]!); m++; }
+    const tab = db.prepare('INSERT INTO schema_tables VALUES (?, ?, ?, ?)');
+    tab.run('ext_module_provenance', 'ext', null, 'Each JavaScript module with its file, qualified name (`page.html#script-2` for an inline script) and source provenance (PROJECT, BUNDLED for a minified or bundled file, …).');
+    tab.run('ext_method_module', 'ext', null, 'The module each method belongs to (join to ext_module_provenance).');
+    db.exec('COMMIT;');
+    log(`  sqlite ext_module_provenance: ${n} rows, ext_method_module: ${m} rows`);
+  } finally {
+    db.close();
+  }
+}

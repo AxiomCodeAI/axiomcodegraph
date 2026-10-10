@@ -59,9 +59,86 @@ def maybe_answer(verb, argv):
     if any(a in ('-h', '--help') for a in argv): return
     repo = repo_of(argv)
     db = graph_db(repo)
-    if not os.path.isfile(db) or language_of(db) != 'web': return
+    if not os.path.isfile(db): return
+    lang = language_of(db)
+    if lang == 'javascript' and verb == 'impact' and not os.environ.get('AXIOMCODE_WEBJS_INNER'):
+        r = js_page_answer(db, repo, argv)
+        if r is not None: sys.exit(r)
+        return
+    if lang != 'web': return
     if '--warm' in argv: print("a web graph has no impact facts to precompute"); sys.exit(0)
     sys.exit(Web(db, repo).run(verb, argv))
+
+
+# ── the JavaScript graph's own answer about markup (per language: its rows, never a web node) ───────────────────
+
+def js_page_answer(db, repo, argv):
+    """impact on a JavaScript graph for what names markup: a page (the functions of its inline scripts and on*
+    bodies, and its DOM touches), a .class / #id (the DOM touches naming that token), a .js file (its usual answer plus
+    the DOM touches it makes). None when the target is none of these: the verb answers as always."""
+    args = [a for a in argv if not a.startswith('-')]
+    as_json = '--json' in argv
+    targets = [a for a in args if not os.path.isdir(a)]
+    if len(targets) != 1: return None
+    t = targets[0]
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True); con.row_factory = sqlite3.Row
+    have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
+    if 'ext_dom_touch' not in have: return None
+    rows = []; prose = []
+    def touches(where, *a):
+        out = []
+        for r in con.execute(f"SELECT file, line, api, arg_index, literal, literal_kind, tokens, status FROM ext_dom_touch WHERE {where} ORDER BY file, line", a):
+            out.append({'at': at_of(r['file'], r['line']), 'kind': 'dom_touch', 'role': 'dom_touch', 'status': 'match' if r['status'] == 'literal' else 'unknown',
+                        'reason': None if r['status'] == 'literal' else 'non_literal', 'api': r['api'], 'arg_index': r['arg_index'], 'literal': r['literal'],
+                        'literal_kind': r['literal_kind'], 'tokens': r['tokens']})
+        return out
+    if re.match(r'^[^\s]+\.(html?|xhtml)$', t, re.I):
+        page = t[2:] if t.startswith('./') else t
+        names = {r[0]: r[1] for r in con.execute("SELECT method_id, name FROM ext_method_name")} if 'ext_method_name' in have else {}
+        for m in con.execute("SELECT id, name, qualified_name, file_path, start_line, kind FROM methods WHERE file_path = ? AND kind != 'MODULE_INITIALIZER' ORDER BY start_line", (page,)):
+            qn = m['qualified_name'] or ''
+            mod = next((qn[:qn.index(k)] + k + re.match(r'\d+', qn[qn.index(k) + len(k):]).group(0) for k in ('#script-', '#on-') if k in qn and re.match(r'\d+', qn[qn.index(k) + len(k):])), None)
+            nm = names.get(m['id'], m['name'])
+            rows.append({'at': at_of(m['file_path'], m['start_line']), 'kind': 'function', 'role': 'inline_script', 'status': 'match', 'reason': None,
+                         'name': None if (nm or '').startswith('<') else nm, 'module': mod, 'qualified_name': qn})
+        rows += touches("file = ?", page)
+        if not rows: return None
+        prose.append(f"javascript: {page}")
+        prose.append(f"functions in its inline scripts and on* bodies: {sum(1 for r in rows if r['role'] == 'inline_script')}")
+        for r in rows:
+            if r['role'] == 'inline_script': prose.append(f"  {r['at']}: {r['name'] or '(anonymous)'}  [{r['module']}]")
+    elif re.match(r'^[.#][^\s.#\[:>+~]+$', t):
+        tok = t
+        rows += touches("(',' || tokens || ',') LIKE ?", f'%,{tok},%')
+        if not rows: return None
+        prose.append(f"javascript: DOM touches naming {tok}")
+    elif re.match(r'^[^\s]+\.(m?js|cjs|jsx)$', t, re.I):
+        f = t[2:] if t.startswith('./') else t
+        tt = touches("file = ? OR file LIKE ?", f, '%/' + f)
+        if not tt: return None
+        # the verb's own answer, with the DOM touches beside it
+        import subprocess
+        env = dict(os.environ, AXIOMCODE_WEBJS_INNER='1')
+        argv2 = list(argv) if as_json else list(argv) + ['--json']
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-impact')] + argv2, env=env, capture_output=True, text=True)
+        try: doc = json.loads(r.stdout)
+        except ValueError: doc = {}
+        if not isinstance(doc, dict): doc = {'answer': doc}
+        doc['dom_touch'] = tt
+        if as_json: print(json.dumps(doc, indent=1, default=str))
+        else:
+            sys.stdout.write(subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-impact')] + list(argv), env=env, capture_output=True, text=True).stdout)
+            print(f"\nDOM touches in {f}: {len(tt)}")
+            for x in tt[:ROWS]: print(f"  {x['at']}: {x['api']} {x['literal'] if x['literal'] is not None else '(not a literal)'}")
+        return 0
+    else:
+        return None
+    for r in rows:
+        if r['role'] == 'dom_touch': prose.append(f"  {r['at']}: {r['api']} {r['literal'] if r['literal'] is not None else '(not a literal)'}")
+    doc = {'found': True, 'language': 'javascript', 'target': t, 'rows': rows, 'prose': prose, 'more': 0}
+    if as_json: print(json.dumps(doc, indent=1, default=str))
+    else: print('\n'.join(prose))
+    return 0
 
 
 def split_web(doc):
