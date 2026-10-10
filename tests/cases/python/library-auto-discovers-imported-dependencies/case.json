@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "`--library auto` stages the packages the project imports from its virtual environment, and only those",
+   "run": ["index", "{repo}", "--library", "auto"],
+   "want": ["auto: 1 Python package(s) the project imports"]},
+  {"why": "a chain is typed through the staged package's declared return type: hello() returns Greeting, so shout() resolves into the library",
+   "run": ["path", "welcome", "Greeting.shout"],
+   "want": ["[library · call @ app/main.py:5] greeter.Greeting.shout"],
+   "avoid": ["as written, unresolved"]}]}

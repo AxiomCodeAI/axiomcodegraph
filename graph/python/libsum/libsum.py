@@ -208,6 +208,8 @@ class Module:
         self.ns = {}            # local name -> qualified name (a def, a class, an imported thing)
         self.fns, self.classes = {}, {}
         self.imports = set()
+        self.stars, self.all_names = [], None   # `from M import *` sources; a literal __all__, when declared
+        self.call_alias = {}    # `Name = wrap(pkg.Class, ...)`: the dotted first argument, an alias when it is a class
 
     def load(self):
         try:
@@ -229,6 +231,8 @@ class Module:
             for a in st.names:
                 if a.name != '*':
                     self.ns[a.asname or a.name] = f'{base}.{a.name}' if base else a.name
+                elif base:
+                    self.stars.append(base)
         elif isinstance(st, ast.Import):
             for a in st.names:
                 self.imports.add(a.name)
@@ -236,6 +240,14 @@ class Module:
                     self.ns[a.asname] = a.name
                 else:
                     self.ns.setdefault(a.name.split('.')[0], a.name.split('.')[0])
+        elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name) \
+                and st.targets[0].id == '__all__' and isinstance(st.value, (ast.List, ast.Tuple)):
+            self.all_names = [e.value for e in st.value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name) \
+                and isinstance(st.value, ast.Call) and st.value.args and dotted(st.value.args[0]):
+            v = dotted(st.value.args[0])
+            if v.split('.')[0] in self.ns:
+                self.call_alias.setdefault(st.targets[0].id, self.ns[v.split('.')[0]] + v[len(v.split('.')[0]):])
         elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
             v = dotted(st.value)
             if v and v.split('.')[0] in self.ns:
@@ -608,6 +620,13 @@ class Program:
             nxt = m.qual(parts[i])
             if nxt and nxt != '.'.join(parts[:i + 1]):
                 return self.canon('.'.join([nxt] + parts[i + 1:]), seen)
+            if not nxt and parts[i] in m.call_alias:
+                # a generic alias built around a class (`Mapping = _alias(collections.abc.Mapping, 2)`) is that class;
+                # a wrapper around anything else (`f = partial(g, x)`) is not followed
+                c = self.canon(m.call_alias[parts[i]], seen)
+                if c in self.classes:
+                    return self.canon('.'.join([c] + parts[i + 1:]), seen)
+                return None
             if i + 1 < len(parts):                   # Class.method
                 c = self.canon('.'.join(parts[:i + 1]), seen)
                 if c in self.classes:
@@ -963,7 +982,7 @@ class Program:
                         if p == 0:
                             de.add((c, 'DIRECT', c, fld))       # `@C def f`: C(f) holds f
         for mname, m in self.mods.items():
-            for local, q in m.ns.items():
+            for local, q in list(m.ns.items()) + [(k, v) for k, v in m.call_alias.items() if k not in m.ns]:
                 a = f'{mname}.{local}'
                 if a == q:
                     continue
@@ -1038,7 +1057,7 @@ def main():
             for n in os.listdir(d):
                 if os.path.isfile(os.path.join(d, n, '__init__.py')):
                     client_pkgs.add(n)
-    nfiles = 0
+    nfiles, loaded = 0, {}
     while todo:
         r = todo.pop()
         if r in seen or r in client_pkgs:
@@ -1052,13 +1071,31 @@ def main():
             if not m.load():
                 continue
             nfiles += 1
-            m.analyse()
-            del m.tree
-            prog.add(m)
+            loaded[m.name] = m
             for imp in m.imports:
                 t = imp.split('.')[0]
                 if t and t not in seen:
                     todo.append(t)
+    # `from M import *` re-exports M's public names (its __all__ when it declares one), so a name the client imports
+    # through the star module (`collections.abc.MutableMapping`) is the declaration in M. Expanded before any body is
+    # analysed, to a fixpoint for a star of a star.
+    for _ in range(4):
+        grew = False
+        for m in loaded.values():
+            for b in m.stars:
+                bm = loaded.get(b)
+                if bm is None:
+                    continue
+                names = bm.all_names if bm.all_names is not None else [n for n in bm.ns if not n.startswith('_')]
+                for n in names:
+                    if n in bm.ns and n not in m.ns:
+                        m.ns[n] = bm.ns[n]; grew = True
+        if not grew:
+            break
+    for m in loaded.values():
+        m.analyse()
+        del m.tree
+        prog.add(m)
     rounds = prog.solve()
     prog.returns()
     lib_pkgs = {p for p in seen if p not in client_pkgs}

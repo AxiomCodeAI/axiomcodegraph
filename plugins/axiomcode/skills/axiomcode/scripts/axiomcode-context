@@ -1282,6 +1282,12 @@ def main(argv):
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
     rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None; flat = False
+    if rank and best_scope(rank) is None and terms:
+        # The headline chooses the place because its words are the subject -- when they land somewhere. A report
+        # titled in prose ("Release 8.4.2", "Disable when developing?", "Make unimported utilities private")
+        # lands nowhere, and the refusal below then answered NOTHING while the body named the code outright
+        # (`@retry(wait=wait_fixed(1))`, `LazyFile`, `make_short_help`). The whole report's words choose it then.
+        rank = rank_dirs(g, terms)
     if not scopes:
         # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
         # the only path there was. This is NOT the offered-scope case above, so it is not marked

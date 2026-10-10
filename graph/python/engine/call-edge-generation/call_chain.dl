@@ -709,6 +709,72 @@ builtin_protocol_edge(x, caller, m) :-
     expr_ultimate_method("client", x, caller).
 type_has_member(t, d) :- builtin_protocol_fallback(_, d, _), mro_lookup("client", t, d, _).
 
+// ── OPERATOR PROTOCOL — `a + b`, `a == b`, `x in c`, `-a` run a dunder ────────
+// An operator compiles to BINARY_OP / COMPARE_OP / CONTAINS_OP / UNARY_*, never to a CALL,
+// so there is no written site, and the dunder it runs -- a client `__eq__`, `__or__`,
+// `__contains__` -- had no caller at all: a test asserting `a == b` or composing two
+// strategies with `|` reached nothing of theirs. Same channel as the protocol edges above,
+// its own kind. The site is the operator expression. Both halves of the protocol are
+// emitted, because both can run: the left operand's slot, and the right operand's
+// reflected one when the left is missing it or returns NotImplemented (a comparison's
+// mirror, `a < b` -> b.__gt__). The operators and their dunders are catalogued in
+// resolution/builtins.dl. A chained comparison (`a < b < c`) carries several operators in
+// one node and matches no catalogue row, so it emits nothing rather than a guess.
+operator_protocol_edge(e, caller, m) :-
+    expr_operator("client", op, e), operator_protocol_slot(op, d, _),
+    expr_parent("client", e, "OPERAND_LEFT", _, l), expr_type("client", l, t),
+    mro_lookup("client", t, d, m), expr_ultimate_method("client", e, caller).
+operator_protocol_edge(e, caller, m) :-
+    expr_operator("client", op, e), operator_protocol_slot(op, _, d),
+    expr_parent("client", e, "OPERAND_RIGHT", _, r), expr_type("client", r, t),
+    mro_lookup("client", t, d, m), expr_ultimate_method("client", e, caller).
+// `a != b` on a class with no __ne__ of its own runs __eq__ through object.__ne__.
+operator_protocol_edge(e, caller, m) :-
+    expr_operator("client", op, e), operator_protocol_slot(op, d, _), operator_protocol_fallback(d, d2),
+    expr_parent("client", e, "OPERAND_LEFT", _, l), expr_type("client", l, t),
+    !operator_type_has(t, d), mro_lookup("client", t, d2, m), expr_ultimate_method("client", e, caller).
+operator_type_has(t, d) :- operator_protocol_fallback(d, _), mro_lookup("client", t, d, _).
+// `x in c` runs the RIGHT operand's __contains__, or iterates it when it has none.
+operator_protocol_edge(e, caller, m) :-
+    expr_operator("client", op, e), membership_operator(op), membership_protocol_slot(d),
+    expr_parent("client", e, "OPERAND_RIGHT", _, r), expr_type("client", r, t),
+    mro_lookup("client", t, d, m), expr_ultimate_method("client", e, caller).
+operator_protocol_edge(e, caller, m) :-
+    expr_operator("client", op, e), membership_operator(op), membership_protocol_fallback(d, d2),
+    expr_parent("client", e, "OPERAND_RIGHT", _, r), expr_type("client", r, t),
+    !membership_type_has(t, d), mro_lookup("client", t, d2, m), expr_ultimate_method("client", e, caller).
+membership_type_has(t, d) :- membership_protocol_fallback(d, _), mro_lookup("client", t, d, _).
+// `-a`, `+a`, `~a`
+operator_protocol_edge(e, caller, m) :-
+    expr_node("client", "UNARY_OPERATION", _, _, e), expr_operator("client", op, e), unary_protocol_slot(op, d),
+    expr_parent("client", e, "UNARY_OPERAND", _, x), expr_type("client", x, t),
+    mro_lookup("client", t, d, m), expr_ultimate_method("client", e, caller).
+
+// ── TRUTH PROTOCOL — `if x:` runs type(x).__bool__, or __len__ ───────────────
+// Truth testing has no written call either: `if x:`, `while x:`, `assert x`, `not x`, the
+// condition of `a if x else b` and of a comprehension, and an operand of `and` / `or` all
+// run x's __bool__ -- or __len__ when the class defines no __bool__ (data model,
+// object.__bool__). The left operand of `and`/`or` is always tested; the right one only
+// when the whole expression is (`return a or b` hands b back untested). The site is the
+// tested expression.
+truth_tested(x) :-
+    truth_test_root(rc), expr_root_context("client", rc, x), !expr_has_parent("client", x).
+truth_tested(x) :- truth_test_role(role), expr_parent("client", _, role, _, x).
+truth_tested(x) :-
+    expr_node("client", "UNARY_OPERATION", _, _, e), expr_operator("client", op, e), truth_negation_operator(op),
+    expr_parent("client", e, "UNARY_OPERAND", _, x).
+truth_tested(x) :- expr_node("client", "BOOLEAN_OPERATION", _, _, e), expr_parent("client", e, "OPERAND_LEFT", _, x).
+truth_tested(x) :-
+    expr_node("client", "BOOLEAN_OPERATION", _, _, e), truth_tested(e), expr_parent("client", e, "OPERAND_RIGHT", _, x).
+
+truth_protocol_edge(x, caller, m) :-
+    truth_tested(x), truth_protocol_fallback(d, _), expr_type("client", x, t),
+    mro_lookup("client", t, d, m), expr_ultimate_method("client", x, caller).
+truth_protocol_edge(x, caller, m) :-
+    truth_tested(x), truth_protocol_fallback(d, d2), expr_type("client", x, t),
+    !truth_type_has(t, d), mro_lookup("client", t, d2, m), expr_ultimate_method("client", x, caller).
+truth_type_has(t, d) :- truth_protocol_fallback(d, _), mro_lookup("client", t, d, _).
+
 // ── THE THREE PROTOCOL EDGES ARE TIERED BY TARGET COUNT, like every other edge ──
 //
 // A property read, a context-manager entry and an iteration all reach their target
@@ -753,6 +819,8 @@ protocol_edge(e, d, caller, m) :- with_protocol_edge(e, caller, m), method_decl(
 protocol_edge(e, d, caller, m) :- iter_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- subscript_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- builtin_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- operator_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- truth_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 
 // Aggregate in its own stratum, mirroring site_client_target_count above.
 protocol_edge_target_count(e, d, n) :-
@@ -841,6 +909,16 @@ call_chain_edge(sub, caller, "-", m, "client", cls, "SUBSCRIPT_PROTOCOL") :-
 // this edge is the dunder that builtin runs, never a second written call.
 call_chain_edge(x, caller, "-", m, "client", cls, "BUILTIN_PROTOCOL") :-
     builtin_protocol_edge(x, caller, m), method_decl(_, d, _, _, _, m),
+    protocol_edge_class(x, d, cls).
+
+// OPERATOR PROTOCOL — an operator's dunder. Its own kind: there is no written call.
+call_chain_edge(e, caller, "-", m, "client", cls, "OPERATOR_PROTOCOL") :-
+    operator_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m),
+    protocol_edge_class(e, d, cls).
+
+// TRUTH PROTOCOL — the __bool__ (or __len__) a truth test runs. Its own kind likewise.
+call_chain_edge(x, caller, "-", m, "client", cls, "TRUTH_PROTOCOL") :-
+    truth_protocol_edge(x, caller, m), method_decl(_, d, _, _, _, m),
     protocol_edge_class(x, d, cls).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
