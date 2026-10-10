@@ -370,3 +370,30 @@ class_definition_keyword("metaclass").
 // (expression-resolution/expr-type.dl, clause a'), where the convention is the only
 // signal there is: a lambda has no annotation and no `def` to classify.
 instance_receiver_name("self").
+
+// ── builtin_protocol_slot(Builtin, Dunder) / builtin_protocol_fallback ───────
+// The one-dunder builtins: `repr(x)` runs type(x).__repr__, and so on. str() falls back to
+// __repr__ and bool() to __len__ when the class has no slot of its own. Read by
+// call-edge-generation/call_chain.dl's BUILTIN PROTOCOL edges.
+builtin_protocol_slot("repr", "__repr__").
+builtin_protocol_slot("str", "__str__").
+builtin_protocol_slot("len", "__len__").
+builtin_protocol_slot("hash", "__hash__").
+builtin_protocol_slot("bool", "__bool__").
+builtin_protocol_slot("iter", "__iter__").
+builtin_protocol_slot("next", "__next__").
+builtin_protocol_slot("abs", "__abs__").
+builtin_protocol_slot("format", "__format__").
+builtin_protocol_slot("reversed", "__reversed__").
+builtin_protocol_fallback("str", "__str__", "__repr__").
+builtin_protocol_fallback("bool", "__bool__", "__len__").
+
+// ── dict_view_name / dict_view_slot / dict_items_view — a mapping's views ────
+// `keys()` yields the key (generic position 0), `values()` the value (position 1), and
+// `items()` a (key, value) pair. Read by resolution/iteration.dl.
+dict_view_name("keys").
+dict_view_name("values").
+dict_view_name("items").
+dict_view_slot("keys", "0").
+dict_view_slot("values", "1").
+dict_items_view("items").
