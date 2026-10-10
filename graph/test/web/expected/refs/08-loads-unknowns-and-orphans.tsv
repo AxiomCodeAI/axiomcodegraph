@@ -1,13 +1,14 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# reviewed: yes 2026-10-10 iter 1b — re-read after #1909: dist/ is read by the web walk (match, load order 1), target/ still skipped (not_indexed)
 # case: refs/08-loads-unknowns-and-orphans   kinds: loads_sheet,unknown,imports
-# shape: multi-sheet admin template: a CDN stylesheet, a link to a sheet that does not exist, a link into a build directory the walk skips, an alternate stylesheet, and a sheet no page loads
+# shape: multi-sheet admin template: a CDN stylesheet, a link to a sheet that does not exist, a link to the compiled sheet in dist/ (read by the web walk since #1909), a link into a Maven target/ directory the walk still skips, an alternate stylesheet, and a sheet no page loads
 imports	css/main.css	gone.css	unknown	unresolved_url
 imports	css/main.css	https://fonts.example.org/f.css	unknown	external_url
-loads_sheet	index.html	css/dark.css	link	1	0	conditional	alternate_sheet
-loads_sheet	index.html	css/main.css	link	2	0	match	-
+loads_sheet	index.html	css/dark.css	link	2	0	conditional	alternate_sheet
+loads_sheet	index.html	css/main.css	link	3	0	match	-
 loads_sheet	index.html	css/nope.css	link	-	0	unknown	unresolved_url
-loads_sheet	index.html	dist/app.css	link	-	0	unknown	not_indexed
+loads_sheet	index.html	dist/app.css	link	1	0	match	-
 loads_sheet	index.html	gone.css	import	-	1	unknown	unresolved_url
 loads_sheet	index.html	https://cdn.example.org/lib.css	link	-	0	unknown	external_url
 loads_sheet	index.html	https://fonts.example.org/f.css	import	-	1	unknown	external_url
+loads_sheet	index.html	target/site.css	link	-	0	unknown	not_indexed
 unknown	orphan_sheet	css/unused.css	-

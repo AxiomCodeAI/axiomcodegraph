@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q21: duplicated id on P
-# grade=SET section=web role=carries fields=at
+# grade=SET section=web role=carries fields=at filter=-
 # ask: impact "#dup" --in index.html
 index.html:29
 index.html:30

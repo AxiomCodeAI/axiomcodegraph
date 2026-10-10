@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q19: unresolved script/link on P and why
-# grade=SET section=web role=unknown fields=at,reason
+# grade=SET section=web role=unknown fields=at,reason filter=-
 # ask: impact index.html
 index.html:40	unresolved_url
 index.html:6	external_url

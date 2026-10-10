@@ -47,6 +47,30 @@ def field(row, name):
     return None
 
 
+def num(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def keep(row, filt):
+    """The per-question row filter written by query_oracle.py (header `filter=`), over the SPEC 3.3 key fields."""
+    status = row.get('status'); reason = str(row.get('reason') or '-'); cond = row.get('conditions')
+    important = num(row.get('important_count', row.get('important')))
+    if filt in ('-', None):
+        return True
+    if filt == 'exact_non_important':
+        return status == 'match' and important == 0
+    if filt == 'has_conditions':
+        return cond not in (None, '', '-', [])
+    if filt == 'state':
+        return status == 'conditional' and any(x.startswith('state:') for x in reason.split(';'))
+    if filt == 'important':
+        return important > 0
+    raise SystemExit(f'grade_query: unknown filter {filt}')
+
+
 def norm_at(a, want_line):
     a = str(a)
     return a if want_line else a.rsplit(':', 1)[0] if a.rsplit(':', 1)[-1].isdigit() else a
@@ -114,7 +138,7 @@ def main():
         print(f'  no chain {start} -> {end} made only of oracle edges among {len(chains)} chain(s)')
         return 1
 
-    picked = [r for r in rows if r.get('role') == role]
+    picked = [r for r in rows if r.get('role') == role and keep(r, head.get('filter', '-'))]
     got = []
     for r in sorted(picked, key=lambda r: r.get('rank', 0)) if grade == 'ORDER' else picked:
         t = tuple([norm_at(r['at'], want_line)] + [field(r, f) for f in fields[1:]])

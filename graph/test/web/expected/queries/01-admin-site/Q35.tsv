@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q35: how P reaches S (link / @import chain)
-# grade=CHAIN section=web role=loads fields=at
+# grade=CHAIN section=web role=loads fields=at filter=-
 # ask: path contact.html css/base.css
 endpoints	contact.html	css/base.css
 edge	about.html	css/app.css

@@ -67,7 +67,8 @@ def derive(R, fn, arg):
             st = styl.get(sel, [None, None, '-', '-', '-'])
             rows.append(dict(at=at_of(sel), key=(1 if imp else 0, lr, a_, b_, c_, so, ro), imp=imp, cond=cond, status=st[2], reason=st[3]))
         if fn == 'styled_by':
-            return [(r['at'],) for r in sorted(rows, key=lambda r: r['key'])], True
+            # Q1: the exact, non-important rules, in cascade order (the other styled_by questions take the rest)
+            return [(r['at'],) for r in sorted(rows, key=lambda r: r['key']) if r['status'] == 'match' and r['imp'] == 0], True
         if fn == 'styled_by_conditions':
             return sorted({(r['at'], r['cond']) for r in rows if r['cond'] != '-'}), False
         if fn == 'styled_by_state':
@@ -208,6 +209,12 @@ def derive(R, fn, arg):
     raise SystemExit(f'query_oracle: unknown derivation {fn}')
 
 
+# The answer's rows a question grades (SPEC 6.3 grades a SET of the role; several questions share one role and one
+# ask, so each selects its rows by the SPEC 3.3 key the engine prints on every styled_by row).
+FILTERS = {'styled_by': 'exact_non_important', 'styled_by_conditions': 'has_conditions',
+           'styled_by_state': 'state', 'styled_by_important': 'important'}
+
+
 def main():
     rows_path, qpath, out = sys.argv[1:4]
     R = Rows(rows_path)
@@ -219,7 +226,8 @@ def main():
         fn, _, arg = deriv.partition(' ')
         tuples, _ordered = derive(R, fn, arg)
         with open(os.path.join(out, f'{qid}.tsv'), 'w', encoding='utf-8') as f:
-            f.write(f'# {qid}: {template}\n# grade={grade} section={section} role={role} fields={fields}\n# ask: {ask}\n')
+            filt = FILTERS.get(fn, '-')
+            f.write(f'# {qid}: {template}\n# grade={grade} section={section} role={role} fields={fields} filter={filt}\n# ask: {ask}\n')
             for t in tuples:
                 f.write('\t'.join(t) + '\n')
 

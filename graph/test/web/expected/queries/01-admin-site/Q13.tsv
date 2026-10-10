@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q13: JS functions in P's inline scripts
-# grade=SET section=javascript role=inline_script fields=at,name
+# grade=SET section=javascript role=inline_script fields=at,name filter=-
 # ask: impact index.html
 index.html:36	openModal
 index.html:37	track

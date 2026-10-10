@@ -1,5 +1,5 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q11d: @font-face declaring family f
-# grade=SET section=web role=defines fields=at
+# grade=SET section=web role=defines fields=at filter=-
 # ask: impact "@font-face Brand Sans"
 css/app.css:2

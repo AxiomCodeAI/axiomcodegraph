@@ -15,10 +15,17 @@ export const JS_EXT = new Set(['.js', '.mjs', '.cjs']);
 export const MAX_BYTES = 4 * 1024 * 1024;
 export const MAX_LINES = 55000;
 
-/** Walk `root`; returns [{rel, abs, ext, parserWalk}] sorted by rel. */
+// The parser's WEB walk has its own skip list since #1909: it reads dist/, build/ and out/ (a client hands over
+// compiled CSS there); the JavaScript walk still skips them by name.
+export const PARSER_WEB_EXCLUDED = new Set([...PARSER_EXCLUDED].filter((d) => d !== 'dist' && d !== 'build' && d !== 'out'));
+
+/**
+ * Walk `root`; returns [{rel, abs, ext, parserWalk}] sorted by rel. parserWalk = the parser's walk for that file's
+ * language reaches it (web walk for .html/.css, JavaScript walk for .js). mode 'parser' drops the rest.
+ */
 export function walk(root, mode) {
   const out = [];
-  const rec = (dir, relDir, inParserWalk) => {
+  const rec = (dir, relDir, inWeb, inJs) => {
     let ents;
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of ents) {
@@ -26,16 +33,19 @@ export function walk(root, mode) {
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
       if (e.isDirectory()) {
         if (e.name === 'node_modules' || e.name === '.git' || e.name.startsWith('.')) continue;
-        const pw = inParserWalk && !PARSER_EXCLUDED.has(e.name);
-        if (mode === 'parser' && !pw) continue;
-        rec(abs, rel, pw);
+        const w = inWeb && !PARSER_WEB_EXCLUDED.has(e.name);
+        const j = inJs && !PARSER_EXCLUDED.has(e.name);
+        if (mode === 'parser' && !w && !j) continue;
+        rec(abs, rel, w, j);
       } else if (e.isFile()) {
         const ext = path.extname(e.name).toLowerCase();
-        out.push({ rel, abs, ext, parserWalk: inParserWalk });
+        const pw = JS_EXT.has(ext) ? inJs : inWeb;
+        if (mode === 'parser' && !pw) continue;
+        out.push({ rel, abs, ext, parserWalk: pw });
       }
     }
   };
-  rec(root, '', true);
+  rec(root, '', true, true);
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   return out;
 }

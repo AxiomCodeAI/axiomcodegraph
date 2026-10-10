@@ -1,5 +1,5 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q15j: JS sites touching C with a literal
-# grade=SET section=javascript role=dom_touch fields=at,literal
+# grade=SET section=javascript role=dom_touch fields=at,literal filter=-
 # ask: impact .card-primary
 js/app.js:2	card-primary

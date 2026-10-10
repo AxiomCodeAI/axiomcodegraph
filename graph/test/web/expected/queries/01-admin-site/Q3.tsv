@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q3: sheets P loads, in order
-# grade=ORDER section=web role=loads fields=at
+# grade=ORDER section=web role=loads fields=at filter=-
 # ask: impact contact.html
 css/base.css
 css/app.css

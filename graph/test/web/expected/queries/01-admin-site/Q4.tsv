@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
 # Q4: elements carrying class C
-# grade=SET section=web role=carries fields=at
+# grade=SET section=web role=carries fields=at filter=-
 # ask: impact .card
 contact.html:5
 index.html:22
