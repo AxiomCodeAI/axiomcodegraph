@@ -101,6 +101,31 @@ property_access(prov, acc, p, gk) :-
 // implicit `this`. The parser binds these itself (referencedEntityKind PROPERTY),
 // so the engine takes its answer rather than re-deriving it.
 property_access_unqualified(prov, e, p) :- ref_denotes(prov, e, "PROPERTY", p).
+// A NULL-CONDITIONAL READ: `ctx?.Parser?.Row`. The parser writes `a?.B` as a member
+// access whose MEMBER_NAME child is itself a nameless member access holding the name
+// `B` as its qualifier, so the rules above, which read a written member name, never
+// saw it, and every property read in a `?.` chain had no edge. The property is looked
+// up on the qualifier's type and the site is the name; the access takes its type.
+cond_binding(prov, acc, q, nm, n) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"), expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, b), expr_kind(prov, b, "MEMBER_ACCESS"), !expr_written_name(prov, b, _),
+    expr_qualifier_child(prov, b, nm), expr_kind(prov, nm, "NAME_REFERENCE"), expr_written_name(prov, nm, n).
+property_access(prov, nm, p, gk) :-
+    cond_binding(prov, _, q, nm, n), expr_type(prov, q, gk), member_lookup(prov, gk, n, "property", p).
+expr_type(prov, acc, t) :- cond_binding(prov, acc, _, nm, _), expr_type(prov, nm, t).
+expr_type(prov, nm, t) :- cond_binding(prov, _, _, nm, _), property_access(prov, nm, p, _), property_type(prov, p, t).
+
+// AN OBJECT INITIALIZER NAMES A MEMBER OF THE OBJECT IT CREATES. In `new Cfg { Size = 4 }`
+// the target `Size` is looked up on Cfg, not in the enclosing method's scope, so neither
+// rule above saw it and the set accessor every initializer runs had no edge (a third to
+// a half of the property writes a configuration-heavy codebase makes).
+property_access(prov, e, p, gk) :-
+    expr_role(prov, e, "INITIALIZER_TARGET"), expr_kind(prov, e, "NAME_REFERENCE"),
+    expr_written_name(prov, e, n),
+    expr_parent(prov, e, asg, _, _), expr_kind(prov, asg, "ASSIGNMENT"),
+    expr_parent(prov, asg, init, _, _), expr_kind(prov, init, "INITIALIZER"),
+    expr_parent(prov, init, oc, _, _), expr_type(prov, oc, gk),
+    member_lookup(prov, gk, n, "property", p).
 
 // ── READ OR WRITE ───────────────────────────────────────────────────────────
 // The edge role decides: an ASSIGNMENT_TARGET is a write, everything else is a

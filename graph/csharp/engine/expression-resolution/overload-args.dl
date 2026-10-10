@@ -239,6 +239,47 @@ ovl_rejected(prov, e, m) :-
     param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), type_group("client", _, pgk),
     !type_self_or_ancestor(prov, gk, pgk), !type_satisfies(prov, gk, pgk), !ovl_type_converts(pgk).
 
+// An INTERFACE-typed argument converts only to that interface, one it extends, or
+// object: never to a class or struct in source, a delegate or a predefined type.
+ovl_arg_iface(prov, e, k, gk) :-
+    ovl_arg_at(prov, e, k, a), !expr_anon_decl(prov, a, _), expr_type(prov, a, gk),
+    type_group("client", t, gk), type_is_interface("client", t).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p), ovl_param_is_delegate(p).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, _).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), ovl_source_closed(pgk).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, gk), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), pgk != gk,
+    type_group("client", pt, pgk), type_is_interface("client", pt),
+    !type_self_or_ancestor(prov, gk, pgk), !type_satisfies(prov, gk, pgk), !interface_extends_tc(prov, gk, pgk).
+interface_extends_tc(prov, a, b) :- interface_extends(prov, a, b).
+interface_extends_tc(prov, a, c) :- interface_extends(prov, a, b), interface_extends_tc(prov, b, c).
+
+// A LAMBDA never converts to a class, struct, interface or enum declared in source, to
+// an array, or to the reflection types an overload commonly pairs it with
+// (`Map(m => m.Id)` against `Map(Type, MemberInfo)`).
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk),
+    type_group("client", t, pgk), !type_is_delegate("client", t).
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, tn, ctn), (ovl_reflection_type(tn) ; (strlen(ctn) > 2, substr(ctn, max(0, strlen(ctn) - 2), 2) = "[]")).
+ovl_reflection_type("Type"). ovl_reflection_type("MemberInfo"). ovl_reflection_type("PropertyInfo").
+ovl_reflection_type("FieldInfo"). ovl_reflection_type("MethodInfo"). ovl_reflection_type("ParameterInfo").
+ovl_reflection_type("ConstructorInfo").
+
+// EXPLICIT TYPE ARGUMENTS fix the generic arity: `GetField<int>(0)` is one of the
+// one-type-parameter overloads, never GetField(int) or GetField<T, TConverter>(int).
+ovl_rejected(prov, e, m) :-
+    ovl_cand(prov, e, m), call_type_argc(prov, e, n), n != "0", n != "",
+    method_type_arity(_, m, a), a != n, !method_is_extension(_, m).
+
 // ── 2. EXACT MATCH ──────────────────────────────────────────────────────────
 // Every argument identical to its parameter, as many parameters as arguments (no
 // default filled in, no params expansion), and not generic (a type parameter that
