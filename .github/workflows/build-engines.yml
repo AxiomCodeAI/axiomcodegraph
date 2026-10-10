@@ -164,10 +164,10 @@ jobs:
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            # OpenMP on BOTH architectures: the arm64 crash mode was two weak-ordering
-            # holes in the vendored headers (write-entry RMW + unfenced node publication),
-            # both patched above and validated 10/10 under load on linux-arm64 and
-            # darwin-arm64 (seqlock-fix-3). The .parallel marker beside the binary is what
+            # OpenMP on BOTH architectures: the arm64 crash modes were weak-ordering holes in
+            # the vendored headers (write-entry RMW + unfenced node publication, seqlock-fix-3)
+            # and a null child read by the optimistic descent (seqlock-fix-4), all patched above
+            # and validated under load on linux-arm64 and darwin-arm64. The .parallel marker beside the binary is what
             # run-souffle.sh reads to pass a real -j at run time.
             # libgomp links STATICALLY so the binary runs on machines with no gcc runtime
             # (a stock Ubuntu has no libgomp.so.1). -fopenmp on the LINK line makes the driver
