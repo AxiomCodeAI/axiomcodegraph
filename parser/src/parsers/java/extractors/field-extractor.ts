@@ -470,9 +470,12 @@ export class FieldExtractor {
       );
 
       // Extract expressions from field initializer (if present)
+      // Skip comment nodes between = and the initializer, as a local variable's initializer does:
+      // `static final F X = // why\n  new F() { ... };` dropped the whole initializer, anonymous class included
       const equalsIndex = declarator.children.findIndex(c => c.type === '=');
       if (equalsIndex >= 0 && equalsIndex < declarator.children.length - 1) {
-        const initializerNode = declarator.children[equalsIndex + 1];
+        const initializerNode = declarator.children.slice(equalsIndex + 1)
+          .find(c => c.type !== 'line_comment' && c.type !== 'block_comment');
         if (initializerNode) {
           const expressions = this.expressionExtractor.extractFromFieldInitializer(
             initializerNode,

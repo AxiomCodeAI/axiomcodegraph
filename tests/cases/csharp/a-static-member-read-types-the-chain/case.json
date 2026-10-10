@@ -1,0 +1,66 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a static property read through its type name has the property's type: `var f = Ctx.Current.F; f.Create()`",
+   "run": [
+    "impact",
+    "Factory.Create"
+   ],
+   "want": [
+    "[resolved] Use.Local"
+   ]
+  },
+  {
+   "why": "the same chain written in one expression",
+   "run": [
+    "impact",
+    "Factory.Create"
+   ],
+   "want": [
+    "[resolved] Use.Chain"
+   ]
+  },
+  {
+   "why": "a local initialised from the static read takes its type",
+   "run": [
+    "impact",
+    "Factory.Create"
+   ],
+   "want": [
+    "[resolved] Use.ViaVar"
+   ]
+  },
+  {
+   "why": "a static field read through its type name likewise",
+   "run": [
+    "impact",
+    "Factory.Create"
+   ],
+   "want": [
+    "[resolved] Use.Field"
+   ]
+  },
+  {
+   "why": "control: a property named like the type is the value read, so its own type decides",
+   "run": [
+    "impact",
+    "Factory.Create"
+   ],
+   "avoid": [
+    "Holder.Other"
+   ]
+  },
+  {
+   "why": "and that property's type does reach its own factory",
+   "run": [
+    "impact",
+    "OtherFactory.Create"
+   ],
+   "want": [
+    "[resolved] Holder.Other"
+   ]
+  }
+ ]
+}

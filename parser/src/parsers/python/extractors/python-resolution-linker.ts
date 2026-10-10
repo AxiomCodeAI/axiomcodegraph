@@ -43,6 +43,12 @@ export interface ProjectModuleFacts extends ResolutionInput {
    * re-export fails to resolve.
    */
   isPackage?: boolean;
+  /**
+   * Whether this module is a `.pyi` stub. A stub shipped beside its `.py` carries the
+   * same qualified name, and an import must reach the `.py`: that is the module the
+   * interpreter loads. A stub with no `.py` beside it stays the import's target.
+   */
+  isStub?: boolean;
 }
 
 export interface ProjectResolutionStats {
@@ -189,6 +195,8 @@ export class PythonResolutionLinker {
 
     const moduleByQualifiedName = new Map<string, ProjectModuleFacts>();
     for (const module of modules) {
+      const seen = moduleByQualifiedName.get(module.qualifiedName);
+      if (seen !== undefined && module.isStub && !seen.isStub) continue;
       moduleByQualifiedName.set(module.qualifiedName, module);
     }
 

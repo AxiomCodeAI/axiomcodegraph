@@ -264,8 +264,15 @@ param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
 // values on every export, a 20-minute solve — because a generic library is exactly
 // the shape whose parameters unify everything. What a library does with a callback it
 // is handed is a MODEL (resolution/frameworks.dl), stated per library, not inferred.
-param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
-    method_decl("client", _, _, _, _, _, _, m),
+// The program's sites pass their arguments unless the PROGRAM calls the function from
+// more places than the cap; a test file's sites only while every site together stays
+// under it (fan-cap.dl).
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !site_in_test_module(ce),
+    !method_is_hot_in_program(m, _), method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
+    expr_value(arg, k, i).
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), site_in_test_module(ce),
+    !method_is_hot(m, _), method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
 // THE ONE LIBRARY EXCEPTION: a UMD wrapper (#710). `(function (root, factory) {
@@ -283,8 +290,12 @@ param_value(p, "func", f) :- call_site(_, "IIFE_CALL", _, _, _, _, ce, _, _), ca
     expr_value(arg, "func", f).
 // A rest parameter IS an array; the arguments at and past its position are its elements.
 param_value(p, "arr", p) :- param_is_rest(_, p).
-elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
-    method_decl("client", _, _, _, _, _, _, m),
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !site_in_test_module(ce),
+    !method_is_hot_in_program(m, _), method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
+    expr_value(arg, k, i).
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), site_in_test_module(ce),
+    !method_is_hot(m, _), method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
 // A default value: `cb = () => {}`. The parser gives the parameter the default's

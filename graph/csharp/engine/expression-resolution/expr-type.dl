@@ -459,6 +459,25 @@ expr_type(prov, e, gk) :-
     expr_type(prov, q, qgk),
     member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
 
+// A STATIC member read through its TYPE NAME: `Context.Current.Factory.Create()`.
+// The qualifier `Context` names a type, not a value, so it has no expr_type and the
+// two clauses above cannot start from it: the getter of `Current` is an edge
+// (properties.dl reads the type name), and these give its RESULT a type, so that
+// `.Factory` and every call after it resolve. ref_names_type already refuses a name
+// that also binds a value, which is the language's member-over-type rule.
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "property", p), property_type(prov, p, gk).
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
+
 // ── A GENERIC ARGUMENT, SUBSTITUTED FOR THE PARAMETER IT FILLS ──────────────
 // `IWrap<Settings> w; w.Value.Flag` -- `Value` is declared `T`, and without binding
 // T to Settings the access resolves and the type of the RESULT is the type parameter,

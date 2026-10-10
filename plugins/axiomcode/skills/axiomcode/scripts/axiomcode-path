@@ -42,7 +42,7 @@ look at, never as a path.
 import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract, ax_text
+sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract, ax_text, ax_langs
 # The certainty table used to live here with SEVEN entries and a default of 5 for everything else. The
 # engine emits ELEVEN tiers, and the five it did not list all fell BELOW `defines` — which is not a call
 # at all — so on a JavaScript graph, where 8,916 of 25,048 traversable edges are `callback_registered`,
@@ -557,13 +557,18 @@ class G:
             if not near: die(f"no method carries {s}, and this graph records NO decoration at all — not that the code has none."
                              " A front end that does not project decorations cannot answer a decoration endpoint; ask by name instead.")
             die(f"no method carries {s}. Decorations in this graph: " + ', '.join(f"@{x['name']} ({x['n']})" for x in near))
-        if re.search(r'\.(ts|tsx|js|mjs|cjs|py|java)$', s):                             # a file → every method in it
+        # a file → every method in it, for every source extension a front end reads (ax_langs.BY_EXT). An extension
+        # outside the first list below falls through to the name lookup when no file matches, so `Owner.cs` can still
+        # name a method `cs` of Owner.
+        legacy = re.search(r'\.(ts|tsx|js|mjs|cjs|py|java)$', s)
+        if legacy or os.path.splitext(s)[1] in ax_langs.BY_EXT:
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module'", s.lstrip('/'), f"%/{s.lstrip('/')}")
             if r:
                 self.why_note('file name', [x['id'] for x in r], f"every method declared in a file named {s}")
                 return f"{s} ({len(r)} methods)", [x['id'] for x in r]
-            self.why_note('file name', won=f"no indexed file named {s} declares a method")
-            die(f"no methods in a file named {s}")
+            if legacy:
+                self.why_note('file name', won=f"no indexed file named {s} declares a method")
+                die(f"no methods in a file named {s}")
         # the name as the agent writes it, normalised: Outer$Inner.m, Outer.Inner#m, m(int,String), pkg.Outer.Inner.m are all
         # Outer.Inner.m. Java's parser names a nested type without its outer (#667) and the index recovers most of them, so the
         # same name is tried with leading segments dropped — Outer.Inner.m, then Inner.m — against display AND qualified name,

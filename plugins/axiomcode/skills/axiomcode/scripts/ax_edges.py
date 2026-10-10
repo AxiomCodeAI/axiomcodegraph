@@ -12,7 +12,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                 + COMPUTED_CALL IIFE_CALL DYNAMIC_IMPORT_CALL DYNAMIC_CODE_CALL TAGGED_TEMPLATE_CALL
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
-                PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
+                PROPERTY_READ PROPERTY_WRITE METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
     csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
@@ -103,13 +103,15 @@ KIND = {
     'new': 'new', 'CONSTRUCTOR_CALL': 'new', 'anon_new': 'new', 'METACLASS_CREATION': 'new',
     # one constructor to another
     'ctor_delegate': 'ctor', 'SUPER_CALL': 'super',
+    # C#: a base constructor no syntax names: the implicit `base()` a constructor without an initializer runs
+    'implicit_base_ctor': 'ctor',
     # the callable is named, not called at that line — it runs when whoever took it runs it
     'ref': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
     'DECORATOR_APPLICATION': 'decorator', 'DECORATOR_ATTRIBUTE': 'decorator',
     'DECORATOR_BARE': 'decorator', 'DECORATOR_CALL': 'decorator',
     # an accessor: written as a field, run as a method
-    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property',
+    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property', 'PROPERTY_WRITE': 'property',
     # the language runs it at a block boundary
     'CONTEXT_MANAGER': 'with',
     # run-time code loading
@@ -503,7 +505,7 @@ def stub_sites(q):
 # unknown, but a project `get` is not what it calls. Like a stub it keeps a row, apart from the untyped-receiver name
 # matches, and it seeds no closure: listed among them it filled the first page of `impact Repo.get`.
 LIBRARY_RECEIVER_KIND = 'library'
-LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back'
+LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back'
 
 
 def library_receiver_sites(q):

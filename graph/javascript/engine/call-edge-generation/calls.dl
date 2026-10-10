@@ -170,6 +170,29 @@ call_chain_edge(ce, caller, "-", m, "client", "multi_inferred", kind) :-
     wrapper_call_target(ce, m), !call_over_cap(ce), call_from(ce, caller), invocation_site(ce, kind).
 variable_reassigned(v) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_binding(_, v, tgt).
+// ── a call of what a PROJECT wrapper returned runs what that site was handed ──
+// `export default promisable(eachItem, 3)`, `const add = curry2(function add(a, b) {…})`:
+// the wrapper returns a closure that calls its parameter, and every export of the module
+// is that closure. The closure's call of the parameter is read context-insensitively, so
+// it held every function any of the wrapper's sites passed (past the fan cap: nothing),
+// and a test calling the export reached the closure and stopped there. The site is
+// already a value of its own, ("wrap", site), beside the closure (value-flow.dl), and a
+// call through it takes its RESULT from that site's argument alone; the same site says
+// what the call RUNS: the function it was handed at the forwarded position, what the
+// wrapper writes into that parameter, or what a wrapped argument itself runs
+// (`memoize(once(f))`). One of a set, beside the edge to the closure the call keeps, and
+// under the same fan cap: a callee that may hold more wrapped values than --dispatch-cap
+// (a parameter every wrapped export is passed to) runs one of them, and naming all of
+// them says nothing.
+wrap_runs(s, g) :- wrap_site_arg(s, _, arg), expr_value(arg, "func", g).
+wrap_runs(s, g) :- wrap_site_arg(s, _, arg), expr_value(arg, "wrap", s2), wrap_runs(s2, g).
+wrap_runs(s, g) :- wrap_site(s, h, pos), wrapper_param_written(h, pos, o), expr_value(o, "func", g).
+wrapped_call_target(ce, g) :- callee_value(ce, "wrap", s), wrap_runs(s, g), method_prov(g, "client"),
+    !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _).
+wrapped_target_count(ce, n) :- wrapped_call_target(ce, _), n = count : { wrapped_call_target(ce, _) }.
+wrapped_over_cap(ce) :- wrapped_target_count(ce, n), dispatch_cap(c), n > to_number(c).
+call_chain_edge(ce, caller, "-", g, "client", "multi_inferred", kind) :-
+    wrapped_call_target(ce, g), !call_over_cap(ce), !wrapped_over_cap(ce), call_from(ce, caller), invocation_site(ce, kind).
 // `(c ? a : b)()`, `(0, cb)()`, `make()()`: the callee is computed by an expression.
 // `new Function(s)()` / `Function(s)()` runs code built at run time.
 unresolved_value_callee(ce, "dynamic_code") :- value_callee_unresolved(ce, c), callee_builds_code(c).

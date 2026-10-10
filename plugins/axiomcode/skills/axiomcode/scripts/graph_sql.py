@@ -3571,6 +3571,32 @@ def _has_framework_hops(q, at=None, site_file=None):
         return True
     return False
 
+def _java_protocol(q, mids):
+    """True when one of these Java methods is a member a library runs on the object (dl/impact.dl protocol_member)"""
+    if not mids or not _has(q, 'symbols'): return False
+    ph = ','.join('?' * len(mids))
+    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND file LIKE '%.java' AND name IN ('equals', 'hashCode', 'toString') LIMIT 1", *mids):
+        return True
+    return bool(_has(q, 'overrides') and q(f"""SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
+                                             JOIN symbols s ON s.id = o.overriding_method_id
+                                             WHERE o.overriding_method_id IN ({ph}) AND b.provenance = 'lib'
+                                               AND s.file LIKE '%.java' LIMIT 1""", *mids))
+
+def _reaches_init(q, depth):
+    """True when the closure holds a Java initializer the rules hop on from (load_hop): a type reached as a caller, or a
+    <clinit> / <init_block> callable"""
+    if not depth or not _has(q, 'symbols'): return False
+    ids = [m for m, d in depth.items() if d > 0 and m.startswith('TYPE_')]
+    if ids and q("SELECT 1 FROM call_edges WHERE caller_id IN ({}) LIMIT 1".format(','.join('?' * len(ids))), *ids):
+        return True
+    ids = list(depth)
+    for i in range(0, len(ids), 900):
+        part = ids[i:i + 900]
+        if q("SELECT 1 FROM symbols WHERE id IN ({}) AND name IN ('<clinit>', '<init_block>') AND file LIKE '%.java' LIMIT 1"
+             .format(','.join('?' * len(part))), *part):
+            return True
+    return False
+
 def _spawn_edges(q, lines, at):
     """fw_edge(a, b, "spawns") :- spawns_fact(a, b): a test that runs a script by its path (ax_spawn.py)"""
     if lines is None or at is None or not _has(q, 'symbols'): return []
@@ -3635,6 +3661,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # `target(q,k,s,x)`: a STRING target is written (q,"string","",value) — no symbol at all — so the ids and
         # the extras are kept apart rather than one standing in for the other.
         ids = sorted({s_ for _k, s_, _x in mine if s_})
+        # a Java member a library runs (dl/impact.dl protocol_member: Object's equals / hashCode / toString, an
+        # override of a library method) is reached through whoever constructs its type: not ported, so decline
+        if _java_protocol(q, sorted({s_ for k_, s_, _x in mine if s_ and k_ == 'method'})): return None
         by_kind, extra = {}, {}
         for k, s_, x in mine:
             if s_: by_kind.setdefault(k, set()).add(s_)
@@ -3868,6 +3897,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
         depth = reach_from(rev, seeds, byname, gate=gate)
+        # the `at load` hop (dl/impact.dl load_hop) is not ported: a closure that arrives at a Java type as a caller
+        # (a field initializer) or at a <clinit> / <init_block> goes on to the type's users there, so decline
+        if _reaches_init(q, depth): return None
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
         # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
         # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those
