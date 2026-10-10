@@ -1,0 +1,6 @@
+*, *::before { a: 1 }
+* html #menu { a: 2 }
+#menu > * { a: 3 }
+#menu * + * { a: 4 }
+*|* .i { a: 5 }
+input:not(type="checkbox") { a: 6 }
