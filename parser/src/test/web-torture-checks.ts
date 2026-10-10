@@ -577,7 +577,7 @@ export const CHECKS: Check[] = [
     verdict: 'DEFECT',
     run: (ir, fail) => {
       const named = (sheet: string, at: string): string[] => ir.rulesOf(sheet).filter((r) => r['atRuleName'] === at).map((r) => r['name']!);
-      expectList(fail, 'theme.css @keyframes', named('css/theme.css', 'keyframes'), ['fade', 'spin', 'spin', 'ease', 'none', 'slide', 'var-inside']);
+      expectList(fail, 'theme.css @keyframes', named('css/theme.css', 'keyframes'), ['fade', 'spin', 'spin', 'quoted-name', 'ease', 'none', 'slide', 'var-inside']);
       expectList(fail, 'theme.css @-webkit-keyframes', named('css/theme.css', '-webkit-keyframes'), ['spin']);
       expectList(fail, 'app.css @-webkit-keyframes', named('css/app.css', '-webkit-keyframes'), ['vendor-spin']);
       expectList(fail, '@container', named('css/app.css', 'container'), ['sidebar']);

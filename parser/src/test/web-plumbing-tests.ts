@@ -114,12 +114,15 @@ async function braceComment(): Promise<void> {
 }
 
 async function keyframeLists(): Promise<void> {
-  const root = tree({ 'anim.css': '@keyframes b{0%,20%,53%,to{opacity:1}40%,43%{opacity:0}}\n' });
+  const root = tree({ 'anim.css': '@keyframes b{0%,20%,53%,to{opacity:1}40%,43%{opacity:0}}\n@keyframes "q" { to { opacity: 1 } }\n' });
   const ir = await parse(root);
-  const preludes = readCsv(path.join(ir, 'web', 'all-css-rules.csv')).filter((r) => r.ruleKind === 'STYLE_RULE').map((r) => r.preludeText ?? '').sort();
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const preludes = rules.filter((r) => r.ruleKind === 'STYLE_RULE').map((r) => r.preludeText ?? '').sort();
+  const kf = rules.filter((r) => r.atRuleName === 'keyframes').map((r) => r.preludeText ?? '').sort();
   ran++;
-  if (JSON.stringify(preludes) !== JSON.stringify(['0%,20%,53%,to', '40%,43%'])) fail(`keyframe-lists: keyframe block preludes ${JSON.stringify(preludes)}`);
-  else ok('keyframe-lists: a minified keyframe selector list is one block with its whole list');
+  if (JSON.stringify(preludes) !== JSON.stringify(['0%,20%,53%,to', '40%,43%', 'to'])) fail(`keyframe-lists: keyframe block preludes ${JSON.stringify(preludes)}`);
+  else if (JSON.stringify(kf) !== JSON.stringify(['"q"', 'b'])) fail(`keyframe-lists: @keyframes names ${JSON.stringify(kf)}`);
+  else ok('keyframe-lists: a minified keyframe selector list is one block with its whole list; a quoted @keyframes name is an @keyframes');
 }
 
 async function inlineJs(): Promise<void> {

@@ -204,6 +204,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     for (const r of [root, rootReal]) if (r && (abs === r || abs.startsWith(r + path.sep))) return path.relative(r, abs).split(path.sep).join('/');
     return abs.split(path.sep).join('/');
   };
+  const isDir = (abs: string): boolean => { try { return fs.statSync(abs).isDirectory(); } catch { return false; } };
   const onDisk = (abs: string): boolean => { try { return abs !== '' && fs.statSync(abs).isFile(); } catch { return false; } };
   const unknownRow = (kind: string, node: string | null, page: string | null, reason: string, detail: string | null, file: string | null, line: number | null) =>
     out('web_unknown').push({ kind, node_uid: node, page_uid: page, reason, detail, file, line });
@@ -945,12 +946,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     for (const [, name, decl] of R.useVar) { const r = declRule(decl!); if (r) { const s = usingRules.get(r) ?? new Set(); s.add(name!); usingRules.set(r, s); } }
     const definingRules = new Map<string, Set<string>>(); // name -> rules
     for (const [decl, name] of R.defVar) { const r = declRule(decl!); if (r) { const s = definingRules.get(name!) ?? new Set(); s.add(r); definingRules.set(name!, s); } }
+    const scopeSeen = new Set<string>();
     for (const [pageId, ruleEls] of pageMatches) {
       for (const [ruleId, names] of usingRules) {
         const els = ruleEls.get(ruleId); if (!els) continue;
         for (const name of names) {
           const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
+          if (!definingRules.has(name)) continue; // nothing defines it anywhere: web_var_visible says so, once per use
           for (const [elId] of els) {
+            const sk = `${pageId}|${elId}|${name}`; if (scopeSeen.has(sk)) continue; scopeSeen.add(sk);
             let root: string | null = null, rootSt = NO, rootExact: string | null = null;
             for (let a: El | null = elById.get(elId) ?? null; a; a = a.parent) {
               let best = NO;
@@ -979,6 +983,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // uses: (use uid, value ref uid, kind, name, sheet or page owning it)
   interface Use { use: string; vref: string | null; kind: string; name: string; sheet: string; page: string }
   const uses: Use[] = [];
+  const irKeyframeDecls = new Set<string>();
   for (const r of T.vref.rows) {
     const kind = g(T.vref, r, 'referenceKind'); const declId = g(T.vref, r, 'ownerDeclarationLinkHash'), ruleId = g(T.vref, r, 'ownerRuleLinkHash');
     const vid = g(T.vref, r, 'cssValueReferenceUniqueHash'); const name = g(T.vref, r, 'name');
@@ -986,7 +991,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const sheet = g(T.vref, r, 'stylesheetLinkHash') || (d ? g(T.decl, d, 'stylesheetLinkHash') : '');
     const page = d && g(T.decl, d, 'htmlAttributeLinkHash') ? attrPage.get(g(T.decl, d, 'htmlAttributeLinkHash')) ?? '' : '';
     if (kind === 'KEYFRAMES') {
-      if (d && /^-(webkit|moz|o|ms)-animation(-name)?$/i.test(g(T.decl, d, 'property'))) continue; // tokenized below, once
+      if (d) irKeyframeDecls.add(declId);
       uses.push({ use: declId || ruleId, vref: vid, kind, name, sheet, page });
     } else if (kind === 'FONT_FAMILY') {
       const owner = rules.get(ruleId) ?? (d ? rules.get(g(T.decl, d, 'ruleLinkHash')) : undefined);
@@ -995,12 +1000,23 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       uses.push({ use: declId || ruleId, vref: vid, kind, name, sheet, page });
     } else if (kind === 'CONTAINER' && !declId) uses.push({ use: ruleId, vref: vid, kind, name, sheet, page });
   }
-  // G10: the vendor animation declarations the IR gives no KEYFRAMES reference
+  // G10: the vendor animation declarations (-webkit-animation …) the IR gives no KEYFRAMES reference: the names are
+  // read from the value and stand as value references of their own (synthetic uid), like the IR's for `animation`
   for (const d of T.decl.rows) {
     const p = g(T.decl, d, 'property');
     const m = /^-(webkit|moz|o|ms)-animation(-name)?$/i.exec(p); if (!m) continue;
-    const page = g(T.decl, d, 'htmlAttributeLinkHash') ? attrPage.get(g(T.decl, d, 'htmlAttributeLinkHash')) ?? '' : '';
-    for (const nm of animationNames(unesc(g(T.decl, d, 'valueText')), !m[2])) uses.push({ use: g(T.decl, d, 'cssDeclarationUniqueHash'), vref: null, kind: 'KEYFRAMES', name: nm, sheet: g(T.decl, d, 'stylesheetLinkHash'), page });
+    const declId = g(T.decl, d, 'cssDeclarationUniqueHash');
+    if (irKeyframeDecls.has(declId)) continue; // the IR read this one itself
+    const attr = g(T.decl, d, 'htmlAttributeLinkHash');
+    const page = attr ? attrPage.get(attr) ?? '' : '';
+    const sheet = g(T.decl, d, 'stylesheetLinkHash');
+    animationNames(unesc(g(T.decl, d, 'valueText')), !m[2]).forEach((nm, i) => {
+      const vid = `CSS_VALUE_REFERENCE_G10_${declId.replace(/^CSS_DECLARATION_/, '')}_${i}`;
+      out('web_value_refs').push({ uid: vid, declaration_uid: declId, rule_uid: nz(g(T.decl, d, 'ruleLinkHash')), stylesheet_uid: nz(sheet),
+        file: attr ? (page ? fileOfPage(page) : null) : sheetFile(sheet), line: num(g(T.decl, d, 'startLine')), col: num(g(T.decl, d, 'startColumn')),
+        reference_kind: 'KEYFRAMES', name: nm, fallback_text: null, url_kind: null, resolved_file: null, is_resolved: 0 });
+      uses.push({ use: declId, vref: vid, kind: 'KEYFRAMES', name: nm, sheet, page });
+    });
   }
   for (const page of pages.values()) {
     const loads = loadsOf.get(page.id) ?? [];
@@ -1056,7 +1072,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         fragment: null, status: 'unknown', reason: uk === 'TEMPLATE_EXPRESSION' ? 'template_url' : 'external_url' });
       continue;
     }
-    const abs = g(T.ref, r, 'resolvedFilePath'); const target = abs ? pageByAbs.get(abs) : undefined;
+    let absRaw = g(T.ref, r, 'resolvedFilePath');
+    if (!absRaw && (uk === 'RELATIVE' || uk === 'ROOT_RELATIVE') && g(T.ref, r, 'path')) {
+      const pg = pages.get(page);
+      const cand = uk === 'ROOT_RELATIVE' ? path.join(root, g(T.ref, r, 'path')) : pg ? path.join(path.dirname(pg.abs), g(T.ref, r, 'path')) : '';
+      if (cand && isDir(cand)) absRaw = cand;
+    }
+    // a URL naming a directory (`docs/`) serves its index page
+    const abs = absRaw && !pageByAbs.has(absRaw) && isDir(absRaw) ? (['index.html', 'index.htm'].map((f) => path.join(absRaw, f)).find((f) => pageByAbs.has(f)) ?? absRaw) : absRaw;
+    const target = abs ? pageByAbs.get(abs) : undefined;
     if (!target) {
       const exists = onDisk(abs);
       if (exists && !HTML_EXT.test(abs)) continue; // a link to a file that is not a page (a PDF, an image) is a resource

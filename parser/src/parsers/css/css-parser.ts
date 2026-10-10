@@ -124,6 +124,9 @@ function sanitiseForGrammar(text: string): string {
   // The braces inside a comment are blanked for the grammar only; a comment row reads its text from the source.
   let out = text.replace(/\/\*[\s\S]*?\*\//g, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
   out = out.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
+  // `@keyframes "fade"`: a quoted name is legal and the grammar takes only an identifier; the quotes become
+  // underscores for the grammar, and the name is read from the text as written
+  out = out.replace(/(@(?:-[a-z]+-)?keyframes\s+)("[^"\n]*"|'[^'\n]*')/gi, (_m, kw: string, q: string) => kw + '_' + q.slice(1, -1) + '_');
   // A non-ASCII character in an identifier (`.日本語`, `.emoji-🚀`) is legal CSS the grammar
   // rejects; every code unit above ASCII becomes an underscore of the same length.
   out = out.replace(/[^\x00-\x7f]/g, '_');
@@ -1402,7 +1405,8 @@ function atRuleDeclaredName(name: string, preludeText: string): string {
   const bare = name.replace(/^-[a-z]+-/, '');
   if (bare === 'keyframes' || bare === 'property' || bare === 'counter-style' || bare === 'font-feature-values'
     || bare === 'font-palette-values' || bare === 'position-try' || bare === 'view-transition' || bare === 'scope') {
-    return preludeText.trim();
+    // `@keyframes "fade"` declares the name fade: the quotes are the string's, not the name's
+    return bare === 'keyframes' ? preludeText.trim().replace(/^(["'])(.*)\1$/, '$2') : preludeText.trim();
   }
   if (bare === 'container') {
     const m = /^([A-Za-z_-][\w-]*)\s*(?:\(|$)/.exec(preludeText.trim());
