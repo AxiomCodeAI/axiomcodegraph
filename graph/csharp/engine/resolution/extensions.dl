@@ -384,7 +384,8 @@ extension_is_guess(prov, e, m) :- extension_loose_match(prov, e, m), !extension_
 
 // An extension method is STATIC and is never virtually dispatched: the receiver is
 // an ordinary argument, so the target is exact and needs no fan.
-expr_resolves_to_method(prov, e, m) :- extension_candidate(prov, e, m).
+// narrowed by the arguments like any other overload set (overload-args.dl)
+expr_resolves_to_method(prov, e, m) :- extension_candidate(prov, e, m), !ovl_drop(prov, e, m).
 // The ungated match feeds typing, so a receiver that is itself an extension call can
 // be typed from the extension's declared return type.
 expr_target_any(prov, e, m) :- extension_match(prov, e, m).

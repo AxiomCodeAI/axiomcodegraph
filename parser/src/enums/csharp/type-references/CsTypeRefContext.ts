@@ -103,4 +103,12 @@ export enum CsTypeRefContext {
    * no type for `a`.
    */
   DELEGATE_PARAMETER = 'DELEGATE_PARAMETER',
+
+  /**
+   * ★ A delegate's return type — the `int` of `delegate int D<T>(T a)`. Owned by
+   * the delegate TYPE. A call THROUGH a value of the delegate (`parse(text)`)
+   * has this type, so without it the receiver of `parse(text).Remainder` is
+   * untyped.
+   */
+  DELEGATE_RETURN = 'DELEGATE_RETURN',
 }

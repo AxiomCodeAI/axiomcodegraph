@@ -1,14 +1,86 @@
-{"lang": "csharp", "src": "src",
+{
+ "lang": "csharp",
+ "src": "src",
  "checks": [
-  {"why": "an object initializer runs the init accessor of the member it names on the created type",
-   "run": ["impact", "src/A.cs:8"], "want": ["[resolved] Use.Init"]},
-  {"why": "and the set accessor",
-   "run": ["impact", "src/A.cs:9"], "want": ["[resolved] Use.Init"]},
-  {"why": "a property read inside a null-conditional chain (`c?.Parser?.Row`)",
-   "run": ["impact", "src/A.cs:12"], "want": ["[resolved] Use.Chain"]},
-  {"why": "the middle of the chain too",
-   "run": ["impact", "src/A.cs:13"], "want": ["[resolved] Use.Chain"]},
-  {"why": "a foreach over a project collection whose enumerator is IEnumerator<T> types its variable as T",
-   "run": ["impact", "src/A.cs:15"], "want": ["[resolved] Use.Loop"]},
-  {"why": "control: a plain property read is unchanged",
-   "run": ["impact", "src/A.cs:12"], "want": ["[resolved] Use.Plain"]}]}
+  {
+   "why": "an object initializer runs the init accessor of the member it names on the created type",
+   "run": [
+    "impact",
+    "src/A.cs:8"
+   ],
+   "want": [
+    "[resolved] Use.Init"
+   ]
+  },
+  {
+   "why": "and the set accessor",
+   "run": [
+    "impact",
+    "src/A.cs:9"
+   ],
+   "want": [
+    "[resolved] Use.Init"
+   ]
+  },
+  {
+   "why": "a property read inside a null-conditional chain (`c?.Parser?.Row`)",
+   "run": [
+    "impact",
+    "src/A.cs:12"
+   ],
+   "want": [
+    "[resolved] Use.Chain"
+   ]
+  },
+  {
+   "why": "the middle of the chain too",
+   "run": [
+    "impact",
+    "src/A.cs:13"
+   ],
+   "want": [
+    "[resolved] Use.Chain"
+   ]
+  },
+  {
+   "why": "a foreach over a project collection whose enumerator is IEnumerator<T> types its variable as T",
+   "run": [
+    "impact",
+    "src/A.cs:15"
+   ],
+   "want": [
+    "[resolved] Use.Loop"
+   ]
+  },
+  {
+   "why": "control: a plain property read is unchanged",
+   "run": [
+    "impact",
+    "src/A.cs:12"
+   ],
+   "want": [
+    "[resolved] Use.Plain"
+   ]
+  },
+  {
+   "why": "a call through a delegate-typed property has the delegate's return type, so a read on the result resolves",
+   "run": [
+    "impact",
+    "src/A.cs:22"
+   ],
+   "want": [
+    "[resolved] Use.Through"
+   ]
+  },
+  {
+   "why": "a virtual call reaches the override in a nested subtype",
+   "run": [
+    "impact",
+    "Work.Mark"
+   ],
+   "want": [
+    "Concern.SetUp"
+   ]
+  }
+ ]
+}

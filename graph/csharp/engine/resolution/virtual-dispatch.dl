@@ -255,7 +255,23 @@ dispatch_is_exact(prov, e) :- call_recv_exact_type(prov, e, _).
 // refused; see implements_member for what is not compared.
 dispatch_runtime_target(prov, m, t) :-
     dispatch_runtime_shape(prov, m, t),
-    !runtime_params_conflict(m, t).
+    !runtime_params_conflict(m, t),
+    dispatch_related(m, t).
+// AND ONLY A BODY THAT IS THE MEMBER: itself, an override of it, or an implementation of
+// it (or an override of that). The per-type lookup is by name, count and arity, so a
+// sibling overload of the same count -- `Validate(T)` beside `Validate(Context<T>)` --
+// answered for a call bound to the other one, and a call the arguments had narrowed to
+// one overload fanned back out to both. Accessors are looked up by their own name and
+// have no siblings of it.
+dispatch_related(m, m) :- dispatch_runtime_shape(_, m, m).
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), overrides_transitive(_, t, m).
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), implements_member(_, t, m).
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), implements_member(_, x, m), overrides_transitive(_, t, x).
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), method_is_accessor(_, m).
+// and an override the overrides relation did not pair (it is computed per declaring
+// group, and a nested or partial subtype can fall outside it): the same written
+// signature is the same member, a sibling overload never has one.
+dispatch_related(m, t) :- dispatch_runtime_shape(_, m, t), method_signature(_, m, sg), method_signature(_, t, sg).
 runtime_params_conflict(m, t) :-
     dispatch_runtime_shape(_, m, t), m != t,
     method_param_predef(m, k, x), method_param_predef(t, k, y), x != y.

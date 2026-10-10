@@ -2515,6 +2515,21 @@ export function extractDelegateSignatureReferences(options: {
       })
     );
   });
+  // and its return type, the type of a call through a value of it
+  const returnType = options.declarationNode.childForFieldName('type');
+  if (returnType !== null && returnType.text !== 'void') {
+    rows.push(
+      ...extractTypeReferences({
+        typeNode: returnType,
+        ownerLinkHash: options.csTypeLinkHash,
+        referenceOwnerKind: CsReferenceOwnerKind.TYPE,
+        context: CsTypeRefContext.DELEGATE_RETURN,
+        serviceVersionLinkHash: options.serviceVersionLinkHash,
+        rootPosition: 0,
+        typeParametersInScope: options.typeParametersInScope,
+      })
+    );
+  }
   return rows;
 }
 
