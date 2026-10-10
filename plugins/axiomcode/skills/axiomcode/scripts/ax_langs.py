@@ -126,6 +126,10 @@ def main(argv):
         for lang, is_main, rc, out, err in answered:
             try: objs.append((lang, json.loads(out)))
             except ValueError: objs.append((lang, out))
+        # THE WEB GRAPH'S ROWS AT THE TOP when it answered (SPEC 6.2): a question about a page, a class or an element
+        # is the web graph's, and the JavaScript graph's part of it (inline-script functions, DOM touches) sits under
+        # other_languages.javascript, read as a section of its own
+        objs.sort(key=lambda o: 0 if o[0] == 'web' else 1)
         base_lang, base = objs[0]
         if len(objs) > 1:
             if not isinstance(base, dict): base = {'answer': base}

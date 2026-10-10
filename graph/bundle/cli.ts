@@ -103,7 +103,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.13) — graph.sqlite NOT written; csv/*.csv is complete`);
   }
   // the JavaScript graph's DOM-touch table, with the selector tokens split (graph/bundle/dom-touch.ts)
-  if (haveSqlite && (adapter.language === 'javascript' || adapter.language === 'typescript')) await writeDomTouch(dbPath, a.raw!, log);
+  if (haveSqlite && adapter.language === 'javascript') await writeDomTouch(dbPath, a.clientIr!, log);
   log(`▶ bundle complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
