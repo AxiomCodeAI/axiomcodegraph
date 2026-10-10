@@ -175,17 +175,17 @@ expr_call_candidate(call, override) :- expr_call_candidate(call, base),
     virtual_override(base, override),
     !call_exact_receiver(call),
     !call_super_receiver(call),
-    !cha_wide_base(base),
     call_site(call, _, recv), expr_type(_, recv, rt),
+    !cha_wide_for(base, rt),
     override_in_closure(override, rt).
 // receiverless call: the receiver is `this`, so gate on the ENCLOSING type's closure.
 expr_call_candidate(call, override) :- expr_call_candidate(call, base),
     virtual_override(base, override),
     !call_exact_receiver(call),
     !call_super_receiver(call),
-    !cha_wide_base(base),
     call_unqualified(call, _),
     expr_ultimate_type("client", call, et),
+    !cha_wide_for(base, et),
     override_in_closure(override, et).
 
 // ── ctor_of(Prov, OwnerType, Ctor) — a constructor a `new` can target ────────────────────
