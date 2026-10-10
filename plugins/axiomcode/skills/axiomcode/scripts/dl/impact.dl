@@ -888,7 +888,19 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), edge(a, b, _), !state_gate(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), walk_edge(a, b, _), !state_gate(a, b, _), d < 40.
+// A CALLABLE WRITTEN INSIDE A JAVA INITIALIZER IS NOT RUN BY IT. `static { ACCESS = new Access() { void m() {..} }; }` and
+// `static final Comparator<T> BY_NAME = (a, b) -> ..` build an object; its method runs when someone calls it on that
+// object, which the call edges into it already say. The `defines` hop from the initializer (a <clinit>, an <init_block>,
+// or the TYPE the engine names as the caller of a field initializer) handed the method to the initializer, and the
+// `at load` hop then to every user of the type. A `defines` hop from a method body is kept: a lambda written in a method usually runs while it does.
+.decl init_defines(a:symbol, b:symbol)
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<clinit>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<init_block>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), typ(a, _, _).
+.decl walk_edge(a:symbol, b:symbol, t:symbol)
+walk_edge(a, b, t) :- edge(a, b, t), t != "defines".
+walk_edge(a, b, "defines") :- edge(a, b, "defines"), !init_defines(a, b).
 up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
 // ── WHAT ONE INSTANCE WAS GIVEN: the edge holds for some receivers only ──────────────────────────────────────────
 // `new Bus({ validate: check })` and `b.on(handleA)` give ONE bus a callback, and `Bus.emit` calls it through what
@@ -928,7 +940,7 @@ up_all(q, m, d) :- upg(q, m, _, _, d).
 reach(q, m, d) :- up_all(q, m, d), d = min x : up_all(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
-parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
+parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, walk_edge(a, b, t).
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_edge(a, b, t).
 // The import hop is taken from a MODULE BODY, and only when that module body is reached by edges which actually
 // RUN. `up` walks `defines` as well, which is right for it — a change to an inner function does concern the
@@ -986,7 +998,7 @@ strong_direct(q, c) :- direct(q, c, _, _, "resolved", _, _).
 strong_direct(q, c) :- direct(q, c, _, _, "in scope", _, _).
 .decl up_sure(q:symbol, m:symbol, d:number)
 up_sure(q, m, 0) :- seed_sure(q, m).
-up_sure(q, a, d+1) :- up_sure(q, b, d), edge(a, b, _), d < 40.
+up_sure(q, a, d+1) :- up_sure(q, b, d), walk_edge(a, b, _), d < 40.
 .decl reach_sure(q:symbol, m:symbol)
 reach_sure(q, m) :- up_sure(q, m, _).
 .output reach_sure
@@ -1194,17 +1206,35 @@ parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d
 // The type's own members count too: once its initialization has failed, every one of them fails with it.
 // Taken only where the walk ARRIVES at the type as a caller (d > 0): a type that is the change itself, or the owner
 // of a changed field, is a seed for other reasons, and its users are already the direct rows of those rules.
-.decl init_runner(r:symbol, t:symbol)
-init_runner(t, t) :- typ(t, _, _), java_decl(t), edge(t, _, _).
-init_runner(c, t) :- member(t, c, "<clinit>", _), java_decl(c).
-init_runner(c, t) :- member(t, c, "<init_block>", _), java_decl(c).
-.decl init_use(a:symbol, t:symbol)
-init_use(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t).
-init_use(a, t) :- calls(a, m, tier, _, _), tier != "stub", kind(m, "constructor"), owner(m, s), extends(s, t).
-init_use(a, t) :- faccess(a, fl, _, _, _, _), field(fl, t, _, _, _).
+//
+// WHICH INITIALIZER, AND WHAT RUNS IT. A static initializer (a static field's or enum constant's initializer, a
+// `static { }` block) runs once, when the type is initialized, and what initializes a type is fixed by JLS 12.4.1:
+// a `new` of it or of a subtype, a call of one of its STATIC methods, a use of one of its static fields. Calling an
+// instance method or reading an instance field is not one: the instance exists, so its type was initialized before.
+// Taking the hop from every user of the type named everything that touched one instance. An INSTANCE initializer (an instance field's initializer, an `{ }` block) runs inside every constructor of the
+// type and of its subtypes (through their super() call): its hop goes to those constructors, and the walk takes
+// their callers from there.
+//   jstatic(m)            m belongs to the class: a static method or field, an enum constant, an interface field
+//   init_call(t, b, k)    the type t calls b from a field initializer of kind k (static | instance)
+.decl jstatic(m:symbol)                                           .input jstatic
+.decl init_call(t:symbol, b:symbol, k:symbol)                     .input init_call
+.decl init_trigger(a:symbol, t:symbol)
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), jstatic(m).
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), kind(m, "constructor").
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", kind(m, "constructor"), owner(m, s), extends(s, t).
+init_trigger(a, t) :- faccess(a, fl, _, _, _, _), field(fl, t, _, _, _), jstatic(fl).
+.decl init_ctor(i:symbol, t:symbol)
+init_ctor(i, t) :- java_decl(t), kind(i, "constructor"), owner(i, t).
+init_ctor(i, t) :- java_decl(t), extends(s, t), kind(i, "constructor"), owner(i, s).
+// the type reached as a caller, through an initializer of kind k (the callee it calls there is in the walk)
+.decl type_init(q:symbol, t:symbol, k:symbol)
+type_init(q, t, k) :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), init_call(t, b, k).
+type_init(q, t, "static") :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), !init_call(t, b, _).
 .decl load_hop(q:symbol, a:symbol, r:symbol)
-load_hop(q, a, r) :- up(q, r, d), d > 0, init_runner(r, t), r = t, init_use(a, t), a != r.
-load_hop(q, a, r) :- up(q, r, _), init_runner(r, t), r != t, init_use(a, t), a != r.
+load_hop(q, a, t) :- type_init(q, t, "static"), init_trigger(a, t), a != t.
+load_hop(q, i, t) :- type_init(q, t, "instance"), init_ctor(i, t), i != t.
+load_hop(q, a, r) :- up(q, r, _), member(t, r, "<clinit>", _), java_decl(r), init_trigger(a, t), a != r.
+load_hop(q, i, r) :- up(q, r, _), member(t, r, "<init_block>", _), java_decl(r), init_ctor(i, t), i != r.
 up(q, a, d+1) :- up(q, r, d), load_hop(q, a, r), d < 40.
 parent_up(q, a, b, "at load") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, load_hop(q, a, b).
 // WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,

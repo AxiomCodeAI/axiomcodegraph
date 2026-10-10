@@ -1,5 +1,6 @@
 ambiguous_unknown	method	LibIfaceOverride#main(String[]) -> -
 ambiguous_unknown	new	LibIfaceOverride#main(String[]) -> -
+boundary_lib	method	LibIfaceOverride#main(String[]) -> external:java.util.List.add
 boundary_lib	method	LibIfaceOverride#viaComparator(Comparator,String,String) -> external:java.util.Comparator.compare
 boundary_lib	method	LibIfaceOverride#viaFunction(Function,String) -> external:java.util.function.Function.apply
 boundary_lib	method	LibIfaceOverride#viaLibrarySort(List) -> external:java.util.List.sort
