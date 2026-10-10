@@ -84,12 +84,19 @@ once on `index` and kept by every rebuild after it:
 environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; a
 Java dependency `pom.xml` or `build.gradle` declares, through its `-sources.jar` in the Maven repository or Gradle's
 cache, or its class jar decompiled when it ships no sources (needs Vineflower: `mvn dependency:get
--Dartifact=org.vineflower:vineflower:1.10.1`); a NuGet package a `.csproj` references, decompiled from its assembly (needs `dotnet tool install -g ilspycmd`).
-Whatever it cannot find (a package never restored, a jar without sources) it names, with the command that fetches it.
-A named entry, comma-separated with no spaces, is a dependency's source directory or a library IR (a directory of the
-parser's CSV tables, as `axiomcode parser <source> <dir> --library` writes it). Every library is compiled once into
-`~/.cache/axiomcode/libir/` and reused until its files change. Entries are relative to the repository or
-absolute; write `~` out, since one after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same list.
+-Dartifact=org.vineflower:vineflower:1.10.1`); a NuGet package a `.csproj` references, decompiled from its assembly
+(needs `dotnet tool install -g ilspycmd`). Whatever it cannot find (a package never restored, a jar without sources)
+it names, with the command that fetches it. A named entry, comma-separated with no spaces, is a dependency's source
+directory or a library IR (a directory of the parser's CSV tables, as `axiomcode parser <source> <dir> --library`
+writes it). Every library is compiled once into `~/.cache/axiomcode/libir/` and reused until its files change; one no
+build has used for 30 days is removed. Entries are relative to the repository or absolute; write `~` out, since one
+after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same list.
+
+The choice is kept with the graph. Every rebuild after it stages the libraries again (`auto` discovers them
+again, so a new dependency is picked up), and with libraries on, a dependency change alone (a manifest or lockfile
+edit, `pip install -U`, `npm install`, `dotnet restore`, a Maven or Gradle fetch of a dependency that was missing)
+also marks the graph stale and rebuilds it. A graph built
+without `--library` never gains libraries by itself; `AXIOMCODE_REINDEX=1 axiomcode index` turns them off again.
 
 With them, a call into a dependency resolves to its declaration and a chain is typed through its declared return
 types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is

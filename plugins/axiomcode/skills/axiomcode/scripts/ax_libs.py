@@ -293,6 +293,9 @@ def stamp(d):
 
 
 def compiled(src, engine, cache):
+    if os.path.realpath(src).startswith(os.path.realpath(cache) + os.sep):
+        try: os.utime(src)                  # unpacked or decompiled under the cache: in use while its compiled form is
+        except OSError: pass
     out = os.path.join(cache, f"{os.path.basename(os.path.normpath(src)) or 'lib'}-{stamp(src)}")
     if os.path.isfile(os.path.join(out, '.complete')):
         return out
@@ -320,7 +323,39 @@ def main():
             r = d if is_ir(d) else compiled(d, engine, cache)
             if r and os.path.realpath(r) not in seen:
                 seen.add(os.path.realpath(r)); out.append(r)
+    prune(out)
     print(','.join(out))
+
+
+PRUNE_DAYS = 30
+
+
+def prune(used):
+    """Every compiled library this build staged is marked used; one no build has staged for PRUNE_DAYS is removed,
+    with its source unpacked or decompiled under src/. Only entries this cache wrote are touched."""
+    import time
+    now, keep = time.time(), {os.path.realpath(u) for u in used}
+    for u in keep:
+        if u.startswith(os.path.realpath(CACHE) + os.sep):
+            try: os.utime(u)
+            except OSError: pass
+    try:
+        entries = [os.path.join(CACHE, e) for e in os.listdir(CACHE)] + \
+                  [os.path.join(CACHE, 'src', e) for e in (os.listdir(os.path.join(CACHE, 'src')) if os.path.isdir(os.path.join(CACHE, 'src')) else [])]
+    except OSError:
+        return
+    for e in entries:
+        if os.path.realpath(e) in keep or os.path.basename(e) == 'src' or not os.path.isdir(e):
+            continue
+        marked = any(os.path.isfile(os.path.join(e, m)) for m in ('.complete', '.unpacked', '.decompiled'))
+        try:
+            idle = now - os.stat(e).st_mtime
+        except OSError:
+            continue
+        if marked and idle > PRUNE_DAYS * 86400:
+            shutil.rmtree(e, ignore_errors=True)
+            try: os.remove(e + '.log')
+            except OSError: pass
 
 
 if __name__ == '__main__':
