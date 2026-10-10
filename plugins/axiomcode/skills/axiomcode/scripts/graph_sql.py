@@ -794,6 +794,32 @@ def test_decoration(name, derived=()):
 
 TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
 EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
+# a line that STARTS with a function value: the callable is an argument continued from a call opened above it
+ARG_LINE_CALLABLE = re.compile(r'^\s*(?:async\s+)?(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>)')
+
+
+def registrar_spans(rows, lines):
+    """{file: [(start, end)]} of the multi-line calls whose first line names a test registrar — `it(` / `test.each(rows)(`
+    with the name and the body on lines of their own, the shape a formatter gives a long test name. `rows` are
+    (file, start_line, end_line) of call sites, the file already relative."""
+    out = {}
+    for f, a, b in rows:
+        if not f or not a or not b or b <= a: continue
+        L = lines(f)
+        if a - 1 < len(L) and TEST_REGISTRAR.search(L[a - 1]): out.setdefault(f, []).append((a, b))
+    return out
+
+
+def continued_registrar_arg(f, ln, lines, spans, calls):
+    """whether the anonymous callable declared at `f`:`ln` is an argument of a test registrar call opened on an EARLIER
+    line: its own line starts with the function value, and the innermost call spanning that line, among those opened
+    above it, is a registrar call. Innermost, so a callback handed to `waitFor(` inside a test body stays a callback.
+    `calls` is {file: [(start, end)]} of every multi-line call site, `spans` the registrar subset."""
+    if f not in spans: return False
+    L = lines(f)
+    if not (ln - 1 < len(L) and ARG_LINE_CALLABLE.match(L[ln - 1])): return False
+    inner = min(((a, b) for a, b in calls.get(f, ()) if a < ln <= b), key=lambda s: s[1] - s[0], default=None)
+    return inner is not None and inner in spans[f]
 
 
 # A SCRIPT TEST: a file under the test tree that calls no test framework and is run as a program — `test/run.js`
@@ -885,12 +911,21 @@ def _test_sets(q, lines=None, rel=None):
                          if _has(q, 'call_sites') else []):
             f = rel(fp) if rel else fp; L = lines(f)
             if a - 1 < len(L) and EACH_TABLE.search(L[a - 1]): tables.append((f, a, b or a))
-        for sid, name, f, ln in q("""SELECT id, name, file, line FROM symbols
-                                     WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
-            if not (name or '').startswith('<'): continue
+        anon = [r for r in q("""SELECT id, name, file, line FROM symbols
+                                WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0""")
+                if (r[1] or '').startswith('<')]
+        calls = {}
+        tfiles = {r[2] for r in anon}
+        for fp, a, b in (q("""SELECT file_path, start_line, end_line FROM call_sites
+                              WHERE start_line > 0 AND end_line > start_line""") if _has(q, 'call_sites') else []):
+            f = rel(fp) if rel else fp
+            if f in tfiles: calls.setdefault(f, []).append((a, b))
+        spans = registrar_spans([(f, a, b) for f, s in calls.items() for a, b in s], lines)
+        for sid, name, f, ln in anon:
             L = lines(f)
             if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
             elif any(tf == f and a <= ln <= b for tf, a, b in tables): tm.add(sid)
+            elif continued_registrar_arg(f, ln, lines, spans, calls): tm.add(sid)
         rows = q("""SELECT id, kind, file FROM symbols WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL""")
         st = script_tests([tuple(r) for r in rows], lambda f: '\n'.join(lines(f)), tm)
         tm |= st; fx -= st
