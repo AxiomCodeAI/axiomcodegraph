@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q17: how index.html reaches P by links
+# grade=CHAIN section=web role=links_to fields=at
+# ask: path index.html contact.html
+endpoints	index.html	contact.html
+edge	about.html	contact.html
+edge	index.html	about.html
+edge	index.html	contact.html

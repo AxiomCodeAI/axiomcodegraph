@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q11d: @font-face declaring family f
+# grade=SET section=web role=defines fields=at
+# ask: impact "@font-face Brand Sans"
+css/app.css:2

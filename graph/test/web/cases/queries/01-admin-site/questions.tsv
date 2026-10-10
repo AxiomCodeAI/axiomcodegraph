@@ -1,0 +1,39 @@
+# qid	template	grade	section	role	fields	ask	derive
+Q1	rules styling E in cascade order	ORDER	web	styled_by	at	impact index.html:24	styled_by index.html:24
+Q2	pages loading S	SET	web	loaded_by	at	impact css/app.css	loaded_by css/app.css
+Q3	sheets P loads, in order	ORDER	web	loads	at	impact contact.html	loads contact.html
+Q4	elements carrying class C	SET	web	carries	at	impact .card	carries_class card
+Q5	rules mentioning class C	SET	web	selectors	at	impact .card	rules_class card
+Q6	elements selector X matches on P	SET>=	web	styled	at	impact ".card .title" --in index.html	styled_by_selector index.html|.card .title
+Q7	selectors in S matching nothing	SET	web	unmatched	at	impact css/app.css	unmatched css/app.css
+Q8d	where --x is defined	SET	web	defines	at	impact --brand	var_defines --brand
+Q8u	where --x is used	SET	web	uses	at	impact --brand	var_uses --brand
+Q9	elements on P affected by --x	SET>=	web	affects	at	impact --gap --in index.html	var_affects index.html|--gap
+Q10d	where @keyframes k is defined	SET	web	defines	at	impact "@keyframes pulse"	keyframes_defines pulse
+Q10u	rules using @keyframes k (vendor forms too)	SET	web	uses	at	impact "@keyframes pulse"	keyframes_uses pulse
+Q11d	@font-face declaring family f	SET	web	defines	at	impact "@font-face Brand Sans"	font_defines Brand Sans
+Q11u	rules using family f	SET	web	uses	at	impact "@font-face Brand Sans"	font_uses Brand Sans
+Q12	on* handlers on P and their callees	SET	web	handler	at,calleeName	impact index.html	handlers index.html|EVENT_ATTRIBUTE
+Q13	JS functions in P's inline scripts	SET	javascript	inline_script	at,name	impact index.html	inline_functions index.html
+Q14	DOM ids F.js touches with a literal	SET	javascript	dom_touch	at,literal	impact js/app.js	dom_ids js/app.js
+Q15w	elements carrying C (web section)	SET	web	carries	at	impact .card-primary	carries_class card-primary
+Q15j	JS sites touching C with a literal	SET	javascript	dom_touch	at,literal	impact .card-primary	dom_class card-primary
+Q16	pages linking to P	SET	web	linked_from	at	impact about.html	linked_from about.html
+Q17	how index.html reaches P by links	CHAIN	web	links_to	at	path index.html contact.html	chain_links index.html|contact.html
+Q18	inline styles on P and their properties	SET	web	inline_style	at,property	impact index.html	inline_style index.html
+Q19	unresolved script/link on P and why	SET	web	unknown	at,reason	impact index.html	unresolved index.html
+Q20	stylesheets no page loads	TOP-k	web	-	at	context "stylesheets no page loads"	orphans
+Q21	duplicated id on P	SET	web	carries	at	impact "#dup" --in index.html	id_carriers index.html|dup
+Q22	what points at #x on P	SET	web	referenced_by	at	impact "#email" --in index.html	id_referrers index.html|email
+Q23	rules styling E only under a media query	SET	web	styled_by	at,conditions	impact index.html:24	styled_by_conditions index.html:24
+Q24	rules styling E only on hover/focus	SET	web	styled_by	at	impact index.html:24	styled_by_state index.html:24
+Q25	Alpine/Vue directives on P and the names they call	SET	web	template_expr	at,calleeName	impact index.html	handlers index.html|TEMPLATE_EVENT
+Q26	files S references via url()	SET	web	uses_resource	at	impact css/app.css	css_resources css/app.css
+Q28	!important rules reaching E	SET	web	styled_by	at	impact index.html:24	styled_by_important index.html:24
+Q29	where is the card styled	TOP-k	web	-	at	context "where is the card styled"	sheet_most_rules card
+Q30	inert elements on P	SET	web	inert	at	impact index.html	inert index.html
+Q32	form on P: action and named inputs	SET	web	form	at,action,names	impact index.html	forms index.html
+Q33	preload/icon/manifest resources of P	SET	web	uses_resource	at	impact index.html	link_resources index.html
+Q35	how P reaches S (link / @import chain)	CHAIN	web	loads	at	path contact.html css/base.css	chain_loads contact.html|css/base.css
+Q36	selector matches if fragment F were included in P	LINK	web	styled	at	link partials/row.html:1 index.html	skipped_not_built
+Q37	what is the task about: make the card title responsive	TOP-k	web	-	at	context "make the card title responsive"	media_sheet card

@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q13: JS functions in P's inline scripts
+# grade=SET section=javascript role=inline_script fields=at,name
+# ask: impact index.html
+index.html:36	openModal
+index.html:37	track

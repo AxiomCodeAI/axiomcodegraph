@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q2: pages loading S
+# grade=SET section=web role=loaded_by fields=at
+# ask: impact css/app.css
+about.html
+contact.html
+index.html

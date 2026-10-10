@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q33: preload/icon/manifest resources of P
+# grade=SET section=web role=uses_resource fields=at
+# ask: impact index.html
+favicon.ico

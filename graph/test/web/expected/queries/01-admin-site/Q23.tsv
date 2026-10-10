@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q23: rules styling E only under a media query
+# grade=SET section=web role=styled_by fields=at,conditions
+# ask: impact index.html:24
+css/app.css:9	@media (max-width: 600px)

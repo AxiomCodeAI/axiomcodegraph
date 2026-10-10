@@ -1,0 +1,12 @@
+@import "base.css";
+@font-face { font-family: "Brand Sans"; src: url("../fonts/brand.woff2"); }
+@keyframes pulse { from { opacity: .5 } to { opacity: 1 } }
+@-webkit-keyframes pulse { from { opacity: .5 } }
+.navbar { background: var(--brand) url("../img/bg.png"); }
+.card { border: 1px solid var(--brand); }
+.card:hover .title { text-decoration: underline; }
+.card .title { color: #222 !important; }
+@media (max-width: 600px) { .card .title { font-size: 14px; } }
+.btn { animation: pulse 1s infinite; -webkit-animation: pulse 1s infinite; }
+.sidebar-collapse { display: none; }
+.menu li + li { margin-left: 4px; }

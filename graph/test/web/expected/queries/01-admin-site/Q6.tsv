@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q6: elements selector X matches on P
+# grade=SET>= section=web role=styled fields=at
+# ask: impact ".card .title" --in index.html
+index.html:22
+index.html:24

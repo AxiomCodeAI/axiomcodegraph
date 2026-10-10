@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q5: rules mentioning class C
+# grade=SET section=web role=selectors fields=at
+# ask: impact .card
+css/app.css:6
+css/app.css:7
+css/app.css:8
+css/app.css:9
+css/contact.css:2
+index.html:10

@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q25: Alpine/Vue directives on P and the names they call
+# grade=SET section=web role=template_expr fields=at,calleeName
+# ask: impact index.html
+index.html:27	toggle

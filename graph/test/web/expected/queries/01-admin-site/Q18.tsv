@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q18: inline styles on P and their properties
+# grade=SET section=web role=inline_style fields=at,property
+# ask: impact index.html
+index.html:24	color
+index.html:24	font-weight

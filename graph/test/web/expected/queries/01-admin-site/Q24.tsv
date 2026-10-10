@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q24: rules styling E only on hover/focus
+# grade=SET section=web role=styled_by fields=at
+# ask: impact index.html:24
+css/app.css:7

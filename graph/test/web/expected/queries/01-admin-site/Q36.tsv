@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q36: selector matches if fragment F were included in P
+# grade=LINK section=web role=styled fields=at
+# ask: link partials/row.html:1 index.html
+skipped_not_built

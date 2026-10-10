@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q30: inert elements on P
+# grade=SET section=web role=inert fields=at
+# ask: impact index.html
+index.html:33

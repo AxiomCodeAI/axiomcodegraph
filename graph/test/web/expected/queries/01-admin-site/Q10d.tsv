@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q10d: where @keyframes k is defined
+# grade=SET section=web role=defines fields=at
+# ask: impact "@keyframes pulse"
+css/app.css:3
+css/app.css:4

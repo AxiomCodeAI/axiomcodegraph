@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q15j: JS sites touching C with a literal
+# grade=SET section=javascript role=dom_touch fields=at,literal
+# ask: impact .card-primary
+js/app.js:2	card-primary

@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q1: rules styling E in cascade order
+# grade=ORDER section=web role=styled_by fields=at
+# ask: impact index.html:24
+css/base.css:2
+css/app.css:9
+index.html:10
+css/app.css:7
+css/app.css:8

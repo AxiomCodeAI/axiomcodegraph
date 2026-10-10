@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q12: on* handlers on P and their callees
+# grade=SET section=web role=handler fields=at,calleeName
+# ask: impact index.html
+index.html:26	openModal
+index.html:26	track

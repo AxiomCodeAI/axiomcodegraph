@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q15w: elements carrying C (web section)
+# grade=SET section=web role=carries fields=at
+# ask: impact .card-primary
+index.html:22

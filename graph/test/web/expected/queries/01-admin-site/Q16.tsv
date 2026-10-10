@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q16: pages linking to P
+# grade=SET section=web role=linked_from fields=at
+# ask: impact about.html
+index.html:16
+index.html:17

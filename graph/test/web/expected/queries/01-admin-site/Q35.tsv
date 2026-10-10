@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q35: how P reaches S (link / @import chain)
+# grade=CHAIN section=web role=loads fields=at
+# ask: path contact.html css/base.css
+endpoints	contact.html	css/base.css
+edge	about.html	css/app.css
+edge	contact.html	css/contact.css
+edge	css/app.css	css/base.css
+edge	css/contact.css	css/app.css
+edge	index.html	css/app.css

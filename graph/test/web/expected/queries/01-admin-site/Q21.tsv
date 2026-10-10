@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q21: duplicated id on P
+# grade=SET section=web role=carries fields=at
+# ask: impact "#dup" --in index.html
+index.html:29
+index.html:30

@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q3: sheets P loads, in order
+# grade=ORDER section=web role=loads fields=at
+# ask: impact contact.html
+css/base.css
+css/app.css
+css/contact.css

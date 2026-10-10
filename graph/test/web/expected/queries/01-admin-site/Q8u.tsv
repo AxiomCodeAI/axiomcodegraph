@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q8u: where --x is used
+# grade=SET section=web role=uses fields=at
+# ask: impact --brand
+css/app.css:5
+css/app.css:6

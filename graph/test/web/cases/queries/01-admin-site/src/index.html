@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Dashboard</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="https://cdn.example.org/icons.css">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    :root { --gap: 8px; }
+    .card .title { margin: var(--gap); }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="nav">
+    <ul class="menu">
+      <li><a href="about.html">About</a></li>
+      <li><a href="about.html#team">Team</a></li>
+      <li><a href="contact.html">Contact</a></li>
+    </ul>
+  </nav>
+  <main x-data="{ open: false }">
+    <div class="card card-primary"><h2 class="title">Sales</h2></div>
+    <div class="card">
+      <h2 class="title" style="color: red; font-weight: bold">Users</h2>
+    </div>
+    <button class="btn" onclick="openModal('signup'); track()">Sign up</button>
+    <button class="btn" @click="toggle()">Menu</button>
+    <label for="email">Email</label><input id="email" name="email">
+    <span id="dup">a</span>
+    <span id="dup">b</span>
+    <section aria-labelledby="email">s</section>
+    <form action="contact.html" method="post"><input name="q"><input name="page" type="hidden"></form>
+    <template><div class="card">row</div></template>
+  </main>
+  <script>
+    function openModal(name) { document.getElementById('modal-' + name); }
+    const track = () => 1;
+  </script>
+  <script src="js/app.js"></script>
+  <script src="js/missing.js"></script>
+</body>
+</html>

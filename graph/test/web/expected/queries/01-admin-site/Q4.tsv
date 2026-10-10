@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q4: elements carrying class C
+# grade=SET section=web role=carries fields=at
+# ask: impact .card
+contact.html:5
+index.html:22
+index.html:23
+index.html:33
+partials/row.html:1

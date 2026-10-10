@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q22: what points at #x on P
+# grade=SET section=web role=referenced_by fields=at
+# ask: impact "#email" --in index.html
+index.html:28
+index.html:31

@@ -26,6 +26,12 @@
 #                                    "# reviewed: no" — read them, then flip the header by hand
 #   ./run-tests.sh --keep            keep the per-case work dirs (graph/test/web/.work)
 #
+# mode=queries cases (SPEC 6): cases/queries/<case>/questions.tsv lists SPEC 6.4 templates instantiated on the
+# case's site; tools/query_oracle.py derives each answer from the oracle's rows into expected/queries/<case>/<qid>.tsv
+# (reviewed by hand); the engine run indexes a copy of the site and asks each question through bin/axiomcode
+# <context|impact|path|link> ... --json, graded by tools/grade_query.py (SET, SET>=, ORDER, CHAIN, TOP-k; LINK
+# templates are skipped_not_built until fragment hosts exist and are never counted correct).
+#
 # Environment: AXIOM_ROOT=<checkout> tests that checkout's engine with these suites (default: this tree).
 #              Cases run one at a time (one engine solve each).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +83,27 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
     d="$HERE/cases/$rel"; exp="$HERE/expected/$rel.tsv"; mode=$(conf "$d" mode)
     printf '%-52s ' "$rel"
     if [ "$mode" = "scale" ]; then echo "skip (scale: counts come from the generator)"; continue; fi
+    if [ "$mode" = "queries" ]; then
+      qd="$WORK/$(echo "$rel" | tr / _).q"; rm -rf "$qd"; mkdir -p "$qd"
+      node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/o" --walk=parser 2>"$qd/log" && python3 "$HERE/tools/query_oracle.py" "$qd/o/rows.tsv" "$d/questions.tsv" "$qd/q" 2>>"$qd/log" \
+        || { echo "FAIL (query oracle — see $qd/log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
+      expd="$HERE/expected/$rel"; nq=0; bad=0
+      for qf in "$qd"/q/*.tsv; do
+        qn=$(basename "$qf"); nq=$((nq+1))
+        if [ "$BLESS" = "1" ]; then
+          mkdir -p "$expd"
+          if [ -f "$expd/$qn" ] && diff -q <(grep -v '^# reviewed:' "$expd/$qn") "$qf" >/dev/null; then continue; fi
+          { echo "# reviewed: no — oracle-derived $(date +%F); read it, then change this line to '# reviewed: yes <date> <what was checked>'"; cat "$qf"; } > "$expd/$qn"
+          echo; printf '    BLESSED (unreviewed) %s' "$qn"; continue
+        fi
+        if [ ! -f "$expd/$qn" ] || ! diff -q <(grep -v '^# reviewed:' "$expd/$qn") "$qf" >/dev/null; then
+          bad=$((bad+1)); echo; printf '    %s differs from the oracle' "$qn"; continue; fi
+        grep -q '^# reviewed: yes' "$expd/$qn" || { bad=$((bad+1)); echo; printf '    %s not reviewed' "$qn"; }
+      done
+      [ "$BLESS" = "1" ] && { echo; echo "  ($nq questions)"; continue; }
+      if [ $bad -eq 0 ] && [ $nq -ge 1 ]; then echo "ok ($nq questions)"; pass=$((pass+1)); else echo; echo "  FAIL ($bad of $nq)"; fail=$((fail+1)); failed+=("$rel"); fi
+      continue
+    fi
     kinds=$(conf "$d" kinds)
     [ -n "$kinds" ] || { echo "FAIL (case.conf has no kinds=)"; fail=$((fail+1)); failed+=("$rel"); continue; }
     act="$WORK/$(echo "$rel" | tr / _).oracle.tsv"
@@ -124,6 +151,32 @@ for rel in "${CASES[@]}"; do
   if [ "$mode" = "scale" ]; then
     src="$w/src"
     python3 "$HERE/tools/gen_scale.py" "$src" $(conf "$d" gen) >"$w/gen.log" 2>&1 || { echo "FAIL (generator — see $w/gen.log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
+  fi
+  if [ "$mode" = "queries" ]; then
+    # SPEC 6: build the graphs in a copy of the site, ask every question through the front door with --json
+    repo="$w/repo"; cp -R "$d/src" "$repo"
+    if ! (cd "$repo" && bash "$ROOT/bin/axiomcode" index "$repo" >"$w/index.log" 2>&1); then
+      echo "FAIL (index — see $w/index.log)"; tail -3 "$w/index.log" | sed 's/^/    /'; fail=$((fail+1)); failed+=("$rel"); continue; fi
+    qok=0; qgraded=0; qskip=0; qbad=()
+    while IFS=$'\t' read -r qid _t _g _s _r _f ask _d; do
+      case "$qid" in ''|'#'*) continue;; esac
+      exp_q="$HERE/expected/$rel/$qid.tsv"
+      [ -f "$exp_q" ] && grep -q '^# reviewed: yes' "$exp_q" || { qbad+=("$qid(no reviewed expectation)"); qgraded=$((qgraded+1)); continue; }
+      eval "set -- $ask"
+      (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json) >"$w/$qid.json" 2>"$w/$qid.err"
+      python3 "$HERE/tools/grade_query.py" "$w/$qid.json" "$exp_q" >"$w/$qid.grade" 2>&1; rc=$?
+      if [ $rc = 4 ]; then
+        (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json --limit 0) >"$w/$qid.json" 2>"$w/$qid.err"
+        python3 "$HERE/tools/grade_query.py" "$w/$qid.json" "$exp_q" >"$w/$qid.grade" 2>&1; rc=$?
+      fi
+      case $rc in 0) qok=$((qok+1)); qgraded=$((qgraded+1));; 5) qskip=$((qskip+1));; *) qgraded=$((qgraded+1)); qbad+=("$qid");; esac
+    done < "$d/questions.tsv"
+    if [ $qgraded -ge 1 ] && [ $qok -eq $qgraded ]; then echo "ok (query_ok $qok/$qgraded, skipped_not_built $qskip)"; pass=$((pass+1))
+    else echo "FAIL (query_ok $qok/$qgraded, skipped_not_built $qskip): ${qbad[*]}"
+      for q in "${qbad[@]}"; do [ -f "$w/${q%%(*}.grade" ] && sed "s/^/    ${q%%(*}: /" "$w/${q%%(*}.grade" | head -3; done
+      fail=$((fail+1)); failed+=("$rel"); fi
+    [ "$KEEP" = "1" ] || rm -rf "$w"
+    continue
   fi
   langs=web
   case ",$kinds," in *,js_function,*|*,dom_touch,*) langs=web,javascript;; esac

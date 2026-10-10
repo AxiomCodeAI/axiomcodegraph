@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q26: files S references via url()
+# grade=SET section=web role=uses_resource fields=at
+# ask: impact css/app.css
+fonts/brand.woff2
+img/bg.png

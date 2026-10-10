@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source (positions, sets, cascade order, chains)
+# Q32: form on P: action and named inputs
+# grade=SET section=web role=form fields=at,action,names
+# ask: impact index.html
+index.html:32	contact.html	page,q
