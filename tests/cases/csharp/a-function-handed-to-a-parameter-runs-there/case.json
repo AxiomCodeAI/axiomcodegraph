@@ -1,0 +1,96 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a lambda handed to a primary constructor and kept in a field (`_fn = fn ?? Zero`) runs where the field is called: that method reaches what the lambda calls",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Holder.Run"
+   ]
+  },
+  {
+   "why": "a primary constructor parameter called in a member",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Direct.Run"
+   ]
+  },
+  {
+   "why": "a constructor parameter stored in a field and called later",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Stored.Go"
+   ]
+  },
+  {
+   "why": "a parameter of delegate type called directly",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Api.Each"
+   ]
+  },
+  {
+   "why": "a delegate parameter passed on to another method's parameter is followed",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Api.Wrap"
+   ]
+  },
+  {
+   "why": "`act?.Invoke()` on a parameter",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "want": [
+    "Api.Maybe"
+   ]
+  },
+  {
+   "why": "control: a parameter that is never called runs nothing",
+   "run": [
+    "impact",
+    "Work.Do",
+    "--json"
+   ],
+   "avoid": [
+    "Api.Keep"
+   ]
+  },
+  {
+   "why": "a lambda element of a collection initializer takes Add's parameter type, so `v.RuleFor` resolves",
+   "run": [
+    "impact",
+    "Rules.RuleFor"
+   ],
+   "want": [
+    "[one of a set] Use.<lambda>"
+   ],
+   "avoid": [
+    "[by name]"
+   ]
+  }
+ ]
+}

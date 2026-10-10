@@ -87,6 +87,25 @@ expr_external_type_name(prov, e, n) :-
     property_decl(prov, _, t, p), type_module(prov, t, mod),
     external_type_name(prov, mod, n, _).
 
+// A QUALIFIED property or field read: `result.Errors.Add(x)` where `Errors` is declared
+// `List<Failure>`. The rules above take a bare name the parser bound; a member access
+// is bound by member lookup on its qualifier, and its declared type names the receiver
+// the same way. Without it the call was left unresolved and read as a call BY NAME to
+// every project method called Add.
+expr_external_type_name(prov, e, n) :-
+    property_access(prov, e, p, _), property_type_name(prov, p, n, _),
+    property_decl(prov, _, t, p), type_module(prov, t, mod),
+    external_type_name(prov, mod, n, _).
+expr_external_type_name(prov, e, n) :-
+    expr_qualified_field(prov, e, f), field_type_name(prov, f, n, _),
+    field_decl(prov, _, t, f), type_module(prov, t, mod),
+    external_type_name(prov, mod, n, _).
+expr_qualified_field(prov, e, f) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"), expr_role(prov, e, "RECEIVER"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nm),
+    expr_written_name(prov, nm, n), expr_type(prov, q, gk),
+    member_lookup(prov, gk, n, "field", f).
+
 // A METHOD WHOSE DECLARED RETURN TYPE IS UNSTAGED: `List<Item> Items()`. Named by the
 // ROOT reference (`List`), not by the written text (`List<Item>`), so the label is the
 // same whatever the type argument, as it is for a parameter or a field of that type.
@@ -244,6 +263,21 @@ expr_predefined_recv_name(prov, e, n) :-
     ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
     ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), predefined_boundary_alias(n).
+// A KEYWORD type as a static receiver: `string.Format(..)`, `int.Parse(..)`. A keyword
+// is never a variable, so the name alone says the call is on the framework type.
+expr_predefined_recv_name(prov, e, n) :-
+    expr_kind(prov, e, "NAME_REFERENCE"), expr_role(prov, e, "RECEIVER"),
+    expr_written_name(prov, e, n), predefined_boundary_alias(n).
+// The parser writes a keyword receiver with no name at all (every identifier it does
+// name), so a nameless receiver name is a keyword type; which one is not recorded.
+expr_predefined_recv_name(prov, e, "predefined") :-
+    expr_kind(prov, e, "NAME_REFERENCE"), expr_role(prov, e, "RECEIVER"),
+    !expr_written_name(prov, e, _), !ref_denotes(prov, e, _, _).
+// and a qualified property or field declared with a keyword type: `ctx.Name.Trim()`
+expr_predefined_recv_name(prov, e, n) :-
+    property_access(prov, e, p, _), property_type_name(prov, p, n, _), predefined_boundary_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    expr_qualified_field(prov, e, f), field_type_name(prov, f, n, _), predefined_boundary_alias(n).
 // A LITERAL receiver: `"text".Trim()`.
 // A RECEIVER THAT IS ITSELF A CALL, returning a predefined type. `sb.ToString()`
 // on a staged StringBuilder resolves, and its declared return type is `string`,

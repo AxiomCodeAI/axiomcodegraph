@@ -113,6 +113,36 @@ member_lookup(prov, gk, n, kind, mem) :-
     member_best_rank(prov, gk, n, d),
     !member_is_explicit_impl(prov, mem).
 
+// ── AN OVERRIDE DOES NOT HIDE ITS BASE'S OVERLOADS ──────────────────────────
+// For a METHOD the nearest declaration is not the whole answer. C# member lookup
+// removes an override from the candidate set (it is the virtual member it
+// overrides, not a new one) and a derived method hides only a base method of the
+// same signature. So a type that overrides one `ValidateAsync` overload still has
+// its base's other `ValidateAsync` overloads, and `v.ValidateAsync(person)` on it
+// binds to the base's `ValidateAsync(T)`. The nearest-rank rule above stopped at the
+// override and the call resolved to it, or to nothing.
+//
+// Kept to the case where every nearer declaration of the name is an override: a
+// derived type that declares a NEW method of the name makes the base's applicable
+// only when none of its own are, which needs the argument types; that case keeps
+// the nearest answer. A base candidate is still hidden by a nearer one with the
+// same signature text, which is the override of that very member.
+member_method_newdecl(prov, gk, n, d) :-
+    member_cand(prov, gk, n, "method", m, d), !member_is_explicit_impl(prov, m), !method_is_override(_, m).
+member_method_newdecl_before(prov, gk, n, d) :-
+    member_cand(prov, gk, n, "method", _, d), member_method_newdecl(prov, gk, n, d2), d2 < d.
+member_method_sig_hidden(prov, gk, n, m, d) :-
+    member_cand(prov, gk, n, "method", m, d), method_signature(_, m, s),
+    member_cand(prov, gk, n, "method", m2, d2), d2 < d, method_signature(_, m2, s),
+    !member_is_explicit_impl(prov, m2).
+member_lookup(prov, gk, n, "method", mem) :-
+    member_cand(prov, gk, n, "method", mem, d),
+    member_best_rank(prov, gk, n, d0), d > d0,
+    member_cand(prov, gk, n, "method", _, d0),
+    !member_is_explicit_impl(prov, mem),
+    !member_method_newdecl_before(prov, gk, n, d),
+    !member_method_sig_hidden(prov, gk, n, mem, d).
+
 // ── INTERFACE MEMBERS ───────────────────────────────────────────────────────
 // A call through an interface-typed receiver looks up in the interface and in every
 // interface it extends. No distance ordering: interface inheritance is a lattice and
