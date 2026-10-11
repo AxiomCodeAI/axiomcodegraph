@@ -9,7 +9,8 @@ import path from 'node:path';
 // recall number can be split into "parser walk" and "everything on disk".
 export const PARSER_EXCLUDED = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', 'target',
   'out', '__pycache__', '.pytest_cache', 'venv', 'env']);
-export const HTML_EXT = new Set(['.html', '.htm', '.xhtml']);
+// .shtml/.shtm: server-side-include pages (G21, SPEC §11.1): HTML to the browser once the server has included them
+export const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.shtml', '.shtm']);
 export const CSS_EXT = new Set(['.css']);
 export const MAX_BYTES = 4 * 1024 * 1024;
 export const MAX_LINES = 55000;

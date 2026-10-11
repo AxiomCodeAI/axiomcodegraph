@@ -50,6 +50,12 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              scope_root, scope_proximity)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
              + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
+             [iter3, SPEC 11.2] + host_page_uid: set when the element is an included fragment's, matched in that
+             host's composed tree; such a row is emitted as
+             -> host_styles <selector> <element> <host page> <status> <reasons> <pseudo>   (no cascade/scope row)
+  web_includes(host_page_uid, fragment_page_uid, kind, host_element_uid, position, file, line, col, args, status, reason)
+             -> include <host> <fragment> <kind> <host element> <position> <file:line:col of the directive> <args>
+                <status> <reason>   [iter3, SPEC 11.2]
   web_var_scope(page_uid, element_uid, name, root_uid, root_exact_uid, status, reason)   SPEC 3.4a, V1-12: one row per (page, element, name)
   web_var(use, def, page, status, reason)   [iter1b] the SQL VIEW over web_var_def / web_var_visible /
              web_var_scope (SPEC 3.4a); use = the VARIABLE value_ref uid (its declaration and name are read
@@ -288,11 +294,20 @@ def main():
             emit('links_to', key.get(e), an, key.get(tp) if tp else url, key.get(te) if te else None, st, rs)
         for e, an, idv, te, st, rs in g.rows('web_id_refs', ['from_element_uid', 'attribute_name', 'id_value', 'to_element_uid', 'status', 'reason']):
             emit('id_ref', key.get(e), an, idv, key.get(te) if te else None, st, rs)
-        if want('styles') or want('cascade') or want('scope'):
-            for s, e, p, st, rs, pe, cond, a, b, c, lr, so, ro, ic, sr, sp in g.rows('web_styles', [
+        if want('include'):
+            for h, fr, kd, he, pos, f, ln, col, args, st, rs in g.rows('web_includes', [
+                    'host_page_uid', 'fragment_page_uid', 'kind', 'host_element_uid', 'position', 'file', 'line', 'col',
+                    'args', 'status', 'reason']):
+                emit('include', key.get(h, h) if h else None, key.get(fr, fr) if fr else None, kd, key.get(he, he) if he else None,
+                     pos, f'{f}:{ln}:{col}', (args or '').strip(), st, rs)
+        if want('styles') or want('cascade') or want('scope') or want('host_styles'):
+            for s, e, p, st, rs, pe, cond, a, b, c, lr, so, ro, ic, sr, sp, hp in g.rows('web_styles', [
                     'selector_uid', 'element_uid', 'page_uid', 'status', 'reason', 'pseudo_element', 'conditions',
                     'spec_a', 'spec_b', 'spec_c', 'layer_rank', 'sheet_order', 'rule_order', 'important_count',
-                    'scope_root', 'scope_proximity']):
+                    'scope_root', 'scope_proximity', 'host_page_uid']):
+                if hp:
+                    emit('host_styles', key.get(s), key.get(e, e), key.get(hp, hp), st, ';'.join(sorted((rs or '').split(';'))) if rs and rs != '-' else None, pe)
+                    continue
                 if e in iframe_text:
                     print(f'normalize: web_styles row on an iframe_text element {e} (SPEC 3.6 G11: never styled)', file=sys.stderr)
                 emit('styles', key.get(s) if e not in iframe_text else key.get(s), key.get(e) if e not in iframe_text else f'iframe_text:{e}', st, ';'.join(sorted((rs or '').split(';'))) if rs and rs != '-' else None, pe)

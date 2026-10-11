@@ -16,6 +16,7 @@ import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, 
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import * as conv from './lib/convert.mjs';
+import { resolveIncludes, cutCycles, composes, composeTree, composeExtends } from './lib/includes.mjs';
 import selectorParser from 'postcss-selector-parser';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
@@ -35,7 +36,7 @@ const root = path.resolve(projectDir);
 const rows = [];
 const usageInput = []; // styles/unknown rows, kept whatever --kinds selects (the usage pass reads them)
 const emit = (kind, ...f) => {
-  if (kind === 'styles' || kind === 'unknown') usageInput.push(row(kind, ...f));
+  if (kind === 'styles' || kind === 'unknown' || kind === 'host_styles') usageInput.push(row(kind, ...f));
   if (!KINDS || KINDS.has(kind)) rows.push(row(kind, ...f));
 };
 const t0 = Date.now();
@@ -65,6 +66,39 @@ for (const f of files) {
   }
 }
 const pageByPath = new Map(pages.map((p) => [p.rel, p]));
+
+// ── includes and fragment hosts (SPEC §11.2 [iter3], lib/includes.mjs) ─────────────────────────────────
+const includeRefs = resolveIncludes(pages, pageByPath, root, files);
+const refsByPage = new Map();
+for (const r of includeRefs) { if (!refsByPage.has(r.page.rel)) refsByPage.set(r.page.rel, []); refsByPage.get(r.page.rel).push(r); }
+cutCycles(pages, refsByPage);
+// hosts of a fragment: the pages that compose it (include kinds; for jinja:extends the layout hosts the child)
+const hostsOf = new Map();
+const addHost = (frag, host) => { if (!hostsOf.has(frag)) hostsOf.set(frag, new Set()); hostsOf.get(frag).add(host); };
+for (const r of includeRefs) {
+  if (composes(r)) addHost(r.targets[0], r.page.rel);
+  if (r.kind === 'jinja:extends' && r.status === 'match') addHost(r.page.rel, r.targets[0]);
+}
+// a fragment's handler dialect is its hosts' (SPEC §11.2); a fragment with no host, or hosts with none, keeps its own
+const dialectCache = new Map();
+const effectiveDialects = (page, seen = new Set([page.rel])) => {
+  if (dialectCache.has(page.rel)) return dialectCache.get(page.rel);
+  const own = pageDialects(page);
+  const d = new Set();
+  for (const h of hostsOf.get(page.rel) ?? []) if (!seen.has(h)) for (const x of effectiveDialects(pageByPath.get(h), new Set([...seen, h]))) d.add(x);
+  const out = d.size ? d : own;
+  if (seen.size === 1) dialectCache.set(page.rel, out);
+  return out;
+};
+for (const r of includeRefs) {
+  const extendsRow = r.kind === 'jinja:extends';
+  const at = `${r.page.rel}:${r.line}:${r.col}`;
+  for (const t of r.targets) {
+    emit('include', extendsRow ? t : r.page.rel, extendsRow ? r.page.rel : t, r.kind, extendsRow ? '-' : r.hostKey ?? '-', extendsRow ? '-' : r.position, at, r.args, r.status, r.reason);
+  }
+  const resolved = r.status === 'match' || r.reason === 'include_cycle' || r.reason === 'include_depth' ? r.targets[0] : '-';
+  emit('reference', r.includeEl ? r.includeEl.key : r.hostKey ?? '-', r.kind, r.url, r.urlKind, resolved);
+}
 
 // ── HTML nodes ────────────────────────────────────────────────────────────────────────────────
 const URL_ATTRS = { __proto__: null,
@@ -96,7 +130,7 @@ for (const page of pages) {
   page.docLang = docHtml ? docHtml.node.attribs?.lang : undefined;
   const idCount = new Map();
   let scriptOrder = 0;
-  const dialects = pageDialects(page);
+  const dialects = effectiveDialects(page);
   for (const el of page.elements) {
     const cls = (el.node.attribs?.class ?? '').split(/[\t\n\f\r ]+/).filter(Boolean);
     const id = el.node.attribs?.id ?? '';
@@ -374,11 +408,48 @@ const pageMatches = new Map();
 const carrierMiss = new Set();
 const contenderLoads = []; // every (page, element, pseudo, rule, selector, load) with a match/conditional styles row (SPEC 9.2) // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
-if (DO_STYLES) for (const page of pages) {
-  const loads = pageLoads.get(page.rel) ?? [];
-  // a fragment is styled by whatever page includes it; with no host known, nothing is matched
-  if (page.isFragment) { emit('unknown', 'fragment_no_host', page.rel, page.rel); continue; }
+// Views (SPEC §11.2): every DOCUMENT page, matched in its tree with its includes expanded (its own elements report
+// `styles`, an included fragment's elements `host_styles` with this page as host); one view per jinja:extends pair
+// (the layout's tree with the child's blocks in place; only the child's elements report, as host_styles of the
+// layout); a fragment with no resolved host is not matched (fragment_no_host).
+const views = [];
+for (const page of pages) {
+  if (page.isFragment) { if (!hostsOf.has(page.rel)) views.push({ page, kind: 'no_host' }); continue; }
+  views.push({ page, kind: 'page' });
+}
+for (const r of includeRefs) if (r.kind === 'jinja:extends' && r.status === 'match') views.push({ page: pageByPath.get(r.targets[0]), kind: 'extends', child: r.page });
+
+function makeView(v) {
+  const base = v.page;
+  if (v.kind === 'page' && !(refsByPage.get(base.rel) ?? []).some(composes)) return Object.assign(Object.create(base), { base, report: () => 'own', composed: false, viewKind: 'page' });
+  const c = v.kind === 'extends' ? composeExtends(base, v.child, pageByPath, refsByPage) : composeTree(base, pageByPath, refsByPage);
+  const inertOf = new Map();
+  const stack = [[c.root, null]];
+  while (stack.length) {
+    const [n, inert] = stack.pop();
+    if (n !== c.root && (n.type === 'tag' || n.type === 'script' || n.type === 'style')) inertOf.set(n, inert);
+    const ci = inert ?? ((n.name === 'template' || n.name === 'noscript') && n.namespace === 'http://www.w3.org/1999/xhtml' ? n.name : null);
+    for (const ch of n.children ?? []) stack.push([ch, n === c.root ? null : ci]);
+  }
+  const byKey = new Map(); const elements = []; const memberPages = new Set();
+  for (const m of c.members) {
+    if (!inertOf.has(m.node) || byKey.has(m.el.key)) continue;
+    const rec = { ...m.el, node: m.node, inert: inertOf.get(m.node) };
+    byKey.set(rec.key, rec); elements.push(rec); memberPages.add(m.page);
+  }
+  const dynamicKeys = new Set([...memberPages].flatMap((p) => [...p.dynamicKeys]).filter((k) => byKey.has(k)));
+  const dynamicAttrKeys = new Set([...memberPages].flatMap((p) => [...p.dynamicAttrKeys]).filter((k) => byKey.has(k)));
+  const report = v.kind === 'extends' ? (k) => (base.byKey.has(k) ? null : 'host') : (k) => (base.byKey.has(k) ? 'own' : 'host');
+  return Object.assign(Object.create(base), { base, writtenRoot: c.root, byKey, elements, dynamicKeys, dynamicAttrKeys, report, composed: true, viewKind: v.kind });
+}
+
+if (DO_STYLES) for (const v of views) {
+  if (v.kind === 'no_host') { emit('unknown', 'fragment_no_host', v.page.rel, v.page.rel); continue; }
+  const loads = pageLoads.get(v.page.rel) ?? [];
   if (loads.length === 0) continue;
+  const page = makeView(v);
+  const ownView = page.viewKind === 'page';
+  const emitU = ownView ? emit : () => {};
   const side = { langUnknown: new Set() };
   const pseudos = makePseudos(page, side);
   const compiled = new Map();
@@ -392,7 +463,7 @@ if (DO_STYLES) for (const page of pages) {
   }
   const dyn = [...page.dynamicKeys].map((k) => page.byKey.get(k));
   const dynAttrNames = new Set([...page.dynamicAttrKeys].flatMap((k) => [...page.byKey.get(k).dynAttrs]));
-  const matchesHere = new Map(); pageMatches.set(page.rel, matchesHere);
+  const matchesHere = new Map();
   const seenStyles = new Set();
   for (const load of loads) {
     const s = load.sheet;
@@ -403,15 +474,15 @@ if (DO_STYLES) for (const page of pages) {
       for (const sel of r.selectors) {
         const scoped = r.scopes.length > 0;
         const rw = rewrite(sel.expanded, scoped);
-        if (rw.unknown) { emitOnce(seenStyles, `u|${sel.key}`, () => emit('unknown', rw.unknown, sel.key, page.rel)); continue; }
-        if (rw.usesRoot && !page.hasHtmlTag) { emitOnce(seenStyles, `u|${sel.key}`, () => emit('unknown', 'implied_element', sel.key, page.rel)); continue; }
+        if (rw.unknown) { emitOnce(seenStyles, `u|${sel.key}`, () => emitU('unknown', rw.unknown, sel.key, page.rel)); continue; }
+        if (rw.usesRoot && !page.hasHtmlTag) { emitOnce(seenStyles, `u|${sel.key}`, () => emitU('unknown', 'implied_element', sel.key, page.rel)); continue; }
         const fn = comp(rw.query);
-        if (!fn) { emitOnce(seenStyles, `u|${sel.key}`, () => emit('unknown', 'selector_unparsed', sel.key, page.rel)); continue; }
+        if (!fn) { emitOnce(seenStyles, `u|${sel.key}`, () => emitU('unknown', 'selector_unparsed', sel.key, page.rel)); continue; }
         side.langUnknown.clear();
         let got; let scopeOf = null; const scopeReasons = new Set();
         if (scoped) {
           const sc = scopedMatch(page, s, r.scopes[r.scopes.length - 1], fn, side, comp);
-          if (sc.unknown) { emitOnce(seenStyles, `u|${sel.key}`, () => emit('unknown', `scope_bound:${sc.unknown}`, sel.key, page.rel)); continue; }
+          if (sc.unknown) { emitOnce(seenStyles, `u|${sel.key}`, () => emitU('unknown', `scope_bound:${sc.unknown}`, sel.key, page.rel)); continue; }
           got = sc.nodes; scopeOf = sc.scopeOf; sc.reasons.forEach((x) => scopeReasons.add(`scope_bound:${x}`));
         } else got = matchAll(fn, page.writtenRoot);
         const reasonsBase = new Set([...rw.reasons, ...scopeReasons]);
@@ -420,12 +491,17 @@ if (DO_STYLES) for (const page of pages) {
         const selEntry = matchesHere.get(sel.key) ?? { sel, elems: new Map() }; matchesHere.set(sel.key, selEntry);
         for (const n of got) {
           const el = page.byKey.get(n.axKey);
+          const who = page.report(el.key);
           const reasons = new Set(reasonsBase);
           if (el.inert) reasons.add(`inert:${el.inert}`);
           let status = reasons.size ? 'conditional' : 'match';
           if (side.langUnknown.has(n)) { status = 'unknown'; reasons.clear(); reasons.add('lang_unknown'); }
           const rs = [...reasons].sort().join(';') || '-';
           if (!selEntry.elems.has(el.key) || selEntry.elems.get(el.key) === 'conditional' && status === 'match') selEntry.elems.set(el.key, status);
+          if (who !== 'own') {
+            if (who === 'host') emitOnce(seenStyles, `h|${sel.key}|${el.key}`, () => emit('host_styles', sel.key, el.key, page.rel, status, rs, rw.pseudoElement));
+            continue;
+          }
           emitOnce(seenStyles, `s|${sel.key}|${el.key}`, () => {
             emit('styles', sel.key, el.key, status, rs, rw.pseudoElement); stylesCount += 1;
             if (scopeOf) { const so = scopeOf.get(n); emit('scope', sel.key, el.key, so.root, so.prox); }
@@ -434,10 +510,14 @@ if (DO_STYLES) for (const page of pages) {
           if (status !== 'unknown') contenderLoads.push({ page: page.rel, el: el.key, pseudo: rw.pseudoElement || '', rule: r, sel, status, so: load.order, lr: layerRank(layer), spec: sel.spec, sheet: s, conds: atConds });
         }
         // L1: what the browser tree (implied elements present) decides differently
-        const gotB = new Set(scoped ? got.map((n) => n.axKey) : matchAll(fn, page.browserRoot).map((n) => n.axKey));
+        // (a composed view compares the page's own written tree: L1 is about implied elements, not includes)
         const gotW = new Set(got.map((n) => n.axKey));
-        for (const k of gotB) if (!gotW.has(k)) { emitOnce(seenStyles, `l|${sel.key}|${k}`, () => { emit('l1', sel.key, k, 'browser_only'); l1Count += 1; }); }
-        for (const k of gotW) if (!gotB.has(k)) { emitOnce(seenStyles, `l|${sel.key}|${k}`, () => { emit('l1', sel.key, k, 'written_only'); l1Count += 1; }); }
+        if (ownView) {
+          const gotWl = page.composed && !scoped ? new Set(matchAll(fn, page.base.writtenRoot).map((n) => n.axKey)) : gotW;
+          const gotB = new Set(scoped ? got.map((n) => n.axKey) : matchAll(fn, page.browserRoot).map((n) => n.axKey));
+          for (const k of gotB) if (!gotWl.has(k)) { emitOnce(seenStyles, `l|${sel.key}|${k}`, () => { emit('l1', sel.key, k, 'browser_only'); l1Count += 1; }); }
+          for (const k of gotWl) if (!gotB.has(k)) { emitOnce(seenStyles, `l|${sel.key}|${k}`, () => { emit('l1', sel.key, k, 'written_only'); l1Count += 1; }); }
+        }
         // dynamic class: elements that would match if they carried the selector's class tokens their
         // binding can add (all of them for a wildcard binding); never a match, one unknown row each
         if (!scoped && dyn.length && /\./.test(sel.expanded)) {
@@ -450,7 +530,9 @@ if (DO_STYLES) for (const page of pages) {
           const gotD = matchAll(fn, page.writtenRoot);
           dyn.forEach((e, i) => { if (saved[i] === undefined) delete e.node.attribs.class; else e.node.attribs.class = saved[i]; });
           for (const n of gotD) if (!gotW.has(n.axKey)) {
-            emitOnce(seenStyles, `s|${sel.key}|${n.axKey}`, () => emit('styles', sel.key, n.axKey, 'unknown', 'dynamic_class', rw.pseudoElement));
+            const who = page.report(n.axKey); if (!who) continue;
+            if (who === 'host') emitOnce(seenStyles, `h|${sel.key}|${n.axKey}`, () => emit('host_styles', sel.key, n.axKey, page.rel, 'unknown', 'dynamic_class', rw.pseudoElement));
+            else emitOnce(seenStyles, `s|${sel.key}|${n.axKey}`, () => emit('styles', sel.key, n.axKey, 'unknown', 'dynamic_class', rw.pseudoElement));
             selEntry.elems.set(n.axKey, selEntry.elems.get(n.axKey) ?? 'unknown');
           }
         }
@@ -468,7 +550,9 @@ if (DO_STYLES) for (const page of pages) {
             dyn.forEach((e, i) => { if (saved[i] === undefined) delete e.node.attribs.class; else e.node.attribs.class = saved[i]; });
             for (const n of both) if (!gotW.has(n.axKey)) {
               const reason = attrOnly.has(n.axKey) ? 'dynamic_attribute' : 'dynamic_attribute;dynamic_class';
-              emitOnce(seenStyles, `s|${sel.key}|${n.axKey}`, () => emit('styles', sel.key, n.axKey, 'unknown', reason, rw.pseudoElement));
+              const who = page.report(n.axKey); if (!who) continue;
+              if (who === 'host') emitOnce(seenStyles, `h|${sel.key}|${n.axKey}`, () => emit('host_styles', sel.key, n.axKey, page.rel, 'unknown', reason, rw.pseudoElement));
+              else emitOnce(seenStyles, `s|${sel.key}|${n.axKey}`, () => emit('styles', sel.key, n.axKey, 'unknown', reason, rw.pseudoElement));
               selEntry.elems.set(n.axKey, selEntry.elems.get(n.axKey) ?? 'unknown');
             }
           }
@@ -482,7 +566,12 @@ if (DO_STYLES) for (const page of pages) {
   }
   // per page: a required class/id with no static carrier on THIS page (the view web_selector_unmatched_pages keeps
   // this meaning; the selector row carries usage and the reason)
+  if (!ownView) continue;
   for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) { carrierMiss.add(k); emit('unknown', 'no_static_carrier', k, page.rel); }
+  // the value-level pass below reads the page's OWN elements only
+  const own = new Map();
+  for (const [k, e] of matchesHere) own.set(k, { ...e, elems: new Map([...e.elems].filter(([ek]) => page.report(ek) === 'own')) });
+  pageMatches.set(page.rel, own);
 }
 
 /**
@@ -677,6 +766,7 @@ if (DO_STYLES) {
   const get = (k) => { let v = st.get(k); if (!v) { v = { match: false, cond: false, unk: false, pages: new Set(), unkReason: null }; st.set(k, v); } return v; };
   for (const r of usageInput) {
     const f = r.split('\t');
+    if (f[0] === 'host_styles') { const v = get(f[1]); v.pages.add(f[3]); if (f[4] === 'match') v.match = true; else if (f[4] === 'conditional') v.cond = true; else { v.unk = true; v.unkReason = v.unkReason ?? f[5]; } }
     if (f[0] === 'styles') { const v = get(f[1]); v.pages.add(f[2].replace(/:\d+:\d+$/, '')); if (f[3] === 'match') v.match = true; else if (f[3] === 'conditional') v.cond = true; else { v.unk = true; v.unkReason = v.unkReason ?? f[4]; } }
     if (f[0] === 'unknown' && f[1] !== 'no_static_carrier' && f[3] !== '-' && /\/\d+$/.test(f[2])) { const v = get(f[2]); v.unk = true; v.unkReason = v.unkReason ?? f[1]; }
   }
