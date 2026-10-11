@@ -97,6 +97,8 @@ const CONDITION_AT = new Set(['media', 'supports', 'container', 'starting-style'
 const GROUPING_AT = new Set([...CONDITION_AT, 'layer', 'scope']);
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif',
   'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong', 'inherit', 'initial', 'unset', 'revert', 'revert-layer']);
+/** vendor aliases for the platform UI font: like a generic family they name no font file (V1-21) */
+const SYSTEM_FONT_ALIASES = new Set(['-apple-system', 'blinkmacsystemfont', '-webkit-body', '-webkit-pictograph']);
 const ID_REF_ATTRS = new Set(['for', 'list', 'form', 'headers', 'popovertarget', 'commandfor', 'aria-labelledby', 'aria-describedby',
   'aria-controls', 'aria-owns', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'aria-flowto', 'anchor', 'itemref']);
 const TOKEN_LIST_ID_ATTRS = new Set(['headers', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-flowto', 'itemref', 'aria-details']);
@@ -423,14 +425,27 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       let inlineN = 0;
       rows.forEach((r, i) => {
         const id = g(T.script, r, 'htmlScriptUniqueHash');
-        const kind = g(T.script, r, 'scriptKind');
-        const abs = g(T.script, r, 'resolvedFilePath');
-        const resolved = onDisk(abs) ? rel(abs) : null;
+        let kind = g(T.script, r, 'scriptKind');
+        let abs = g(T.script, r, 'resolvedFilePath');
         const owner = g(T.script, r, 'ownerElementLinkHash');
+        // an SVG <script href="…"> (or xlink:href) is an external script: the parser reads only src
+        const ownerAttrs = elById.get(owner)?.attrs;
+        const svgHref = !g(T.script, r, 'src') ? (ownerAttrs?.get('href') ?? ownerAttrs?.get('xlink:href')) : undefined;
+        let srcText = g(T.script, r, 'src');
+        if (svgHref && svgHref.hasValue && svgHref.value.trim() !== '') {
+          kind = 'EXTERNAL'; srcText = svgHref.value.trim();
+          if (root && !/^[a-z][\w+.-]*:|^\/\//i.test(srcText)) {
+            const pagePath = path.join(root, fileOfPage(d));
+            const p0 = srcText.split(/[?#]/)[0]!;
+            abs = p0.startsWith('/') ? path.join(root, p0) : path.resolve(path.dirname(pagePath), p0);
+          }
+        }
+        const resolved = onDisk(abs) ? rel(abs) : null;
         const sl = num(g(T.script, r, 'bodyStartLine')), sc = num(g(T.script, r, 'bodyStartColumn')), el = num(g(T.script, r, 'bodyEndLine')), ec = num(g(T.script, r, 'bodyEndColumn'));
         let body: string | null = null;
         if (kind === 'INLINE' && sl !== null && sc !== null && el !== null && ec !== null && sl > 0) {
           const pt = textOfPage(d);
+          // an empty body is "" (0 lines); NULL means only stale_source
           if (pt) body = pt.text.slice(offsetOf(pt, sl, sc), offsetOf(pt, el, ec));
           // the file changed since it was parsed: the range no longer holds the body
           const want = num(g(T.script, r, 'bodyLength'));
@@ -439,11 +454,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const inlineIndex = kind === 'INLINE' ? ++inlineN : null;
         out('web_scripts').push({ uid: id, element_uid: owner, page_uid: d, file: fileOfPage(d), line: startOf(owner)[0] || null, col: startOf(owner)[1] || null,
           order_on_page: i + 1, script_kind: kind, script_type: g(T.script, r, 'scriptType'), type_as_written: nz(g(T.script, r, 'typeAsWritten')),
-          src: nz(g(T.script, r, 'src')), resolved_file: resolved,
+          src: nz(srcText), resolved_file: resolved,
           is_module: g(T.script, r, 'scriptType') === 'MODULE' ? 1 : 0, is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')),
           is_nomodule: bool(g(T.script, r, 'isNoModule')), body_start_line: sl, body_start_col: sc, body_end_line: el, body_end_col: ec,
-          attributes: JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? v.value : true]))),
-          body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body.split('\n').length,
+          attributes: JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? v.value : '']))),
+          body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body === '' ? 0 : body.split('\n').length,
           body_bytes: body === null ? null : Buffer.byteLength(body, 'utf8'), body, inline_index: inlineIndex });
       });
     }
@@ -669,7 +684,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       is_custom: bool(g(T.decl, r, 'isCustomProperty')), vendor_prefix: nz(g(T.decl, r, 'vendorPrefix')), position: num(g(T.decl, r, 'position')) });
   }
 
-  // value references
+  // value references; the vendor system-font aliases name no font (V1-21 ruling): no value_ref, no font_use
+  {
+    const keep = T.vref.rows.filter((r) => !(g(T.vref, r, 'referenceKind') === 'FONT_FAMILY'
+      && SYSTEM_FONT_ALIASES.has(g(T.vref, r, 'name').trim().replace(/^["']|["']$/g, '').toLowerCase())));
+    T.vref.rows.length = 0; for (const r of keep) T.vref.rows.push(r);
+  }
   const vrefRow = new Map<string, string[]>();
   const vrefsOfRule = new Map<string, string[][]>();
   for (const r of T.vref.rows) {
@@ -849,7 +869,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const n of rules.values()) if (n.kind === 'STYLE_RULE' && n.matchable) resolveSelectors(n);
   // per selector over every page (SPEC §3.5 [iter2] grain, §9.9 usage): pages loading it, pages with any styles row, pages with
   // none (and no whole-selector unknown), pages where a required class/id has no static carrier; statuses seen
-  type SelStat = { loading: number; matched: number; elements: number; unmatched: number; missing: number; wholeUnk: number; m: number; c: number; u: number };
+  type SelStat = { loading: number; matched: number; elements: number; unmatched: number; missing: number; wholeUnk: number; m: number; c: number; u: number; ur: string };
   const selStats = new Map<string, SelStat>();
 
   // layer ranks of one page (SPEC §3.3 R7): first declaration, walking the page's sheets in load order and each
@@ -957,11 +977,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const scope = n.inScope ? scopeOf(n) : null;
         for (const s of sels) {
           let st = selStats.get(s.id);
-          if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0 }; selStats.set(s.id, st); }
+          if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0, ur: '' }; selStats.set(s.id, st); }
           if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); st.loading++; }
           const unk = s.unknown || scope?.spec.unknown || '';
-          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
-          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
+          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
+          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
           if (l.disabled) base.add('alternate_sheet');
@@ -981,7 +1001,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             seen.add(`s|${s.id}|${e.id}|${l.order}`); styleRows++;
             if (!seen.has(`s|${s.id}|${e.id}|${status}`)) {
               seen.add(`s|${s.id}|${e.id}|${status}`);
-              if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else st!.u++;
+              if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else { st!.u++; st!.ur ||= reason; }
             }
             let prox: number | null = null;
             if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
@@ -1061,6 +1081,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const dec = !n || !n.matchable ? { d: 'none', r: n?.inKeyframes ? 'keyframe_selector' : 'not_an_element_selector' }
       : s.unknown ? { d: 'unknown', r: s.unknown }
       : (s.reasons.length || (n.condNames.length > 0)) ? { d: 'conditional', r: [...s.reasons, ...n.condNames.map((c) => `at_rule:${c}`)].join(';') } : { d: 'exact', r: null };
+    const usage = dec.d === 'none' ? null : !st || st.loading === 0 ? 'not_loaded' : st.m > 0 ? 'matched' : st.c > 0 ? 'conditional_only'
+      : st.u > 0 || st.wholeUnk > 0 ? 'unknown_only' : 'unmatched_static';
+    // ruling (c): unknown_reason explains the selector's own usage label — unmatched_static: no_static_carrier (a
+    // required class/id has no carrier on some page) else no_element_matches; unknown_only: the styles/unknown reason;
+    // NULL otherwise (a matched selector's carrier-less pages are still in web_selector_unmatched_pages)
+    const unknownReason = usage === 'unmatched_static' ? (st!.missing > 0 ? 'no_static_carrier' : null)
+      : usage === 'unknown_only' ? (st!.ur || null) : null;
     if (st && st.missing > 0) {
       for (const c of new Set(s.req.classes)) out('web_selector_required').push({ selector_uid: s.id, kind: 'class', token: c });
       for (const c of new Set(s.req.ids)) out('web_selector_required').push({ selector_uid: s.id, kind: 'id', token: c });
@@ -1069,9 +1096,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       line: num(g(T.sel, r, 'startLine')), col: num(g(T.sel, r, 'startColumn')), position: num(g(T.sel, r, 'position')), selector_text: unesc(g(T.sel, r, 'selectorText')),
       spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], compound_count: num(g(T.sel, r, 'compoundCount')), has_nesting: bool(g(T.sel, r, 'hasNesting')),
       has_pseudo_element: bool(g(T.sel, r, 'hasPseudoElement')), decidability: dec.d, reason: dec.r, pages_loading: st?.loading ?? 0, pages_matched: st?.matched ?? 0,
-      elements_matched: st?.elements ?? 0, pages_unmatched: st?.unmatched ?? 0, unknown_reason: st && st.missing > 0 ? 'no_static_carrier' : null,
-      usage: dec.d === 'none' ? null : !st || st.loading === 0 ? 'not_loaded' : st.m > 0 ? 'matched' : st.c > 0 ? 'conditional_only'
-        : st.u > 0 || st.wholeUnk > 0 ? 'unknown_only' : 'unmatched_static' });
+      elements_matched: st?.elements ?? 0, pages_unmatched: st?.unmatched ?? 0, unknown_reason: unknownReason, usage });
   }
 
   // ── value-level edges per page: var, keyframes, fonts, containers (SPEC §3.4, §3.4a) ──
@@ -1142,10 +1167,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       let m = attrUses.get(pg); if (!m) { m = new Map(); attrUses.set(pg, m); }
       let ns = m.get(el); if (!ns) { ns = new Set(); m.set(el, ns); } ns.add(name!);
     }
+    // a var defined ONLY by @property: one scope row, root NULL, reason property_initial (its initial-value applies)
+    const propertyNames = new Set(propertyRules.map((n) => n.prelude.trim()));
     // V1-12: exactly one row per (page, element, name)
     const scopeSeen = new Set<string>();
     const scopeRow = (pageId: string, ruleEls: Map<string, Map<string, number>>, elId: string, name: string) => {
-      if (!definingRules.has(name) && !attrDefEls.has(name)) return; // nothing defines it anywhere: web_var_visible says so, once per use
+      const propOnly = propertyNames.has(name) && !definingRules.has(name) && !attrDefEls.has(name);
+      if (!definingRules.has(name) && !attrDefEls.has(name) && !propOnly) return; // nothing defines it anywhere: web_var_visible says so, once per use
       const sk = `${pageId}|${elId}|${name}`; if (scopeSeen.has(sk)) return; scopeSeen.add(sk);
       const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
       const attrDefs = attrDefEls.get(name);
@@ -1158,7 +1186,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         if (best === EXACT) { rootExact = a.id; break; }
       }
       out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: root, root_exact_uid: rootExact !== root ? rootExact : null,
-        status: root ? (rootSt === EXACT ? 'match' : 'conditional') : 'unknown', reason: root ? null : (defRules.length || attrDefs ? 'not_inherited' : 'no_definition_in_scope') });
+        status: root ? (rootSt === EXACT ? 'match' : 'conditional') : 'unknown',
+        reason: root ? null : propOnly ? 'property_initial' : (defRules.length || attrDefs ? 'not_inherited' : 'no_definition_in_scope') });
     };
     for (const [pageId, ruleEls] of pageMatches) {
       for (const [ruleId, names] of usingRules) {
@@ -1194,7 +1223,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     } else if (kind === 'FONT_FAMILY') {
       const owner = rules.get(ruleId) ?? (d ? rules.get(g(T.decl, d, 'ruleLinkHash')) : undefined);
       if (owner?.at === 'font-face') continue; // the descriptor DEFINES the family (G13)
-      if (GENERIC_FONTS.has(name.trim().replace(/^["']|["']$/g, '').toLowerCase())) continue; // a generic family is no use (G13)
+      { const nm = name.trim().replace(/^["']|["']$/g, '').toLowerCase(); if (GENERIC_FONTS.has(nm) || SYSTEM_FONT_ALIASES.has(nm)) continue; } // a generic family / system alias is no use (G13, V1-21)
       uses.push({ use: declId || ruleId, vref: vid, kind, name, sheet, page });
     } else if (kind === 'CONTAINER' && !declId) uses.push({ use: ruleId, vref: vid, kind, name, sheet, page });
   }

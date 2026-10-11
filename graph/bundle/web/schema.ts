@@ -90,13 +90,13 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_selectors',
-    description: 'One complex selector of a style rule. `decidability`: exact, conditional (a state pseudo-class or an at-rule condition), unknown (with `reason`), none (a keyframe offset). spec_* is the specificity after nesting is resolved. Per page (SPEC §3.5 [iter2] grain, §9.9): `pages_loading` pages whose loads reach its sheet, `pages_matched` pages with any styles row, `pages_unmatched` pages with none and no whole-selector unknown (the list: view web_selector_unmatched_pages), `unknown_reason` = no_static_carrier when on some page a required class/id is carried by no element statically; `usage` matched | conditional_only | unknown_only | unmatched_static (loaded, no styles row anywhere) | not_loaded (NULL for a keyframe offset). Never "dead": classes added at run time are outside this layer.',
+    description: 'One complex selector of a style rule. `decidability`: exact, conditional (a state pseudo-class or an at-rule condition), unknown (with `reason`), none (a keyframe offset). spec_* is the specificity after nesting is resolved. Per page (SPEC §3.5 [iter2] grain, §9.9): `pages_loading` pages whose loads reach its sheet, `pages_matched` pages with any styles row, `pages_unmatched` pages with none and no whole-selector unknown (the list: view web_selector_unmatched_pages), `unknown_reason` explains `usage`: for unmatched_static no_static_carrier (a required class/id has no static carrier on some page) or no_element_matches, for unknown_only the unknown reason (dynamic_class, shadow_dom…), NULL otherwise; `usage` matched | conditional_only | unknown_only | unmatched_static (loaded, no styles row anywhere) | not_loaded (NULL for a keyframe offset). Never "dead": classes added at run time are outside this layer.',
     columns: [id('uid'), id('rule_uid'), id('stylesheet_uid'), id('file'), i('line'), i('col'), i('position'), id('selector_text'), i('spec_a'), i('spec_b'), i('spec_c'),
       i('compound_count'), i('has_nesting'), i('has_pseudo_element'), t('decidability'), t('reason'), i('pages_loading'), i('pages_matched'), i('elements_matched'), i('pages_unmatched'), t('unknown_reason'), t('usage')],
   },
   {
     name: 'web_selector_required',
-    description: 'The class and id tokens a selector REQUIRES of its subject chain (nesting resolved; never inside :not()/:is() alternatives), written only for selectors with unknown_reason no_static_carrier: what view web_selector_unmatched_pages tests against each loading page\'s carriers.',
+    description: 'The class and id tokens a selector REQUIRES of its subject chain (nesting resolved; never inside :not()/:is() alternatives), written for every selector that, on some page, required a token no element there carries: what view web_selector_unmatched_pages tests against each loading page\'s carriers.',
     columns: [id('selector_uid'), t('kind', 'class | id'), id('token')],
   },
   {
@@ -211,9 +211,9 @@ export const WEB_VIEWS: readonly string[] = [
   // SPEC §3.5 [iter2]: the pages behind web_selectors.pages_unmatched — pages loading the selector's sheet with no styles row
   // for it and no whole-selector unknown row
   `CREATE VIEW web_selector_unmatched_pages AS SELECT DISTINCT s.uid AS selector_uid, s.selector_text, s.file AS sheet_file, s.line, l.page_uid,
-     p.file AS page_file, s.unknown_reason
+     p.file AS page_file, 'no_static_carrier' AS unknown_reason
      FROM web_selectors s JOIN web_loads l ON l.stylesheet_uid = s.stylesheet_uid JOIN web_pages p ON p.uid = l.page_uid
-     WHERE s.unknown_reason = 'no_static_carrier'
+     WHERE EXISTS (SELECT 1 FROM web_selector_required r0 WHERE r0.selector_uid = s.uid)
        AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND w.page_uid = l.page_uid)
        AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)
        AND EXISTS (SELECT 1 FROM web_selector_required q WHERE q.selector_uid = s.uid AND NOT EXISTS (

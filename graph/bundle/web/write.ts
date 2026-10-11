@@ -9,6 +9,8 @@ type Stmt = { run(...a: (string | number | null)[]): unknown };
 type Db = { exec(sql: string): void; prepare(sql: string): Stmt; close(): void };
 
 const BATCH = 64;
+/** text columns where the empty string is a value, not "none": an empty inline script's body, an empty handler's code */
+const KEEP_EMPTY = new Set(['web_scripts.body', 'web_handlers.code']);
 
 export class WebDb {
   private readonly buf = new Map<string, (string | number | null)[]>();
@@ -44,7 +46,7 @@ export class WebDb {
     const cols = this.cols.get(table)!;
     for (const k of Object.keys(r)) if (!cols.includes(k)) throw new Error(`${table} has no column ${k}`);
     const b = this.buf.get(table)!;
-    for (const c of cols) { const v = r[c]; b.push(v === undefined || v === '' ? null : v); }
+    for (const c of cols) { const v = r[c]; b.push(v === undefined || (v === '' && !KEEP_EMPTY.has(`${table}.${c}`)) ? null : v); }
     this.counts.set(table, this.counts.get(table)! + 1);
     if (b.length === n * BATCH) {
       let st = this.full.get(table);
