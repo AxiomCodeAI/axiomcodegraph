@@ -479,9 +479,17 @@ class Web:
         if gaps: self.section(prose, "parse gaps", [r for r in rows if r['role'] == 'gaps'], lambda r: f"{r['at']}: {r['reason']} {r.get('detail') or ''}")
         return self.finish({'found': True, 'kind': 'stylesheet', 'target': s['file'], 'prose': prose}, rows)
 
+    def skipped_note(self, f):
+        # V1-02: a file the parser skipped (too large, unreadable) is in `skipped`, not silently absent
+        try:
+            r = self.q1("SELECT file_path AS file, reason FROM skipped WHERE file_path = ? OR file_path LIKE ? ORDER BY length(file_path) LIMIT 1", f, '%/' + f.lstrip('./'))
+        except Exception:
+            return None
+        return f"web graph: {r['file']} was skipped by the parser ({r['reason']}): it has no elements, loads or styles in the graph" if r else None
+
     def impact_page(self, f):
         pg = self.page_by_file(f)
-        if not pg: return {'found': False, 'kind': 'page', 'target': f, 'refusal': f"web graph: no page {f}"}
+        if not pg: return {'found': False, 'kind': 'page', 'target': f, 'refusal': self.skipped_note(f) or f"web graph: no page {f}"}
         p = pg[0]; pid = p['uid']; pf = p['file']
         rows = []
         for r in self.q("""SELECT DISTINCT e.file, e.line, e.display, l.attribute_name FROM web_links l JOIN web_elements e ON e.uid = l.from_element_uid

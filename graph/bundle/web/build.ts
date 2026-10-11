@@ -976,9 +976,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
               if ((re.get(e.id) ?? NO) < sc) re.set(e.id, sc);
             }
             u!.any = true;
-            if (seen.has(`s|${s.id}|${e.id}`)) return;
-            seen.add(`s|${s.id}|${e.id}`); styleRows++;
-            if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else st!.u++;
+            // one row per LOAD (V1-07): a sheet linked twice is in the cascade twice, the later load's sheet_order winning
+            if (seen.has(`s|${s.id}|${e.id}|${l.order}`)) return;
+            seen.add(`s|${s.id}|${e.id}|${l.order}`); styleRows++;
+            if (!seen.has(`s|${s.id}|${e.id}|${status}`)) {
+              seen.add(`s|${s.id}|${e.id}|${status}`);
+              if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else st!.u++;
+            }
             let prox: number | null = null;
             if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
             out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status, reason: reason || null,
