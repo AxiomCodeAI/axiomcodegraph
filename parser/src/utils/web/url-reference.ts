@@ -182,7 +182,8 @@ export function resolveUrlToFile(
         break;
       }
       const candidate = path.resolve(dir, '.' + decoded);
-      if (insideRepo(candidate)) {
+      // `/` names the directory itself: its index file (the repository root included)
+      if (candidate === repo || insideRepo(candidate)) {
         const hit = fileOf(candidate);
         if (hit !== '') {
           return hit;
