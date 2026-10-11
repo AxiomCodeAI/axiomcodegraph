@@ -10,8 +10,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { Header, readHeader, readRaw, readRfc4180 } from '@/bundle/csv';
+import { Header, type Pick, readHeader, readRaw, readRfc4180 } from '@/bundle/csv';
 import type { LanguageAdapter, RawSource } from '@/bundle/languages';
+
+/** AXIOM_BUNDLE_PROFILE=1: one stderr line per stage with its wall time, for measuring the bundle. */
+const PROFILE = !!process.env.AXIOM_BUNDLE_PROFILE;
+let lapAt = Date.now();
+export function lap(what: string): void {
+  if (!PROFILE) return;
+  const now = Date.now();
+  process.stderr.write(`  [bundle-profile] ${((now - lapAt) / 1000).toFixed(2)}s ${what}\n`);
+  lapAt = now;
+}
 
 export type Cell = string | number | null;
 export type Row = Cell[];
@@ -114,9 +124,10 @@ async function libSource(inp: BuildInputs, file: string): Promise<EntitySource |
   return { path: facts, header: new Header(h.names, `${facts} (header from ${headerFile})`), hasHeaderRow: false };
 }
 
-async function* rowsOf(src: EntitySource): AsyncGenerator<string[]> {
+async function* rowsOf(src: EntitySource, pick?: Pick): AsyncGenerator<string[]> {
   let first = src.hasHeaderRow;
-  for await (const r of readRfc4180(src.path)) {
+  // the reader never filters a file's first row: here that is the header, and a headerless file is read whole
+  for await (const r of readRfc4180(src.path, src.hasHeaderRow ? pick : undefined)) {
     if (first) { first = false; continue; }
     yield r;
   }
@@ -136,6 +147,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const rawFieldAccess = A.raw.fieldAccess ? await readSource(rawDir, A.raw.fieldAccess) : [];
   const rawTypeUse = A.raw.typeUse ? await readSource(rawDir, A.raw.typeUse) : [];
   const rawConfigBinding = A.raw.configBinding ? await readSource(rawDir, A.raw.configBinding) : [];
+  lap('read raw relations');
   log(`  raw: ${rawEdges.length} edge rows, ${rawAncestors.length} ancestor rows, ${rawOverrides.length} override rows`);
 
   // call_edges: split the raw ToMethod into a method key or a label by provenance
@@ -179,6 +191,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     return [ref!, nul(type), context!, int(depth) ?? 0, ownerKind!, owner!, nul(enclMethod), nul(enclType), nul(prov), tier!];
   });
 
+  lap('transform raw rows (call_edges, field_access, type_use)');
   // ── 2. which ids the bundle must name ─────────────────────────────────────
   const wantMethods = new Set<string>();
   const wantTypes = new Set<string>();
@@ -211,6 +224,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     if (r[2] === 'field' && r[3] !== null) wantFields.add(r[3] as string);
   }
 
+  lap('collect wanted ids');
   // ── 3. client entities (all of them — the client is the subject) ──────────
   // The IR spells visibility differently per entity file (PUBLIC on methods/types, PUBLIC_ACCESS on
   // fields); normalise to one vocabulary so a rule can match on it. '' when the language has none.
@@ -367,6 +381,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     }
   }
 
+  lap('read client modules/methods/types/fields IR');
   // ── 4. library entities — only the referenced ones ────────────────────────
   const missingMethods = new Set([...wantMethods].filter((id) => !methods.has(id)));
   const missingTypesEarly = [...wantTypes].some((id) => !types.has(id));
@@ -447,6 +462,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   if (FI?.ownerQualifiedNameFromType) fillOwnerNames(fields, 3, 4);
   // A library module's file path is not staged; a library site never occurs (edges start in the client).
 
+  lap('read library entities + generated/external');
   // ── 5. call sites: name + position for every site the edges mention ───────
   // row: id, caller_id, kind, callee_name, file_path, start_line, start_column, end_line, end_column
   const sites = new Map<string, Row>();
@@ -466,7 +482,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       const h = src.header;
       const ce = h.col(C.expressionId), cn = h.col(C.calleeName), cl = h.col(C.startLine), cc = h.col(C.startColumn);
       const cel = C.endLine ? h.col(C.endLine) : -1;
-      for await (const r of rowsOf(src)) {
+      for await (const r of rowsOf(src, { column: ce, has: (id) => sites.has(id) })) {
         const row = sites.get(r[ce] ?? '');
         if (!row) continue;
         fill(row, 3, nul(r[cn])); fill(row, 4, fileOf(C.fileVia, h, r));
@@ -475,6 +491,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       }
     }
   }
+  lap('position sites from call-site IR');
   {
     const E = A.ir.expressions;
     const src = await clientSource(inp.clientIrDir, E.file);
@@ -483,7 +500,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       const ci = h.col(E.id), ck = h.col(E.kind), cl = h.col(E.startLine), cc = h.col(E.startColumn), cel = h.col(E.endLine), cec = h.col(E.endColumn);
       const cname = E.calleeName ? h.col(E.calleeName.column) : -1;
       const nameKinds = new Set(E.calleeName?.kinds ?? []);
-      for await (const r of rowsOf(src)) {
+      for await (const r of rowsOf(src, { column: ci, has: (id) => sites.has(id) || fieldSites.has(id) })) {
         const id = r[ci] ?? '';
         // A FIELD ACCESS site is an expression too, and this is the one pass over a table that
         // can be GB-scale, so both are positioned here rather than streaming it twice.
@@ -501,6 +518,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       }
     }
   }
+  lap('position sites from expressions IR');
   if (A.ir.decorators) {
     const D = A.ir.decorators;
     const src = await clientSource(inp.clientIrDir, D.file);
@@ -572,6 +590,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const unplaced = [...sites.values()].filter((r) => r[5] === null).length;
   if (unplaced > 0) log(`  ! ${unplaced} of ${sites.size} call sites have no position in the IR`);
 
+  lap('position sites from decorators/locals/field sites + fallbacks');
   // ── 5b. what the parser did NOT read ──────────────────────────────────────
   // A file the parser skipped has no row in any table above, and until #1148 nothing in the
   // bundle said so: a consumer could not tell a file with no calls from a file that was
@@ -599,9 +618,10 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   }
   if (skipped.length > 0) log(`  skipped: ${skipped.length} file(s) the parser did not read`);
 
+  lap('read skipped');
   // ── 6. assemble ───────────────────────────────────────────────────────────
   const run: Row[] = Object.entries(inp.meta).map(([k, v]) => [k, v]);
-  return {
+  const core = {
     run,
     methods: [...methods.values()],
     types: [...types.values()],
@@ -619,6 +639,8 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     type_use,
     skipped: dedupe(skipped),
   };
+  lap('assemble + dedupe');
+  return core;
 }
 
 function dedupe(rows: Row[]): Row[] {
