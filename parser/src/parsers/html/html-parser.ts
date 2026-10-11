@@ -316,11 +316,11 @@ class Walk {
   ): void {
     const stack: Array<{
       node: SyntaxNode; parentHash: string; parentPath: string; depth: number;
-      siblingCounts: Map<string, number>; position: number; namespace: HtmlNamespace;
-    }> = [{ node, parentHash, parentPath, depth, siblingCounts, position, namespace }];
+      siblingCounts: Map<string, number>; position: number; namespace: HtmlNamespace; open: OpenElements;
+    }> = [{ node, parentHash, parentPath, depth, siblingCounts, position, namespace, open: new Map() }];
     while (stack.length > 0) {
       const frame = stack.pop()!;
-      const result = this.oneElement(frame.node, frame.parentHash, frame.parentPath, frame.depth, frame.siblingCounts, frame.position, frame.namespace);
+      const result = this.oneElement(frame.node, frame.parentHash, frame.parentPath, frame.depth, frame.siblingCounts, frame.position, frame.namespace, frame.open);
       if (result === undefined) {
         continue;
       }
@@ -328,7 +328,7 @@ class Walk {
       for (let i = result.children.length - 1; i >= 0; i -= 1) {
         stack.push({
           node: result.children[i]!, parentHash: result.row.getHash(), parentPath: result.row.path, depth: frame.depth + 1,
-          siblingCounts: counts, position: i, namespace: result.childNamespace,
+          siblingCounts: counts, position: i, namespace: result.childNamespace, open: result.childOpen,
         });
       }
     }
@@ -342,8 +342,9 @@ class Walk {
     depth: number,
     siblingCounts: Map<string, number>,
     position: number,
-    namespace: HtmlNamespace
-  ): { row: HtmlElement; children: SyntaxNode[]; childNamespace: HtmlNamespace } | undefined {
+    namespace: HtmlNamespace,
+    open: OpenElements = new Map()
+  ): { row: HtmlElement; children: SyntaxNode[]; childNamespace: HtmlNamespace; childOpen: OpenElements } | undefined {
     const tagNode = openingTagOf(node);
     const rawTag = tagNode === undefined ? undefined : tagNameOf(node, this.content);
     if (tagNode === undefined || rawTag === undefined) {
@@ -367,7 +368,15 @@ class Walk {
     // none. An RCDATA element's contents are text, whatever the grammar made of them.
     const tagEnd = startTagEnd(this.content, tagNode);
     const children = isVoid || isRcdata ? [] : contentChildren(node, childNamespace, this.content).filter((c) => c.startIndex >= tagEnd);
-    const elementChildren = children.filter((c) => ELEMENT_TYPES.has(c.type));
+    // the ancestors whose open element makes a later start tag of theirs ignored (V1-19); a template's contents are a
+    // document fragment of their own, with no form open
+    const childOpen: OpenElements = lower === 'template' ? new Map() : ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower) ? new Map(open) : open;
+    const openTags = new Set(childOpen.keys());
+    if (lower !== 'template' && ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower)) openTags.add(lower);
+    const lifted = childNamespace === HtmlNamespace.HTML
+      ? this.withoutIgnoredStartTags(children.filter((c) => ELEMENT_TYPES.has(c.type)), openTags)
+      : { elements: children.filter((c) => ELEMENT_TYPES.has(c.type)), ignored: [] };
+    const elementChildren = lifted.elements;
     const start = this.lines.positionOf(node.startIndex);
     const end = this.lines.positionOf(isVoid ? tagNode.endIndex : node.endIndex);
     const attributes = readAttributes(node, this.content, this.flavour);
@@ -394,6 +403,18 @@ class Walk {
       serviceVersionLinkHash: this.version,
     });
     this.out.elements.push(row);
+    if (lower !== 'template' && ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower)) {
+      (childOpen as Map<string, OpenElement>).set(lower, { row, names: new Set(attributes.filter((a) => !a.templateTag).map((a) => a.name.toLowerCase())) });
+    }
+    // a second <body> or <html> adds the attributes the open one lacks to it, as a browser does; a nested <form>'s are dropped
+    for (const { node: ignoredNode, tag: ignoredTag } of lifted.ignored) {
+      const host = childOpen.get(ignoredTag);
+      const ignoredTagNode = openingTagOf(ignoredNode);
+      if (host === undefined || ignoredTagNode === undefined || (ignoredTag !== 'body' && ignoredTag !== 'html')) continue;
+      const added = readAttributes(ignoredNode, this.content, this.flavour).filter((a) => !a.templateTag && !host.names.has(a.name.toLowerCase()));
+      for (const a of added) host.names.add(a.name.toLowerCase());
+      if (added.length > 0) this.attributes(ignoredNode, host.row, added, HtmlNamespace.HTML, ignoredTagNode);
+    }
     if (tag === 'title' && this.title === undefined && ownNamespace === HtmlNamespace.HTML) {
       this.title = textContent;
     }
@@ -411,7 +432,31 @@ class Walk {
     } else if (node.type === 'style_element' && ownNamespace !== HtmlNamespace.MATHML) {
       this.style(node, row, attributes, tagNode);
     }
-    return { row, children: elementChildren, childNamespace };
+    return { row, children: elementChildren, childNamespace, childOpen };
+  }
+
+  /**
+   * A START TAG THE BROWSER IGNORES (V1-19, #1909): `<form>` while a form is open, `<body>` or `<html>` inside its own
+   * kind, `<head>` once the head or body is open. The grammar keeps each as an element; a browser drops the tag and its
+   * attributes, and what it held becomes its parent's. So such an element is not an element row: its element children
+   * take its place among the parent's, in order (and are themselves checked).
+   */
+  private withoutIgnoredStartTags(elements: readonly SyntaxNode[], open: ReadonlySet<string>): { elements: SyntaxNode[]; ignored: Array<{ node: SyntaxNode; tag: string }> } {
+    const out: SyntaxNode[] = [];
+    const ignoredNodes: Array<{ node: SyntaxNode; tag: string }> = [];
+    const visit = (list: readonly SyntaxNode[]): void => {
+      for (const c of list) {
+        const tagNode = openingTagOf(c);
+        const t = tagNode === undefined ? undefined : tagNameOf(c, this.content)?.toLowerCase();
+        const ignored = t !== undefined && (t === 'head' ? open.has('head') || open.has('body') : IGNORED_WHEN_OPEN_TAGS.has(t) && open.has(t));
+        if (!ignored || tagNode === undefined) { out.push(c); continue; }
+        ignoredNodes.push({ node: c, tag: t });
+        const tagEnd = startTagEnd(this.content, tagNode);
+        visit(contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= tagEnd && ELEMENT_TYPES.has(x.type)));
+      }
+    };
+    visit(elements);
+    return { elements: out, ignored: ignoredNodes };
   }
 
   /** The text and entity children of an element, decoded, whitespace-normalised; an error region without markup is text too. */
@@ -976,6 +1021,13 @@ class Walk {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 /** An error region that holds no `<`: a bare `>`, `&` or `=` in text, which HTML reads as characters. */
+/** An open element whose later start tag of the same kind is ignored, and the attribute names it already has. */
+interface OpenElement { row: HtmlElement; names: Set<string> }
+type OpenElements = ReadonlyMap<string, OpenElement>;
+
+/** Tags whose start tag is ignored while an element of the same kind is open (`head` also once `body` is). */
+const IGNORED_WHEN_OPEN_TAGS = new Set(['form', 'body', 'html', 'head']);
+
 function isTextError(text: string): boolean {
   return !text.includes('<');
 }

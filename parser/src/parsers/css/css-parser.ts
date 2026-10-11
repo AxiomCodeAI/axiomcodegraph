@@ -142,7 +142,25 @@ function sanitiseForGrammar(text: string): string {
   out = out.replace(/'([^'"\n\\]*)'/g, (_m, inner: string) => `"${inner}"`);
   // `!IMPORTANT` is important (CSS keywords are case-insensitive); the grammar knows the lowercase spelling only.
   out = out.replace(/!\s*important\b/gi, (m) => m.toLowerCase());
+  out = compactSpacedAnPlusB(out);
   return blankOddCustomValues(out);
+}
+
+/**
+ * AN+B WRITTEN WITH SPACES (V1-09, #1909): `:nth-last-child(n + 3)` is legal, and the grammar reads only `n+3`; one such
+ * argument is a recovered error, two in one selector list made the whole rule an error, and every selector of it was
+ * lost (186 selectors on a dev project). Inside an `:nth-*(...)` argument, the An+B before any `of S` is written
+ * without its spaces and padded with them at its end, so every offset outside the argument is unchanged; the part
+ * reads its value from the source text, so it keeps `n + 3` as written.
+ */
+function compactSpacedAnPlusB(text: string): string {
+  return text.replace(/(:nth-(?:last-)?(?:child|of-type|col)\()([^()]*)\)/gi, (m, open: string, inner: string) => {
+    const of = /\bof\b/i.exec(inner);
+    const head = of === null ? inner : inner.slice(0, of.index);
+    if (!/^\s*[-+]?\d*n\s*[-+]\s*\d+\s*$/i.test(head) || !/\s[-+]|[-+]\s/.test(head)) return m;
+    const compact = head.trim().replace(/\s+/g, '');
+    return open + compact + ' '.repeat(head.length - compact.length) + inner.slice(head.length) + ')';
+  });
 }
 
 /**
@@ -757,8 +775,16 @@ export class CssParser {
     if (sheet.text[valueEnd - 1] === ';') {
       valueEnd -= 1;
     }
+    // `progid:…gradient(a='#fff',GradientType=0)` (V1-10, #1909): the grammar ends the declaration before its last `)`
+    // and reports that `)` as an error of its own. A value whose parentheses are still open is read on through the
+    // text to the `)` that closes them (never past a `;` or `}`), and that stretch is recovered, not a gap.
+    const closedAt = closingOfOpenParens(sheet.text, valueStart, valueEnd);
+    if (closedAt > valueEnd) {
+      gaps.recover(sheet, valueEnd, closedAt);
+      valueEnd = closedAt;
+    }
     const valueText = collapse(sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)));
-    const end = error?.endIndex ?? node.endIndex;
+    const end = Math.max(error?.endIndex ?? node.endIndex, valueEnd);
     const declaration = this.declarationRow(property, valueText, important, node.startIndex, end, positions.n++, ruleLinkHash, htmlAttributeLinkHash, sheet);
     out.declarations.push(declaration);
     for (const v of this.valueReferences(sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)), valueStart, property, declaration.getHash(), sheet, gaps)) {
@@ -914,7 +940,9 @@ export class CssParser {
       }
     }
     const lower = property.toLowerCase();
-    if (lower === 'animation-name' || lower === 'animation') {
+    // `-webkit-animation-name: spin` names a @keyframes as the unprefixed property does (V1-15, G10)
+    const unprefixed = lower.replace(/^-(?:webkit|moz|o|ms)-(?=animation(?:-name)?$)/, '');
+    if (unprefixed === 'animation-name' || unprefixed === 'animation') {
       for (const segment of commaSegments(rawValue)) {
         const token = tokens(segment.text).find((t) => (IDENTIFIER.test(t.text) && !ANIMATION_KEYWORDS.has(t.text.toLowerCase())) || /^["']/.test(t.text));
         if (token !== undefined) {
@@ -1303,7 +1331,8 @@ function specificity(compounds: readonly Compound[], sheet: Sheet): { a: number;
         case CssSelectorPartKind.CLASS:
         case CssSelectorPartKind.ATTRIBUTE: b += 1; break;
         case CssSelectorPartKind.TYPE: c += 1; break;
-        case CssSelectorPartKind.PSEUDO_ELEMENT: c += 1; pseudoElement = true; break;
+        // a view-transition pseudo-element with a `*` argument has specificity zero (CSS View Transitions 1, V1-17)
+        case CssSelectorPartKind.PSEUDO_ELEMENT: if (!(part.name.startsWith('view-transition-') && part.value.trim() === '*')) c += 1; pseudoElement = true; break;
         case CssSelectorPartKind.NESTING: nesting = true; break;
         case CssSelectorPartKind.PSEUDO_CLASS: {
           if (part.name === 'where') break;
@@ -1348,6 +1377,29 @@ function blankStrings(text: string): string {
 }
 
 /** The index of the `)` matching the `(` at `open`, or the text's end. */
+/**
+ * Where the parentheses left open in text[start, end) close, reading on from `end`: the offset just past the closing
+ * `)`, or `end` when none are open or a `;` or `}` comes first (strings are skipped).
+ */
+function closingOfOpenParens(text: string, start: number, end: number): number {
+  let depth = 0; let quote = '';
+  const step = (i: number): void => {
+    const c = text[i]!;
+    if (quote) { if (c === '\\') return; if (c === quote) quote = ''; return; }
+    if (c === '"' || c === "'") quote = c; else if (c === '(') depth++; else if (c === ')' && depth > 0) depth--;
+  };
+  for (let i = start; i < end; i++) { if (text[i] === '\\' ) { i++; continue; } step(i); }
+  if (depth === 0 || quote) return end;
+  for (let i = end; i < text.length; i++) {
+    const c = text[i]!;
+    if (!quote && (c === ';' || c === '}')) return end;
+    if (c === '\\') { i++; continue; }
+    step(i);
+    if (depth === 0) return i + 1;
+  }
+  return end;
+}
+
 function matchingParen(text: string, open: number): number {
   let depth = 0;
   let quote = '';
