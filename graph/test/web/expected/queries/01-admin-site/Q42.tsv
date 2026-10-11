@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q42: elements on P that change at a breakpoint
+# grade=SET section=web role=elements fields=at filter=-
+# ask: impact "@media (max-width: 600px)" --in index.html
+index.html:22
+index.html:24

@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
 # Q17: how index.html reaches P by links
 # grade=CHAIN section=web role=links_to fields=at filter=-
 # ask: path index.html contact.html
@@ -6,3 +6,5 @@ endpoints	index.html	contact.html
 edge	about.html	contact.html
 edge	index.html	about.html
 edge	index.html	contact.html
+edge	shop.html	contact.html
+edge	shop.html	index.html

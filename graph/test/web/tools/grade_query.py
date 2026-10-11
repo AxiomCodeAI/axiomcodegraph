@@ -12,7 +12,9 @@ An expected `at` without a line compares the answer's file part only.
 import json
 import sys
 
-ALIASES = {'event': ['event', 'event_name'], 'code': ['code', 'body'], 'source_kind': ['source_kind', 'source'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
+ALIASES = {'event': ['event', 'event_name'], 'code': ['code', 'body'], 'display': ['display', 'name'],
+           'path': ['path'], 'kind': ['kind'], 'attr': ['attribute_name', 'attr'], 'name': ['name', 'class_name'],
+           'styled': ['styled'], 'lost_reason': ['lost_reason'], 'source_kind': ['source_kind', 'source'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
            'action': ['action'], 'names': ['names', 'inputs']}
 
 
@@ -43,6 +45,16 @@ def field(row, name):
     return None
 
 
+def unesc(v):
+    out, i = [], 0
+    while i < len(v):
+        if v[i] == '\\' and i + 1 < len(v):
+            out.append({'n': '\n', 't': '\t', 'r': '\r', '\\': '\\'}.get(v[i + 1], v[i + 1])); i += 2
+        else:
+            out.append(v[i]); i += 1
+    return ''.join(out)
+
+
 def num(v):
     try:
         return int(v)
@@ -64,6 +76,12 @@ def keep(row, filt):
         return status == 'conditional' and any(x.startswith('state:') for x in reason.split(';'))
     if filt == 'important':
         return important > 0
+    if filt == 'lost':
+        return row.get('outcome') == 'lost'
+    if filt == 'onclick':
+        return str(row.get('source_kind') or row.get('source')) == 'on_attribute' and row.get('event') == 'click'
+    if filt == 'click':
+        return row.get('event') == 'click'
     raise SystemExit(f'grade_query: unknown filter {filt}')
 
 
@@ -81,7 +99,7 @@ def main():
         if line.startswith('# grade='):
             head = dict(kv.split('=', 1) for kv in line[2:].split())
         elif line and not line.startswith('#'):
-            exp.append(tuple(line.split('\t')))
+            exp.append(tuple(unesc(x) for x in line.split('\t')))
     grade, section, role, fields = head['grade'], head['section'], head['role'], head['fields'].split(',')
     if exp == [('skipped_not_built',)]:
         print('  skipped_not_built (iteration-2 template)')
@@ -97,12 +115,12 @@ def main():
     walk(section_of(ans, section), rows)
     if any(isinstance(r.get('more'), int) and r['more'] > 0 for r in rows):
         return 4
-    want_line = bool(exp) and grade not in ('CHAIN', 'TOP-k') and ':' in exp[0][0] and exp[0][0].rsplit(':', 1)[1].isdigit()
+    want_line = bool(exp) and grade not in ('CHAIN', 'TOP-k') and 'at' in fields and ':' in exp[0][fields.index('at')] and exp[0][fields.index('at')].rsplit(':', 1)[1].isdigit()
 
     if grade == 'TOP-k':
         places = []
         for r in rows:
-            f = norm_at(r.get('at') or r.get('file') or '', False)
+            f = norm_at(r.get('at') or r.get('file') or '', False) if (r.get('at') or r.get('file')) else str(r.get('value') or '')
             if f and f not in places:
                 places.append(f)
         top = places[:10]
@@ -136,8 +154,19 @@ def main():
 
     picked = [r for r in rows if r.get('role') == role and keep(r, head.get('filter', '-'))]
     got = []
+    exp_by_prefix = {}
+    for e in exp:
+        exp_by_prefix.setdefault(e[:-1], []).append(e)
     for r in sorted(picked, key=lambda r: r.get('rank', 0)) if grade == 'ORDER' else picked:
-        t = tuple([norm_at(r['at'], want_line)] + [field(r, f) for f in fields[1:]])
+        t = tuple(norm_at(r['at'], want_line) if f == 'at' else (field(r, f) if field(r, f) is not None else '') for f in fields)
+        # SPEC 10: a body cut at the line limit says `cut: true` with body_lines; it counts as the expected body
+        # when it is that body's first lines and body_lines equals the expected line count
+        if fields[-1] == 'code' and r.get('cut') in (True, 'true', 1):
+            for e in exp_by_prefix.get(t[:-1], []):
+                full = e[-1]
+                nlines = 0 if full == '' else len(full.splitlines()) + (1 if full.endswith(('\n', '\r')) else 0)
+                if full.startswith(t[-1]) and num(r.get('body_lines')) == nlines:
+                    t = e
         got.append((t, r.get('status')))
     got_set = {t for t, _ in got}
     exp_set = set(exp)

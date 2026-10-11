@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q41: where a colour token is used
+# grade=SET section=web role=uses fields=at filter=-
+# ask: impact "#0055ff"
+css/base.css:1

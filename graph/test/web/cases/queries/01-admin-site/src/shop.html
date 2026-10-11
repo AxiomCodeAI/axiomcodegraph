@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body x-data="{ cart: [] }">
+  <header class="top"><h1>Shop</h1><nav aria-label="Main"><a href="index.html">Home</a></nav></header>
+  <main>
+    <section aria-label="Products" class="grid flex">
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Mug</h3><span class="price">9</span><button class="btn" onclick="addToCart('Mug')">Add</button></div>
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Cap</h3><span class="price">12</span><button class="btn" onclick="addToCart('Cap')">Add</button></div>
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Tee</h3><span class="price">15</span><button class="btn" onclick="addToCart('Tee')">Add</button></div>
+    </section>
+    <form action="contact.html" method="post">
+      <label for="mail">Mail</label><input id="mail" name="mail" required>
+      <input name="coupon" placeholder="Coupon">
+      <button type="submit" @click="track('checkout')">Buy</button>
+    </form>
+    <a href="javascript:openHelp()">Help</a>
+  </main>
+  <script>
+    function addToCart(name) { cart.push(name); }
+  </script>
+  <script>
+    var chart = makeChart();
+    chart.add(0, "point-0");
+    chart.add(1, "point-1");
+    chart.add(2, "point-2");
+    chart.add(3, "point-3");
+    chart.add(4, "point-4");
+    chart.add(5, "point-5");
+    chart.add(6, "point-6");
+    chart.add(7, "point-7");
+    chart.add(8, "point-8");
+    chart.add(9, "point-9");
+    chart.add(10, "point-10");
+    chart.add(11, "point-11");
+    chart.add(12, "point-12");
+    chart.add(13, "point-13");
+    chart.add(14, "point-14");
+    chart.add(15, "point-15");
+    chart.add(16, "point-16");
+    chart.add(17, "point-17");
+    chart.add(18, "point-18");
+    chart.add(19, "point-19");
+    chart.add(20, "point-20");
+    chart.add(21, "point-21");
+    chart.add(22, "point-22");
+    chart.add(23, "point-23");
+    chart.add(24, "point-24");
+    chart.add(25, "point-25");
+    chart.add(26, "point-26");
+    chart.add(27, "point-27");
+    chart.add(28, "point-28");
+    chart.add(29, "point-29");
+    chart.add(30, "point-30");
+    chart.add(31, "point-31");
+    chart.add(32, "point-32");
+    chart.add(33, "point-33");
+    chart.add(34, "point-34");
+    chart.add(35, "point-35");
+    chart.add(36, "point-36");
+    chart.add(37, "point-37");
+    chart.add(38, "point-38");
+    chart.add(39, "point-39");
+    chart.add(40, "point-40");
+    chart.add(41, "point-41");
+    chart.add(42, "point-42");
+    chart.add(43, "point-43");
+    chart.add(44, "point-44");
+    chart.add(45, "point-45");
+    chart.add(46, "point-46");
+    chart.add(47, "point-47");
+    chart.add(48, "point-48");
+    chart.add(49, "point-49");
+    chart.add(50, "point-50");
+    chart.add(51, "point-51");
+    chart.add(52, "point-52");
+    chart.add(53, "point-53");
+    chart.add(54, "point-54");
+    chart.add(55, "point-55");
+    chart.add(56, "point-56");
+    chart.add(57, "point-57");
+    chart.add(58, "point-58");
+    chart.add(59, "point-59");
+    chart.add(60, "point-60");
+    chart.add(61, "point-61");
+    chart.add(62, "point-62");
+    chart.add(63, "point-63");
+    chart.add(64, "point-64");
+    chart.add(65, "point-65");
+    chart.add(66, "point-66");
+    chart.add(67, "point-67");
+    chart.add(68, "point-68");
+    chart.add(69, "point-69");
+    chart.add(70, "point-70");
+    chart.add(71, "point-71");
+    chart.add(72, "point-72");
+    chart.add(73, "point-73");
+    chart.add(74, "point-74");
+    chart.add(75, "point-75");
+    chart.add(76, "point-76");
+    chart.add(77, "point-77");
+    chart.add(78, "point-78");
+    chart.add(79, "point-79");
+  </script>
+</body>
+</html>

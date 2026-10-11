@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q40c: winning value per property on E
+# grade=SET section=web role=computed fields=property,at filter=-
+# ask: impact index.html:24 --why
+color	css/app.css:8
+font-family	css/base.css:2
+font-weight	index.html:24
+margin	index.html:10

@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q41t: theme colours, most used first
+# grade=TOP-k section=web role=- fields=at filter=-
+# ask: context "theme colours"
+\#0055ff
+\#222222
+gray
+red

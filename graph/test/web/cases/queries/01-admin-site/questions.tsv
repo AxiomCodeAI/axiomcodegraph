@@ -34,3 +34,21 @@ Q33	preload/icon/manifest resources of P	SET	web	uses_resource	at	impact index.h
 Q35	how P reaches S (link / @import chain)	CHAIN	web	loads	at	path contact.html css/base.css	chain_loads contact.html|css/base.css
 Q36	selector matches if fragment F were included in P	LINK	web	styled	at	link partials/row.html:1 index.html	skipped_not_built
 Q37	what is the task about: make the card title responsive	TOP-k	web	-	at	context "make the card title responsive"	media_sheet card
+Q38o	occurrences of a component candidate	SET	web	occurrences	at	impact component:div.card.product	component_occurrences div.card.product
+Q38s	varying slots of a component candidate	SET	web	slots	path,kind,attr	impact component:div.card.product	component_slots div.card.product
+Q39	components page P is built from	SET	web	components	display	impact shop.html	page_components shop.html
+Q40c	winning value per property on E	SET	web	computed	property,at	impact index.html:24 --why	computed_winners index.html:24
+Q40l	losing declarations on E and why	SET	web	cascade	at,lost_reason	impact index.html:24 --why	cascade_losers index.html:24
+Q41	where a colour token is used	SET	web	uses	at	impact "#0055ff"	token_uses #0055ff
+Q41t	theme colours, most used first	TOP-k	web	-	at	context "theme colours"	top_tokens color
+Q42	elements on P that change at a breakpoint	SET	web	elements	at	impact "@media (max-width: 600px)" --in index.html	media_elements index.html|(max-width: 600px)
+Q43	form controls on P with no label	SET	web	forms	at	impact shop.html	unlabelled shop.html
+Q44	landmark/heading outline of P	ORDER	web	outline	at	impact shop.html	outline_order shop.html
+Q45	repeated lists on P needing a loop	SET	web	lists	at,count	impact shop.html	lists shop.html
+Q46u	selectors in S matching nothing (usage)	SET	web	unmatched	at	impact css/app.css	unmatched_usage css/app.css
+Q46c	is class C styled	SET	web	class	name,styled	impact .flex	class_styled flex
+Q47	every script on P in order, verbatim	ORDER	web	scripts	at,code	impact shop.html --limit 0	scripts_in_order shop.html
+Q47d	every script on P in order, default line cap	ORDER	web	scripts	at,code	impact shop.html	scripts_in_order shop.html
+Q48	handlers on P with event, kind and code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html
+Q48o	elements with an onclick on P and its code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html|onclick
+Q48c	every click handler on P with its code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html|click

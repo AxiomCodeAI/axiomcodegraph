@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q48c: every click handler on P with its code
+# grade=SET section=web role=handlers fields=at,event,source_kind,code filter=click
+# ask: impact shop.html
+shop.html:11	click	on_attribute	addToCart('Mug')
+shop.html:12	click	on_attribute	addToCart('Cap')
+shop.html:13	click	on_attribute	addToCart('Tee')
+shop.html:18	click	alpine	track('checkout')

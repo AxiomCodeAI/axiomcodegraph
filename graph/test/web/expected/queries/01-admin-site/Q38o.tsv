@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q38o: occurrences of a component candidate
+# grade=SET section=web role=occurrences fields=at filter=-
+# ask: impact component:div.card.product
+shop.html:11
+shop.html:12
+shop.html:13

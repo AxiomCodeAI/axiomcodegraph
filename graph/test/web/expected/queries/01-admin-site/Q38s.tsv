@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q38s: varying slots of a component candidate
+# grade=SET section=web role=slots fields=path,kind,attr filter=-
+# ask: impact component:div.card.product
+1	text	-
+2	text	-
+3	attr	onclick

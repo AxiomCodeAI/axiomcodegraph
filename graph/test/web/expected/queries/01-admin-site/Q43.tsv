@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q43: form controls on P with no label
+# grade=SET section=web role=forms fields=at filter=-
+# ask: impact shop.html
+shop.html:11
+shop.html:12
+shop.html:13
+shop.html:17
+shop.html:18

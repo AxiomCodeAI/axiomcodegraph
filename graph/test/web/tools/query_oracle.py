@@ -32,6 +32,16 @@ def at_of(key):
     return k
 
 
+def display_of(R, key):
+    r = R.elem[key]
+    cls = sorted(r[3].split()) if r[3] != '-' else []
+    return '.'.join([r[1]] + cls[:3])
+
+
+def esc(v):
+    return str(v).replace('\\', '\\\\').replace('\t', '\\t').replace('\r', '\\r').replace('\n', '\\n')
+
+
 class Rows:
     def __init__(self, path):
         self.by = collections.defaultdict(list)
@@ -199,6 +209,70 @@ def derive(R, fn, arg):
         sheets = {at_of(p[0]).rsplit(':', 1)[0] for p in R.by['selector_part']
                   if p[1] == 'CLASS' and p[2] == a[0] and R.rule.get(p[0].rsplit('/', 1)[0], [None] * 4)[3] in media}
         return sorted((s,) for s in sheets), True
+    # ── iter2: SPEC 9 / 10 templates ──
+    if fn in ('component_occurrences', 'component_slots'):
+        disp = a[0]
+        for r in R.by['component']:
+            if r[0] != 'exact':
+                continue
+            keys = r[1].split(',')
+            if display_of(R, keys[0]) == disp:
+                if fn == 'component_occurrences':
+                    return sorted({(at_of(k),) for k in keys}), False
+                return sorted({(x[2], x[3], x[4]) for x in R.by['component_slot'] if x[0] == 'exact' and x[1] == keys[0]}), False
+        raise SystemExit(f'query_oracle: no exact component displayed {disp}')
+    if fn == 'page_components':
+        out = set()
+        for r in R.by['component']:
+            keys = r[1].split(',')
+            if any(R.page_of(k) == a[0] for k in keys):
+                out.add((display_of(R, keys[0]),))
+        return sorted(out), False
+    if fn == 'computed_winners':
+        e = R.elem_at(a[0])
+        return sorted({(r[2], at_of(r[3])) for r in R.by['computed'] if r[0] == e and r[1] == '-' and r[3] != '-'}), False
+    if fn == 'cascade_losers':
+        e = R.elem_at(a[0])
+        return sorted({(at_of(r[3]), r[5]) for r in R.by['cascade_entry'] if r[0] == e and r[1] == '-' and r[4] == 'lost'}), False
+    if fn == 'token_uses':
+        import re as _re
+        val = a[0].lower()
+        decls = [r for r in R.by['declaration'] if val in r[3].lower().replace(' ', '')]
+        return sorted({(at_of(r[0]),) for r in decls}), False
+    if fn == 'top_tokens':
+        toks = sorted((r for r in R.by['token'] if r[0] == a[0]), key=lambda r: (-int(r[3]), r[1]))[:5]
+        return [(r[1],) for r in toks], True
+    if fn == 'media_elements':
+        page, media = a
+        norm = lambda m: ' '.join(m.lower().split()).replace('( ', '(').replace(' )', ')').replace(': ', ':').replace(' :', ':')
+        return sorted({(at_of(r[2]),) for r in R.by['cascade'] if r[0] == page and any(norm(c.strip()[len('@media '):]) == norm(media) for c in r[8].split('&&') if c.strip().startswith('@media'))}), False
+    if fn == 'unlabelled':
+        return sorted({(at_of(r[0]),) for r in R.by['form_control'] if R.page_of(r[0]) == a[0] and r[7] == 'none'}), False
+    if fn == 'outline_order':
+        rows = sorted((r for r in R.by['outline'] if r[0] == a[0]), key=lambda r: int(r[1]))
+        return [(at_of(r[2]),) for r in rows], True
+    if fn == 'lists':
+        return sorted({(at_of(r[0]), r[3]) for r in R.by['repeat'] if R.page_of(r[0]) == a[0]}), False
+    if fn == 'unmatched_usage':
+        return sorted({(at_of(r[0]),) for r in R.by['usage'] if r[0].startswith(f'{a[0]}:') and r[1] == 'unmatched_static'}), False
+    if fn == 'class_styled':
+        return sorted({(r[0], r[5]) for r in R.by['class'] if r[0] == a[0]}), False
+    if fn == 'scripts_in_order':
+        rows = sorted((r for r in R.by['script'] if R.page_of(r[0]) == a[0]), key=lambda r: int(r[1]))
+        bodies = {r[0]: r[3][1:] for r in R.by['script_body']}
+        return [(at_of(r[0]), bodies.get(r[0], '')) for r in rows], True
+    if fn == 'handlers_code':
+        page, filt = a if len(a) == 2 else (a[0], '-')
+        out = set()
+        for r in R.by['handler']:
+            if R.page_of(r[0]) != page:
+                continue
+            if filt == 'onclick' and not (r[4] == 'on_attribute' and r[2] == 'click'):
+                continue
+            if filt == 'click' and r[2] != 'click':
+                continue
+            out.add((at_of(r[0]), r[2], r[4], r[6][1:]))
+        return sorted(out), False
     if fn == 'skipped_not_built':
         return [('skipped_not_built',)], True
     raise SystemExit(f'query_oracle: unknown derivation {fn}')
@@ -207,7 +281,7 @@ def derive(R, fn, arg):
 # The answer's rows a question grades (SPEC 6.3 grades a SET of the role; several questions share one role and one
 # ask, so each selects its rows by the SPEC 3.3 key the engine prints on every styled_by row).
 FILTERS = {'styled_by': 'exact_non_important', 'styled_by_conditions': 'has_conditions',
-           'styled_by_state': 'state', 'styled_by_important': 'important'}
+           'styled_by_state': 'state', 'styled_by_important': 'important', 'cascade_losers': 'lost'}
 
 
 def main():
@@ -222,9 +296,12 @@ def main():
         tuples, _ordered = derive(R, fn, arg)
         with open(os.path.join(out, f'{qid}.tsv'), 'w', encoding='utf-8') as f:
             filt = FILTERS.get(fn, '-')
+            if fn == 'handlers_code' and '|' in arg:
+                filt = arg.split('|')[1]
             f.write(f'# {qid}: {template}\n# grade={grade} section={section} role={role} fields={fields} filter={filt}\n# ask: {ask}\n')
             for t in tuples:
-                f.write('\t'.join(t) + '\n')
+                line = '\t'.join(esc(x) for x in t)
+                f.write(('\\' + line if line.startswith('#') else line) + '\n')  # a value starting with # is not a comment
 
 
 if __name__ == '__main__':

@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q40l: losing declarations on E and why
+# grade=SET section=web role=cascade fields=at,lost_reason filter=lost
+# ask: impact index.html:24 --why
+index.html:24	importance

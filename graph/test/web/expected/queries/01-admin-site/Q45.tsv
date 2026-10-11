@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q45: repeated lists on P needing a loop
+# grade=SET section=web role=lists fields=at,count filter=-
+# ask: impact shop.html
+shop.html:10	3

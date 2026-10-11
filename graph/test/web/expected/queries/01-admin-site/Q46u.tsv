@@ -1,8 +1,5 @@
 # reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
-# Q2: pages loading S
-# grade=SET section=web role=loaded_by fields=at filter=-
+# Q46u: selectors in S matching nothing (usage)
+# grade=SET section=web role=unmatched fields=at filter=-
 # ask: impact css/app.css
-about.html
-contact.html
-index.html
-shop.html
+css/app.css:11

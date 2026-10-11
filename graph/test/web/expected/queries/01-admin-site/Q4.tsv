@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
 # Q4: elements carrying class C
 # grade=SET section=web role=carries fields=at filter=-
 # ask: impact .card
@@ -7,3 +7,6 @@ index.html:22
 index.html:23
 index.html:33
 partials/row.html:1
+shop.html:11
+shop.html:12
+shop.html:13
