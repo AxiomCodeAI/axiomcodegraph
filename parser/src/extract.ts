@@ -44,6 +44,14 @@ export interface ExtractOptions {
    * the source (#796). `bin/axiomcode` sets it for every `--library` entry.
    */
   library?: boolean;
+  /**
+   * Only these languages' analyzers run (`java`, `typescript`, `python`, `javascript`, `csharp`, `web`); undefined runs
+   * every one. A caller that will solve one language (`axiomcode <src> <out> --language web`) has no reader for the
+   * others' tables, and parsing them anyway is most of its cost: on a 79-page admin template with 998 script files the
+   * JavaScript pool took the peak from 1.4 GB (pages and stylesheets alone) to 5.8 GB. The config analyzers (properties,
+   * XML, YAML, Gradle, services) still run: they are cheap and go with java/ or a discarded scratch folder.
+   */
+  languages?: ReadonlySet<string>;
 }
 
 /**
@@ -285,6 +293,15 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
   const csharpProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.CSHARP);
+  const wanted = (language: string): boolean => opts.languages === undefined || opts.languages.has(language);
+  const byLanguage: Array<[string, ProjectInfo[]]> = [['java', javaProjects], ['python', pythonProjects],
+    ['typescript', typescriptProjects], ['javascript', javascriptProjects], ['csharp', csharpProjects]];
+  for (const [language, list] of byLanguage) {
+    if (!wanted(language) && list.length > 0) {
+      console.log(`⏭  ${language}: ${list.length} project(s) not parsed (not among the requested languages)`);
+      list.length = 0;
+    }
+  }
 
   // Where each language writes. Flat: everything into outputDir. Per-language: a folder per
   // language, created only for a language that had a project, so an absent language leaves
@@ -404,7 +421,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // it races on the temporary files as well. `analyzeAll` unions the file
     // lists first, which also deduplicates the files a monorepo root and its
     // packages both claim.
-    timed(Promise.all([
+    timed(!wanted('javascript') ? Promise.resolve<Awaited<ReturnType<JavaScriptProjectAnalyzer['analyzeAll']>>[]>([]) : Promise.all([
       javascriptAnalyzer.analyzeAll(javascriptProjects.map((project) => project.path), {
         outputDir: javascriptOut ?? (perLanguage ? scratchFor(baseOut, 'javascript', 0) : baseOut),
         baseMservPath: absolutePath,
@@ -442,7 +459,8 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         }).then((summary) => [summary])),
     // HTML and CSS are APPENDED, as the comment above the destructuring asks. Every scan
     // target, like the other file-type analyzers: a page has no project shape of its own.
-    webAnalyzer.analyzeWebFiles(scanTargets, opts.versionLink),
+    // the web tables are copied into java/, javascript/ and typescript/ too, so any of those keeps them as before
+    webAnalyzer.analyzeWebFiles(['web', 'java', 'javascript', 'typescript'].some(wanted) ? scanTargets : [], opts.versionLink),
   ]);
 
   // Every per-project scratch folder is merged into its language's folder now, in project

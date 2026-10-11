@@ -50,12 +50,12 @@ function tree(files: Record<string, string>): string {
   return root;
 }
 
-async function parse(root: string): Promise<string> {
-  const out = path.join(root, '.ir');
+async function parse(root: string, languages?: ReadonlySet<string>, outName = '.ir'): Promise<string> {
+  const out = path.join(root, outName);
   const log = console.log; const err = console.error;
   console.log = () => {}; console.error = () => {};
   try {
-    await extractProject({ projectPath: root, versionLink: 'PLUMBING', outputDir: out, layout: 'per-language' } as never);
+    await extractProject({ projectPath: root, versionLink: 'PLUMBING', outputDir: out, layout: 'per-language', languages } as never);
   } finally {
     console.log = log; console.error = err;
   }
@@ -206,8 +206,24 @@ async function ssiPages(): Promise<void> {
   else ok('ssi-pages: .shtml and .shtm are read as HTML pages');
 }
 
+async function onlyRequestedLanguages(): Promise<void> {
+  // V1-23: a web-only build parses no JavaScript (the JS pool was 4.3 of the 5.8 GB on a dev project); the control
+  // run without `languages` must still write javascript/, or the check would pass on a tree with no JavaScript at all
+  const root = tree({ 'package.json': '{"name":"p","version":"1.0.0"}\n', 'app.js': 'function go() { return 1; }\ngo();\n',
+    'index.html': '<!doctype html><html><head><script src="app.js"></script></head><body><p class="a">x</p></body></html>\n' });
+  const all = await parse(root, undefined, '.ir-all');
+  const web = await parse(root, new Set(['web']), '.ir-web');
+  const docs = readCsv(path.join(web, 'web', 'all-html-documents.csv'));
+  ran++;
+  if (!fs.existsSync(path.join(all, 'javascript'))) fail('only-requested-languages: control run wrote no javascript/ folder');
+  else if (fs.existsSync(path.join(web, 'javascript'))) fail(`only-requested-languages: web-only run wrote javascript/ (${fs.readdirSync(web).join(', ')})`);
+  else if (docs.length !== 1) fail(`only-requested-languages: expected 1 page in <ir>/web, got ${docs.length}`);
+  else ok('only-requested-languages: languages={web} writes web/ (1 page) and no javascript/; the control run writes both');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof, ssiPages]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof, ssiPages,
+    onlyRequestedLanguages]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }

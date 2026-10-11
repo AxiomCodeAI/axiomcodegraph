@@ -844,7 +844,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     selById.set(id, s); push(selsOfRule, rule, s);
   }
   for (const a of selsOfRule.values()) a.sort((x, y) => (num(g(T.sel, x.row, 'position')) ?? 0) - (num(g(T.sel, y.row, 'position')) ?? 0));
-  partsOf.clear(); partRaw.clear();
+  // the selector parts are read only here: released now, not at the end of the build (on a dev project with 872k parts
+  // they held ~0.4 GB through style matching, the peak; V1-23)
+  partsOf.clear(); partRaw.clear(); T.part.rows.length = 0;
   // nesting: a style rule nested in a style rule (possibly through @media/@layer) is relative to the nearest style-rule ancestor
   const nestedDone = new Set<string>();
   const nearestStyleParent = (n: RuleN): RuleN | undefined => {

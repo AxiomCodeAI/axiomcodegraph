@@ -24,7 +24,7 @@ export class WebDb {
   static async open(dbPath: string, log: (s: string) => void): Promise<WebDb> {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(dbPath) as unknown as Db;
-    db.exec('PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF; PRAGMA temp_store = MEMORY;');
+    db.exec('PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF; PRAGMA temp_store = FILE;');
     const w = new WebDb(db, log);
     db.exec('BEGIN;');
     for (const t of WEB_TABLES) {

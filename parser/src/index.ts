@@ -2,7 +2,7 @@
  * The parser's command-line entry point. Arguments are positional:
  *
  *   node dist/index.js <projectsDir> <serviceVersionLink> <excludeTests> [outputDir]
- *                      [--per-language] [--library]
+ *                      [--per-language] [--library] [--languages=L[,L…]]
  *
  *   projectsDir        directory scanned for projects (recursively)
  *   serviceVersionLink commit tag stamped onto every extracted fact; required
@@ -23,7 +23,9 @@ import { extractProject } from '@/extract';
 
 async function main() {
   // `--per-language` may appear anywhere: outputDir/<lang>/ instead of one flat folder.
-  const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
+  // `--languages=web,java`: only those languages' analyzers run (extract.ts `languages`).
+  const languagesFlag = process.argv.slice(2).find((a) => a.startsWith('--languages='));
+  const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--') && !a.startsWith('--languages=')));
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   for (const f of flags) {
     if (f !== '--per-language' && f !== '--library') {
@@ -57,6 +59,7 @@ async function main() {
     // `--library`: this tree is a DEPENDENCY, so a build output directory it ships
     // from is its source (#620) rather than a copy of source beside it (#796).
     library: flags.has('--library'),
+    languages: languagesFlag === undefined ? undefined : new Set(languagesFlag.slice('--languages='.length).split(',').filter((l) => l !== '')),
   });
 }
 
