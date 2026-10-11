@@ -58,6 +58,23 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_unknown(kind, node_uid, page_uid, reason, detail)                  orphan_sheet, fragment_no_host,
              no_static_carrier, shadow_dom, selector_unparsed, implied_element, column_combinator, lang_unknown
 
+  [iter2, SPEC 9] conversion layer (one row kind per table; keys as above, `-` for NULL):
+  web_components(uid, level, size, occurrences, pages) + web_component_occurrences(component_uid, element_uid)
+             -> component <level> <occurrence keys sorted, comma-joined> <size> <occurrences> <pages>
+  web_component_slots(component_uid, path, kind, attribute_name, distinct_values)  (component uids only)
+             -> component_slot <level> <first occurrence key> <path ('.' = root)> <text|attr|class> <attr> <n>
+  web_repeats(parent_element_uid, first_element_uid, start_position, count, item_tag, item_size, uniform)
+  web_computed(element_uid, pseudo, property, winner_decl_uid, winner_status, contenders, conditional_overrides,
+               override_decl_uid)
+  web_cascade VIEW (element, pseudo, property, decl, outcome, lost_reason)  -> cascade_entry rows
+  web_tokens(kind, value, uses, project_uses)
+  web_breakpoints(uid, media, min_px, max_px, unit, rules, sheets) + web_rule_breakpoints(rule_uid, breakpoint_uid, depth)
+  web_forms(element_uid, action, action_resolved_page, method, controls)
+  web_form_controls(element_uid, form_uid, tag, type, name, required, label_uid, label_via)
+  web_icon_classes(class_name, rule_uid, content, font_family, used_elements)
+  web_outline(uid, element_uid, page_uid, kind, name, level, parent_outline_uid, ordinal)
+  web_classes(class_name, elements, pages, selectors_naming, selectors_matching, styled, icon)
+
 Row keys (identical to the oracle's): page = file; element = file:line:col; sheet = file for a FILE
 sheet, style@<element key> for a <style>; rule = file:line:col; selector = <rule key>/<position>;
 declaration = file:line:col; value_ref owner = its declaration key or (at-rule refs) its rule key.
@@ -281,6 +298,60 @@ def main():
                     emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
                     emit('cascade', key.get(p), key.get(s), key.get(e), so, ro, lr, f'{a},{b},{c}', ic, cond)
+        b = lambda v: 1 if str(v).lower() in ('1', 'true') else 0
+        if want('component') or want('component_slot'):
+            occ = {}
+            for cu, eu in g.rows('web_component_occurrences', ['component_uid', 'element_uid']):
+                occ.setdefault(cu, []).append(key.get(eu, eu))
+            comps = {}
+            for cu, lvl, size, n, pg in g.rows('web_components', ['uid', 'level', 'size', 'occurrences', 'pages']):
+                ks = sorted(occ.get(cu, []))
+                comps[cu] = (lvl, ks[0] if ks else None)
+                emit('component', lvl, ','.join(ks), size, n, pg)
+            if want('component_slot'):
+                for cu, path, kind, an, dv in g.rows('web_component_slots', ['component_uid', 'path', 'kind', 'attribute_name', 'distinct_values']):
+                    if cu not in comps:
+                        continue  # a repeat's slots
+                    if kind and kind.startswith('attr:'):
+                        kind, an = 'attr', kind[5:]
+                    emit('component_slot', comps[cu][0], comps[cu][1], path or '.', kind, an, dv)
+        if want('repeat'):
+            for pe, fe, sp, n, tag, isz, uni in g.rows('web_repeats', ['parent_element_uid', 'first_element_uid', 'start_position', 'count', 'item_tag', 'item_size', 'uniform']):
+                emit('repeat', key.get(pe), key.get(fe), sp, n, tag, isz, b(uni))
+        if want('computed'):
+            for e, ps, pr, w, ws, nc, co, ov in g.rows('web_computed', ['element_uid', 'pseudo', 'property', 'winner_decl_uid', 'winner_status', 'contenders', 'conditional_overrides', 'override_decl_uid']):
+                emit('computed', key.get(e), ps, pr, key.get(w) if w else None, ws, nc, co, key.get(ov) if ov else None)
+        if want('cascade_entry'):
+            for e, ps, pr, d, oc, lr in g.rows('web_cascade', ['element', 'pseudo', 'property', 'decl', 'outcome', 'lost_reason']):
+                emit('cascade_entry', key.get(e), ps, pr, key.get(d), oc, lr)
+        if want('token'):
+            for k, v, u, pu in g.rows('web_tokens', ['kind', 'value', 'uses', 'project_uses']):
+                emit('token', k, v, u, pu)
+        if want('breakpoint') or want('rule_breakpoint'):
+            media = {}
+            for bu, m, mn, mx, un, nr, ns in g.rows('web_breakpoints', ['uid', 'media', 'min_px', 'max_px', 'unit', 'rules', 'sheets']):
+                media[bu] = m
+                emit('breakpoint', m, mn, mx, un, nr, ns)
+            if want('rule_breakpoint'):
+                for ru, bu, dp in g.rows('web_rule_breakpoints', ['rule_uid', 'breakpoint_uid', 'depth']):
+                    emit('rule_breakpoint', key.get(ru), media.get(bu), dp)
+        if want('form'):
+            for e, ac, ap, me, nc in g.rows('web_forms', ['element_uid', 'action', 'action_resolved_page', 'method', 'controls']):
+                emit('form', key.get(e), ac, key.get(ap, ap) if ap else None, (me or 'get').lower(), nc)
+        if want('form_control'):
+            for e, fu, tag, ty, nm, rq, lu, lv in g.rows('web_form_controls', ['element_uid', 'form_uid', 'tag', 'type', 'name', 'required', 'label_uid', 'label_via']):
+                emit('form_control', key.get(e), key.get(fu) if fu else None, tag, ty, nm, b(rq), key.get(lu) if lu else None, lv)
+        if want('icon_class'):
+            for c, ru, ct, ff, ue in g.rows('web_icon_classes', ['class_name', 'rule_uid', 'content', 'font_family', 'used_elements']):
+                emit('icon_class', c, key.get(ru), ct, ff, ue)
+        if want('outline'):
+            orows = g.rows('web_outline', ['uid', 'element_uid', 'page_uid', 'kind', 'name', 'level', 'parent_outline_uid', 'ordinal'])
+            el_of = {u: e for u, e, *_x in orows}
+            for u, e, pu, kd, nm, lv, par, od in orows:
+                emit('outline', key.get(pu), od, key.get(e), kd, nm, lv, key.get(el_of.get(par)) if par else None)
+        if want('class'):
+            for c, ne, npg, sn, sm, st, ic in g.rows('web_classes', ['class_name', 'elements', 'pages', 'selectors_naming', 'selectors_matching', 'styled', 'icon']):
+                emit('class', c, ne, npg, sn, sm, b(st), b(ic))
         if want('var_scope'):
             for p, e, n, r, st, rs, rx in g.rows('web_var_scope', ['page', 'element', 'name', 'root', 'status', 'reason', 'root_exact']):
                 emit('var_scope', key.get(p), key.get(e), n, key.get(r) if r else None, st if r else 'unknown', rs, key.get(rx) if rx else None)

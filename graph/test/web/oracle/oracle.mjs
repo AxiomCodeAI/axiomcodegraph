@@ -15,6 +15,8 @@ import path from 'node:path';
 import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
+import * as conv from './lib/convert.mjs';
+import selectorParser from 'postcss-selector-parser';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
 
@@ -26,7 +28,7 @@ if (!projectDir || !outDir) { console.error('usage: oracle.mjs <project-dir> <ou
 const WALK = opt('walk', 'all');
 const KINDS = opt('kinds', '') ? new Set(opt('kinds', '').split(',')) : null;
 // the matching stage is the expensive one: run it only when a requested kind depends on it
-const STYLE_KINDS = ['styles', 'cascade', 'unknown', 'l1', 'var', 'keyframes_use', 'font_use', 'container_use'];
+const STYLE_KINDS = ['styles', 'cascade', 'unknown', 'l1', 'var', 'var_scope', 'keyframes_use', 'font_use', 'container_use', 'usage', 'rule_usage', 'computed', 'cascade_entry', 'class'];
 const DO_STYLES = !flag('no-styles') && (!KINDS || STYLE_KINDS.some((k) => KINDS.has(k)));
 const root = path.resolve(projectDir);
 
@@ -369,7 +371,8 @@ const rewriteCache = new Map();
 const rewrite = (t, scoped = false) => { const k = `${scoped ? 'S' : 'U'}${t}`; let r = rewriteCache.get(k); if (!r) { r = rewriteSelector(t, scoped); rewriteCache.set(k, r); } return r; };
 let l1Count = 0; let stylesCount = 0;
 const pageMatches = new Map();
-const carrierMiss = new Set(); // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
+const carrierMiss = new Set();
+const contenderLoads = []; // every (page, element, pseudo, rule, selector, load) with a match/conditional styles row (SPEC 9.2) // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
 if (DO_STYLES) for (const page of pages) {
   const loads = pageLoads.get(page.rel) ?? [];
@@ -428,6 +431,7 @@ if (DO_STYLES) for (const page of pages) {
             if (scopeOf) { const so = scopeOf.get(n); emit('scope', sel.key, el.key, so.root, so.prox); }
           });
           if (status !== 'unknown') emit('cascade', page.rel, sel.key, el.key, load.order, r.order, layerRank(layer), sel.spec ?? '-', r.important, atConds.join(' && ') || '-');
+          if (status !== 'unknown') contenderLoads.push({ page: page.rel, el: el.key, pseudo: rw.pseudoElement || '', rule: r, sel, status, so: load.order, lr: layerRank(layer), spec: sel.spec, sheet: s, conds: atConds });
         }
         // L1: what the browser tree (implied elements present) decides differently
         const gotB = new Set(scoped ? got.map((n) => n.axKey) : matchAll(fn, page.browserRoot).map((n) => n.axKey));
@@ -689,6 +693,35 @@ if (DO_STYLES) {
       }
       emit('rule_usage', r.key, best);
     }
+  }
+}
+
+// ── SPEC 9 conversion layer ───────────────────────────────────────────────────────────────────────
+{
+  const want = (...k) => !KINDS || k.some((x) => KINDS.has(x));
+  if (want('component', 'component_slot', 'repeat')) {
+    const sig = conv.signatures(pages);
+    if (want('component', 'component_slot')) conv.components(pages, emit, sig);
+    if (want('repeat')) conv.repeats(pages, emit, sig);
+  }
+  if (want('computed', 'cascade_entry') && DO_STYLES) conv.computed(pages, emit, contenderLoads);
+  if (want('token')) {
+    const isProject = (sh) => {
+      if (sh.source !== 'FILE') return true;
+      if (isVendor(sh.file)) return false;
+      if (/\.min\.css$/i.test(sh.file) && fileSheetByPath.has(sh.file.replace(/\.min\.css$/i, '.css'))) return false;
+      return true;
+    };
+    conv.tokens(sheets, pages, emit, isProject);
+  }
+  if (want('breakpoint', 'rule_breakpoint')) conv.breakpoints(sheets, pages, emit, pageLoads);
+  if (want('form', 'form_control')) conv.forms(pages, emit, resolveUrl, pageByPath);
+  const iconSet = new Set();
+  if (want('icon_class', 'class')) conv.iconClasses(sheets, pages, (k, ...f) => { iconSet.add(f[0]); emit(k, ...f); }, selectorParser);
+  if (want('outline')) conv.outline(pages, emit);
+  if (want('class') && DO_STYLES) {
+    const sr = usageInput.filter((r) => r.startsWith('styles\t')).map((r) => r.split('\t').slice(1, 4));
+    conv.classes(pages, sheets, emit, sr, iconSet);
   }
 }
 
