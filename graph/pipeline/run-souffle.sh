@@ -403,9 +403,9 @@ esac
 # darwin a libomp.a built for macOS 12 by path, win32 /openmp with vcomp140.dll (and any VC
 # runtime DLL it imports) shipped beside each engine (Windows loads a DLL from the exe's folder
 # first; the redistributable licence allows app-local copies). A .parallel marker beside
-# the binary says which flavor it is. AXIOM_SOLVE_PARALLEL=0 forces serial anywhere — a
-# local compile without OpenMP, and -j 1 for a packaged parallel engine — with no rebuild;
-# =1 forces the local attempt (still needs a toolchain with OpenMP).
+# the binary says which flavor it is, and a packaged parallel engine always solves at -j 8,
+# with no switch. For a LOCAL compile only, AXIOM_SOLVE_PARALLEL=0 builds without OpenMP and
+# =1 forces the attempt (still needs a toolchain with OpenMP).
 # The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
 # answer with different row orders, and a cache hit must reproduce the flavor that ran
 # yesterday, not whichever compiled first.
@@ -642,7 +642,7 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
       # where neither hole is observable. Windows local compiles probe like the rest
       # (MSYS g++); packaged win32 engines carry MSVC /openmp from build-engines.yml,
       # validated relation-identical to a serial build on a stock Windows.
-      # AXIOM_SOLVE_PARALLEL=0 is the one-variable rollback to serial anywhere, no rebuild.
+      # AXIOM_SOLVE_PARALLEL=0 keeps a LOCAL compile serial; a packaged engine has no switch.
       if _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
@@ -1042,12 +1042,17 @@ while [ "$iter" -lt 50 ]; do
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
-    # -j is passed ALWAYS (a serial binary ignores it silently — verified); more than one
-    # thread only for a binary of the parallel flavor: one this run compiled with OpenMP,
-    # or a packaged/cached one whose builder left a .parallel marker beside it.
+    # -j is passed ALWAYS (a serial binary ignores it); more than one thread only for a
+    # binary of the parallel flavor: one this run compiled with OpenMP, or a packaged/cached
+    # one whose builder left a .parallel marker beside it.
+    # A PACKAGED engine is the parallel flavor on every published platform and always runs
+    # with a fixed -j 8: no environment variable changes it, so every user's solve is the
+    # configuration the release validated (relation-identical to a serial build). Only a
+    # LOCAL compile keeps the probe, AXIOM_SOLVE_PARALLEL and AXIOMCODE_SOLVE_THREADS.
     SOLVE_J=1
-    # AXIOM_SOLVE_PARALLEL=0 holds a packaged parallel engine to one thread as well.
-    if [ -n "$PAR_SUFFIX" ] || { [ -f "$BIN.parallel" ] && [ "${AXIOM_SOLVE_PARALLEL:-}" != 0 ]; }; then
+    if [ -n "$PACKAGED" ]; then
+      [ -f "$BIN.parallel" ] && SOLVE_J=8
+    elif [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
       cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
       SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
     fi
