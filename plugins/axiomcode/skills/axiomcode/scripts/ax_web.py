@@ -24,6 +24,7 @@ import json, os, re, sqlite3, sys
 from collections import deque
 
 ROWS = 25
+CODE_LINES = 40          # lines of a script body an answer shows; the rest is cut and the row says so (`cut`)
 INLINE = 'style=""'
 STATUS_CERT = {'match': 'resolved', 'conditional': 'in scope', 'unknown': 'unknown', 'ambiguous': 'in scope'}
 
@@ -199,6 +200,45 @@ class Web:
         f = f[2:] if f.startswith('./') else f
         return self.q("SELECT * FROM web_stylesheets WHERE source_kind='FILE' AND (file = ? OR file LIKE ?) ORDER BY length(file)", f, '%/' + f)
 
+    # ── scripts and handlers, as markup and text ──
+    def script_rows(self, where, *a, full=False):
+        out = []
+        for s in self.q(f"""SELECT s.file, s.line, s.order_on_page, s.script_kind, s.script_type, s.type_as_written, s.src, s.resolved_file, s.is_module,
+                                 s.is_async, s.is_defer, s.is_nomodule, s.body_line, s.body_lines, s.body_bytes, s.body, s.inline_index
+                          FROM web_scripts s WHERE {where} ORDER BY s.file, s.order_on_page""", *a):
+            body = s['body']; cut = 0
+            if body is not None and not full and self.limit < 10 ** 9:
+                lines = body.split('\n')
+                if len(lines) > CODE_LINES: body = '\n'.join(lines[:CODE_LINES]); cut = len(lines) - CODE_LINES
+            name = f"{s['file']}#script-{s['inline_index']}" if s['inline_index'] else None
+            out.append(self.row(at_of(s['file'], s['line']), 'script', 'scripts', order=s['order_on_page'], name=name, script_kind=s['script_kind'],
+                                script_type=s['script_type'], type=s['type_as_written'], src=s['src'], resolved_file=s['resolved_file'], module=bool(s['is_module']),
+                                async_=bool(s['is_async']), defer=bool(s['is_defer']), nomodule=bool(s['is_nomodule']), body_line=s['body_line'],
+                                body_lines=s['body_lines'], body_bytes=s['body_bytes'], body=body, cut_lines=cut))
+        return out
+
+    def handler_rows(self, where, *a):
+        return [self.row(at_of(h['file'], h['line']), 'handler', 'handlers', tag=h['tag'], attr=h['attr_as_written'], event=h['event'], modifiers=h['modifiers'],
+                         source_kind=h['source_kind'], code=h['code'], known_event=h['known_event'], order=h['handler_index'])
+                for h in self.q(f"""SELECT file, line, tag, attr_as_written, event, modifiers, source_kind, code, known_event, handler_index FROM web_handlers h
+                                   WHERE {where} ORDER BY file, handler_index""", *a)]
+
+    def code_prose(self, prose, scripts, handlers):
+        if scripts:
+            prose.append(f"scripts, in page order: {len(scripts)}")
+            for r in scripts[:self.limit]:
+                head = f"  {r['order']}. {r['at']}: <script{' type=' + repr(r['type']) if r.get('type') else ''}{' module' if r.get('module') else ''}{' async' if r.get('async_') else ''}{' defer' if r.get('defer') else ''}>"
+                if r['script_kind'] == 'EXTERNAL':
+                    prose.append(head + f" src={r['src']}" + (f" → {r['resolved_file']}" if r.get('resolved_file') else ' (no such file)'))
+                else:
+                    prose.append(head + f" inline {r['name']} ({r['body_lines']} line(s), {r['body_bytes']} bytes)" + ('' if r['script_type'] in ('CLASSIC', 'MODULE') else f" [{r['script_type']}: not JavaScript]"))
+                    for l in (r.get('body') or '').split('\n'): prose.append('      ' + l.rstrip('\r'))
+                    if r.get('cut_lines'): prose.append(f"      … {r['cut_lines']} more line(s) — `impact {r['name']}` shows the whole body")
+        if handlers:
+            prose.append(f"event handlers, in page order: {len(handlers)}")
+            for r in handlers[:self.limit]:
+                prose.append(f"  {r['at']}: <{r['tag']} {r['attr']}=\"{r['code']}\">  [{r['source_kind']}{', event ' + r['event'] if r.get('event') else ''}{', ' + r['modifiers'] if r.get('modifiers') else ''}{', not a known event' if r.get('known_event') == 0 else ''}]")
+
     # ── rows and prose ──
     @staticmethod
     def row(at, kind, role, status='match', reason=None, **extra):
@@ -325,10 +365,14 @@ class Web:
             inline = self.q("SELECT property, value_text, is_important, line FROM web_declarations WHERE element_uid = ? ORDER BY position", e['uid'])
             rows += [dict(r, element=at_of(e['file'], e['line'])) for r in cas]
             rows += [self.row(at_of(e['file'], d['line']), 'declaration', 'inline_style', property=d['property'], value=d['value_text'], important=d['is_important']) for d in inline]
+            el_scripts = self.script_rows('s.element_uid = ?', e['uid'])
+            el_handlers = self.handler_rows('h.element_uid = ?', e['uid'])
+            rows += el_scripts + el_handlers
             prose.append(f"web: element {e['display']} at {e['file']}:{e['line']}" + (f" (inert: {e['inert']})" if e['inert'] else ''))
             self.section(prose, "rules styling it in cascade order (last wins)", cas, self.cascade_line)
             if inline: self.section(prose, "inline style (wins over every rule but !important)", inline,
                                     lambda d: f"{e['file']}:{d['line']}: {d['property']}: {d['value_text']}{' !important' if d['is_important'] else ''}")
+            self.code_prose(prose, el_scripts, el_handlers)
         return self.finish({'found': True, 'kind': 'element', 'target': f"{f}:{n}", 'prose': prose}, rows)
 
     def impact_selector(self, text, sel_ids=None):
@@ -449,12 +493,13 @@ class Web:
             else:
                 rows.append(self.row(l['file'] if l['source_kind'] == 'FILE' else l['display'], 'stylesheet', 'loads', l['status'], l['reason'], rank=l['load_order'], via=l['via'],
                                      import_depth=l['import_depth'], media=l['media'], display=l['display']))
-        for s in self.q("""SELECT s.script_kind, s.script_type, s.src, s.resolved_file, s.inline_index, s.body_lines, s.line, r.url_kind FROM web_scripts s
-                           LEFT JOIN web_references r ON r.element_uid = s.element_uid AND r.attribute_name = 'src' WHERE s.page_uid = ? ORDER BY s.line""", pid):
-            if s['script_kind'] == 'EXTERNAL' and not s['resolved_file']:
+        for s in self.q("""SELECT s.src, s.resolved_file, s.line, r.url_kind FROM web_scripts s
+                           LEFT JOIN web_references r ON r.element_uid = s.element_uid AND r.attribute_name = 'src' WHERE s.page_uid = ? AND s.script_kind = 'EXTERNAL' ORDER BY s.line""", pid):
+            if not s['resolved_file']:
                 reason = 'external_url' if s['url_kind'] in ('ABSOLUTE', 'PROTOCOL_RELATIVE', 'OTHER_SCHEME') else 'template_url' if s['url_kind'] == 'TEMPLATE_EXPRESSION' else 'unresolved_url'
                 rows.append(self.row(at_of(pf, s['line']), 'script', 'unknown', 'unknown', reason, url=s['src']))
-            rows.append(self.row(at_of(pf, s['line']), 'script', 'scripts', script_kind=s['script_kind'], script_type=s['script_type'], src=s['src'], inline_index=s['inline_index'], body_lines=s['body_lines']))
+        rows += self.script_rows('s.page_uid = ?', pid)
+        rows += self.handler_rows('h.page_uid = ?', pid)
         for h in self.q("""SELECT h.event, h.callee_name, h.callee_text, h.handler_source, e.file, e.line, e.display FROM web_handler_calls h
                            LEFT JOIN web_elements e ON e.uid = h.element_uid WHERE h.page_uid = ? ORDER BY e.line, h.line, h.col""", pid):
             role = 'handler' if h['handler_source'] in ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL') else 'template_expr'
@@ -489,8 +534,8 @@ class Web:
         R = lambda role: [r for r in rows if r['role'] == role]
         self.section(prose, "pages linking to it", R('linked_from'), lambda r: f"{r['at']}: {r['display']} [{r['attribute']}]")
         self.section(prose, "stylesheets it loads, in cascade order", R('loads'), lambda r: f"{r['rank']}. {r['display']}  [{r['via']}{', import depth ' + str(r['import_depth']) if r.get('import_depth') else ''}{', ' + r['media'] if r.get('media') else ''}{', ' + r['reason'] if r['reason'] else ''}]")
-        self.section(prose, "scripts", R('scripts'), lambda r: f"{r['at']}: {r['script_kind'].lower()} {r['script_type'].lower()}" + (f" src={r['src']}" if r.get('src') else '') + (f" ({r['body_lines']} line(s) inline)" if r.get('body_lines') else ''))
-        if R('handler'): self.section(prose, "inline event handlers", R('handler'), lambda r: f"{r['at']}: {r.get('display') or ''} on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName')}" + '')
+        self.code_prose(prose, R('scripts'), R('handlers'))
+        if R('handler'): self.section(prose, "names the handlers call (as written)", R('handler'), lambda r: f"{r['at']}: on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName')}")
         if R('template_expr'): self.section(prose, "template directives and the names they call", R('template_expr'), lambda r: f"{r['at']}: {r.get('directive') or r.get('source') or ''} → {r.get('calleeName')}")
         if tpl: prose.append(f"template expressions: {len(tpl)} ({', '.join(sorted({t['dialect'] for t in tpl}))})")
         if R('inline_style'): self.section(prose, "inline styles", R('inline_style'), lambda r: f"{r['at']}: {r['display']} {{ {r['property']}: {r.get('value')} }}")
@@ -505,13 +550,13 @@ class Web:
         page, _, frag = a.partition('#')
         m = re.match(r'(script|on)-(\d+)$', frag)
         pg = self.page_by_file(page)
-        r = None
-        if m and pg:
-            if m.group(1) == 'script': r = self.q1("SELECT line, body_lines FROM web_scripts WHERE page_uid = ? AND inline_index = ?", pg[0]['uid'], int(m.group(2)))
-            else: r = self.q1("SELECT line, NULL body_lines FROM web_handler_calls WHERE page_uid = ? AND handler_index = ? ORDER BY line", pg[0]['uid'], int(m.group(2)))
-        if not r: return {'found': False, 'kind': 'script', 'target': a, 'refusal': f"web graph: no inline script {a}"}
-        rows = [self.row(at_of(pg[0]['file'], r['line']), 'script', 'script', body_lines=r['body_lines'])]
-        return self.finish({'found': True, 'kind': 'script', 'target': a, 'prose': [f"web: {a} — {pg[0]['file']}:{r['line']}"]}, rows)
+        if not (m and pg): return {'found': False, 'kind': 'script', 'target': a, 'refusal': f"web graph: no inline script {a}"}
+        if m.group(1) == 'script': rows = self.script_rows('s.page_uid = ? AND s.inline_index = ?', pg[0]['uid'], int(m.group(2)), full=True)
+        else: rows = self.handler_rows('h.page_uid = ? AND h.handler_index = ?', pg[0]['uid'], int(m.group(2)))
+        if not rows: return {'found': False, 'kind': 'script', 'target': a, 'refusal': f"web graph: no inline script {a}"}
+        prose = [f"web: {a}"]
+        self.code_prose(prose, [r for r in rows if r['role'] == 'scripts'], [r for r in rows if r['role'] == 'handlers'])
+        return self.finish({'found': True, 'kind': 'script', 'target': a, 'prose': prose}, rows)
 
     def impact_keyframes(self, name):
         defs = self.q("SELECT file, line, at_rule_name, uid FROM web_rules WHERE at_rule_name LIKE '%keyframes' AND (name = ? OR trim(prelude_text, '\"''') = ?) ORDER BY file, line", name, name)
