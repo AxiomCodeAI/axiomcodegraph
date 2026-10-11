@@ -1,0 +1,9 @@
+.fa { font-family: FontAwesome; }
+.fa-check::before { content: "\f00c"; }
+.fa-user:before { content: "\f007"; font-family: "Icons"; }
+i.ok::after { content: "✓"; }
+.caret::after { content: "abc"; }
+.arrow::after { content: "ab"; }
+.label::before { content: "Read more"; }
+.fa.fa-x::before { content: "\f00d"; }
+.no-pseudo { content: "x"; }
