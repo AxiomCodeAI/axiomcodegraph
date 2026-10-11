@@ -1,0 +1,17 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: outline/01-landmarks-and-headings   kinds: outline
+# shape: dashboard pages mixing semantic landmarks, role= landmarks without the element (role=main on a div), named and unnamed sections, a named form, and headings incl. role=heading with aria-level
+outline	index.html	1	index.html:7:1	landmark	header	-	-
+outline	index.html	10	index.html:9:10	heading	heading	4	index.html:9:1
+outline	index.html	11	index.html:9:65	landmark	form	-	index.html:8:1
+outline	index.html	12	index.html:10:1	landmark	aside	-	-
+outline	index.html	13	index.html:10:8	heading	h2	2	index.html:10:1
+outline	index.html	14	index.html:10:29	landmark	footer	-	-
+outline	index.html	2	index.html:7:9	heading	h1	1	index.html:7:1
+outline	index.html	3	index.html:7:22	landmark	nav	-	index.html:7:1
+outline	index.html	4	index.html:8:1	landmark	main	-	-
+outline	index.html	5	index.html:8:18	landmark	region	-	index.html:8:1
+outline	index.html	6	index.html:8:46	heading	h2	2	index.html:8:18
+outline	index.html	7	index.html:8:70	landmark	section	-	index.html:8:1
+outline	index.html	8	index.html:8:79	heading	h3	3	index.html:8:70
+outline	index.html	9	index.html:9:1	landmark	article	-	index.html:8:1
