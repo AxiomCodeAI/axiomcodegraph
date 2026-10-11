@@ -7,7 +7,9 @@ Writes <out-dir>/<qid>.tsv: '#' header lines (grade, section, role, fields, ask)
 (tab-separated values of `fields`; ORDER and CHAIN keep their order, SET sorts). `at` is "file:line" for a
 node with a position, the bare repo-relative file for a page, stylesheet or resource.
 A derivation that yields 0 tuples is written anyway and the runner fails it (a 0/0 is not a pass), except
-TOP-k / LINK / CHAIN, whose expectation is an endpoint, not a set.
+TOP-k / CHAIN, whose expectation is an endpoint, not a set.
+A LINK question (SPEC 11.2, Q36) is derived from a second oracle run with its include asserted
+(--link-rows=<dir> holding link-<qid>/rows.tsv; run-tests.sh makes it from the derive's `<fragment>@<host>:<line>`).
 """
 import collections
 import os
@@ -273,6 +275,24 @@ def derive(R, fn, arg):
                 continue
             out.add((at_of(r[0]), r[2], r[5], r[7][1:]))
         return sorted(out), False
+    # SPEC 11.2 [iter3] fragment hosts
+    if fn == 'asserted_styles':
+        # LINK: the rows come from an oracle run with this question's include asserted (--assert-include); only the
+        # fragment's elements (the asserted ones) are the answer
+        frag, host, text = a[0].split('@', 1)[0], a[1], a[2]
+        sels = {k for k, t in R.sel_text.items() if t == text}
+        return sorted({(at_of(r[1]), r[3]) for r in R.by['host_styles'] if r[0] in sels and r[2] == host
+                       and R.page_of(r[1]) == frag}), False
+    if fn == 'included_by':
+        return sorted({(at_of(r[5]),) for r in R.by['include'] if r[1] == a[0] and r[7] in ('match', 'asserted')
+                       and r[2] not in ('jinja:import', 'jinja:extends')}), False
+    if fn == 'includes':
+        return sorted({(at_of(r[5]), r[1]) for r in R.by['include'] if r[0] == a[0] and r[7] in ('match', 'asserted')
+                       and r[2] not in ('jinja:import', 'jinja:extends')}), False
+    if fn == 'host_styled':
+        sels = {k for k, t in R.sel_text.items() if t == a[0]}
+        own = {(at_of(r[1]), '') for r in R.by['styles'] if r[0] in sels and r[2] != 'unknown'}
+        return sorted(own | {(at_of(r[1]), r[2]) for r in R.by['host_styles'] if r[0] in sels and r[3] != 'unknown'}), False
     if fn == 'skipped_not_built':
         return [('skipped_not_built',)], True
     raise SystemExit(f'query_oracle: unknown derivation {fn}')
@@ -281,11 +301,14 @@ def derive(R, fn, arg):
 # The answer's rows a question grades (SPEC 6.3 grades a SET of the role; several questions share one role and one
 # ask, so each selects its rows by the SPEC 3.3 key the engine prints on every styled_by row).
 FILTERS = {'styled_by': 'exact_non_important', 'styled_by_conditions': 'has_conditions',
-           'styled_by_state': 'state', 'styled_by_important': 'important', 'cascade_losers': 'lost'}
+           'styled_by_state': 'state', 'styled_by_important': 'important', 'cascade_losers': 'lost',
+           'asserted_styles': 'asserted'}
 
 
 def main():
-    rows_path, qpath, out = sys.argv[1:4]
+    pos = [x for x in sys.argv[1:] if not x.startswith('--')]
+    link_dir = next((x.split('=', 1)[1] for x in sys.argv[1:] if x.startswith('--link-rows=')), None)
+    rows_path, qpath, out = pos[:3]
     R = Rows(rows_path)
     os.makedirs(out, exist_ok=True)
     for line in open(qpath, encoding='utf-8'):
@@ -293,7 +316,14 @@ def main():
             continue
         qid, template, grade, section, role, fields, ask, deriv = line.rstrip('\n').split('\t')
         fn, _, arg = deriv.partition(' ')
-        tuples, _ordered = derive(R, fn, arg)
+        if grade == 'LINK':
+            # rows of an oracle run with this question's asserted include (run-tests.sh: <link-rows>/link-<qid>/rows.tsv)
+            lp = os.path.join(link_dir or '', f'link-{qid}', 'rows.tsv')
+            if not link_dir or not os.path.isfile(lp):
+                raise SystemExit(f'query_oracle: {qid} is a LINK question and {lp} is missing')
+            tuples, _ordered = derive(Rows(lp), fn, arg)
+        else:
+            tuples, _ordered = derive(R, fn, arg)
         with open(os.path.join(out, f'{qid}.tsv'), 'w', encoding='utf-8') as f:
             filt = FILTERS.get(fn, '-')
             if fn == 'handlers_code' and '|' in arg:

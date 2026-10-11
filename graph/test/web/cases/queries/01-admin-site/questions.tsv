@@ -32,7 +32,7 @@ Q30	inert elements on P	SET	web	inert	at	impact index.html	inert index.html
 Q32	form on P: action and named inputs	SET	web	form	at,action,names	impact index.html	forms index.html
 Q33	preload/icon/manifest resources of P	SET	web	uses_resource	at	impact index.html	link_resources index.html
 Q35	how P reaches S (link / @import chain)	CHAIN	web	loads	at	path contact.html css/base.css	chain_loads contact.html|css/base.css
-Q36	selector matches if fragment F were included in P	LINK	web	styled	at	link partials/row.html:1 index.html	skipped_not_built
+Q36	selector matches if fragment F were included in P	LINK	web	styled	at,status	link partials/row.html:1 index.html:22 ;; impact ".card .title" --in index.html ;; link partials/row.html:1 -	asserted_styles partials/row.html@index.html:22|index.html|.card .title
 Q37	what is the task about: make the card title responsive	TOP-k	web	-	at	context "make the card title responsive"	media_sheet card
 Q38o	occurrences of a component candidate	SET	web	occurrences	at	impact component:div.card.product	component_occurrences div.card.product
 Q38s	varying slots of a component candidate	SET	web	slots	path,kind,attr	impact component:div.card.product	component_slots div.card.product

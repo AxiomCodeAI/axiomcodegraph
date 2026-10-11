@@ -1,0 +1,4 @@
+.hdr { a: 1 }
+.hdr .logo { a: 2 }
+.card { a: 3 }
+.dark .card .t { a: 4 }

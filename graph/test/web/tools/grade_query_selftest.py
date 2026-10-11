@@ -64,9 +64,27 @@ def main():
         bad.append('ORDER: a missing repeat still passed')
     if grade_role(outline + [outline[0]], exp_outline, 'outline') == 0:
         bad.append('ORDER: an extra repeat still passed')
+    # LINK (SPEC 11.2, Q36): only rows labelled asserted are graded, as a SET over (at, status)
+    def grade_link(rows):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump({'rows': rows}, f)
+        with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as e:
+            e.write('# reviewed: yes\n# grade=LINK section=web role=styled fields=at,status filter=asserted\n')
+            e.write('partials/row.html:1\tconditional\npartials/row.html:1\tmatch\n')
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'grade_query.py'), f.name, e.name], capture_output=True, text=True).returncode
+        os.unlink(f.name); os.unlink(e.name)
+        return rc
+    own = dict(at='index.html:22', status='match', role='styled')
+    frag = [dict(at='partials/row.html:1', status=st, role='styled', tier='asserted', host='index.html') for st in ('match', 'conditional')]
+    if grade_link([own] + frag) != 0:
+        bad.append('LINK: the asserted rows next to the host\'s own were graded wrong')
+    if grade_link([own, frag[0], dict(frag[1], tier=None)]) == 0:
+        bad.append('LINK: an asserted row without its label still passed')
+    if grade_link([dict(own, tier='asserted')] + frag) == 0:
+        bad.append('LINK: a host element labelled asserted still passed')
     for b in bad:
         print(f'  {b}')
-    print(f'grade_query self-test: {12 - len(bad)}/12 checks')
+    print(f'grade_query self-test: {15 - len(bad)}/15 checks')
     return 1 if bad else 0
 
 

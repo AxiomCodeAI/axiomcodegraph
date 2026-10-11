@@ -2,6 +2,7 @@
 // Web oracle: independent ground truth for the web graph (SPEC.md sections 2-4).
 //
 //   node oracle.mjs <project-dir> <out-dir> [--walk=all|parser] [--kinds=a,b,...] [--no-styles] [--no-js-files]
+//                   [--assert-include=<fragment>@<host>:<line>[,...]]   (an include asserted with `link`, SPEC 11.2)
 //
 // Writes <out-dir>/rows.tsv (every row, sorted, first column = row kind), <out-dir>/counts.tsv
 // (kind<TAB>count) and <out-dir>/files.tsv (each file and whether the parser's walk reaches it).
@@ -16,7 +17,7 @@ import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, 
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import * as conv from './lib/convert.mjs';
-import { resolveIncludes, cutCycles, composes, composeTree, composeExtends } from './lib/includes.mjs';
+import { resolveIncludes, cutCycles, composes, composeTree, composeExtends, assertedInclude } from './lib/includes.mjs';
 import selectorParser from 'postcss-selector-parser';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
@@ -69,6 +70,7 @@ const pageByPath = new Map(pages.map((p) => [p.rel, p]));
 
 // ── includes and fragment hosts (SPEC §11.2 [iter3], lib/includes.mjs) ─────────────────────────────────
 const includeRefs = resolveIncludes(pages, pageByPath, root, files);
+for (const a of opt('assert-include', '').split(',').filter(Boolean)) includeRefs.push(assertedInclude(a, pageByPath));
 const refsByPage = new Map();
 for (const r of includeRefs) { if (!refsByPage.has(r.page.rel)) refsByPage.set(r.page.rel, []); refsByPage.get(r.page.rel).push(r); }
 cutCycles(pages, refsByPage);
@@ -96,6 +98,7 @@ for (const r of includeRefs) {
   for (const t of r.targets) {
     emit('include', extendsRow ? t : r.page.rel, extendsRow ? r.page.rel : t, r.kind, extendsRow ? '-' : r.hostKey ?? '-', extendsRow ? '-' : r.position, at, r.args, r.status, r.reason);
   }
+  if (r.asserted) continue; // no reference exists for an asserted include
   // SPEC 3.5: web_unknown lists every unknown reason; an include that is not composed is one row on its reference
   if (r.status !== 'match') emit('unknown', r.reason, `include@${at}`, r.page.rel);
   const resolved = r.status === 'match' || r.reason === 'include_cycle' || r.reason === 'include_depth' ? r.targets[0] : '-';

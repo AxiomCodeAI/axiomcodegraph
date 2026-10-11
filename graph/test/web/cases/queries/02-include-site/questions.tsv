@@ -1,0 +1,5 @@
+# qid	template	grade	section	role	fields	ask	derive
+Q36c	selector matches if fragment F were included in P at a placeholder comment	LINK	web	styled	at,status	link parts/promo.html:1 shop.html:8 ;; impact ".card" --in shop.html ;; link parts/promo.html:1 -	asserted_styles parts/promo.html@shop.html:8|shop.html|.card
+Q49	where is fragment F included (its hosts, at the directive)	SET	web	included_by	at	impact parts/card.html	included_by parts/card.html
+Q50	which fragments page P includes, and where	SET	web	includes	at,fragment	impact index.shtml	includes index.shtml
+Q51	how selector X styles a fragment on each host	SET	web	styled	at,host	impact .card	host_styled .card

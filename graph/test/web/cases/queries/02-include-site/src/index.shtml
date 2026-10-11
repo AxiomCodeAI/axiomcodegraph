@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body class="dark">
+<!--#include virtual="/inc/header.html" -->
+<main>
+<!--#include file="parts/card.html" -->
+</main>
+</body>
+</html>

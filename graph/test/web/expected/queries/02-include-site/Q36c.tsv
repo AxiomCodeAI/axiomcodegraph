@@ -1,6 +1,5 @@
 # reviewed: yes 2026-10-10 iter 3 — read against the site and SPEC 11.2 (asserted include: parent of the first node on the host line is host_element; hosts at the directive line; per-host matches)
-# Q36: selector matches if fragment F were included in P
+# Q36c: selector matches if fragment F were included in P at a placeholder comment
 # grade=LINK section=web role=styled fields=at,status filter=asserted
-# ask: link partials/row.html:1 index.html:22 ;; impact ".card .title" --in index.html ;; link partials/row.html:1 -
-partials/row.html:1	conditional
-partials/row.html:1	match
+# ask: link parts/promo.html:1 shop.html:8 ;; impact ".card" --in shop.html ;; link parts/promo.html:1 -
+parts/promo.html:1	match

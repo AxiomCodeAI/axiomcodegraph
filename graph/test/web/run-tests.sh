@@ -29,8 +29,9 @@
 # mode=queries cases (SPEC 6): cases/queries/<case>/questions.tsv lists SPEC 6.4 templates instantiated on the
 # case's site; tools/query_oracle.py derives each answer from the oracle's rows into expected/queries/<case>/<qid>.tsv
 # (reviewed by hand); the engine run indexes a copy of the site and asks each question through bin/axiomcode
-# <context|impact|path|link> ... --json, graded by tools/grade_query.py (SET, SET>=, ORDER, CHAIN, TOP-k; LINK
-# templates are skipped_not_built until fragment hosts exist and are never counted correct).
+# <context|impact|path|link> ... --json, graded by tools/grade_query.py (SET, SET>=, ORDER, CHAIN, TOP-k, LINK).
+# A LINK question (SPEC 11.2, Q36) asks `link F:1 H:<line> ;; <query> ;; link F:1 -`: its expectation comes from an
+# oracle run with that include asserted (--assert-include), and only rows labelled asserted are graded.
 #
 # Environment: AXIOM_ROOT=<checkout> tests that checkout's engine with these suites (default: this tree).
 #              Cases run one at a time (one engine solve each).
@@ -94,7 +95,16 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
     if [ "$mode" = "scale" ]; then echo "skip (scale: counts come from the generator)"; continue; fi
     if [ "$mode" = "queries" ]; then
       qd="$WORK/$(echo "$rel" | tr / _).q"; rm -rf "$qd"; mkdir -p "$qd"
-      node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/o" --walk=parser 2>"$qd/log" && python3 "$HERE/tools/query_oracle.py" "$qd/o/rows.tsv" "$d/questions.tsv" "$qd/q" 2>>"$qd/log" \
+      # a LINK question (SPEC 11.2) is derived from an oracle run with its include asserted: the derive's first
+      # argument is <fragment>@<host>:<line>
+      link_ok=1
+      while IFS=$'\t' read -r lq _t lg _s _r _f _a lder; do
+        case "$lq" in ''|'#'*) continue;; esac
+        [ "$lg" = LINK ] || continue
+        la="${lder#* }"; la="${la%%|*}"
+        node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/link-$lq" --walk=parser --assert-include="$la" 2>>"$qd/log" || link_ok=0
+      done < "$d/questions.tsv"
+      [ $link_ok = 1 ] && node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/o" --walk=parser 2>>"$qd/log" && python3 "$HERE/tools/query_oracle.py" "$qd/o/rows.tsv" "$d/questions.tsv" "$qd/q" --link-rows="$qd" 2>>"$qd/log" \
         || { echo "FAIL (query oracle — see $qd/log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
       expd="$HERE/expected/$rel"; nq=0; bad=0
       for qf in "$qd"/q/*.tsv; do
@@ -174,13 +184,25 @@ for rel in "${CASES[@]}"; do
       case "$qid" in ''|'#'*) continue;; esac
       exp_q="$HERE/expected/$rel/$qid.tsv"
       [ -f "$exp_q" ] && grep -q '^# reviewed: yes' "$exp_q" || { qbad+=("$qid(no reviewed expectation)"); qgraded=$((qgraded+1)); continue; }
-      eval "set -- $ask"
-      (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json) >"$w/$qid.json" 2>"$w/$qid.err"
-      python3 "$HERE/tools/grade_query.py" "$w/$qid.json" "$exp_q" >"$w/$qid.grade" 2>&1; rc=$?
-      if [ $rc = 4 ]; then
-        (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json --limit 0) >"$w/$qid.json" 2>"$w/$qid.err"
+      # an ask is one command, or several separated by ` ;; ` (a LINK question: link, the graded query, unlink); every
+      # `link` step runs ungraded and must succeed, the one other step is graded, and every step runs in order
+      rc=1; step=0; link_fail=""
+      while IFS= read -r part; do
+        [ -n "$part" ] || continue
+        step=$((step+1)); eval "set -- $part"
+        if [ "$1" = link ]; then
+          (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json </dev/null) >"$w/$qid.step$step.json" 2>"$w/$qid.step$step.err" || link_fail="$part"
+          continue
+        fi
+        (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json </dev/null) >"$w/$qid.json" 2>"$w/$qid.err"
         python3 "$HERE/tools/grade_query.py" "$w/$qid.json" "$exp_q" >"$w/$qid.grade" 2>&1; rc=$?
-      fi
+        if [ $rc = 4 ]; then
+          (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json --limit 0 </dev/null) >"$w/$qid.json" 2>"$w/$qid.err"
+          python3 "$HERE/tools/grade_query.py" "$w/$qid.json" "$exp_q" >"$w/$qid.grade" 2>&1; rc=$?
+        fi
+      done < <(printf '%s\n' "$ask" | sed 's/ ;; /\
+/g')
+      if [ -n "$link_fail" ]; then echo "  link step failed: $link_fail" >>"$w/$qid.grade"; [ $rc = 0 ] && rc=1; fi
       case $rc in 0) qok=$((qok+1)); qgraded=$((qgraded+1));; 5) qskip=$((qskip+1));; *) qgraded=$((qgraded+1)); qbad+=("$qid");; esac
     done < "$d/questions.tsv"
     if [ $qgraded -ge 1 ] && [ $qok -eq $qgraded ]; then echo "ok (query_ok $qok/$qgraded, skipped_not_built $qskip)"; pass=$((pass+1))

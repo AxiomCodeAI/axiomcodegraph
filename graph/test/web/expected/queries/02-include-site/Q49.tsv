@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 3 — read against the site and SPEC 11.2 (asserted include: parent of the first node on the host line is host_element; hosts at the directive line; per-host matches)
+# Q49: where is fragment F included (its hosts, at the directive)
+# grade=SET section=web role=included_by fields=at filter=-
+# ask: impact parts/card.html
+index.shtml:9
+shop.html:7

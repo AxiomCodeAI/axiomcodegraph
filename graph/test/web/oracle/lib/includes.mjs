@@ -44,7 +44,7 @@ export function containerAt(page, off) {
   }
   return best;
 }
-const positionAt = (page, parentKey, off) => page.elements.filter((e) => e.parentKey === parentKey && e.loc.startTag.startOffset < off).length;
+export const positionAt = (page, parentKey, off) => page.elements.filter((e) => e.parentKey === parentKey && e.loc.startTag.startOffset < off).length;
 
 /** Text from `i` (just after the path argument) to the `)` closing @@include, strings and brackets balanced. */
 function gulpArgs(text, i) {
@@ -142,7 +142,35 @@ export function resolveIncludes(pages, pageByPath, root, allFiles) {
   return refs;
 }
 
-export const composes = (r) => r.status === 'match' && r.kind !== 'jinja:import' && r.kind !== 'jinja:extends';
+export const composes = (r) => (r.status === 'match' || r.status === 'asserted') && r.kind !== 'jinja:import' && r.kind !== 'jinja:extends';
+
+/**
+ * An include the agent asserts (`link F:1 H:<line>`, SPEC 11.2): the first element start tag or comment on that host
+ * line is where the fragment goes; its parent is host_element and the fragment's top-level elements are inserted
+ * before it (an <include> element there is replaced). Unknown host/fragment pages give an unknown row.
+ */
+export function assertedInclude(spec, pageByPath) {
+  const m = /^(.+)@(.+):(\d+)$/.exec(spec);
+  if (!m) throw new Error(`--assert-include=${spec}: want <fragment>@<host>:<line>`);
+  const [, frag, host, lineS] = m; const line = Number(lineS);
+  const page = pageByPath.get(host);
+  if (!page) throw new Error(`--assert-include: no page ${host}`);
+  let off = null; let includeEl = null;
+  for (const el of page.elements) if (el.loc.startTag.startLine === line && (off === null || el.loc.startTag.startOffset < off)) { off = el.loc.startTag.startOffset; includeEl = el; }
+  const stack = [page.writtenRoot];
+  while (stack.length) {
+    const n = stack.pop();
+    if (n.type === 'comment' && n.sourceCodeLocation?.startLine === line && (off === null || n.sourceCodeLocation.startOffset < off)) { off = n.sourceCodeLocation.startOffset; includeEl = null; }
+    for (const c of n.children ?? []) stack.push(c);
+  }
+  if (off === null) throw new Error(`--assert-include: nothing starts on ${host}:${line}`);
+  const p = page.lines.pos(off);
+  const hostKey = includeEl ? includeEl.parentKey : (containerAt(page, off)?.key ?? null);
+  const ok = pageByPath.has(frag);
+  return { kind: 'asserted', url: frag, page, offset: off, line: p.line, col: p.col, args: '', hostKey, position: positionAt(page, hostKey, off),
+    includeEl: includeEl && includeEl.tag === 'include' ? includeEl : null, asserted: true,
+    status: ok ? 'asserted' : 'unknown', reason: ok ? '-' : 'unresolved_url', targets: [ok ? frag : '-'], urlKind: 'local' };
+}
 
 /** Cut cycles and over-deep chains (see the header); mutates the cut refs' status/reason. */
 export function cutCycles(pages, refsByPage) {
@@ -204,7 +232,7 @@ export function composeTree(page, pageByPath, refsByPage) {
   const build = (pg) => {
     const { root, map } = cloneTree(pg.writtenRoot, pg.rel);
     for (const el of pg.elements) { const c = map.get(el.node); if (c) members.push({ node: c, el, page: pg }); }
-    const refs = (refsByPage.get(pg.rel) ?? []).filter(composes);
+    const refs = (refsByPage.get(pg.rel) ?? []).filter(composes).sort((a, b) => a.offset - b.offset);
     // reverse source order: an earlier insertion point is still counted over the parent's ORIGINAL children
     for (const r of [...refs].reverse()) {
       const frag = pageByPath.get(r.targets[0]);

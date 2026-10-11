@@ -78,6 +78,9 @@ def keep(row, filt):
         return important > 0
     if filt == 'lost':
         return row.get('outcome') == 'lost'
+    if filt == 'asserted':
+        # SPEC 11.2: rows a `link` assertion produced are labelled asserted (tier, status, certainty or a flag)
+        return 'asserted' in (row.get('tier'), row.get('status'), row.get('certainty')) or row.get('asserted') in (True, 'true', 1)
     if filt == 'onclick':
         return str(row.get('source_kind') or row.get('source')) == 'on_attribute' and row.get('event') == 'click'
     if filt == 'click':
@@ -101,7 +104,7 @@ def main():
         elif line and not line.startswith('#'):
             exp.append(tuple(unesc(x) for x in line.split('\t')))
     grade, section, role, fields = head['grade'], head['section'], head['role'], head['fields'].split(',')
-    if exp == [('skipped_not_built',)]:
+    if exp == [('skipped_not_built',)]:  # (no LINK question is skipped since iteration 3)
         print('  skipped_not_built (iteration-2 template)')
         return 5
     try:
@@ -173,7 +176,8 @@ def main():
     if not exp:
         print('  0 expected tuples: not gradable (a 0/0 is not a pass)')
         return 1
-    if grade == 'SET':
+    if grade in ('SET', 'LINK'):
+        # LINK (SPEC 11.2, Q36): the asserted include's rows, graded as a SET (the filter keeps asserted rows only)
         ok = got_set == exp_set
     elif grade == 'SET>=':
         extra_match = {t for t, st in got if t not in exp_set and st == 'match'}
