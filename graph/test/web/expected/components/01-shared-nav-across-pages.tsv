@@ -1,0 +1,12 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: components/01-shared-nav-across-pages   kinds: component,component_slot
+# shape: multi-page admin templates repeating the same top navbar (same classes, different link targets and labels) on every page, a sidebar on two pages with different classes but the same shape, and a two-element snippet below the size floor
+component	exact	about.html:7:1,contact.html:7:1,index.html:7:1	6	3	3
+component	exact	about.html:8:30,index.html:8:29	3	2	2
+component	shape	about.html:7:1,contact.html:7:1,index.html:7:1	6	3	3
+component	shape	about.html:8:1,index.html:8:1	4	2	2
+component_slot	exact	about.html:7:1	0/0/0	attr	href	3
+component_slot	exact	about.html:7:1	0/0/0	text	-	3
+component_slot	shape	about.html:7:1	0/0/0	attr	href	3
+component_slot	shape	about.html:7:1	0/0/0	text	-	3
+component_slot	shape	about.html:8:1	.	class	-	2
