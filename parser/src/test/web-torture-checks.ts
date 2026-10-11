@@ -304,14 +304,16 @@ export const CHECKS: Check[] = [
     },
   },
   {
-    name: 'class keys: template-bearing class attributes keep the static tokens and drop the template parts',
+    // [iter3 ruling V2-15] a token a template expression produces is KEPT whole, as written (a dynamic class token,
+    // flagged by the engine), never dropped; whitespace inside a template tag does not split it
+    name: 'class keys: template-bearing class attributes keep the static tokens and keep each template token whole',
     verdict: 'DEFECT',
     run: (ir, fail) => {
-      expectList(fail, 'jinja line 8', ir.classesAtLine('templates/jinja.html', 8), ['card', 'is-active']);
-      expectList(fail, 'jinja line 12 ({{ … }} only)', ir.classesAtLine('templates/jinja.html', 12), []);
-      expectList(fail, 'index line 86 ({{ cls }} static-class)', ir.classesAtLine('index.html', 86), ['static-class']);
-      expectList(fail, 'mixed line 14 (<%= cls %>)', ir.classesAtLine('templates/mixed.html', 14), []);
-      expectList(fail, 'mixed line 15 (<?= $cls ?>)', ir.classesAtLine('templates/mixed.html', 15), []);
+      expectList(fail, 'jinja line 8', ir.classesAtLine('templates/jinja.html', 8), ['card', '{% if active %}is-active{% endif %}', '{{ extra_class }}']);
+      expectList(fail, 'jinja line 12 ({{ … }} only)', ir.classesAtLine('templates/jinja.html', 12), ["{{ 'a' if x else 'b' }}"]);
+      expectList(fail, 'index line 86 ({{ cls }} static-class)', ir.classesAtLine('index.html', 86), ['{{ cls }}', 'static-class']);
+      expectList(fail, 'mixed line 14 (<%= cls %>)', ir.classesAtLine('templates/mixed.html', 14), ['<%= cls %>']);
+      expectList(fail, 'mixed line 15 (<?= $cls ?>)', ir.classesAtLine('templates/mixed.html', 15), ['<?= $cls ?>']);
     },
   },
   {

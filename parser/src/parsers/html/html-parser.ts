@@ -1362,8 +1362,16 @@ function splitAttributeName(raw: string, namespace: HtmlNamespace, xml: boolean)
 }
 
 /** The class tokens of a value, with any template tag in it set aside: `btn {{ cls }}` is one class and a template's. */
+/**
+ * The class tokens of a value. A token written with a template expression (`{{m.tag}}`, `btn-{{ kind }}`,
+ * `{% if a %}active{% endif %}`) is KEPT, whole, as written (V2-15 ruling: a dynamic class token, never dropped);
+ * whitespace inside a template tag does not split it. The engine flags such a token dynamic.
+ */
 function classTokens(value: string): string[] {
-  return value.replace(TEMPLATE_TAG, ' ').split(/[ \t\n\f\r]+/).filter((t) => t !== '');
+  const masked = value.replace(TEMPLATE_TAG, (m) => '\u0001'.repeat(m.length));
+  const out: string[] = [];
+  for (const m of masked.matchAll(/[^ \t\n\f\r]+/g)) out.push(value.slice(m.index!, m.index! + m[0].length));
+  return out;
 }
 
 /** `<!DOCTYPE html PUBLIC "…" "…">` as `html PUBLIC "…" "…"`, whitespace-normalised. */
