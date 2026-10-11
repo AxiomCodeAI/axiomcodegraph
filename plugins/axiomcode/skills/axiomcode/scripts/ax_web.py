@@ -341,6 +341,10 @@ class Web:
                                 LEFT JOIN web_pages p ON p.uid = u.page_uid WHERE u.node_uid IN ({ph}){pf3}""", *(ids + pp3)):
                 unknown.append(self.row(at_of(u['file'], u['line']), 'selector', 'unknown', 'unknown', u['reason'], page=u['page']))
         rows += unknown
+        # the selector `.name` itself, when a sheet writes it: the elements it matches (role styled), as `impact "X"` gives
+        # for any selector (C-04): a single-class target must not lose the selector->element answer to the class lookup
+        own = [s['uid'] for s in sels if s['selector_text'] == '.' + name]
+        rows += self.styled_rows(own)
         wc = self.q1("SELECT * FROM web_classes WHERE class_name = ?", name)
         ic = self.q1("SELECT i.content, i.font_family, r.file, r.line FROM web_icon_classes i JOIN web_rules r ON r.uid = i.rule_uid WHERE i.class_name = ?", name)
         if wc:
@@ -352,8 +356,23 @@ class Web:
         self.section(prose, f"elements carrying .{name}", [r for r in rows if r['role'] == 'carries'], lambda r: f"{r['at']}: {r['display']}" + (f" [{r['reason']}]" if r['reason'] else ''))
         self.section(prose, f"selectors naming .{name}", [r for r in rows if r['role'] == 'selectors'],
                      lambda r: f"{r['at']}: {r['selector']}  [loaded by {r['pages_loading']} page(s), matches on {r['pages_matched']}]")
+        if own: self.section(prose, f"elements the selector .{name} styles", [r for r in rows if r['role'] == 'styled'], self.styled_line)
         if unknown: self.section(prose, "unknown (the bound)", unknown, lambda r: f"{r['at']}: {r['reason']}" + (f" {r.get('display', '')}" if r.get('display') else ''))
         return self.finish({'found': True, 'kind': 'class', 'target': '.' + name, 'prose': prose}, rows)
+
+    def styled_rows(self, sel_uids):
+        """role `styled`: the elements these selectors match (with --in: on the page, or included into it, §11)"""
+        if not sel_uids: return []
+        ph = ','.join('?' * len(sel_uids)); pf, pp = self.in_page('s.page_uid', 's.host_page_uid')
+        return [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display'],
+                         **({'host': r['host']} if r['host'] else {}), **({'tier': 'asserted'} if r['asserted'] else {}))
+                for r in self.q(f"""SELECT DISTINCT s.status, s.reason, e.file, e.line, e.display{self.host_cols()} FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid
+                                   WHERE s.selector_uid IN ({ph}){pf} ORDER BY e.file, e.line""", *(list(sel_uids) + pp))]
+
+    @staticmethod
+    def styled_line(r):
+        return (f"{r['at']}: {r['display']} [{r['status']}{' ' + r['reason'] if r['reason'] else ''}]"
+                + (f" (included in {r['host']})" if r.get('host') else '') + (" [asserted]" if r.get('tier') == 'asserted' else ''))
 
     def impact_id(self, value):
         pf, pp = self.in_page('e.page_uid')
@@ -374,10 +393,13 @@ class Web:
         rows += [self.row(at_of(r['file'], r['line']), 'element', 'referenced_by', r['status'], r['reason'], attribute=r['attribute_name'], display=r['display']) for r in refs]
         rows += [self.row(at_of(r['file'], r['line']), 'element', 'linked_from', url=r['url_as_written'], display=r['display']) for r in links]
         for e in els[:10]: rows += [dict(r, element=at_of(e['file'], e['line'])) for r in self.cascade_rows(e['uid'])]
+        own = [s['uid'] for s in sels if s['selector_text'] == '#' + value]
+        rows += self.styled_rows(own)   # C-04: the selector #value itself, as `impact "X"` answers any selector
         prose = [f"web: id #{value}"]
         self.section(prose, f"elements with id {value}", [r for r in rows if r['role'] == 'carries'], lambda r: f"{r['at']}: {r['display']}" + (' [duplicated on this page]' if r['reason'] else ''))
         self.section(prose, "rules styling them, in cascade order (last wins)", [r for r in rows if r['role'] == 'styled_by'], self.cascade_line)
         self.section(prose, f"selectors naming #{value}", [r for r in rows if r['role'] == 'selectors'], lambda r: f"{r['at']}: {r['selector']}")
+        if own: self.section(prose, f"elements the selector #{value} styles", [r for r in rows if r['role'] == 'styled'], self.styled_line)
         self.section(prose, f"what points at #{value} on its page", [r for r in rows if r['role'] == 'referenced_by'],
                      lambda r: f"{r['at']}: {r['display']} [{r['attribute']}; {r['status']}{' ' + r['reason'] if r['reason'] else ''}]")
         if links: self.section(prose, f"links from other pages to #{value}", [r for r in rows if r['role'] == 'linked_from'], lambda r: f"{r['at']}: {r['display']} → {r['url']}")

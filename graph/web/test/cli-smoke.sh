@@ -32,6 +32,8 @@ if ! (cd "$T/site" && "$AX" index "$T/site" --lang web >"$T/index.log" 2>&1); th
 [ -f "$T/site/.axiomcode/out/graph.sqlite" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL index wrote no graph.sqlite"; tail -5 "$T/index.log"; }
 check impact-class 'elements carrying .menu: 2' "$AX" impact .menu
 check impact-page '1. style.css' "$AX" impact index.html
+# C-04: a single-class selector asked for on a page answers the selector->element role too, not only the class lookup
+check impact-class-styled 'elements the selector .menu styles: 1' "$AX" impact .menu --in index.html
 check impact-var '--gap' "$AX" impact --gap
 check impact-handler 'onclick' "$AX" impact index.html
 check context 'menu' "$AX" context "menu colour"
