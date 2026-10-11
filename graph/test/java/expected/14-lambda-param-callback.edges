@@ -1,9 +1,9 @@
-ambiguous_unknown	method	LambdaParamCallback#main(String[]) -> -
 ambiguous_unknown	method	LambdaParamCallback#viaMapValues(String) -> -
 ambiguous_unknown	method	LambdaParamCallback#viaStream(List,String) -> -
 ambiguous_unknown	method	LambdaParamCallback#viaTypedList(List,String) -> -
 ambiguous_unknown	new	LambdaParamCallback#<type-initializer>() -> -
 ambiguous_unknown	new	LambdaParamCallback#main(String[]) -> -
+boundary_lib	method	LambdaParamCallback#main(String[]) -> external:java.util.List.add
 boundary_lib	method	LambdaParamCallback#main(String[]) -> external:java.util.Map.put
 boundary_lib	method	LambdaParamCallback#viaMapValues(String) -> external:java.util.Map.values
 boundary_lib	method	LambdaParamCallback#viaStream(List,String) -> external:java.util.List.stream

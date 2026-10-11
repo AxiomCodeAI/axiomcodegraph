@@ -1,0 +1,33 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a test file named only test.ts, beside the module it tests, registers tests with describe/it: its callbacks are tests, so the test that calls the change is selected",
+   "run": [
+    "impact",
+    "area",
+    "--tests"
+   ],
+   "want": [
+    "src/area/test.ts"
+   ],
+   "avoid": [
+    "0 of 0 test method(s)"
+   ]
+  },
+  {
+   "why": "CONTROL: a file named spec.ts that registers no test is code, not a test, even though it calls the change: of the two callers only the test file's callback is test code",
+   "run": [
+    "impact",
+    "area"
+   ],
+   "want": [
+    "2 resolved; 1 of them test"
+   ],
+   "avoid": [
+    "2 of them test"
+   ]
+  }
+ ]
+}

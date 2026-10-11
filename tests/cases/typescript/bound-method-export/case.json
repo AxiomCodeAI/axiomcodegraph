@@ -1,0 +1,110 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a const bound to an instance method (`engine.createDraft.bind(engine)`) runs that method: a call through it in the same module reaches the method's body",
+   "run": [
+    "path",
+    "localUse",
+    "draftStep"
+   ],
+   "want": [
+    "Engine.createDraft",
+    "draftStep"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026and through a named import of the const, from another module",
+   "run": [
+    "path",
+    "draftIt",
+    "draftStep"
+   ],
+   "want": [
+    "Engine.createDraft",
+    "draftStep"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026and through a namespace import",
+   "run": [
+    "path",
+    "patchIt",
+    "patchStep"
+   ],
+   "want": [
+    "Engine.applyPatches",
+    "patchStep"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "a method read off the instance with no bind is the same method",
+   "run": [
+    "path",
+    "plainIt",
+    "plainStep"
+   ],
+   "want": [
+    "Engine.plain",
+    "plainStep"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "impact on the method lists the importing caller",
+   "run": [
+    "impact",
+    "Engine.createDraft"
+   ],
+   "want": [
+    "draftIt",
+    "localUse"
+   ],
+   "avoid": [
+    "nothing calls"
+   ]
+  },
+  {
+   "why": "CONTROL: the same exported name bound in another module runs that module's method: the import is followed to its own module's const, never by name",
+   "run": [
+    "path",
+    "otherIt",
+    "draftStep"
+   ],
+   "want": [
+    "no chain of resolved calls"
+   ],
+   "avoid": [
+    "Engine.createDraft"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "CONTROL, the positive side: the other module's call reaches its own method",
+   "run": [
+    "path",
+    "otherIt",
+    "otherStep"
+   ],
+   "want": [
+    "Other.createDraft",
+    "otherStep"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  }
+ ]
+}

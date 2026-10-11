@@ -202,3 +202,53 @@ ts_http_client_module("axios").
 ts_http_client_factory("create").
 .decl ts_http_base_url_key(c0:symbol)
 ts_http_base_url_key("baseURL").
+
+// ── MESSAGING: a key both ends spell (a topic, a queue, a message pattern) ──
+// ts_msg_client_type(Specifier, TypeName, Role): a receiver DECLARED as TypeName,
+// imported from Specifier, sends or subscribes. Matched on the declared type and the
+// package it comes from, never on the method name alone: `emit` on a Node event
+// emitter, `send` on an HTTP reply or a socket, `subscribe` on an observable are none
+// of these.
+//   nest_client     `<client>.emit(key, data)` / `<client>.send(key, data)`
+//   kafka_producer  `<producer>.send({ topic, messages })`
+//   kafka_consumer  `<consumer>.subscribe({ topic })` / `({ topics: [...] })`
+.decl ts_msg_client_type(c0:symbol, c1:symbol, c2:symbol)
+ts_msg_client_type("@nestjs/microservices", "ClientProxy", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientKafka", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientRMQ", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientNats", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientRedis", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientMqtt", "nest_client").
+ts_msg_client_type("@nestjs/microservices", "ClientTCP", "nest_client").
+ts_msg_client_type("kafkajs", "Producer", "kafka_producer").
+ts_msg_client_type("kafkajs", "Consumer", "kafka_consumer").
+// ts_msg_send(Role, Method, Transport): the call that sends; the key is argument 0,
+// or its `topic` property when the argument is a record (ts_msg_record_key)
+.decl ts_msg_send(c0:symbol, c1:symbol, c2:symbol)
+ts_msg_send("nest_client", "emit", "message").
+ts_msg_send("nest_client", "send", "message").
+ts_msg_send("kafka_producer", "send", "kafka").
+.decl ts_msg_subscribe(c0:symbol, c1:symbol, c2:symbol)
+ts_msg_subscribe("kafka_consumer", "subscribe", "kafka").
+// the property of a record argument that names the key, and the one naming several
+.decl ts_msg_record_key(c0:symbol)
+ts_msg_record_key("topic").
+.decl ts_msg_record_keys(c0:symbol)
+ts_msg_record_keys("topics").
+// ts_msg_handler_decorator(Name): a method decorator whose argument 0 is the key the
+// method handles (`@EventPattern(TOPICS.x)`, `@MessagePattern('orders.place')`)
+.decl ts_msg_handler_decorator(c0:symbol)
+ts_msg_handler_decorator("EventPattern").
+ts_msg_handler_decorator("MessagePattern").
+// ts_msg_transport_member(Written, Transport): the decorator's optional argument 1
+.decl ts_msg_transport_member(c0:symbol, c1:symbol)
+ts_msg_transport_member("Transport.KAFKA", "kafka").
+ts_msg_transport_member("Transport.RMQ", "amqp").
+ts_msg_transport_member("Transport.NATS", "nats").
+ts_msg_transport_member("Transport.REDIS", "redis").
+ts_msg_transport_member("Transport.MQTT", "mqtt").
+ts_msg_transport_member("Transport.TCP", "tcp").
+// the transport of an end that does not say which broker it uses (a Nest client is
+// bound to one in module configuration): it joins an end of any transport
+.decl ts_remote_transport_message(c0:symbol)
+ts_remote_transport_message("message").

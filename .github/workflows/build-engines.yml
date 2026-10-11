@@ -7,7 +7,9 @@
 # language's rules into portable C++ once on Ubuntu (the pinned .deb), and every platform
 # compiles that C++ with its own C++17 compiler against Soufflé's headers. The result is
 # one self-contained executable per language per platform, linked against nothing but the
-# C++ runtime. Same flags as the local compile (no OpenMP/zlib/sqlite), portable targets.
+# C++ runtime. Same flags as the local compile (no zlib/sqlite), portable targets. Every language
+# engine is the PARALLEL (OpenMP) flavor on every platform, its OpenMP runtime linked in statically
+# (Linux libgomp.a, macOS a libomp.a built here for macOS 12) or, on Windows, shipped beside it.
 #
 # Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID,
 # and queries/axiomcode-query-<name>[.exe] + queries/<name>.id for every query program the CLI
@@ -73,7 +75,9 @@ jobs:
             id="$(bash graph/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"; printf '%s' "$id" > "gen/$lang.id"
             bash graph/pipeline/run-souffle.sh --language "$lang" --emit-program "gen/$lang.dl"
-            souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
+            # -j makes souffle EMIT the parallel loops (without it the C++ has none); whether a
+            # platform's binary runs them in parallel is decided at compile time below.
+            souffle -I graph -j 8 -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
             awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
           done
           # the query programs: self-contained (no #include), keyed by dl_program.py itself
@@ -89,6 +93,33 @@ jobs:
           bash .github/scripts/query-smoke.sh expect gen/queries
           cp .github/scripts/query-smoke.sh gen/queries/smoke.sh
           cp -r /usr/include/souffle gen/souffle
+          # the seqlock fix (see souffle_overlay in run-souffle.sh): the write-entry RMW
+          # must be seq_cst or a weakly-ordered CPU lets data stores pass the version-odd
+          # store and readers validate garbage. Patched here so every platform's binary
+          # is built from the same fixed headers; the engine id carries +seqlock-fix-4,
+          # so these headers must carry the SAME patches run-souffle's overlay applies —
+          # a binary labeled fix-4 but built from lesser headers is the exact mislabeling
+          # the salt exists to prevent.
+          # the header layout differs by install (deb: souffle/utility; brew: souffle/souffle/utility),
+          # so the patched files are FOUND, not assumed — a miss fails the build here, loudly
+          PU=$(find gen/souffle -name ParallelUtil.h | head -1); [ -n "$PU" ]
+          sed -i 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$PU"
+          grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$PU"
+          ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$PU"
+          # fix-3: the publication fences, applied by the same anchored patch the local
+          # overlay uses (extracted from run-souffle.sh so the two cannot drift)
+          BT=$(find gen/souffle -name BTree.h | head -1); [ -n "$BT" ]
+          awk '/^import glob, os, sys$/,/^PYEOF$/' graph/pipeline/run-souffle.sh | sed '$d' > /tmp/fences.py
+          python3 /tmp/fences.py "$BT"
+          [ "$(grep -c 'seqlock-fix-3' "$BT")" = "4" ]
+          # fix-4: the speculative-fetch guards, applied by the same extracted patch
+          FW=$(find gen/souffle -name ConcurrentFlyweight.h | head -1); [ -n "$FW" ]
+          RT=$(find gen/souffle -name RecordTableImpl.h | head -1); [ -n "$RT" ]
+          [ "$(grep -c 'seqlock-fix-4' "$FW")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$RT")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BT")" = "1" ]
+          BD=$(find gen/souffle -name BTreeDelete.h | head -1); [ -n "$BD" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BD")" = "1" ]
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
@@ -104,8 +135,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { os: ubuntu-24.04,     platform: linux-x64 }
-          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: ubuntu-24.04,     platform: linux-x64,   manylinux: quay.io/pypa/manylinux_2_28_x86_64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64, manylinux: quay.io/pypa/manylinux_2_28_aarch64 }
           - { os: windows-2025,     platform: win32-x64 }
     runs-on: ${{ matrix.target.os }}
     steps:
@@ -119,14 +150,35 @@ jobs:
           path: engines
           key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
           restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
-      - name: Compile every language (Linux)
+      # THE GLIBC FLOOR. A binary links against the glibc of the machine that built it, and runs only where that
+      # glibc or a newer one is installed. Built on ubuntu-24.04 (glibc 2.39) every engine needed GLIBC_2.38, so it
+      # would not start on Ubuntu 22.04, Debian 12, RHEL 9 or Amazon Linux 2023: the official python and node
+      # Docker images, most CI and most servers. The compile therefore runs inside manylinux_2_28 (glibc 2.28,
+      # the floor Python wheels use), and the step after it fails the build if any binary asks for more.
+      - name: Compile every language (Linux, manylinux_2_28)
         if: startsWith(matrix.target.platform, 'linux')
+        env:
+          MANYLINUX: ${{ matrix.target.manylinux }}
         run: |
           set -e
+          docker run --rm -v "$PWD:/w" -w /w -e LANGUAGES="$LANGUAGES" -u "$(id -u):$(id -g)" "$MANYLINUX" bash -ec '
+          c++ --version | head -1; ldd --version | head -1
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            # OpenMP on BOTH architectures: the arm64 crash modes were weak-ordering holes in
+            # the vendored headers (write-entry RMW + unfenced node publication, seqlock-fix-3)
+            # and a null child read by the optimistic descent (seqlock-fix-4), all patched above
+            # and validated under load on linux-arm64 and darwin-arm64. The .parallel marker beside the binary is what
+            # run-souffle.sh reads to pass a real -j at run time.
+            # libgomp links STATICALLY so the binary runs on machines with no gcc runtime
+            # (a stock Ubuntu has no libgomp.so.1). -fopenmp on the LINK line makes the driver
+            # append its own dynamic -lgomp, whatever -Wl,-Bstatic says, so -fopenmp compiles
+            # only, and the link names libgomp.a by path; libgomp.a needs -ldl.
+            c++ -std=c++17 -O3 -w -fopenmp -I gen -c "gen/$lang.cpp" -o "gen/$lang.o"
+            c++ "gen/$lang.o" -o "engines/$lang/axiomcode-engine-$lang" -static-libstdc++ -static-libgcc "$(c++ -print-file-name=libgomp.a)" -lpthread -ldl
+            rm -f "gen/$lang.o"
+            touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
           mkdir -p engines/queries
@@ -136,10 +188,43 @@ jobs:
             c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "$cpp" -o "engines/queries/axiomcode-query-$q"
             cp "gen/queries/$q.id" "engines/queries/$q.id"
           done
+          '
           ls -la engines/*; ldd engines/java/axiomcode-engine-java || true
+      - name: Linux binaries need no glibc newer than 2.28
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*; do
+            need="$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
+            echo "$f needs glibc $need"
+            if [ "$(printf '%s\n2.28\n' "$need" | sort -V | tail -1)" != 2.28 ]; then echo "::error::$f needs glibc $need (> 2.28)"; bad=1; fi
+          done
+          exit $bad
+      # A RUNTIME A CLEAN MACHINE HAS. A binary that loads a library the build host has and a user's machine does not
+      # starts here and fails there: libgomp.so.1 is not on a stock Ubuntu. Every engine may need only the C library
+      # and the loader.
+      - name: Linux binaries load nothing a stock system lacks
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*; do
+            case "$f" in *.parallel) continue;; esac
+            extra="$(readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | grep -vE '^(libc|libm|libpthread|libdl|librt|ld-linux[-a-z0-9_]*)\.so' || true)"
+            if [ -n "$extra" ]; then echo "::error::$f needs $(echo $extra) — not on a stock system"; bad=1; fi
+          done
+          exit $bad
       - uses: ilammy/msvc-dev-cmd@v1
         if: startsWith(matrix.target.platform, 'win32')
         with: { arch: x64 }
+      # OPENMP ON WINDOWS, RUNTIME SHIPPED BESIDE THE ENGINE. /openmp links vcomp140.dll, which a Windows machine
+      # without the Visual C++ Redistributable does not have: alone, every language engine exits 0xC0000135 before it
+      # reads a fact. So the step after this copies it (and any VC runtime DLL it imports; MSVC 14.44's imports only
+      # kernel32) from the MSVC redist folder into each engine's own directory: Windows searches the executable's
+      # folder first, and the redistributable licence allows this app-local copy. The CRT itself stays static (cl's default /MT). The
+      # .parallel marker beside each engine makes run-souffle.sh pass a real -j. The query programs are generated
+      # without -j, so they need no OpenMP and stay as before.
       - name: Compile every language (Windows, MSVC)
         if: startsWith(matrix.target.platform, 'win32')
         shell: cmd
@@ -148,8 +233,9 @@ jobs:
             fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
             if errorlevel 1 (
               if not exist engines\%%L mkdir engines\%%L
-              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /openmp /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
               if errorlevel 1 exit /b 1
+              type nul > engines\%%L\axiomcode-engine-%%L.exe.parallel
               copy /y gen\%%L.id engines\%%L\ENGINE_ID
             ) else (
               echo %%L: cached, rules unchanged
@@ -167,6 +253,44 @@ jobs:
             )
           )
           dir /s engines
+      - name: Ship the OpenMP runtime beside each Windows engine
+        if: startsWith(matrix.target.platform, 'win32')
+        shell: bash
+        run: |
+          set -e
+          redist="$(cygpath -u "$VCToolsRedistDir")"
+          omp="$(ls -d "$redist"x64/Microsoft.VC*.OpenMP | tail -1)"; crt="$(ls -d "$redist"x64/Microsoft.VC*.CRT | tail -1)"
+          [ -f "$omp/vcomp140.dll" ]; echo "OpenMP runtime: $omp; CRT: $crt"
+          deps(){ dumpbin //nologo //dependents "$1" | grep -ioE '^ +[a-z0-9_.-]+\.dll' | tr -d ' ' | tr 'A-Z' 'a-z'; }
+          for lang in $LANGUAGES; do
+            cp "$omp/vcomp140.dll" "engines/$lang/"
+            # whatever vcomp140.dll itself imports from the VC runtime folder (none for 14.44); the UCRT is part of Windows
+            for d in $(deps "$omp/vcomp140.dll"); do if [ -f "$crt/$d" ]; then cp "$crt/$d" "engines/$lang/$d"; fi; done
+            ls "engines/$lang"
+          done
+      # A RUNTIME A CLEAN MACHINE HAS. Every DLL an engine, or a DLL shipped beside it, imports must be part of Windows
+      # itself or sit in the same folder. A test for "present in System32" would pass here and nowhere else: a runner
+      # with Visual Studio has the VC runtime in System32, a stock Windows does not.
+      - name: Windows binaries load nothing a stock system lacks
+        if: startsWith(matrix.target.platform, 'win32')
+        shell: bash
+        run: |
+          set -e
+          os='^(kernel32|kernelbase|ntdll|advapi32|user32|gdi32|ws2_32|shell32|ole32|oleaut32|bcrypt|crypt32|rpcrt4|ucrtbase|api-ms-win-[a-z0-9-]+|ext-ms-win-[a-z0-9-]+)\.dll$'
+          deps(){ dumpbin //nologo //dependents "$1" | grep -ioE '^ +[a-z0-9_.-]+\.dll' | tr -d ' ' | tr 'A-Z' 'a-z'; }
+          bad=0
+          for f in engines/*/*.exe engines/*/*.dll; do
+            for d in $(deps "$f"); do
+              if echo "$d" | grep -qE "$os" || [ -f "$(dirname "$f")/$d" ]; then continue; fi
+              echo "::error::$f needs $d — not part of Windows and not beside it"; bad=1
+            done
+          done
+          for lang in $LANGUAGES; do
+            if [ -f "engines/$lang/axiomcode-engine-$lang.exe.parallel" ] && ! deps "engines/$lang/axiomcode-engine-$lang.exe" | grep -qx vcomp140.dll; then
+              echo "::error::$lang carries a .parallel marker but was not built with /openmp"; bad=1
+            fi
+          done
+          exit $bad
       - name: Smoke — every binary starts on empty inputs
         shell: bash
         run: |
@@ -214,6 +338,30 @@ jobs:
           path: engines
           key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
           restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
+      # A STATIC LIBOMP FOR MACOS 12. Apple clang lowers the OpenMP pragmas (-Xclang -fopenmp) but ships no runtime.
+      # Homebrew's libomp is built for the runner's own macOS (minos 15 on macos-15), too new for the engines' 12.0
+      # floor, and its dylib lives under /opt/homebrew, which a user's Mac does not have. So the runtime is built here
+      # from the pinned LLVM release with a 12.0 deployment target, static only, and linked by path: otool -L of an
+      # engine then lists nothing but the system's libc++ and libSystem.
+      - name: Static libomp for macOS 12 (${{ matrix.target.arch }})
+        env:
+          ARCH: ${{ matrix.target.arch }}
+          LLVM: 19.1.7
+        run: |
+          set -e
+          u="https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM"
+          curl -fsSL --retry 3 -o openmp.tar.xz "$u/openmp-$LLVM.src.tar.xz"
+          curl -fsSL --retry 3 -o llvm-cmake.tar.xz "$u/cmake-$LLVM.src.tar.xz"
+          echo "bd7e6901ab086fd268750363017935fd4a717c153dad3c2aab86cb0140d9e3fe  openmp.tar.xz" | shasum -a 256 -c -
+          echo "11c5a28f90053b0c43d0dec3d0ad579347fc277199c005206b963c19aae514e3  llvm-cmake.tar.xz" | shasum -a 256 -c -
+          mkdir -p omp-src && tar -xf openmp.tar.xz -C omp-src && tar -xf llvm-cmake.tar.xz -C omp-src && mv "omp-src/cmake-$LLVM.src" omp-src/cmake
+          cmake -S "omp-src/openmp-$LLVM.src" -B omp-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DLIBOMP_ENABLE_SHARED=OFF -DOPENMP_ENABLE_LIBOMPTARGET=OFF \
+            -DOPENMP_ENABLE_OMPT_TOOLS=OFF -DLIBOMP_OMPT_SUPPORT=OFF -DLIBOMP_USE_HWLOC=OFF -DOPENMP_STANDALONE_BUILD=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/omp" > omp-cmake.log
+          cmake --build omp-build -j 4 > omp-build.log && cmake --install omp-build > /dev/null
+          lipo -info omp/lib/libomp.a | grep -q "architecture: $ARCH"
+          echo "OMP=$PWD/omp" >> "$GITHUB_ENV"
       - name: Compile every language (macOS ${{ matrix.target.arch }})
         env:
           ARCH: ${{ matrix.target.arch }}
@@ -222,7 +370,10 @@ jobs:
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            c++ -std=c++17 -O3 -w -arch "$ARCH" -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            # -Xclang -fopenmp lowers the pragmas without the driver adding -lomp; libomp.a is named by path
+            c++ -std=c++17 -O3 -w -arch "$ARCH" -mmacosx-version-min=12.0 -Xclang -fopenmp -I "$OMP/include" -I gen \
+              "gen/$lang.cpp" "$OMP/lib/libomp.a" -o "engines/$lang/axiomcode-engine-$lang"
+            touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
           mkdir -p engines/queries
@@ -234,6 +385,22 @@ jobs:
           done
           file engines/java/axiomcode-engine-java
           otool -L engines/java/axiomcode-engine-java
+      # A RUNTIME A CLEAN MAC HAS: only what lives under /usr/lib and /System (libc++, libSystem). A libomp.dylib, or
+      # anything under /opt/homebrew or /usr/local, starts here and fails on a user's Mac. A parallel engine must also
+      # hold the OpenMP runtime (a pragma that was never lowered leaves a silently serial binary).
+      - name: macOS binaries load nothing a stock system lacks
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*; do
+            case "$f" in *.parallel) continue;; esac
+            extra="$(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/)' || true)"
+            if [ -n "$extra" ]; then echo "::error::$f loads $(echo $extra) — not on a stock Mac"; bad=1; fi
+            minos="$(otool -l "$f" | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print $2; exit}')"
+            if [ "$minos" != 12.0 ]; then echo "::error::$f needs macOS $minos (> 12.0)"; bad=1; fi
+            if [ -f "$f.parallel" ] && ! nm "$f" | grep -q ' T ___kmpc_fork_call$'; then echo "::error::$f carries a .parallel marker but holds no OpenMP runtime"; bad=1; fi
+          done
+          exit $bad
       - name: Smoke — every binary starts on empty inputs
         run: |
           set -e

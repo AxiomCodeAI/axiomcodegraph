@@ -1,0 +1,169 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "the second of two field declarations on one line changed its initializer: that field, `count`; it was 'Box.count renamed -> label', the line's first declaration",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_count.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "field      Box.count",
+    "initializer"
+   ],
+   "avoid": [
+    "renamed",
+    "Box.label"
+   ]
+  },
+  {
+   "why": "`int size = 1, weight = 2;`: an edit to the second declarator's initializer is `weight`, not `size`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_weight.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "field      Box.weight",
+    "initializer"
+   ],
+   "avoid": [
+    "Box.size"
+   ]
+  },
+  {
+   "why": "control: the second declarator renamed is still a field rename",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_heft.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "field      Box.weight",
+    "renamed → heft"
+   ],
+   "avoid": [
+    "Box.size"
+   ]
+  },
+  {
+   "why": "control: a field retyped on a shared line is a type change of that field only",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_count_long.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "field      Box.count",
+    "type int → long"
+   ],
+   "avoid": [
+    "Box.label"
+   ]
+  },
+  {
+   "why": "a declaration added after another on its line is a new field, and the unchanged one is not reported",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_extra.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "Box.extra",
+    "new field"
+   ],
+   "avoid": [
+    "field      Box.count",
+    "Box.label"
+   ]
+  },
+  {
+   "why": "several local declarations on one line of a method: the method's body changed, no field is named",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_local.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "body       Box.run"
+   ],
+   "avoid": [
+    "  field      "
+   ]
+  },
+  {
+   "why": "`protected int lo, hi;` (declarators with no initializer): `hi` renamed is `hi`'s rename, not `lo`'s, and not also a new field `high`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Box.java",
+    "--new",
+    "{repo}/New_high.java",
+    "--file",
+    "src/main/java/a/Box.java"
+   ],
+   "want": [
+    "field      Box.hi",
+    "renamed → high"
+   ],
+   "avoid": [
+    "Box.lo",
+    "added      Box.high"
+   ]
+  },
+  {
+   "why": "an edit on a later line of a static final initializer written over several lines is that field's, not 'inside Conf'",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Conf.java",
+    "--new",
+    "{repo}/New_conf.java",
+    "--file",
+    "src/main/java/a/Conf.java"
+   ],
+   "want": [
+    "field      Conf.SETTINGS",
+    "initializer"
+   ],
+   "avoid": [
+    "inside     Conf",
+    "Conf.LIMIT"
+   ]
+  }
+ ]
+}

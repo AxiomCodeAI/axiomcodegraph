@@ -1,0 +1,1 @@
+known_edge	read	Pipeline#map((value: T) =) -> Pipeline#items

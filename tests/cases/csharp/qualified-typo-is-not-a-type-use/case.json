@@ -1,0 +1,18 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a qualified name whose qualifier is a declared type that has no such member is a miss, not a use of a same-named type declared outside the graph",
+   "run": ["path", "OrderController.Panel", "OrderHandler.Handle"], "expect_error": true,
+   "want": ["nothing named 'OrderController.Panel'"],
+   "avoid": ["not declared here; matched", "the two are independent"]},
+  {"why": "control: the bare name is still the undeclared type, found where it is used",
+   "run": ["path", "Panel", "OrderHandler.Handle"], "expect_error": true,
+   "want": ["type Panel (not declared here; matched: referenced by name in 1 method(s))"],
+   "avoid": ["nothing named"]},
+  {"why": "control: qualified by the namespace it is imported from, it is the same undeclared type",
+   "run": ["path", "Vendor.Ui.Panel", "OrderHandler.Handle"], "expect_error": true,
+   "want": ["type Vendor.Ui.Panel (not declared here; matched: referenced by name in 1 method(s))"],
+   "avoid": ["nothing named"]},
+  {"why": "control: the member the qualifier does declare resolves and reaches the handler",
+   "run": ["path", "OrderController.Detail", "OrderHandler.Handle"],
+   "want": ["OrderHandler.Handle"],
+   "avoid": ["nothing named", "the two are independent"]}]}

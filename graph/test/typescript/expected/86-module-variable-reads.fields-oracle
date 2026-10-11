@@ -1,0 +1,9 @@
+86-module-variable-reads [fields]
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    0.7500   (6 of 8 the compiler resolved)
+  sites 21   resolved 19 (90.5%)
+  tiers ambiguous_unknown=2  known_edge=19
+  access read=19  readwrite=1  write=1
+  not scored: 15 rows whose target is not a client declaration
+    MISSING a/test/t#annotated(typeof CFG) READ a/src/cfg#name
+    MISSING a/test/t#shadowed() READ a/test/t#name

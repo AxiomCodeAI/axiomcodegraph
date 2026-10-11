@@ -635,6 +635,7 @@ known_edge	PROPERTY_READ	f40_data_descriptor.via_data_descriptor -> f40_data_des
 known_edge	PROPERTY_READ	f40_data_descriptor.via_delete_descriptor -> f40_data_descriptor.Deletable.__get__
 known_edge	PROPERTY_READ	f40_data_descriptor.via_property -> f40_data_descriptor.Prop.slot
 known_edge	PROPERTY_READ	f43_def_rebind.read_property -> f43_def_rebind.Holder.value
+known_edge	PROPERTY_WRITE	f43_def_rebind.read_property -> f43_def_rebind.Holder.value
 known_edge	SELF_CALL	f02_callables.HoldsCallables.run -> f02_callables.LocalCallable.__call__
 known_edge	SELF_CALL	f28_await.Registry.into_a_field -> f28_await.Registry.build
 known_edge	SELF_CALL	f28_await.Registry.via_self_receiver -> f28_await.Registry.build

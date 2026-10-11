@@ -41,6 +41,11 @@ export enum TsImportResolutionKind {
   NODE_MODULES_SOURCE = 'NODE_MODULES_SOURCE',
   /** Resolved through a package's `exports` map. */
   PACKAGE_EXPORTS = 'PACKAGE_EXPORTS',
+  /**
+   * A package this repository declares, imported by its name: bound to the walked
+   * source its `main` / `types` / `exports` entry is built from.
+   */
+  WORKSPACE_PACKAGE = 'WORKSPACE_PACKAGE',
   /** Matched a `declare module "x"` in this analysis. No file, and none needed. */
   AMBIENT_MODULE = 'AMBIENT_MODULE',
   /** A Node builtin, with or without the `node:` prefix. */

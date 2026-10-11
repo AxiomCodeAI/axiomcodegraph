@@ -396,15 +396,11 @@ expr_call_candidate(ce, m) :- callee_branch(ce, x),
     expr_shape(x, s),
     call_signature_in_scope(s, m).
 expr_call_candidate(ce, m) :- callee_branch(ce, x),
-    expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+    property_access_recv(x, n, q),
     expr_type(q, _, qt),
     field_is_callable(qt, n, m).
 expr_call_candidate(ce, m) :- callee_branch(ce, x),
-    expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+    property_access_recv(x, n, q),
     expr_shape(q, s),
     field_is_callable(s, n, m).
 
@@ -799,6 +795,7 @@ expr_call_dispatch(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     !call_super_receiver(ce),
     !dispatch_too_wide(rt, cn),
     implementors(rt, sub),
+    dispatch_admits(sub),
     declared_method_direct(sub, cn, "false", m).
 
 // ── THE STRUCTURAL FAN ──────────────────────────────────────────────────────
@@ -843,6 +840,7 @@ call_super_receiver(ce) :- call_site("client", _, _, "SUPER", _, ce, _).
 dispatch_width(rt, cn, n) :- implementor_member(rt, cn, _),
     n = count : { implementor_member(rt, cn, _) }.
 implementor_member(rt, cn, m) :- implementors(rt, sub),
+    dispatch_admits(sub),
     declared_method_direct(sub, cn, "false", m).
 implementor_member(rt, cn, m) :- structural_implementor(rt, sub),
     declared_method_direct(sub, cn, "false", m).
@@ -850,6 +848,59 @@ dispatch_too_wide(rt, cn) :- dispatch_width(rt, cn, n),
     dispatch_cap(c),
     k = to_number(c),
     n > k.
+
+// ── the closed-world narrowing (#473) — OPT-IN ──────────────────────────────
+// By default the nominal fan is every declared override the hierarchy admits (CHA),
+// bounded only by the cap. With `--closed-world on` it is narrowed to the overrides a
+// value the program can build could run (RTA), which is how Python's self-dispatch is
+// already bounded. The two are different claims under one tier, so the default is
+// unchanged and the narrowed run says it was narrowed: `run.dispatch_closed_world`, and
+// one dispatch_assumes_closed_world row per edge the premise removed.
+//
+// NARROWING IS SOUND ONLY IF EVERY CONSTRUCTION IS VISIBLE, and TypeScript has two
+// common ways to build a class without a `new` the parser can type: a framework or
+// container instantiates a class it was HANDED (`providers: [OrderService]`,
+// `register(Handler)`), and a factory calls `new C()` on a class it received as a
+// value. Both hand the class around as a VALUE, so a class referenced as a value
+// anywhere counts as constructible, alongside every typed `new`. What is left out is a
+// class that is only ever named as a TYPE, or not named at all — the case RTA exists for.
+//
+// A SUBTYPE IS LIVE IF A CONSTRUCTIBLE TYPE CONFORMS TO IT, not only if it is itself
+// constructed: `class Mid { run() {} }` extended by a constructed `Leaf` that does not
+// redeclare `run` executes Mid.run, and dropping Mid would lose an edge a run takes. The
+// conformance closure (not the member-inheritance one) is used so an interface that
+// only a constructed class implements stays in the fan exactly as it is today.
+closed_world_dispatch() :- dispatch_closed_world("on").
+type_constructible(t) :- type_instantiated(t, _).
+type_constructible(t) :- expr_referenced("client", "TYPE", t, _).
+// ...and from ANOTHER module the same value is an IMPORT_BINDING, not a TYPE: a Nest
+// module's `useClass: FileRelationalRepository` names the class it imported. Followed
+// through import_binds directly, not expr_static_type, which sits inside the call
+// resolution this narrowing feeds (dispatch_too_wide negates it: a stratification cycle).
+type_constructible(t) :- expr_referenced("client", "IMPORT_BINDING", ih, _),
+    import_binds(ih, _, "TYPE", t).
+type_live(t) :- type_constructible(t).
+type_live(anc) :- type_constructible(t), type_subtype_star(t, anc).
+type_live(sib) :- type_live(t), scope_sibling(t, sib).
+dispatch_admits(sub) :- implementors(_, sub), !closed_world_dispatch().
+dispatch_admits(sub) :- implementors(_, sub), closed_world_dispatch(), type_live(sub).
+
+// ── dispatch_assumes_closed_world(CallExprHash, DroppedMethodHash) ──────────
+// THE ASSUMPTION IS A ROW, NOT A FOOTNOTE — the counterpart of Python's
+// self_dispatch_assumes_closed_world. Each row is an edge the CHA fan had and the
+// narrowed fan does not, so a consumer can count what the premise cost and restore it
+// for a library whose subclasses live in someone else's code. Empty unless the flag is on.
+dispatch_assumes_closed_world(ce, m) :- closed_world_dispatch(),
+    call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    !call_exact_receiver(ce),
+    !call_super_receiver(ce),
+    !dispatch_too_wide(rt, cn),
+    implementors(rt, sub),
+    !type_live(sub),
+    declared_method_direct(sub, cn, "false", m).
 
 // ── the merged candidate set ────────────────────────────────────────────────
 expr_call_candidate(ce, m) :- expr_call_dispatch(ce, m).

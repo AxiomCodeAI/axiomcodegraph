@@ -1,0 +1,93 @@
+// ============================================================================
+// Call-edge generation · A CLIENT OBJECT HANDED TO A LIBRARY, WHICH CALLS IT BACK
+//
+//     verify(repo).save(argThat(new IsValid()));          // IsValid implements ArgumentMatcher
+//     orders.sort(new ByTotal());                         // ByTotal implements Comparator
+//
+// The library runs IsValid.matches / ByTotal.compare, and no call site in client code names
+// either method: the call is made inside the library. An override is followed from a call
+// on a receiver of the library type (virtual-dispatch.dl), and there is no such receiver
+// here, so the named class's methods had no caller at all. The same body written as an
+// anonymous class was reached, only because it is lexically inside the caller (`defines`).
+//
+// THE EDGE. A call site that does NOT resolve to client code, with an argument that is a client
+// object created for it (`new C(..)`, or a local initialised with one), reaches each method of C
+// that the library can call back:
+//   (a) an override of a library method (virtual_override from a lib base), when the
+//       library is staged; or
+//   (b) with the library absent, a method carrying @Override in a type that has an EXTERNAL
+//       ancestor (external-types.dl): the annotation says a supertype declares it, and the
+//       external ancestor is where that supertype can be.
+//   (c) with the library absent and no @Override written anywhere in C, a public method of a C
+//       that itself names an external supertype other than a marker interface.
+// A helper of a class that marks its overrides is not reached. java.lang.Object's members are
+// never fanned (equals / hashCode / toString over every argument is the classic blow-up;
+// the same exclusion client_overridden_lib_type makes).
+//
+// TIER callback_registered, kind "callback": the site HANDS the object over, and the library
+// may call it, now or later, or never. It is the tier JavaScript and TypeScript already use
+// for `xs.forEach(f)`, labelled so it is never read as a resolved call. The site keeps its
+// own row (boundary_lib / ambiguous_unknown) beside it.
+// A call that resolves to CLIENT code is left to that code: its body holds the parameter and
+// the call on it, and dispatch follows that. An anonymous class is reached as before, by its
+// `defines` hop: it is lexically inside the method that hands it over.
+// ============================================================================
+
+cb_object_member("equals"). cb_object_member("hashCode"). cb_object_member("toString").
+cb_object_member("clone").  cb_object_member("finalize").
+
+// an argument of a call that leaves the client, and the client type it holds
+cb_arg_type(call, t) :- invocation_site(call, kind), cb_site_kind(kind),
+    expr_child("client", call, "ARGUMENT", arg),
+    object_creation_type_resolves("client", arg, _, t).
+// … or a local the method created with `new` for it (`ByLength cmp = new ByLength(); xs.sort(cmp)`).
+// Only an object CREATED to be handed over: a parameter or a field passed along (`c.accept(w)`)
+// is a value flowing through, and the library method it reaches is often not one that calls
+// any of its callbacks (a Consumer does not close the AutoCloseable it is given).
+cb_arg_type(call, t) :- invocation_site(call, kind), cb_site_kind(kind),
+    expr_child("client", call, "ARGUMENT", arg),
+    java_expression(_, "ARGUMENT", _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, arg),
+    expr_ultimate_method("client", arg, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    local_creation_init(local),
+    expr_type("client", arg, t).
+cb_site_kind("method"). cb_site_kind("new").
+
+cb_client_site(call) :- client_calls_client("client", call, "client", _).
+cb_handoff(call, t) :- cb_arg_type(call, t), !cb_client_site(call),
+    java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// the methods of t, declared in it or inherited from a client ancestor
+cb_member(t, name, m) :- cb_handoff(_, t),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m).
+cb_member(t, name, m) :- cb_handoff(_, t), type_ancestor(t, sup),
+    java_method(name, _, _, _, _, _, _, sup, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m).
+
+// (a) an override of a library method
+cb_callback(t, m) :- cb_member(t, name, m), !cb_object_member(name),
+    virtual_override(base, m), method_owner("lib", _, base).
+// (b) @Override, under an external ancestor
+cb_external_ancestor(t) :- cb_handoff(_, t), type_ancestor(t, x), external_type(x).
+cb_callback(t, m) :- cb_member(t, name, m), !cb_object_member(name), cb_external_ancestor(t),
+    ann_on_method("client", _, "Override", m, _).
+// (c) with the library absent and a class that writes no @Override at all, the annotation says
+// nothing either way: every PUBLIC instance method it declares is a candidate (a library calls
+// an implementation through its interface, and an interface method is public). A class that
+// does write @Override has said which methods are overrides, and (b) reads that instead.
+cb_writes_override(t) :- cb_handoff(_, t),
+    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    ann_on_method("client", _, "Override", m, _).
+// Only for a class that names the external supertype ITSELF (`class ByLength implements
+// Comparator<String>`), and not a marker interface, which declares nothing to call: an entity
+// under a client base that is Serializable would otherwise offer every getter and setter.
+// Measured on a 50-file web application before this guard: 20 of 24 such edges were an entity's
+// accessors, reached from a test that put the entity in a collection.
+cb_marker_type("external:java.io.Serializable"). cb_marker_type("external:Serializable").
+cb_marker_type("external:java.lang.Cloneable").  cb_marker_type("external:Cloneable").
+cb_direct_external(t) :- cb_handoff(_, t), type_parent(t, x), external_type(x), !cb_marker_type(x).
+cb_callback(t, m) :- cb_handoff(_, t), cb_direct_external(t), !cb_writes_override(t),
+    java_method(name, _, _, _, _, _, _, t, _, _, "PUBLIC", _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    !cb_object_member(name).
+
+call_chain_edge(call, caller, "-", m, "client", "callback_registered", "callback") :-
+    cb_handoff(call, t), cb_callback(t, m), call_from(call, caller).

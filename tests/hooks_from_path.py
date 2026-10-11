@@ -11,12 +11,10 @@ in the session's working directory only, so they almost never spoke. The layout 
     ws/app/vendored -> ws/plain   a symlink inside the indexed project to a tree with no graph
 
 Promises, each with a near-miss control:
-  · a Read, a Grep with path=, a shell `sed -n` by absolute path and a `cd <app> && grep` from ws/ are enriched, the
-    Read exactly as it is from inside ws/app;
-  · the state and budget files are kept in the repository's .axiomcode, not the working directory's;
-  · the directive stays silent on a shell `cat` of a file that is not source, as it is on a Read of one;
-  · controls: a path with no graph anywhere above it, a path ABOVE the indexed root, and a symlink out of the indexed
-    tree all stay silent; a symlink INTO it answers from the real graph;
+  · a signature edit by absolute path from ws/ gets its blast radius (changes.py, PreToolUse), as it does from inside
+    ws/app;
+  · controls: a path with no graph anywhere above it and a symlink out of the indexed tree stay silent; a symlink
+    INTO it answers from the real graph;
   · the prompt hook tells a C#-only tree with no graph that one can be built (#1453), and a workspace above an indexed
     tree is not told it has no graph;
   · finding the graph costs well under the hooks' budget: < 20 ms per lookup, cached per directory for the session.
@@ -24,8 +22,7 @@ Promises, each with a near-miss control:
     python3 tests/hooks_from_path.py
 """
 import json, os, shutil, subprocess, sys, tempfile, time
-# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
-# second run of this script reuses the first run's session ids and hears nothing
+# hook state lives in the temp directory, keyed on the session
 os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +46,7 @@ def check(why, cond, detail=''):
         fails.append(why)
 
 
-def fire(cwd, session, tool, inp, hook='enrich.py', event='PostToolUse', **extra):
+def fire(cwd, session, tool, inp, hook='changes.py', event='PreToolUse', **extra):
     ev = dict({'hook_event_name': event, 'tool_name': tool, 'tool_input': inp, 'cwd': cwd, 'session_id': session}, **extra)
     r = subprocess.run([sys.executable, os.path.join(HOOKS, hook)], input=json.dumps(ev), capture_output=True, text=True, timeout=120)
     out = r.stdout.strip()
@@ -83,51 +80,22 @@ with tempfile.TemporaryDirectory() as tmp:
     os.symlink(plain, os.path.join(app, 'vendored'))
     store, svc = os.path.join(app, P, 'OrderStore.java'), os.path.join(app, P, 'OrderService.java')
 
-    # ── Read / Grep / shell from a directory with no graph ────────────────────────────────────────────────
-    inside = fire(app, 'in', 'Read', {'file_path': store})
-    check('control: a Read from inside the indexed project is enriched', 'findById' in inside and 'graph:' in inside, inside)
-    outside = fire(ws, 'ws1', 'Read', {'file_path': store})
-    check('a Read by absolute path from a directory with no graph gets the same block as from inside', outside == inside, outside)
-    g = fire(ws, 'ws2', 'Grep', {'pattern': 'findById', 'path': app})
-    check('a Grep with path= the indexed project gets the caller preview', 'OrderStore.findById' in g and '← 2' in g, g)
-    s = fire(ws, 'ws3', 'Bash', {'command': f'sed -n 1,40p {store}'})
-    check('a shell `sed -n` of a file by absolute path is enriched', 'findById' in s, s)
-    c = fire(ws, 'ws4', 'Bash', {'command': f'cd {app} && grep -rn findById src'})
-    check('a `cd <project> && grep` is enriched', 'OrderStore.findById' in c, c)
-    rel = fire(ws, 'ws5', 'Read', {'file_path': os.path.relpath(store, ws)})
-    check('a relative file_path is resolved against the session directory', rel == inside, rel)
-
-    # ── state is per repository ───────────────────────────────────────────────────────────────────────────
-    check('the session state is kept in the repository it is about',
-          os.path.exists(os.path.join(app, '.axiomcode', 'hooks-state-ws1.json')), os.listdir(os.path.join(app, '.axiomcode')))
+    # ── a signature edit, from a directory with no graph ─────────────────────────────────────────────────
+    # the edit is applied to a copy, so the file never changes and every call below sees the same source
+    def sig(path): return {'file_path': path, 'old_string': 'public String findById(int id)', 'new_string': 'public String findById(long id)'}
+    inside = fire(app, 'in', 'Edit', sig(store))
+    check('control: a signature edit from inside the indexed project gets its blast radius', 'findById' in inside and 'OrderService' in inside, inside)
+    outside = fire(ws, 'ws1', 'Edit', sig(store))
+    check('the same edit by absolute path from a directory with no graph gets the same report', outside == inside, outside)
     check('and nothing is written in the working directory', not os.path.exists(os.path.join(ws, '.axiomcode')))
-    again = fire(ws, 'ws1', 'Read', {'file_path': os.path.join(ws, 'link', P, 'OrderStore.java')})
-    check('the per-session dedup holds across two spellings of one file (it is one repository\'s state)', again == '', again)
 
     # ── controls: silent where no graph is above the path ────────────────────────────────────────────────
-    check('control: a Read of a file with no graph anywhere above it stays silent',
-          fire(ws, 'c1', 'Read', {'file_path': os.path.join(plain, P, 'OrderStore.java')}) == '')
-    check('control: the same file through the SESSION directory of an indexed project stays silent',
-          fire(app, 'c2', 'Read', {'file_path': os.path.join(plain, P, 'OrderStore.java')}) == '')
-    check('control: a Grep of a path above the indexed root stays silent', fire(ws, 'c3', 'Grep', {'pattern': 'findById', 'path': ws}) == '')
-    check('control: a Grep with no path from a directory with no graph stays silent', fire(ws, 'c4', 'Grep', {'pattern': 'findById'}) == '')
-    check('control: a shell grep of a tree with no graph stays silent', fire(ws, 'c5', 'Bash', {'command': f'grep -rn findById {plain}/src'}) == '')
-    ln = fire(ws, 'c6', 'Read', {'file_path': os.path.join(ws, 'link', P, 'OrderStore.java')})
+    check('control: the edit to a file with no graph anywhere above it stays silent',
+          fire(ws, 'c1', 'Edit', sig(os.path.join(plain, P, 'OrderStore.java'))) == '')
+    ln = fire(ws, 'c6', 'Edit', sig(os.path.join(ws, 'link', P, 'OrderStore.java')))
     check('a symlink INTO the indexed project answers from its real graph', ln == inside, ln)
     check('control: a symlink OUT of the indexed project to a tree with no graph stays silent',
-          fire(app, 'c7', 'Read', {'file_path': os.path.join(app, 'vendored', P, 'OrderStore.java')}) == '')
-
-    # ── the directive (PreToolUse) ────────────────────────────────────────────────────────────────────────
-    # it speaks once per session (stamped in the temp directory), so each check gets a session no earlier run used
-    sid = lambda s: f'{s}-{os.getpid()}-{int(time.time() * 1000)}'
-    d = fire(ws, sid('d1'), 'Grep', {'pattern': 'findById', 'path': app}, hook='direct.py', event='PreToolUse')
-    check('the directive speaks before a Grep by absolute path from a directory with no graph', 'axiomcode_impact' in d and 'OrderStore.java' in d, d)
-    check('control: the directive is silent before a Grep of a tree with no graph',
-          fire(ws, sid('d2'), 'Grep', {'pattern': 'findById', 'path': plain}, hook='direct.py', event='PreToolUse') == '')
-    check('the directive is silent on a shell grep of a file that is not source',
-          fire(app, sid('d3'), 'Bash', {'command': 'grep -n findById notes.md'}, hook='direct.py', event='PreToolUse') == '')
-    d = fire(app, sid('d4'), 'Bash', {'command': f'grep -n findById {os.path.relpath(store, app)}'}, hook='direct.py', event='PreToolUse')
-    check('control: the directive speaks on a shell grep of a source file for a declared method', 'axiomcode_impact' in d, d)
+          fire(app, 'c7', 'Edit', sig(os.path.join(app, 'vendored', P, 'OrderStore.java'))) == '')
 
     # ── orientation ──────────────────────────────────────────────────────────────────────────────────────
     for i in range(30):

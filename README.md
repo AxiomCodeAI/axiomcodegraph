@@ -43,7 +43,7 @@
   <a href="https://www.npmjs.com/package/@axiomcode/code-graph"><img alt="npm" src="https://img.shields.io/npm/v/@axiomcode/code-graph?label=npm"></a>
   <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml"><img alt="Nightly (dev)" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml/badge.svg?branch=dev"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
-  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+  <img alt="Node ≥ 22.13" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-brightgreen">
 </p>
 
 <p align="center">
@@ -100,7 +100,7 @@ That matters because an agent follows edges several hops deep, and one missed li
   <img src="docs/images/impact-graph.png" width="640" alt="axiomcode graph of an open-source TypeScript web framework, 366 files and 8,657 call edges. Source files form the inner ring, test files the outer ring. A change to basicAuth reaches 7 test files through resolved calls (solid blue); the other 130 test files have no chain to it (dashed red). basicAuth calls a shared compare function (green) that 11 other files also reach (gold).">
 </p>
 
-*`axiomcode graph` on an open-source TypeScript web framework, asked which tests a change to `basicAuth` can
+*The call graph of an open-source TypeScript web framework, drawn as a page and asked which tests a change to `basicAuth` can
 affect. Source files form the inner ring and test files the outer one. The solid blue paths are chains of resolved
 calls from `basicAuth` to the 7 test files that must run; the dashed red ones mark the other 130, which have no
 chain to it and can be skipped. Green is the shared `compare` that `basicAuth` calls, and gold the 11 other files
@@ -123,9 +123,9 @@ established relationships that could lead to false positives.
 
 AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) parses a repository and builds its
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
-agent-facing frontend: a skill, seven MCP tools, and hooks. Install the engine first.
+agent-facing frontend: a skill, four MCP tools, and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
+Requirements: **Node ≥ 22.13** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
 [Git for Windows](https://git-scm.com/download/win): the CLI runs under its bash. The engine ships as a prebuilt
 binary for macOS (Apple Silicon and Intel), Linux (x64 and arm64) and Windows x64, and `npm install` takes the one for
 your platform. No Soufflé and no compiler are needed, with one exception:
@@ -200,56 +200,63 @@ axiomcode path main Ledger.put
 axiomcode path main SqlStore.put
 ```
 
-```
-main → Ledger.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
-  2 call(s):
-    main   src/main.ts:6
-      → [known_edge · call @ src/main.ts:9] OrderService.place   src/orders/orderService.ts:7
-      → [known_edge · call @ src/orders/orderService.ts:8] Ledger.put   src/ledger/ledger.ts:4
-  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length
+Every answer is a numbered list of places, each with the code of the function it sits in and the line that matters
+marked `→`:
 
-main → SqlStore.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
-  2 call(s):
-    main   src/main.ts:6
-      → [known_edge · call @ src/main.ts:9] OrderService.place   src/orders/orderService.ts:7
-      → [multi_inferred · call @ src/orders/orderService.ts:9] SqlStore.put   src/storage/sqlStore.ts:6
-  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length
-  what the hops are:
-    [known_edge] resolved to one declaration
-    [multi_inferred] several declarations fit; each is a real candidate
-```
+````
+1. src/main.ts:9  [resolved · hop 1/2 main → OrderService.place]
+   ```typescript
+      6  export function main(useSql: boolean): void {
+      7    const store = useSql ? new SqlStore("orders") : new MemoryStore();
+      8    const service = new OrderService(new Ledger(), store);
+   →  9    service.place("A-1", 42);
+     10  }
+   ```
+2. src/orders/orderService.ts:8  [resolved · hop 2/2 OrderService.place → Ledger.put]
+   ```typescript
+      7    place(id: string, amount: number): void {
+   →  8      this.ledger.put(`order ${id}: ${amount}`);
+      9      this.store.put(id, amount);
+     10    }
+   ```
+verified: ✓ (2 edge(s) looked up again)
+````
 
-The first chain is `known_edge` all the way: each call has exactly one target. The second ends in
-`multi_inferred`, because `store.put` can run `SqlStore.put` or `MemoryStore.put`, depending on which store `main`
-built; the graph keeps both as candidates instead of picking one.
+The second chain ends the same way, at `src/orders/orderService.ts:9`, tagged `one of a set`: `store.put` can run
+`SqlStore.put` or `MemoryStore.put`, depending on which store `main` built, and the graph keeps both as candidates
+instead of picking one.
 
 From an agent, ask in plain words. The skill tells the agent to query the graph instead of grepping:
 
-```
+````
 > What breaks if I change SqlStore.put?
 
-  axiomcode_impact("SqlStore.put")
-  must change with it (1: bound by a contract the engine resolved):
-      Store.put   src/storage/store.ts:2   — it implements this
-  reads or uses it (3 callable(s): 1 one of a set, 2 alongside):
-      [one of a set] OrderService.place   src/orders/orderService.ts:9   — calls it
-      ...
-  reaches those through resolved calls: 4 more callable(s) in 3 file(s)
-      src/main.ts: main → OrderService.place
-  tests: 1 of 1 test method(s) reach the change
-      test files: test/orderService.test.ts (1)
-  verified: 2 printed edge(s) looked up again in the graph, all present
-```
+  impact("SqlStore.put")
+  1. src/storage/store.ts:2  [must change · it implements this]
+     ```typescript
+     → 2    put(key: string, value: number): void;
+     ```
+  2. src/orders/orderService.ts:9  [one of a set · OrderService.place]
+     ```typescript
+        7    place(id: string, amount: number): void {
+        8      this.ledger.put(`order ${id}: ${amount}`);
+     →  9      this.store.put(id, amount);
+       10    }
+     ```
+  3. src/main.ts:6  [hop 2]
+     ...
+  4. test/orderService.test.ts:3  [test · one of a set · hop 3]
+     ...
+  verified: ✓ (3 edge(s) looked up again)
+````
 
-The change reaches the entry point and the test through a call that never names `SqlStore`.
-
-Each hop carries the line the call is on, how certain the edge is, and what kind of call it is. Every printed
-edge is looked up again in the graph before you see it; the `verified:` line is that check reporting.
+The change reaches the entry point and the test through a call that never names `SqlStore`. Every printed edge is
+looked up again in the graph before you see it; the `verified:` line is that check reporting.
 
 ### Support for agents
 
-Every agent below gets the seven MCP tools and the skill; the hooks, which add the graph's edges to the agent's
-own file reads and searches, run where the last column says so.
+Every agent below gets the four MCP tools and the skill; the hooks, which keep the graph current and report what an
+edit breaks, run where the last column says so. No hook annotates the agent's own reads and searches.
 
 | Agent | Install | Uninstall | Hooks |
 |---|---|---|---|
@@ -301,40 +308,44 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 
 ## CLI commands
 
-| command | what it does |
-|---|---|
-| `axiomcode path <A> <B>` | the chain of calls from A to B, hop by hop. `'*'` as one end gives the whole closure |
-| `axiomcode impact <target>` | everything that has to be looked at again when a declaration changes, each labelled with how certain it is. `--tests` adds the tests that reach it |
-| `axiomcode test-impact` | which tests have to run for the current edit, with the chain that reaches each |
-| `axiomcode changed` | which declarations an edit changed, and how (signature, type, body, added, removed). `--impact` adds what that reaches |
-| `axiomcode context "<task>"` | where a task's words land in the code, when you have a problem statement and not yet a name |
-| `axiomcode graph` | the whole graph as one self-contained HTML page, at `.axiomcode/graph/graph.html`, drawn from the existing graph (rebuilt first only when stale, with the flags it was indexed with) |
-| `axiomcode index` | build or rebuild the graph explicitly; `--lang`, `--src` and `--library` narrow it |
-| `axiomcode mcp` | serve the graph to an agent as MCP tools over stdio |
+Three questions, each answered as numbered places with the code of the function each one sits in. The MCP server
+offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`. Finding where code lives is
+left to your own search: bring the name you found to these commands.
 
-A target is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
-`file.py:123`. It is resolved exactly; a miss lists the nearest names. `--range <a>..<b>` compares two commits. The
-query commands take `--json`. `axiomcode help <command>` prints one command's usage.
+| command | what it answers |
+|---|---|
+| `axiomcode impact <name>` | who calls it, what a change to it reaches, and the tests that exercise it |
+| `axiomcode impact` | the same for the declarations your uncommitted edits changed; the answer starts with `your edits:` |
+| `axiomcode path <A> <B>` | how A reaches B: every hop of the call chain, with the code at each call |
+| `axiomcode tests` | the tests your uncommitted edits reach, and a last `run:` line with the command that runs them |
+| `axiomcode link <file:line> <target>` | record where a call the graph could not resolve lands (kept in `axiomcode-links.tsv`); impact, path and tests then walk it, labelled `[asserted]`. Alone, lists the links and whether each was applied |
+| `axiomcode index` | build the graph explicitly (the first query builds it too); `--lang`, `--src` and `--library` narrow it |
+
+A name is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
+`file.py:123`. It is resolved exactly; a miss lists the nearest names. `axiomcode help <command>` prints one
+command's usage.
 
 > [!NOTE]
-> `changed` and `test-impact` compare the working tree with a **baseline**: the last commit (right after an explicit
-> `axiomcode index`, the tree it indexed). The background refresh (below) resets it whenever HEAD moves (a commit, a
-> merge, a pull, a checkout), so committed edits drop out and nothing accumulates; the two commands wait up to 30 s
-> for that. While edits are uncommitted, they read the baseline's own graph, kept in `.axiomcode/base`, so a removed
-> method still shows all its callers.
+> `impact` with no name and `tests` compare the working tree with a **baseline**: the last commit (right after an
+> explicit `axiomcode index`, the tree it indexed). The background refresh (below) resets it whenever HEAD moves (a
+> commit, a merge, a pull, a checkout), so committed edits drop out and nothing accumulates. While edits are
+> uncommitted, they read the baseline's own graph, kept in `.axiomcode/base`, so a removed method still shows all its
+> callers.
 
 The graph stays current on its own. Every file the parser reads is recorded with its hash at build time; after an
 edit, a shell command, a finished turn, at session start, and before a query, anything that differs starts one
 background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
-command keeps reading the previous graph until the new one is indexed and swapped in. A query waits up to
-`AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
-naming the files it predates. The MCP server also checks every repository it has answered for once 15 minutes have
+command keeps reading the previous graph until the new one is indexed and swapped in. A query answers from the
+previous graph at once, with a `graph refresh:` line naming the files it predates and the rows in them marked;
+`--fresh` waits for the rebuild instead, and `AXIOMCODE_FRESH_WAIT` (seconds, default 0) lets every query wait that long. The MCP server also checks every repository it has answered for once 15 minutes have
 passed since its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while
 a session sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
 `AXIOMCODE_NO_REFRESH=1` turns the rebuilds off, not the check: an answer from a graph older than an edit still
 ends with a `graph refresh: OFF` line naming the files it predates. When a name asked about finds nothing and an
 edit since the graph was built writes that name, the line says so, since the declaration may simply be too new
-for the graph. The log is `.axiomcode/refresh.log`.
+for the graph. A query that does start a rebuild says so on its answer's first line, with the reason. The
+hooks and the MCP server's timer never rebuild a graph another axiomcode built (another engine, other rules or another
+`IMPACT_VERSION` in its build stamp); a hook says so once per session. The log is `.axiomcode/refresh.log`.
 
 ## Graph output
 

@@ -7,7 +7,7 @@ import { XmlValueReference } from '@/analysis-types/xml/XmlValueReference';
 import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_XML_ELEMENT_CSV_FILENAME, OUTPUT_XML_ATTRIBUTE_CSV_FILENAME, OUTPUT_XML_VALUE_REFERENCE_CSV_FILENAME, OUTPUT_SKIPPED_XML_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD, LARGE_FILE_BYTE_THRESHOLD } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
-import { XmlParser } from '@/parsers/xml/xml-parser';
+import { XmlParser, toIdPath } from '@/parsers/xml/xml-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
 import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
@@ -38,10 +38,14 @@ export class XmlProjectAnalyzer {
    *
    * @param projects Array of projects to scan for XML files
    * @param serviceVersionLink Service version identifier string
+   * @param analysisRoot The directory the analysis was asked to run on. Ids hash each
+   *   file's path relative to it, so they do not move with the checkout. Without it, a
+   *   file's path relative to its own project is used.
    */
   async analyzeXmlFiles(
     projects: ProjectInfo[],
-    serviceVersionLink: string
+    serviceVersionLink: string,
+    analysisRoot?: string
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -55,7 +59,7 @@ export class XmlProjectAnalyzer {
     await Promise.all(
       [...groupOwnedFiles(
         await resolveFileOwners(projects, (root) => this.findXmlFiles(root))
-      )].map(([project, files]) => this.analyzeProject(project, files, serviceVersionHash))
+      )].map(([project, files]) => this.analyzeProject(project, files, serviceVersionHash, analysisRoot ?? project.path))
     );
 
     await this.exportElementsCsv();
@@ -78,7 +82,8 @@ export class XmlProjectAnalyzer {
   private async analyzeProject(
     project: ProjectInfo,
     xmlFiles: ReadonlyArray<string>,
-    serviceVersionHash: string
+    serviceVersionHash: string,
+    analysisRoot: string
   ): Promise<void> {
     if (xmlFiles.length === 0) {
       return;
@@ -131,7 +136,8 @@ export class XmlProjectAnalyzer {
           content,
           filePath,
           project.path,
-          serviceVersionHash
+          serviceVersionHash,
+          toIdPath(analysisRoot, filePath)
         );
 
         this.allElements.push(...elements);

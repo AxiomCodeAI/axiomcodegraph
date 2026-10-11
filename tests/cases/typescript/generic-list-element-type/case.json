@@ -1,0 +1,128 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a list typed by `Ms extends Module[]` holds Modules: a call on its element dispatches on Module, and reaches the implementations",
+   "run": [
+    "path",
+    "buildAll",
+    "coreInit"
+   ],
+   "want": [
+    "coreInit"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026and for a rest parameter typed by a non-empty tuple constraint",
+   "run": [
+    "path",
+    "buildCreate",
+    "reactInit"
+   ],
+   "want": [
+    "reactInit"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026and through `readonly`",
+   "run": [
+    "path",
+    "each",
+    "coreInit"
+   ],
+   "want": [
+    "coreInit"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026and a for-of over the same list: the binding is an element, typed by the constraint",
+   "run": [
+    "path",
+    "loopAll",
+    "coreInit"
+   ],
+   "want": [
+    "coreInit"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "a list of an object-type alias: the callback's parameter takes the element's shape, so a call on it dispatches to what implements that shape",
+   "run": [
+    "path",
+    "install",
+    "routerSetup"
+   ],
+   "want": [
+    "routerSetup"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "\u2026through a type variable constrained to a tuple of them, iterated in a returned closure",
+   "run": [
+    "path",
+    "start",
+    "routerSetup"
+   ],
+   "want": [
+    "routerSetup"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "CONTROL: a list of another shape with a member of the same name reaches its own implementation, not Plugin's",
+   "run": [
+    "path",
+    "runHooks",
+    "routerSetup"
+   ],
+   "want": [
+    "no chain of resolved calls"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "CONTROL, the positive side: that list reaches its own shape's implementation",
+   "run": [
+    "path",
+    "runHooks",
+    "storeSetup"
+   ],
+   "want": [
+    "storeSetup"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "CONTROL: an element typed `unknown` by its constraint names no type: nothing is dispatched to Auditor.audit's implementation",
+   "run": [
+    "path",
+    "loose",
+    "auditInit"
+   ],
+   "want": [
+    "no chain of resolved calls"
+   ],
+   "expect_error": true
+  }
+ ]
+}

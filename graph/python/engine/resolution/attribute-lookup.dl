@@ -152,10 +152,15 @@ mro_lookup_data_shadow(p, t, n, f) :-
 // factory), while mro_lookup is upstream of it and uses negation — folding this in makes
 // that negation cyclic and souffle refuses the program. Consumed by
 // expression-resolution/callee-resolution.dl, which is downstream of both.
+// The class-member lookup is pure syntax and was re-run inside the fixpoint every
+// iteration (12s for 783 rows on a mid-size subject); materialized once, keyed (c, n),
+// the rule starts from its recursive delta and probes it.
+replaced_method_of(p, c, n, def) :-
+    method_owner(p, c, def), method_decl(p, n, _, _, _, def),
+    method_target_replaced(p, def).
 mro_lookup_decorated(p, t, n, r) :-
     mro_winner(p, t, n, c),
-    method_owner(p, c, def), method_decl(p, n, _, _, _, def),
-    method_target_replaced(p, def),
+    replaced_method_of(p, c, n, def),
     decorated_name_target(def, r).
 
 // ── mro_lookup_opaque(Prov, ReceiverType, Name) ──────────────────────────────
@@ -311,6 +316,15 @@ type_call_target(p, t, m) :- mro_lookup(p, t, "__call__", m).
 // universe, because CPython's own compiler emits no CALL for it either.
 type_property_getter(p, t, n, m) :-
     mro_lookup(p, t, n, m), method_kind(p, "PROPERTY_GETTER", _, m).
+
+// ── type_property_accessor(Prov, TypeHash, Name, Kind, MethodHash) ───────────
+// `@x.setter` and `@x.deleter` are the other two halves: `obj.x = v` runs the setter and
+// `del obj.x` the deleter, and like the getter neither has a call site. They share the
+// getter's name and binding, so they are found on the class that WINS the name in the
+// receiver's MRO, by their method kind, rather than through mro_lookup's one answer.
+type_property_accessor(p, t, n, k, m) :-
+    mro_winner(p, t, n, c), method_owner(p, c, m), method_decl(p, n, _, _, _, m),
+    method_kind(p, k, _, m), (k = "PROPERTY_SETTER" ; k = "PROPERTY_DELETER").
 
 // ── A USER-WRITTEN DATA DESCRIPTOR IS THE SAME PROTOCOL (issue #326) ─────────
 // `@property` IS a data descriptor; the decorator is sugar over `__get__`/`__set__`. So

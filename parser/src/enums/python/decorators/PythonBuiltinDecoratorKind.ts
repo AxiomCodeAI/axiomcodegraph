@@ -29,6 +29,17 @@ export enum PythonBuiltinDecoratorKind {
    * wrapper), like LRU_CACHE.
    */
   DEPRECATED = 'DEPRECATED',
+  /**
+   * pydantic `@validate_call`: validates the arguments, then calls the decorated
+   * function. A call-through wrapper like LRU_CACHE (#1534).
+   */
+  VALIDATE_CALL = 'VALIDATE_CALL',
+  /**
+   * pydantic `@computed_field`: marks a property (or a bare def it wraps as one) for
+   * serialization; a read still runs the getter. A call-through wrapper like
+   * CACHED_PROPERTY (#1534).
+   */
+  COMPUTED_FIELD = 'COMPUTED_FIELD',
   /** `typing.no_type_check`: sets an attribute on the function and returns it. Metadata only. */
   NO_TYPE_CHECK = 'NO_TYPE_CHECK',
   /** Not a decorator the language defines. */

@@ -1,0 +1,10 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a module-level call breaks every file that imports its module, however many imports away: page.spec reaches the table only through page -> escape -> render -> tags, and escape and render import each other",
+   "run": ["impact", "makeMap", "--tests"],
+   "want": ["page.spec.ts", "at import"],
+   "avoid": ["sum.spec.ts"]},
+  {"why": "control: a chain of imports that never reaches a module doing work at import propagates nothing",
+   "run": ["impact", "double", "--tests"],
+   "want": ["sum.spec.ts"],
+   "avoid": ["page.spec.ts"]}]}

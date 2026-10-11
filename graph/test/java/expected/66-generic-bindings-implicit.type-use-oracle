@@ -1,0 +1,15 @@
+66-generic-bindings-implicit
+  precision 1.0000   (20 correct, 0 wrong)
+  recall    0.7143   (20 of 28 in the bytecode)
+  references 33   resolved 22 (66.7%)
+  tiers ambiguous_unknown=11  boundary_lib=2  known_edge=20
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts CAST_EXPRESSION=1  FIELD_TYPE=3  LOCAL_VARIABLE=1  METHOD_PARAM=8  METHOD_RETURN=2  OBJECT_CREATION_TYPE=3  SUPER_TYPE=13  TYPE_PARAM_BOUND=2
+    MISSING probe.LibUses CAST_EXPRESSION probe.LibChainStub
+    MISSING probe.LibUses CAST_EXPRESSION probe.OrderMapper
+    MISSING probe.LibUses CAST_EXPRESSION probe.OrderStore
+    MISSING probe.OrderService CAST_EXPRESSION probe.OrderMapper
+    MISSING probe.SelfBase METHOD_RETURN probe.SelfBase
+    MISSING probe.Stubs CAST_EXPRESSION probe.ChainStub
+    MISSING probe.Stubs CAST_EXPRESSION probe.DirectStub
+    MISSING probe.SubService CAST_EXPRESSION probe.OrderMapper

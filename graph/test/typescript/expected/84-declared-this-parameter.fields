@@ -1,0 +1,4 @@
+ambiguous_unknown	read	x#onUntyped(number) -> -
+known_edge	read	Owner#run(number) -> Owner#repo
+known_edge	read	x#onEvent(number) -> Ctx#repo
+known_edge	read	x#onShape(number) -> { other: Other }#other

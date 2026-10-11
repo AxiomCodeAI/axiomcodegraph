@@ -1,0 +1,1 @@
+{ "name": "@x/app", "private": true, "dependencies": { "@x/lib": "workspace:*", "tools": "workspace:*", "zod": "^3.0.0" } }

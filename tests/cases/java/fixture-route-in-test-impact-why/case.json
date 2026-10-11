@@ -1,0 +1,6 @@
+{"lang": "java",
+ "checks": [
+  {"why": "test-impact --why prints a fixture-selected test's whole route: the test, the fixture the runner hands it, and the calls from there to the change (#1424)",
+   "run": ["test-impact", "{repo}", "--why", "--old", "{repo}/cents-old.java", "--new", "{repo}/src/main/java/app/Money.java", "--file", "src/main/java/app/Money.java"],
+   "want": ["MoneyTest.positive <- MoneyTest.bounds -> Money.cents", "MoneyTest.roundTrip -> Money.cents"],
+   "avoid": ["[fixture]  MoneyTest.positive\n"]}]}

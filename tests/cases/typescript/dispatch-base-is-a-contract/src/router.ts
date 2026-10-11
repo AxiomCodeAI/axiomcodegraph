@@ -25,3 +25,16 @@ export class App {
     this.router.add(path);          // typed to the interface: the dispatch base
   }
 }
+
+// No `implements`: it fits Router's shape and is passed as one, so it may run at `mount` — but nothing
+// declared the contract, so a change to it does not have to change Router.add.
+export class DuckRouter {
+  add(path: string): void {
+    this.last = path;
+  }
+  last = '';
+}
+
+export function duckApp(): App {
+  return new App(new DuckRouter());
+}

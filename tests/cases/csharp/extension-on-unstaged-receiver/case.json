@@ -1,0 +1,14 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a this-IServiceCollection extension called on an unstaged ServiceCollection receiver is a candidate, one of a set, as it is through IServiceCollection (#1472)",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "want": ["[one of a set] Program.Concrete   src/Program.cs:6"]},
+  {"why": "control: the receiver typed as the this type itself",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "want": ["Program.Typed   src/Program.cs:7"]},
+  {"why": "an in-source class whose unstaged heritage names the this type matches it; one of a set, because an unstaged entry at position 0 may declare the member itself",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "want": ["Program.Derived   src/Program.cs:8   — calls it"]},
+  {"why": "near-miss control: an extension on an in-source this type never matches an unstaged receiver, which cannot derive from it",
+   "run": ["impact", "WidgetExtensions.AddGadgets"],
+   "avoid": ["Program.Unrelated   src/Program.cs:9   — calls it", "[one of a set] Program.Unrelated", "[resolved] Program.Unrelated"]}]}

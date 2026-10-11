@@ -3,4 +3,8 @@
   {"why": "a close() on an untyped receiver, with two classes declaring close, is one of a set and never presented as an exact edge",
    "run": ["impact", "Session.close"],
    "want": ["shutdown", "one of a set"],
-   "avoid": ["1 resolved"]}]}
+   "avoid": ["1 resolved"]},
+  {"why": "a get() on what a package returned or constructed (request(app).get, new grpc.Metadata().get) is listed apart and last, never among the name matches, and its test is not a test of Store.get; an untyped receiver stays a plain [by name] row",
+   "run": ["impact", "Store.get", "--grep"],
+   "want": ["anything.get(1);  [by name", "[by name · library receiver", "tests: 0 of"],
+   "avoid": ["expect(200);  [by name]", "[test · by name"]}]}

@@ -17,14 +17,17 @@ ambiguous_unknown	METHOD_RETURN	0	testcases.config.Value#value() [METHOD] -> -
 known_edge	ANNOTATION_TYPE	0	testcases.config.BatchConsumer [ANNOTATION] -> testcases.config.Component
 known_edge	ANNOTATION_TYPE	0	testcases.config.BatchConsumer [ANNOTATION] -> testcases.config.KafkaHandler
 known_edge	ANNOTATION_TYPE	0	testcases.config.BatchConsumer [ANNOTATION] -> testcases.config.KafkaListener
+known_edge	ANNOTATION_TYPE	0	testcases.config.GreeterService [ANNOTATION] -> testcases.config.Autowired
 known_edge	ANNOTATION_TYPE	0	testcases.config.GreeterService [ANNOTATION] -> testcases.config.GrpcService
 known_edge	ANNOTATION_TYPE	0	testcases.config.Handler [ANNOTATION] -> testcases.config.Component
 known_edge	ANNOTATION_TYPE	0	testcases.config.MailConsumer [ANNOTATION] -> testcases.config.Component
 known_edge	ANNOTATION_TYPE	0	testcases.config.MailConsumer [ANNOTATION] -> testcases.config.RabbitHandler
 known_edge	ANNOTATION_TYPE	0	testcases.config.MailConsumer [ANNOTATION] -> testcases.config.RabbitListener
+known_edge	ANNOTATION_TYPE	0	testcases.config.OrderConsumer [ANNOTATION] -> testcases.config.Autowired
 known_edge	ANNOTATION_TYPE	0	testcases.config.OrderConsumer [ANNOTATION] -> testcases.config.Component
 known_edge	ANNOTATION_TYPE	0	testcases.config.OrderConsumer [ANNOTATION] -> testcases.config.KafkaListener
 known_edge	ANNOTATION_TYPE	0	testcases.config.OrderProducer [ANNOTATION] -> testcases.config.Service
+known_edge	ANNOTATION_TYPE	0	testcases.config.OrderProducer [ANNOTATION] -> testcases.config.Value
 known_edge	FIELD_TYPE	0	testcases.config.GreeterService [FIELD] -> testcases.config.Handler
 known_edge	FIELD_TYPE	0	testcases.config.OrderConsumer [FIELD] -> testcases.config.Handler
 known_edge	SUPER_TYPE	0	testcases.config.GreeterService [TYPE] -> testcases.config.GreeterImplBase

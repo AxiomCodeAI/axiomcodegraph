@@ -1,111 +1,129 @@
 ---
 name: axiomcode
 description: >-
-  Use for any why, what or where question about code — how a codebase works or what a change to it would do: architecture, execution flow, where something lives, who calls it, what depends on it, what breaks if it changes, which tests cover an edit, whether it is safe to delete. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Is this safe to delete?", "Fix this issue". No task is too small: if you are about to grep for a name, call this instead. Mandatory when .axiomcode/out/graph.sqlite exists — start here rather than grep, even when you already know the code. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — each labelled with how certain it is. Call it directly, no need to load this skill first: the `axiomcode_context` MCP tool with source=True for how something works (the call flow with each step's code; from_=<start> when you know where it begins), `axiomcode_impact` for what a change reaches, `axiomcode_path` for how A reaches B. Only when those tools are not in your list, the same from the shell: `axiomcode context "<the question>" --source`, `axiomcode impact <name>`, `axiomcode path <A> <B>`. Java, TypeScript, Python, JavaScript, C#.
+  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual; ask the graph for what grep cannot know — which declaration a call reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach, context(task, source=True) for how something works as a step-by-step call flow with each step's code. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`. Java, TypeScript, Python, JavaScript, C#.
 ---
 
 # axiomcode
 
-Prefer the MCP tools (`axiomcode_<verb>`; in Claude Code, `mcp__plugin_axiomcode_axiomcode__axiomcode_<verb>`) when they
-are in your tool list; otherwise run `<this dir>/scripts/axiomcode <verb> …` from the repository root. Same code, same
-verified output. `<repo>` defaults to the current directory. In Claude Code, a hook adds the graph's edges to your own
-Read / Grep results as `graph: …` lines.
+Search with grep as usual; the graph answers what grep cannot. Use the MCP tools when they are in your list (in Claude Code
+`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`, `__context`); otherwise run
+`<this dir>/scripts/axiomcode <verb>` from the repository root. Same answer either way.
 
-**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
+| the question | MCP tool | shell |
+|---|---|---|
+| where is the code for this task? | your own search (grep), then bring the name here | — |
+| who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
+| what is the value of constant X, and who reads it? | `impact(name)` | `axiomcode impact <name>` |
+| what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
+| how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
+| which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
+| an answer lists an unresolved call I can see the target of | `link(site, target)` | `axiomcode link <file:line> <target>` |
+| how does this work, start to finish? | `context(task, source=True)` | `axiomcode context "<task>" --source` |
 
-**A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
-`source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
-surest first, capped with a count of the rest; `limit=N` lists more, `full=True` gives the sectioned answer with `next:`.
-From the shell the same shape is `--grep` (`--grep-limit N`); without it the answer is the prose.
+Names are written as in the code: `Owner.method`, `function`, `Type`, or `file.py:123` for the declaration at that
+line. There is no setup step: the first question builds the graph, and it refreshes itself after every edit.
 
-## Start here
+## What an answer looks like
 
-| the question in front of you | the call |
-|---|---|
-| **`.axiomcode/out/graph.sqlite` already exists** | **query it — do NOT run `index`** |
-| no graph at all | `axiomcode index` |
-| a task in words, no name to ask about yet | `axiomcode context "<the task>"` — then `--in <path>` it names |
-| "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
-| "who writes this field" / "is it safe under concurrent access" | `axiomcode impact <Type>.<field>` — ask of the FIELD |
-| one concept you can name ("the decryption code") | `axiomcode path decrypt '*'` |
-| "how does X work" · "explain / walk through X" | `axiomcode context "<the question>" --source` — the call flow in order with each step's code; answer from it, and open a file only for a step whose body was cut or a `⚠` call. `--from <start>` when you know where it begins |
-| "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
-| "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
-| "is it safe to delete X" | `axiomcode impact X --delete` |
-| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with; prints the page's absolute path) · `axiomcode install` |
+A numbered list of places, most relevant first, each with the code of the function it sits in. `→` marks the line
+that matters; a short function is shown whole.
 
-Rules that decide whether an answer means anything:
+    1. shop/pricing.py:6  [resolved · total]
+       ```python
+         4  def total(prices):
+         5      net = sum(prices)
+       → 6      return net * (1 + vat_rate())
+       ```
+    verified: ✓ (4 edge(s) looked up again)
 
-- **Never re-run `index` on an existing graph** "to make sure" or after your own edit. The graph refreshes itself in
-  the background after edits, with the flags it was built with. A query does not wait for it: it answers from the last
-  graph, names the edited files on a `graph refresh:` line, and marks every row that lies in one `(may be out of date)`
-  (`"stale": true` in `--json`); unmarked rows are current. Read a marked row's file for its current text. It waits
-  briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
-- **Before a delete or a rename, ask with `--fresh`** (MCP `impact`, `path` or `context` with `fresh=True`): it waits for the rebuild, printing its
-  progress, and answers from a graph that includes every edit.
-  A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
-  refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
-- A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
-  are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies
-  resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).
-- An unresolved call is *unknown, not absent* — **never report it as "no callers"**.
-- Every answer ends with `verified:` and `bound:` (the unresolved calls inside it — a lower bound). A `✗` on
-  `verified:` means the answer is wrong: report it, do not use it.
+Answer from the code shown; open a file only for a place whose body was cut (`…`). The tag says how sure the place
+is: `resolved` is an edge the engine resolved and re-checked (`verified:`), do not re-derive it by grepping;
+`one of a set` is one of several real targets; `by name` and `text` are leads, not facts; `test` marks a test;
+`hop N` is how far out it is. A call the graph could not resolve is *unknown*, not absent: never report "no callers"
+from an empty answer.
 
-## How certain is each row
+## impact
 
-An answer's label is the **worst** rung on its route. Read it before acting on the row.
+With a name: who calls it, what depends on it further out, and the tests that exercise it. Example:
+`impact(name="PriceService.total")`. With no name: the first line is `your edits:` (each declaration you changed and
+how), then the same answer for all of them. A constant answers with its value — `change: const MAX_ITEMS = 5` —
+so a limit, a default or a threshold is read off the first line rather than from the file.
 
-| rung | claims |
-|---|---|
-| `[sound]` / `[resolved]` | an edge the engine resolved: a single-target call, an override, a subtype, a constructor |
-| `[one of a set]` · `[dispatch]` | one of a sound target set · an instantiated override reached through its base |
-| `[defines]` · `[protocol]` · `[decorator by name]` | closure from its definer · interpreter-called method · wrapper rebinding the name |
-| `[fixture]` · `[at import]` | injected before the test body · module raised on import, test never collected |
-| `[spawns]` | the test runs the script as a child process, joined through the **path** it names — not an edge |
-| `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
-| `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
-| `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
-| `[alongside]` | declared in the same type or file — no call, no reference; its own section (`alongside` in `--json`), never a dependent |
+## path
 
-Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
-connect, not that a test exercises the change.
+How one declaration reaches another: every hop of the call chain, with the code at the line each call is written on.
+Example: `path(start="main", end="Ledger.put")`.
 
-## context — a problem statement, no name yet
+## tests
 
-`axiomcode context "<task>" [--in <path>[,<path>]] [--budget N] [--source]`: the files and callables the task's
-words land in, nearest first, 12 files by default. Scopes you pass restrict and are combined; a scope it offers
-does not restrict. Detail: `reference/context.md`.
+The tests your uncommitted edits reach, each with its code, and a last line `run: <command>` that runs exactly those.
+Example: `tests()`. It is a lower bound: a test reached only through reflection or a service loader is not listed.
 
-## impact — what a change to a declaration reaches
+## link
 
-`axiomcode impact <target>… [--depth N] [--in <path>] [--delete]`. Targets as written in the code:
-`Owner.method`, `Owner.field`, `Type`, `Owner.method(param)`, `Type<T>`, `Owner.method:local`, a config key, or
-`file.ts:123` — the declaration at that line. Separators are interchangeable in every language: `util.square`,
-`src.util.square` and `src/util#square` are one name. **When you know where the declaration is, target it by `file:line`**: a
-bare name answers for EVERY declaration of that name, and two unrelated functions in different files come back as one.
-Sections: **must change with it** · **produces or writes it** · **reads or uses it** (by rung) · **reaches those**
-(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) continues with the rows page 1 did not print, and says so when there is no page 2; `--page all` (MCP `page="all"`) prints every row. Ask for it only when page 1's strongest rows are not enough. It finds config
-keys, injected beans and handlers registered as values — none has a call site. Detail: `reference/impact.md`.
+Answers are in three parts. CONFIRMED places are backed by an edge: `resolved` by the engine, or `asserted` by a link —
+act on them. LEADS are reached only through a guess (`by name`, `by key`, `one of a set`, `text`) — check each before
+relying on it. TO RESOLVE lists the calls the answer stopped at: the site as `file:line:col`, the call as written, why
+the engine could not follow it (a value from `getattr`, a handler table, reflection, a callback) and the graph's
+candidate targets with their `file:line`.
 
-## changed · test-impact — from an edit
+When the task depends on one of those sites, read the call. Only if the code makes the target CERTAIN, record it:
+`link(site="app/dispatch.py:6:12", target="on_save")`, or `axiomcode link app/dispatch.py:6:12 on_save` from the shell.
+A candidate is a lead: confirm it by reading the call, never link one because it is ranked first. From then on impact,
+path and tests walk that edge, labelled `[asserted]`, never `resolved`; when the target declares a return type, the
+calls made on its result (chained, or on a variable assigned from it) resolve too. When a lead at a site is wrong,
+reject it: `link(site, "not:<target>")` — it is no longer walked; only a guess can be rejected, never an edge the
+engine resolved. The links are kept in `axiomcode-links.tsv` at the repository root, which is worth committing.
+`link()` with no arguments lists them and whether the graph took each one; `axiomcode link <file:line:col> -` removes
+one. A link is refused when the call written there names a different declaration, or the target is not one; when
+the line it was made on is edited, it is dropped and listed as stale, and the site is to resolve again. Never link a
+guess: an asserted edge is trusted by every answer after it.
 
-`axiomcode changed [--impact] [--staged | --range a..b] [<file>…]` says how each declaration changed (`signature`, `body`,
-`field`, `type`, `removed`, `added`). `axiomcode test-impact [--why] [<file>…]` lists the tests the edit reaches and the
-command to run them. For your branch's commits ask `--range <base>..HEAD`: it reads from the merge-base, so a base
-that moved on is not counted as yours. On a copy without git, name the files you edited. Changed fixtures and other
-files no graph reads are named, with the tests whose text names them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
-and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
+## context
 
-## path — asking the graph
+How something works, from a task in your own words: the files and callables the task touches and, for a
+how-does-X-work question, the call flow step by step. Example: `context(task="how is an invoice settled",
+source=True)` — source carries each step's code, so the flow is read without opening files. Only English task
+words land (the graph's vocabulary is the code's identifiers); any language works once the task includes one
+identifier as written in the code.
 
-`axiomcode path <from> <to> [--every] [--in <path>]`: one shortest verified chain per target, or why there is none
-(with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
-`'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
+## index
 
-A fact no verb prints (decorations, bases, entry points by reason, field writers): `reference/schema.md` names the table per language.
+`axiomcode index` builds the graph explicitly; `--lang` and `--src` narrow it. Never re-run it on an
+existing graph: the graph rebuilds itself after edits, and an answer given before that finishes says so on a
+`graph refresh:` line.
+
+By default the graph is built without the project's dependencies: a call into one is unresolved or named only as an
+external boundary. When better coverage is needed, compile the dependencies and enable them with `--library`, given
+once on `index` and kept by every rebuild after it:
+
+    axiomcode index --library auto                                  # the dependencies the project imports
+    axiomcode index --library .venv/lib/python3.12/site-packages/requests,/deps/ir/jdk   # or name them
+
+`auto` finds what the project depends on, in every language: a Python package its source imports, in its virtual
+environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; a
+Java dependency `pom.xml` or `build.gradle` declares, through its `-sources.jar` in the Maven repository or Gradle's
+cache, or its class jar decompiled when it ships no sources (needs Vineflower: `mvn dependency:get
+-Dartifact=org.vineflower:vineflower:1.10.1`); a NuGet package a `.csproj` references, decompiled from its assembly
+(needs `dotnet tool install -g ilspycmd`). Whatever it cannot find (a package never restored, a jar without sources)
+it names, with the command that fetches it. A named entry, comma-separated with no spaces, is a dependency's source
+directory or a library IR (a directory of the parser's CSV tables, as `axiomcode parser <source> <dir> --library`
+writes it). Every library is compiled once into `~/.cache/axiomcode/libir/` and reused until its files change; one no
+build has used for 30 days is removed. Entries are relative to the repository or absolute; write `~` out, since one
+after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same list.
+
+The choice is kept with the graph. Every rebuild after it stages the libraries again (`auto` discovers them
+again, so a new dependency is picked up), and with libraries on, a dependency change alone (a manifest or lockfile
+edit, `pip install -U`, `npm install`, `dotnet restore`, a Maven or Gradle fetch of a dependency that was missing)
+also marks the graph stale and rebuilds it. A graph built
+without `--library` never gains libraries by itself; `AXIOMCODE_REINDEX=1 axiomcode index` turns them off again.
+
+With them, a call into a dependency resolves to its declaration and a chain is typed through its declared return
+types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is
+not found this way.
 
 ## What it cannot see — say so instead of guessing
 
-Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library;
-what a decoration turns on (proxy, transaction, cache); code outside `--src`. Each is counted in `bound:`.
+Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library; what a
+decoration turns on (proxy, transaction, cache). Text search is still right for a string, a comment or a config value.

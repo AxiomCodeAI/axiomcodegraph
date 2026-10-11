@@ -25,7 +25,7 @@ import json, os, re, subprocess, sys
 
 H = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, H)
-import ax_edges
+import ax_edges, ax_evidence
 
 CAP = 30
 TEXT_ROWS = 5                  # rows of a name written in a non-source file: leads, so a few and a count
@@ -87,6 +87,20 @@ def more_in_file(k):
     return f" · +{k} more in this file" if k else ''
 
 
+def ev(row, r):
+    """a row and, when it carries evidence (ax_evidence.py), the line that decides it under it: one entry, so a cap
+    never separates them"""
+    return row + ''.join('\n' + l for l in ax_evidence.lines(r, call=False)) if r.get('evidence') else row
+
+
+def ev_foot(d):
+    n = d.get('evidence_more')
+    out = [f"evidence: the {ax_evidence.TOP} strongest non-exact rows carry the line that decides them, {n} more do not"] if n else []
+    rows = d.get('direct', []) + d.get('tests', []) + [h for a in d.get('answers', []) for h in a.get('hops', [])]
+    if any(r.get('only_through') for r in rows if isinstance(r, dict)): out.append(ax_evidence.DROP_HINT)
+    return out
+
+
 # ── impact ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 def impact(d, code):
     rows, rest = [], {}
@@ -95,11 +109,29 @@ def impact(d, code):
         rows.append(('contract', site(code, r['at'], f"must change · {r['why']}{stale(r)}", r['display'])))
     seen = set()
     if d.get('alongside'): more('alongside (no call, no reference)', len(d['alongside']))
-    for r in d.get('direct', []):
+    if d.get('alongside_count'): more('alongside (no call, no reference; --alongside lists them)', d['alongside_count'])
+    if d.get('asked_again'): rows.append(('note', d['asked_again']['note']))
+    # a row with evidence leads its rung: it is one of the strongest, and the cap must not cut it from its evidence
+    direct = d.get('direct', [])
+    if any(r.get('evidence') for r in direct):
+        rung = {}
+        for i, r in enumerate(direct): rung.setdefault(r.get('certainty'), i)
+        direct = sorted(direct, key=lambda r: (rung[r.get('certainty')], not r.get('evidence')))
+    # a name match on a package's value (`request(app).get(…)`, ax_edges.library_receiver_sites) is the weakest lead:
+    # it goes after every other row, so the first page holds the callers that may really be the target's
+    libs = []
+    for r in direct:
         cert = r.get('certainty') or 'resolved'
         if cert == 'alongside': more('alongside (no call, no reference)'); continue
         seen.add(r['id'])
-        rows.append((cert, site(code, r['at'], f"{TAG.get(cert, cert)}{n_sites(r)}{stale(r)}", r['display'])))
+        if r.get('why') == ax_edges.LIBRARY_BYNAME_WHY:
+            libs.append(('library receiver', site(code, r['at'], f"{TAG.get(cert, cert)} · library receiver{n_sites(r)}{stale(r)}", r['display']))); continue
+        rows.append((cert, ev(site(code, r['at'], f"{TAG.get(cert, cert)}{n_sites(r)}{stale(r)}", r['display']), r)))
+    # a mapper method's own statement (its namespace and id bind it, ax_nonsource.mapper_elements) is the method's SQL:
+    # a dependent, listed with the direct rows, not a [text] lead after every test
+    for r in d.get('external', []):
+        if r.get('how') == 'is its mapper statement':
+            rows.append(('by key', site(code, r['at'], f"by key · its mapper statement{stale(r)}")))
     tests = {t['id'] for t in d.get('tests', [])}
     # a module's top level reaches it too, but its row is the file's first line (an import), which says nothing: those
     # come after the tests, so a cap spends its lines on callables and on what to run
@@ -110,8 +142,13 @@ def impact(d, code):
         row = ('module' if mod else 'reached', site(code, r['at'], f"hop {r['hops']}" + (' · module scope' if mod else '') +
                                                      (' · test' if r.get('test') else '') + stale(r), r['display']))
         (modules if mod else rows).append(row)
-    for r, k in per_test_file(d.get('tests', [])):
-        rows.append(('test', site(code, r['at'], f"test · {TAG.get(r.get('certainty'), r.get('certainty'))} · hop {r['hops']}" + more_in_file(k) + stale(r), r['display'])))
+    # a test file that loads the changed file before one that never imports it (impact's loads_change)
+    far_files = {f for f in {(t.get('at') or '').rpartition(':')[0] for t in d.get('tests', [])}
+                 if all(t.get('loads_change') is False for t in d.get('tests', []) if (t.get('at') or '').rpartition(':')[0] == f)}
+    near_some = any(t.get('loads_change') is not False for t in d.get('tests', []))
+    for r, k in sorted(per_test_file(d.get('tests', [])), key=lambda rk: near_some and rk[0]['at'].rpartition(':')[0] in far_files):
+        far = ' · further out: never imports the change' if near_some and r['at'].rpartition(':')[0] in far_files else ''
+        rows.append(('test', site(code, r['at'], f"test · {TAG.get(r.get('certainty'), r.get('certainty'))} · hop {r['hops']}" + far + more_in_file(k) + stale(r), r['display'])))
     for r in d.get('stub_tests', []):
         rows.append(('stub', site(code, r['at'], f"test · stubs it{stale(r)}", r['display'])))
     # a test file's top level is already its test row above
@@ -121,12 +158,15 @@ def impact(d, code):
     # (`main`, `run`) is written in hundreds of CI files and fixtures, and listed in full they were the whole answer
     shown = 0
     for r in d.get('external', []):
+        if r.get('how') == 'is its mapper statement': continue
         if r.get('prose'): more('plain-word mentions'); continue
         if shown >= TEXT_ROWS: more('[text]'); continue
         rows.append(('text', site(code, r['at'], f"text · {r.get('how') or 'names it'}{stale(r)}"))); shown += 1
+    rows += libs
     foot = []
     nt = len(d.get('tests', []))
     if 'test_universe' in d: foot.append(f"tests: {nt} of {d['test_universe']} reach it" + ("; `axiomcode test-impact` runs them" if nt else ''))
+    foot += ev_foot(d)
     foot.append(verified(d.get('verified'), d.get('checked_hops')))
     if d.get('unresolved_inside'): foot.append(f"bound: {d['unresolved_inside']} unresolved call(s) inside — a lower bound")
     return rows, rest, foot
@@ -142,17 +182,27 @@ def path(d, code):
             cert = 'defines (not a call)' if not h.get('is_call', True) else ax_edges.direct_cert(t)
             at = h.get('call_at') or h.get('declared_at')
             # caller → callee on every hop: the line is in the caller, and a chain found from B back to A reads right
-            rows.append(('hop', site(code, at, f"{cert} · hop {i}/{len(hops)} {prev} → {h['to']}{stale(h)}")))
+            rows.append(('hop', ev(site(code, at, f"{cert} · hop {i}/{len(hops)} {prev} → {h['to']}{stale(h)}"), h)))
             prev = h['to']
     for r in d.get('reached', []):
         rows.append(('reached', site(code, r['at'], f"hop {r['hops']}{stale(r)}", r['name'])))
+    # `path '*' X`'s by-name group (#1421): the sites impact lists as [by name], after every resolved row
+    for r in d.get('by_name', []):
+        rows.append(('by name', site(code, r['at'], f"by name · receiver not typed{stale(r)}", r['name'])))
     # every printed hop of a chain is looked up again (`unverified_hops` counts the ones that were not there); the
     # document's own `verified` speaks for the `'*'` closure
     ans = d.get('answers', [])
     v = d.get('verified')
     if ans: v = all(not a.get('unverified_hops') for a in ans) and v is not False
-    foot = [verified(v, sum(len(a.get('hops', [])) for a in ans) if ans else None)]
+    foot = ev_foot(d) + [verified(v, sum(len(a.get('hops', [])) for a in ans) if ans else None)]
     if d.get('bound'): foot.append(f"bound: {d['bound']}")
+    # what reaches a [by name] caller reaches the target too whenever the by-name site is real: counted, or the
+    # upstream closure reads complete while every chain behind a by-name row is missing from it
+    bb = d.get('by_name_behind')
+    if bb:
+        foot.append(f"bound: {bb['methods']} more method(s) in {bb['files']} file(s) reach a [by name] caller above through"
+                    " the graph's edges — callers of the target too if that by-name site is real; nearest: "
+                    + ', '.join(f"{x['name']} ({x['at']})" for x in bb.get('nearest', [])))
     return rows, {}, foot
 
 
@@ -160,13 +210,16 @@ def path(d, code):
 def context(d, code):
     rows = []
     listed = set()
+    # first: where a name the task writes is called though nothing declares it — the code to write is used there
+    for u in d.get('called_undeclared', []):
+        rows.append(('called', site(code, u['at'], f"calls {u['name']}, declared nowhere" + (f" · in {u['in']}" if u.get('in') else '')))); listed.add(u['at'])
     for s in d.get('flow', []):
         if s.get('repeat_of'): continue
         c = s.get('certainty') or 'entry'
         tag = f"step {s['step']} · {'entry' if c == 'entry' else TAG.get(c, c)}"
         if s.get('called_at_line'): tag += f" · called at L{s['called_at_line']}"
         if s.get('unresolved'): tag += ' · ⚠ ' + ', '.join(s['unresolved'][:2])
-        rows.append(('flow', site(code, s['at'], tag + stale(s), s['name']))); listed.add(s['at'])
+        rows.append(('flow', ev(site(code, s['at'], tag + stale(s), s['name']), s))); listed.add(s['at'])
     if not d.get('flow'):
         for e in d.get('entry_points', []):
             if e['at'] in listed: continue
@@ -178,7 +231,7 @@ def context(d, code):
     tb = d.get('text_bindings', [])
     for t in tb[:TEXT_ROWS]:
         rows.append(('text', site(code, f"{t['file']}:{t['line']}", 'text · names ' + (t.get('name') or ', '.join(t.get('terms', []))) + stale(t))))
-    foot = []
+    foot = ev_foot(d)
     if d.get('not_indexed'): foot.append('not indexed: ' + ', '.join(map(str, d['not_indexed'][:3])))
     foot.append("bound: follows call edges and names; a constant, config key, string or reflection does not appear")
     return rows, ({'[text]': len(tb) - TEXT_ROWS} if len(tb) > TEXT_ROWS else {}), foot
@@ -197,8 +250,13 @@ def test_impact(d, code):
     rows = []
     for f in d.get('edited_test_files', []):
         rows.append(('test', f"{f}:1: (edited test file)  [test · edited]"))
+    # the tests that load the changed file first; a file further out (it never imports the change, or reaches it only
+    # many hops away) after them, said so
+    further = set(d.get('further_test_files') or [])
     for t, k in per_test_file(d.get('tests', [])):
-        rows.append(('test', site(code, t['at'], f"test · {TAG.get(t.get('certainty'), t.get('certainty'))} · hop {t['hops']}{more_in_file(k)}{stale(t)}", t['display'])))
+        far = (' · further out: never imports the change' if t.get('loads_change') is False else ' · further out') \
+            if (t.get('at') or '').rpartition(':')[0] in further else ''
+        rows.append(('test', ev(site(code, t['at'], f"test · {TAG.get(t.get('certainty'), t.get('certainty'))} · hop {t['hops']}{far}{more_in_file(k)}{stale(t)}", t['display']), t)))
     # a changed file no graph follows (a script, a fixture) is run by the test files that name it in their text
     names = {}
     for f, v in (d.get('named_in_test_text') or {}).items():
@@ -206,8 +264,9 @@ def test_impact(d, code):
             names.setdefault(t, []).append((v or {}).get('needle') or f)
     for t, ns in names.items():
         rows.append(('text test', f"{t}:1: (names {', '.join(dict.fromkeys(ns))})  [test · text]"))
-    foot = []
+    foot = ev_foot(d)
     if d.get('command'): foot.append(f"run: {d['command']}")
+    if d.get('command_further'): foot.append(f"run: (then, further out) {d['command_further']}")
     if d.get('bound'): foot.append(f"bound: {d['bound']}")
     return rows, {}, foot
 

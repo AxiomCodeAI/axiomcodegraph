@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="demo.item.ItemMapper">
+  <update id="reserve">
+    update item set quantity = quantity - #{it.quantity} where id = #{it.id}
+  </update>
+  <insert id="insertAll">
+    insert into item (id, quantity) values
+    <foreach collection="list" item="row" separator=",">
+      (#{row.id}, #{row.quantity})
+    </foreach>
+  </insert>
+</mapper>

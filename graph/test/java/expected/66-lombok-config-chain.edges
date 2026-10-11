@@ -1,0 +1,6 @@
+ambiguous_unknown	method	probe.Uses#plain(Plain) -> -
+known_edge	method	probe.Uses#conf(Conf) -> generated:probe.Conf#setHost/1
+known_edge	method	probe.Uses#conf(Conf) -> generated:probe.Conf#setPort/1
+known_edge	method	probe.Uses#conf(Conf) -> probe.Conf#apply()
+known_edge	method	probe.Uses#plain(Plain) -> generated:probe.Plain#setHost/1
+known_edge	method	probe.Uses#plain(Plain) -> probe.Plain#apply()

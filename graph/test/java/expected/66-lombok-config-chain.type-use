@@ -1,0 +1,6 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Conf [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Plain [ANNOTATION] -> -
+ambiguous_unknown	FIELD_TYPE	0	probe.Conf [FIELD] -> -
+ambiguous_unknown	FIELD_TYPE	0	probe.Plain [FIELD] -> -
+known_edge	METHOD_PARAM	0	probe.Uses#conf(Conf) [METHOD_PARAM] -> probe.Conf
+known_edge	METHOD_PARAM	0	probe.Uses#plain(Plain) [METHOD_PARAM] -> probe.Plain

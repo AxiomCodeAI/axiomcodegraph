@@ -51,6 +51,60 @@ lambda_target_ref(prov, c, tr) :- expr_cast_ref(prov, e, tr), expr_child(prov, e
 // Through `?:`, `??`, parentheses and `!`.
 lambda_target_ref(prov, c, tr) :- lambda_target_ref(prov, p, tr), delegate_value_branch(prov, p, c).
 
+// ── A LAMBDA PASSED AS AN ARGUMENT, TO A CALL THAT HAS ONE CANDIDATE ────────
+// `r.Setup(o => o.Reset())` with `Registry Setup(Action<WidgetOptions> configure)`:
+// the lambda is converted to the parameter it is passed to, so `o` is a
+// WidgetOptions (#1442). The header's caveat is about OVERLOADS, where which
+// parameter binds depends on the lambda; so this takes the parameter only where
+// the callee has no overload to choose between: no other method of that name in
+// its declaring type, and the parameter is not a `params` one. That is decided
+// from the declarations alone, so it cannot feed back into the overload choice it
+// would otherwise depend on.
+//
+// The ordinal is the argument's among the ARGUMENT children, with no named
+// argument at the site (a named one may bind anywhere). An extension method called
+// on a receiver (`services.Configure(o => ...)`) takes its receiver as parameter 0,
+// so the argument at ordinal k fills parameter k + 1.
+lambda_target_ref(prov, a, tr) :-
+    lambda_arg_at(prov, e, k, a),
+    expr_target_any(prov, e, m), lambda_callee_single(prov, m), !method_is_extension(prov, m),
+    lambda_callee_param_ref(prov, m, k, tr).
+lambda_target_ref(prov, a, tr) :-
+    lambda_arg_at(prov, e, k, a),
+    expr_target_any(prov, e, m), lambda_callee_single(prov, m), method_is_extension(prov, m),
+    call_receiver_expr(prov, e, r), expr_type(prov, r, _),
+    lambda_callee_param_ref(prov, m, k + 1, tr).
+
+// A lambda ELEMENT of a collection initializer is the argument of the Add the element
+// runs (call-edge-generation/implicit-calls.dl): `new Rules { v => v.RuleFor(x => x.Name) }`
+// passes the lambda to `Add(Func<Rules, ...> creator)`, so `v` is that parameter's first
+// type argument. The same single-candidate guard as an argument.
+lambda_target_ref(prov, el, tr) :-
+    expr_kind(prov, oc, "OBJECT_CREATION"), expr_type(prov, oc, gk),
+    expr_child(prov, oc, "INITIALIZER_VALUE", _, i), expr_kind(prov, i, "INITIALIZER"),
+    expr_parent(prov, el, i, _, _), expr_anon_decl(prov, el, _),
+    member_method(prov, gk, "Add", m), lambda_callee_single(prov, m), method_paramc(prov, m, "1"),
+    lambda_callee_param_ref(prov, m, 0, tr).
+
+// A lambda among a call's ARGUMENT children, by ordinal, at a site with no named argument.
+lambda_arg_at(prov, e, k, a) :-
+    expr_argument(prov, e, pos, a), expr_anon_decl(prov, a, _),
+    !call_has_named_args(prov, e),
+    p = to_number(pos),
+    k = count : { expr_argument(prov, e, q, _), to_number(q) < p }.
+
+lambda_callee_single(prov, m) :-
+    method_in_type(prov, gk, m), method_name(prov, m, n),
+    !lambda_callee_overloaded(prov, gk, n).
+lambda_callee_overloaded(prov, gk, n) :-
+    method_in_type(prov, gk, m1), method_name(prov, m1, n),
+    method_in_type(prov, gk, m2), method_name(prov, m2, n), m1 != m2.
+
+// The root type reference of the callee's parameter at an ordinal, not a `params` one.
+lambda_callee_param_ref(prov, m, k, tr) :-
+    param_decl(prov, m, pos, _, p), k = to_number(pos),
+    !param_is_params(prov, p), param_type_ref(prov, p, tr).
+
 // A property's declared type, as a reference. property_type reads the NAME, which
 // drops the arguments `Func<ISchema, int>` is made of.
 lambda_property_type_ref(prov, p, tr) :-

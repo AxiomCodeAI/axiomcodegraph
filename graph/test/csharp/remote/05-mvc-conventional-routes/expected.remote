@@ -1,0 +1,11 @@
+edge	http	exact	/Home/Index/{id?}	Shop.Client.ShopClient.Home/0 -> Shop.Web.Controllers.HomeController.Index/0
+edge	http	exact	/Orders/History	Shop.Client.ShopClient.History/0 -> Shop.Web.Controllers.OrdersController.History/0
+edge	http	exact	/Reports/Yearly/{id?}	Shop.Client.ShopClient.Yearly/1 -> Shop.Web.Controllers.ReportsController.Yearly/1
+edge	http	exact	/Widgets/Details/{id?}	Shop.Client.ShopClient.Widget/1 -> Shop.Web.Controllers.WidgetsController.Details/1
+edge	http	exact	/Widgets/Save/{id?}	Shop.Client.ShopClient.SaveWidget/1 -> Shop.Web.Controllers.WidgetsController.Save/1
+edge	http	exact	/api/gadgets/{id}	Shop.Client.ShopClient.Gadget/1 -> Shop.Web.Controllers.GadgetsController.Details/1
+edge	http	exact	/reports/Yearly/{year:int}	Shop.Client.ShopClient.Yearly/1 -> Shop.Web.Controllers.ReportsController.Yearly/1
+unsent	http	-	/Orders/Detail/{id}	Shop.Web.Controllers.OrdersController.Detail/1
+unserved	http	-	/gadgets/describe/{@0}	Shop.Client.ShopClient.Describe/1
+unserved	http	-	/gadgets/details/{@0}	Shop.Client.ShopClient.Gadget2/1
+unserved	http	-	/widgets/helper/{@0}	Shop.Client.ShopClient.Helper/1

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
+"""axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh]
+
+--no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
+graph as it is and never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph
+that is out of date (files edited since, or built by another axiomcode) starts a background rebuild with this
+axiomcode's engine, and the answer's first line says so, why, and how to prevent it.
 
   <file>…         only these files; a named file with no edit against its base (or any named file on a copy
                   without git) counts WHOLE: the tests of everything declared in it
@@ -57,10 +62,13 @@ is not the same as a change that does nothing, and the rung on each row is where
 import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections, functools, posixpath, shlex
 
 TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
+# a test that loads the change and reaches it within this many hops is listed first; beyond it, further out
+NEAR_HOPS = 3
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import graph_sql
+import ax_caserun
 
 
 def run(script, args):
@@ -159,6 +167,18 @@ def command_for(lang, files, classes, db=None, repo='.'):
 LANG_EXT = {'python': ('.py',), 'java': ('.java',), 'csharp': ('.cs',)}
 LANG_FAMILY = {'python': 'py', 'java': 'java', 'csharp': 'cs', 'typescript': 'js', 'javascript': 'js'}
 PY_TEST_FILE = re.compile(r'(^|/)(test[^/]*|[^/]*_test)\.py$')          # what pytest, unittest and Django collect by default
+
+
+def runs_as_test(lang, repo, rel):
+    """collected_by, or a SCRIPT TEST of that language (graph_sql.script_test_file: a test-tree program with its own
+    main, which the project runs by its command rather than a framework's): a suite that starts the changed code as a
+    subprocess is one of these, and it is a test to run, not a file 'no command runs'"""
+    if collected_by(lang, rel): return True
+    if not lang or _guess_lang([rel]) != lang or graph_sql.NOT_A_SCRIPT.search(rel): return False
+    t = _read(os.path.join(repo, rel), 400_000)
+    if rel.endswith('.py'):                                   # py_plan's own reading: it exits, or it guards its main
+        return bool(t and (PY_EXITS.search(t) or PY_MAIN.search(t)))
+    return graph_sql.script_test_file(rel, t)
 
 
 def collected_by(lang, rel):
@@ -1405,12 +1425,12 @@ def _script_for(repo, pkg, prel):
     return None
 
 
-def js_plan(repo, files):
+def js_plan(repo, files, cap=40):
     """(commands, files no runner collects): each file with the runner its own package would run it with."""
     by_runner = collections.OrderedDict()
     singles, unrun = [], []
     repo = os.path.realpath(repo)
-    for f in sorted(files)[:40]:
+    for f in (sorted(files)[:cap] if cap else sorted(files)):
         # the nearest directory whose runner collects the file runs it: a member's own config first, then the
         # root's (a workspace member with no runner of its own is run by the root's, with paths from the root)
         hit, any_pkg, d = None, False, os.path.dirname(f)
@@ -1655,6 +1675,63 @@ def needles(rel, program=False):
     return [n for n in dict.fromkeys(out) if len(n) > 3]
 
 
+_JOINS = re.compile(r'\b(?:join|joinpath|Path|Paths\.get|Path\.of|Combine|File|Directory\w*|glob|iglob|rglob|listdir|scandir|'
+                    r'iterdir|walk|resolve|getResource\w*|Get(?:Files|Directories))\s*\(|\s/\s*["\']')
+
+
+def names_dir(rel, d, t, text):
+    """a test `t` names the directory `d` of the changed file `rel` in `text` as that directory: written as a path
+    segment in a string literal (quoted alone, or inside a path), where the path written around it agrees with where `rel` lies. A path
+    segment is not a phrase match: `cases` inside `tests/cases/python/...` or a `@MethodSource("cases")` names another
+    `cases`. So the segments written before it must be the ones that hold it in `rel` (a placeholder such as `{ROOT}`
+    or a leading `/` stands for any root), and the ones written after it must be what lies below it in `rel` (a glob
+    such as `*` or `*.json` must match). Written with nothing before it (`os.path.join(HERE, 'cases')`), it counts only
+    for a test that lies above that directory, or one level below its parent: a runner joins its own directory (or the
+    one above it) to the name"""
+    import fnmatch
+    parts = rel.split('/')
+    for j in (i for i, p in enumerate(parts[:-1]) if p == d):
+        for m in re.finditer(r'(?<![\w.-])' + re.escape(d) + r'(?![\w-])', text):
+            a, b = m.start(), m.end()
+            while a > 0 and re.match(r'[\w.*{}$%/-]', text[a - 1]): a -= 1
+            while b < len(text) and re.match(r'[\w.*{}$%/-]', text[b]): b += 1
+            tok = text[a:b]
+            quoted = a > 0 and text[a - 1] in '"\'`' and b < len(text) and text[b] in '"\'`/'
+            if '/' not in tok and not quoted: continue
+            # inside a string literal on its line (an open quote before it): `test/java's` in a comment is prose
+            lead = text[text.rfind('\n', 0, a) + 1:a].replace('\\"', '').replace("\\'", '')
+            if not any(lead.count(q) % 2 for q in '"\'`'): continue
+            segs = tok.split('/'); k = len(tok[:m.start() - a].split('/')) - 1
+            if segs[k] != d: continue
+            before = [x for x in segs[:k] if x not in ('', '.', '..')]
+            while before and re.search(r'[{}$%*]', before[0]): before.pop(0)
+            after = segs[k + 1:]
+            if after and after[-1] == '': after.pop()
+            if '/' not in tok:
+                # a name quoted alone is a path segment only where the line builds a path (os.path.join, Path(...),
+                # Paths.get, Path.Combine, a glob): a dict key 'python' or @MethodSource("cases") is a value. The quoted
+                # arguments beside it are its neighbouring segments (join(ROOT, 'tests', 'cases'))
+                line = lead + text[a:text.find('\n', b) if text.find('\n', b) >= 0 else len(text)]
+                if not _JOINS.search(line): continue
+                pre = re.search(r'((?:["\'][\w.-]+["\']\s*,\s*)+)["\']$', lead)
+                before = [x for x in re.findall(r'["\']([\w.-]+)["\']', pre.group(1)) if x not in ('.', '..')] if pre else []
+                post = re.match(r'["\']((?:\s*,\s*["\'][\w.*-]+["\'])+)', text[b:])
+                after = re.findall(r'["\']([\w.*-]+)["\']', post.group(1)) if post else []
+            if before:
+                if any(re.search(r'[{}$%]', x) for x in before): continue
+                if len(before) > j or not all(fnmatch.fnmatchcase(p, x) for p, x in zip(parts[j - len(before):j], before)): continue
+            else:
+                # its own directory, or the one above it (a runner in tools/ joining its parent to 'cases'); never the
+                # repository root by being one level down
+                held = '/'.join(parts[:j])
+                homes = [os.path.dirname(t)]; homes += [os.path.dirname(homes[0])] if os.path.dirname(homes[0]) else []
+                if not any(h == '' or held == h or held.startswith(h + '/') for h in homes): continue
+            below = parts[j + 1:]
+            if len(after) > len(below) or not all(re.search(r'[{}$%]', x) or fnmatch.fnmatchcase(p, x) for p, x in zip(below, after)): continue
+            return True
+    return False
+
+
 def loaders(repo, wanted, edited=(), lang=None, others=None):
     """{changed file: (the needle that matched, [test files naming it])} for files no call edge can reach a test from:
     changed files outside every indexed language, and code that also runs as a program. The most specific needle any
@@ -1665,6 +1742,22 @@ def loaders(repo, wanted, edited=(), lang=None, others=None):
     test module the runner collects outranks a helper or fixture beside it that names the file more fully."""
     if not wanted: return {}
     want = {f: needles(f, prog) for f, prog in wanted.items()}
+    # A DATA FILE'S OWN NAME IS NO MATCH when other files share it: `case.json` in every case directory named five tests
+    # that write or glob some case.json, none of them the one reading this file. Its path (two parts or more) still is
+    for f, prog in wanted.items():
+        b = f.rsplit('/', 1)[-1]
+        if not prog and ax_caserun.name_count(repo, b) > 1:
+            # and a bare directory word is weaker still: `Proto` for Proto/greet.proto named every test that writes Proto
+            want[f] = [n for n in want[f] if n != b and '/' in n]
+    # a program run through a dispatcher beside it (`scripts/tool` execs `scripts/tool-verb`, git's convention) is
+    # started by every test that starts the dispatcher: its path is the one a test names
+    via = {}                                                                # file -> index of its dispatcher's first needle
+    for f, prog in wanted.items():
+        disp = ax_caserun.dispatcher_of(repo, f) if prog else None
+        if disp:
+            via[f] = len(want[f]); want[f] = want[f] + [n for n in needles(disp) if '/' in n and n not in want[f]]
+    # the needles that are one directory of the file (data under a test tree), matched as that directory: names_dir
+    dirs = {f: {n for n in ns if '/' not in n and n in f.split('/')[:-1] and n != os.path.basename(f)} for f, ns in want.items()}
     # a path or a file name stands alone (not inside a longer name); a bare word (a directory, a program's name) only
     # where the text quotes it or puts it in a path, or `cases` would match every sentence about test cases
     pats = {n: re.compile((r'(?<![\w.-])' + re.escape(n) + r'(?![\w-])') if ('.' in n or '/' in n) else
@@ -1673,25 +1766,75 @@ def loaders(repo, wanted, edited=(), lang=None, others=None):
     fam = LANG_FAMILY.get(lang)
     hits = {f: {} for f in wanted}                                          # file -> needle index -> [tests]
     runs = {f: {} for f in wanted}                                          # the same, for test modules the runner collects
+    def said(f, n, t, text):
+        if n not in text or not re.search(pats[n], text): return False
+        return n not in dirs[f] or names_dir(f, n, t, text)
     for t, text in test_texts(repo):
         if t in wanted or t in edited: continue
+        if ax_caserun.in_case_dir(repo, t): continue                      # a case's data names things; it runs nothing
+        text = ax_caserun.joined_paths(text)
         if fam and family(t) != fam:
             if others is not None:
                 for f, ns in want.items():
-                    if any(n in text and re.search(pats[n], text) for n in ns): others.setdefault(f, set()).add(t)
+                    if any(said(f, n, t, text) for n in ns): others.setdefault(f, set()).add(t)
             continue
         for f, ns in want.items():
             for k, n in enumerate(ns):
-                if n in text and re.search(pats[n], text):
+                if said(f, n, t, text):
                     hits[f].setdefault(k, []).append(t)
-                    if fam and collected_by(lang, t): runs[f].setdefault(k, []).append(t)
+                    if fam and runs_as_test(lang, repo, t): runs[f].setdefault(k, []).append(t)
                     break
     out = {}
     for f in wanted:
         by = runs[f] or hits[f]
         if by:
-            k = min(by); out[f] = (want[f][k], sorted(by[k]))
+            k = min(by); ts = set(by[k])
+            # a test that names the program itself does not stand for the suites that start it through its dispatcher
+            if f in via and k < via[f]:
+                kd = min((j for j in by if j >= via[f]), default=None)
+                if kd is not None: ts |= set(by[kd])
+            out[f] = (want[f][k], sorted(ts))
     return out
+
+
+def reader_command(repo, rs):
+    """the command that runs the test files `rs` that read a fixture tree; for a helper that reads it and declares no
+    test of its own (a conftest.py, a resource reader), the tests beside it: its directory's pytest run, its project's
+    dotnet test, its module's mvn test"""
+    lang = _guess_lang(rs)
+    ts = [r for r in rs if runs_as_test(lang, repo, r) and not r.endswith('conftest.py')]
+    c = command_for(lang, ts, [], None, repo) if ts else None
+    if c: return c
+    r = rs[0]
+    d = os.path.dirname(r)
+    if lang == 'python':
+        return f"pytest {shlex.quote(d or '.')}"
+    marker = {'csharp': lambda n: n.endswith('.csproj'), 'java': lambda n: n in ('pom.xml', 'build.gradle', 'build.gradle.kts')}.get(lang)
+    while marker:
+        try: names = os.listdir(os.path.join(repo, d))
+        except OSError: names = []
+        m = next((n for n in sorted(names) if marker(n)), None)
+        if m:
+            if lang == 'csharp': return f"dotnet test {shlex.quote(os.path.join(d, m) if d else m)}"
+            tool = 'mvn test' if m == 'pom.xml' else 'gradle test'
+            return f"(cd {shlex.quote(d)} && {tool})" if d else tool
+        if not d: break
+        d = os.path.dirname(d)
+    return None
+
+
+def print_case_runs(case_cmds, limit=40, labels=None):
+    """the case runners the changed case data and rule files map to, one command per case (ax_caserun); a fixture
+    tree's files under the runner or test that reads them (`case data for <runner>`), its command on a line of its own"""
+    n = len({f for fs in case_cmds.values() for f in fs})
+    print(f"\ncase data and rules ({n} file(s)): inputs a case runner or a test reads, not tests themselves; run what reads them:")
+    for c, fs in sorted(case_cmds.items(), key=lambda kv: (kv[0].startswith('#'), kv[0])):
+        if labels and c in labels:
+            print(f"  {labels[c]}:")
+            print(f"    {c}")
+        else:
+            print(f"  {c}")
+        print(f"      for " + ', '.join(fs[:4]) + (f" … +{len(fs) - 4}" if len(fs) > 4 else ''))
 
 
 def read_answer(out):
@@ -1768,19 +1911,31 @@ def main(argv):
         sys.stderr.write(err or out); return rc or 2
 
     entries = changed.get('changed') or []
+    repo = next((a for a in passthru if os.path.isdir(a)), '.')
+    # CASE DATA AND THE RULES A CASE RUNNER SOLVES WITH (ax_caserun): a file under a runner's cases/ is an input it
+    # reads, not a test, and a rule file the runner's directory mirrors has no call edge to any test. Both map to the
+    # runner, with the command that runs that one case, and leave every other tier: a fixture's own test_*.py handed
+    # to pytest, or a case's source matched by name against another case's, runs nothing that checks anything
+    # A FIXTURE TREE under a test root (read by path from a runner or a test, holding goldens, or a project no build
+    # includes) is case data the same way: its files map to the runner or test that reads it, with that one's command
+    case_cmds, case_owned = ax_caserun.plan(os.path.realpath(repo), sorted({e['file'] for e in entries if e.get('file')}
+                                                                             | set(changed.get('outside_index') or [])),
+                                            test_command=lambda r: reader_command(repo, r))
+    case_labels = dict(getattr(ax_caserun.plan, 'labels', {}))
+    entries = [e for e in entries if e.get('file') not in case_owned]
     targets, by_target = [], {}
     for e in entries:
         t = e.get('target')
         if not t or (e.get('kind') == 'added' and not e.get('referenced')): continue
         if t not in by_target:
             by_target[t] = e; targets.append(t)
-    repo = next((a for a in passthru if os.path.isdir(a)), '.')
     heads = [f"note: {changed['range_note']}"] if changed.get('range_note') else []
+    if changed.get('baseline_note'): heads.append(f"note: {changed['baseline_note']}")
     # A CHANGED TEST FILE IS ITSELF A TEST TO RUN: a new test file, or an edited one, has no test reaching it — it is one
     edited = sorted({e['file'] for e in entries if e.get('file', '').endswith(CODE) and (e.get('is_test') or TESTY.search(e['file']))})
     # WHAT NO CALL EDGE REACHES: files outside every indexed language (fixtures, case data), and changed code that is
     # also started as a program (a test that runs it as a subprocess has no edge to it). Looked for by name in the tests
-    outside = changed.get('outside_index') or []
+    outside = [f for f in changed.get('outside_index') or [] if f not in case_owned]
     progs = {}
     for f in sorted({e['file'] for e in entries if e.get('file')} - set(edited)):
         try: txt = open(os.path.join(repo, f), errors='replace').read(400_000)
@@ -1796,7 +1951,12 @@ def main(argv):
     other_lang = set().union(*other_by.values()) if other_by else set()
     loaded_files = sorted({t for _, ts in loaded.values() for t in ts})
 
-    if not targets and not edited and not loaded and not outside:
+    if not targets and not edited and not loaded and not outside and case_cmds and not as_json:
+        for h in heads: print(h)
+        print_case_runs(case_cmds, limit, case_labels)
+        print("\nbound: a case runner's command runs what its cases check; a test that reaches these files some other way is not here.")
+        return 0
+    if not targets and not edited and not loaded and not outside and not case_cmds:
         for h in heads: print(h)
         print("no changed declaration the graph can name, so no test can be selected from it.")
         for n in (changed.get('notes') or [])[:8]: print(f"  {n}")
@@ -1822,11 +1982,18 @@ def main(argv):
     batches = [[t] for t in targets] if len(targets) <= 8 else [targets[k:k + 60] for k in range(0, len(targets), 60)]
     disp = {by_target[t].get('symbol'): t for t in targets}
     for batch in batches:
-        rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope)
+        # a target is file:line (changed): a type or a field is asked as that kind, since a callable on its line (a
+        # record's constructor, an initializer's lambda) would otherwise answer for it
+        tk = by_target[batch[0]].get('target_kind') if len(batch) == 1 else None
+        rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope + (['--kind', tk] if tk in ('type', 'field') else []))
         # EVERY TARGET HERE WAS READ FROM THE GRAPH by `changed` a moment ago, so a refusal is this program failing to
         # say it back, not a declaration the graph lacks. `Owner.m(p)` still refused is asked as `Owner.m` (the tests
         # that reach the method are the ones a parameter edit can fail); a batch still refused is asked one by one, so
         # one bad target does not cost the others their tests
+        # a JavaScript function that is also a constructor (`function MarkdownIt(opts)`, `function Route(path)`) is a type
+        # to `changed` and has no type declaration impact can name at that line: it is asked as the function it is
+        if rc != 0 and tk == 'type':
+            rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope)
         if rc != 0 and len(batch) == 1 and '(' in batch[0]:
             bare = re.sub(r'\(.*\)$', '', batch[0])
             rc, o, e = run('axiomcode-impact', [bare, repo, '--tests', '--json', '--kind', 'method'] + scope)
@@ -1868,7 +2035,24 @@ def main(argv):
             else:
                 stub_only.setdefault(rid, rec); stub_by[rid].add(bt)
 
+    # a test the graph found INSIDE a case's data is the fixture's own test_*.py: data a runner reads, never collected
+    real = os.path.realpath(repo)
+    case_data_tests = {i for i, r in tests.items() if r.get('at') and ax_caserun.in_case_dir(real, r['at'].split(':')[0])}
+    for i in case_data_tests: tests.pop(i, None)
     files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
+    # NEAREST FIRST, AND FURTHER OUT APART: a test whose file (or the fixture file its runner loads) never imports the
+    # changed file reaches it only through a key join, a dispatch resolved across services, or a registration the
+    # process it runs in never makes (impact's loads_change). Still listed, after the tests that load the change.
+    # One that loads it but reaches it only beyond NEAR_HOPS (a whole service started for an unrelated flow, whose
+    # route crosses a bus and a handler table) is further out too: impact's own measurement puts a sound route within
+    # 3 hops at about 9 in 10 right, and a hub answer at 3 in 10. Where the import graph is unknown (no loads_change),
+    # nothing moves.
+    near = lambda r: r.get('loads_change') is None or (r['loads_change'] and (r.get('hops') or 0) <= NEAR_HOPS)
+    further = sorted({f for f in files} - {(r.get('at') or '').split(':')[0] for r in tests.values() if near(r)})
+    if further and len(further) < len(files):
+        files = [f for f in files if f not in set(further)]
+    else:
+        further = []                                    # nothing loads it, or everything does: one list, as before
     # A selected test carrying no location drops out of `files`, and `files` is what the command PRINTS and
     # what the run command is built from — so the answer names it nowhere and the suite runs without it.
     # This is the third instance of one bug: a row discarded for being malformed in one field. The other two
@@ -1887,6 +2071,74 @@ def main(argv):
     ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at') and not r.get('script')]   # a script is its file
     run_files = sorted(set(files) | set(edited))
     lang = (changed.get('lang') or '').lower() or _guess_lang(run_files or changed_files)
+    # A SELECTED JAVASCRIPT FILE NO RUNNER COLLECTS is not a test run: a benchmark or interop script under test/ that no
+    # include glob or package script names (`test/autobahn.js` beside `test/*.test.js`), or a file the runner only
+    # reaches through another test file that requires it (`require('./es2017/asyncFunctions.js')`). It is replaced by
+    # the collected test files that import it, through the project's imports, and where none does it moves to
+    # `not_collected` and out of the selection. Where a test file loads modules by a computed name
+    # (`require(path.join(dir, f))`) nothing can be said, and the file stays.
+    rehomed = {}
+    if lang == 'javascript' and (files or further):
+        sel = sorted(set(files) | set(further))
+        unrun = [f for f in js_plan(repo, sel, cap=None)[1] if f.endswith(('.js', '.mjs', '.cjs', '.jsx'))]
+        if unrun:
+            D = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or ax_fresh.graph_dir(repo_), 'out', 'dl', 'impact')
+            rev = collections.defaultdict(set); dyn = None
+            try:
+                for ln in open(os.path.join(D, 'imports_fact.facts'), encoding='utf-8', errors='replace'):
+                    a, _, b = ln.rstrip('\n').partition('\t')
+                    if a and b: rev[b].add(a)
+                dyn = {ln.rstrip('\n') for ln in open(os.path.join(D, 'imports_dynamic.facts'), encoding='utf-8', errors='replace')}
+            except OSError:
+                dyn = None                                  # no import facts: say nothing, move nothing
+            # a collected test file that loads modules by a computed name (`fs.readdirSync(dir).forEach(f => require(f))`)
+            # may be what runs a file nothing requires by its path: such a file stays
+            dyn_runner = dyn is not None and any(not js_plan(repo, [x], cap=None)[1] and graph_sql.TEST_REGISTRAR.search(_read(os.path.join(repo, x), 400_000) or '')
+                                                 for x in sorted(dyn) if x.endswith(('.js', '.mjs', '.cjs', '.jsx')))
+            if dyn is not None:
+                for f in unrun:
+                    seen, todo = {f}, [f]
+                    while todo:
+                        for a in rev.get(todo.pop(), ()):
+                            if a not in seen: seen.add(a); todo.append(a)
+                    if seen & dyn: continue
+                    ups = sorted(seen - {f})
+                    if not ups and dyn_runner: continue
+                    runs = [u for u in ups if not js_plan(repo, [u], cap=None)[1] and graph_sql.TEST_REGISTRAR.search(_read(os.path.join(repo, u), 400_000) or '')]
+                    rehomed[f] = runs
+                if rehomed:
+                    new_near = [x for x in files if x not in rehomed] + [r for f in files if f in rehomed for r in rehomed[f]]
+                    new_far = [x for x in further if x not in rehomed] + [r for f in further if f in rehomed for r in rehomed[f]]
+                    files = sorted(set(new_near)); further = sorted(set(new_far) - set(files))
+                    run_files = sorted(set(files) | set(edited))
+    # A CHANGE THAT RUNS WHILE MOCHA LOADS THE SPECS FAILS THE WHOLE RUN. mocha requires every spec file, and runs every
+    # describe() body, in ONE process before it runs a single test; a throw there aborts the run and every spec file
+    # in it fails, the ones that never touch the change included. A test reached at load time -- through its file's
+    # module body (an `at import` route, or the module as the route) or through the describe() block around it -- is
+    # therefore every file that mocha run collects, not just its own. jest and vitest load each file in its own
+    # module registry, where the same throw fails that file alone, so only a mocha run is widened.
+    load_wide = {}
+    if lang == 'javascript' and tests:
+        for f in sorted({(r.get('at') or '').rpartition(':')[0] for r in tests.values() if r.get('at_load')} - {''}):
+            d = os.path.dirname(f); hit = None
+            while hit is None:
+                drel = f[len(d) + 1:] if d else f
+                hit = next(((d, name, collects) for name, collects, _c in _runners_of(repo, d) if collects(drel)), None)
+                if not d: break
+                d = os.path.dirname(d)
+            if not hit or hit[1] != 'mocha' or hit[0] in load_wide: continue
+            base = os.path.join(repo, hit[0]) if hit[0] else repo
+            run_list = []
+            for root, dirs, fs in os.walk(base):
+                dirs[:] = [x for x in dirs if x not in ('node_modules', '.git', '.axiomcode', 'dist', 'coverage') and not x.startswith('.')]
+                for x in fs:
+                    rel = os.path.relpath(os.path.join(root, x), base).replace(os.sep, '/')
+                    if x.endswith(('.js', '.mjs', '.cjs', '.jsx', '.ts')) and hit[2](rel):
+                        run_list.append(f"{hit[0]}/{rel}" if hit[0] else rel)
+            if len(run_list) > 1: load_wide[hit[0]] = sorted(run_list)
+        if load_wide:
+            files = sorted(set(files) | {x for v in load_wide.values() for x in v}); further = sorted(set(further) - set(files))
+            run_files = sorted(set(files) | set(edited))
     # the graph `impact` answered from, asked again for which selected classes are abstract (command_for)
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or ax_fresh.graph_dir(repo_), 'out', 'graph.sqlite')
     # the classes the command names: every owner, and a test that has none by its file (a class that inherits a
@@ -1895,16 +2147,24 @@ def main(argv):
         if classes and lang in ('java', 'csharp') else classes
     replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
     cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db, repo)
+    cmd_further = command_for(lang, further, [], db, repo) if further else None
+    in_file = lambda f: sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
 
+    import ax_evidence
     if as_json:
-        print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
+        print(json.dumps(ax_evidence.annotate('test-impact', {'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
                                        'target': t} for t in targets],
                           'test_files': files, 'test_classes': classes,
-                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
+                          'further_test_files': further, 'command_further': cmd_further,
+                          # the tests that load the change first, then the ones further out, each nearest first
+                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in
+                                    sorted(tests.items(), key=lambda kv: (kv[1].get('at', '').split(':')[0] in further,))],
                           'edited_test_files': edited,
                           'command': cmd_all,
                           'abstract_replaced': replaced,
-                          'not_collected': js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else [],
+                          'not_collected': sorted(set(js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else []) | set(rehomed)),
+                          **({'run_by_importer': {f: r for f, r in rehomed.items() if r}} if any(rehomed.values()) else {}),
+                          **({'whole_run_at_load': {d or '.': len(v) for d, v in load_wide.items()}} if load_wide else {}),
                           'not_reached_from': unseen,
                           'framework_entries': list(fw_entries.values()), 'framework_grep': fw_greps,
                           'stub_only_not_selected': [dict(r, stubs=sorted(stub_by[i])) for i, r in stub_only.items() if i not in tests],
@@ -1915,10 +2175,12 @@ def main(argv):
                           **({'tests_outside_src': out_src} if out_src and not tests else {}),
                           'named_in_test_text': {f: {'needle': n, 'tests': ts} for f, (n, ts) in loaded.items()},
                           'named_in_other_language_tests': len(other_lang),
-                          'range_note': changed.get('range_note'),
+                          'case_runs': case_cmds,
+                          'case_data_tests_not_selected': len(case_data_tests),
+                          'range_note': changed.get('range_note'), 'baseline_note': changed.get('baseline_note'),
                           'same_name_not_tests': name_hits.get('not_tests') or 0,
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
-                                   'framework instantiating by name, a subprocess, or a case built at runtime is not here'},
+                                   'framework instantiating by name, a subprocess, or a case built at runtime is not here'}, repo),
                          indent=1))
         return 0
 
@@ -1929,6 +2191,11 @@ def main(argv):
     if edited:
         print(f"\nedited test file(s) ({len(edited)}), run as they are:")
         for f in edited[:limit]: print(f"    {f}")
+    if case_cmds:
+        print_case_runs(case_cmds, limit, case_labels)
+    if case_data_tests:
+        print(f"\n  not selected: {len(case_data_tests)} test function(s) the graph reached lie inside a case runner's cases/ (a"
+              " fixture's own tests, read as data by the runner): the runner's command above is what checks them")
     if not tests and targets:
         print("\nno test in the graph reaches any of them.")
         print("  that is not the same as 'no test covers this': a function invoked through an array, a")
@@ -1968,16 +2235,30 @@ def main(argv):
             print("\n  " + cmd_all.replace("\n", "\n  "))
             print_unrun(lang, repo, run_files)
     elif tests:
-        print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
+        print(f"\ntests to run: {sum(in_file(f) for f in files)} test(s) in {len(files)} file(s)"
+              + (" that load the changed file" if further else ""))
         for f in files[:limit]:
-            n = sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
-            print(f"    {f}   ({n} test(s))")
+            print(f"    {f}   ({in_file(f)} test(s))")
         if len(files) > limit:
             print(f"    … +{len(files)-limit} more file(s) (--limit N)")
+        if further:
+            print(f"\nfurther out: {sum(in_file(f) for f in further)} test(s) in {len(further)} file(s) whose file never imports the"
+                  f" changed one (a key, a dispatch or a registration joins them to it) or reaches it only beyond {NEAR_HOPS} hops;"
+                  " run after the ones above:")
+            for f in further[:limit]:
+                print(f"    {f}   ({in_file(f)} test(s))")
+            if len(further) > limit:
+                print(f"    … +{len(further)-limit} more file(s) (--limit N)")
         if why:
             print("\n  why each one is here:")
             for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
-                chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
+                ch = r.get('chain') or []
+                # a fixture-selected test's route runs test <- fixture -> ... -> the change: the first hop is the runner
+                # handing the fixture's result to the test, not a call the test makes (#1424)
+                if r.get('via') and len(ch) > 1 and ch[1] == r['via']:
+                    chain = f"{ch[0]} <- " + " -> ".join(ch[1:])
+                else:
+                    chain = " -> ".join(ch) or "reaches it directly"
                 print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
         if replaced:
             # one line however many: an abstract class runs nothing by name, so the command names what extends it
@@ -1988,6 +2269,19 @@ def main(argv):
         if cmd_all:
             print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
+        for d_, v_ in sorted(load_wide.items()):
+            print(f"\n  the change runs while mocha loads the specs (a module body or a describe() block reaches it), and a throw"
+                  f" there fails the whole run: every one of the {len(v_)} spec file(s) mocha collects in {d_ or '.'} is listed")
+        moved = {f: r for f, r in rehomed.items() if r}; gone = sorted(f for f, r in rehomed.items() if not r)
+        if moved:
+            print(f"\n  {len(moved)} file(s) the graph reached are run only through the test files that require them, which are"
+                  " listed instead: " + '; '.join(f"{f} <- {', '.join(r[:2])}" + (f" +{len(r) - 2}" if len(r) > 2 else '') for f, r in sorted(moved.items())[:4])
+                  + (f" … +{len(moved) - 4}" if len(moved) > 4 else ''))
+        if gone:
+            print(f"\n  not selected: {len(gone)} file(s) under the tests reach it but no runner collects them and no test file requires"
+                  " them (a script or benchmark beside the tests): " + ', '.join(gone[:4]) + (f" … +{len(gone) - 4}" if len(gone) > 4 else ''))
+        if cmd_further:
+            print("\n  then, further out: " + cmd_further.replace("\n", "\n  "))
     elif edited and cmd_all:
         print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
@@ -2004,7 +2298,7 @@ def main(argv):
             # every file of a test tree, fixtures in other languages included, and a majority of those once chose the
             # runner and put .cs and .ts fixtures on a `pytest` line
             rlang = lang or _guess_lang(run_files or loaded_files)
-            runnable = [f for f in loaded_files if collected_by(rlang, f)]
+            runnable = [f for f in loaded_files if runs_as_test(rlang, repo, f)]
             both = sorted(set(run_files) | set(runnable))
             cmd = command_for(rlang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in runnable] if classes else [], db, repo)
             if cmd: print("\n  with the tests above: " + cmd.replace("\n", "\n  "))
@@ -2062,6 +2356,11 @@ def main(argv):
         for t, first in unreadable:
             print(f"     {t}   {(first or [''])[0][:100]}")
         print("     the selection above is incomplete — do not act on it as though it were the whole answer.")
+    if ax_evidence.on():
+        # the line in each test that starts a route which is not an exact edge, and what decides it (ax_evidence.py)
+        _ed = ax_evidence.annotate('test-impact', {'changed': [{'symbol': by_target[t]['symbol']} for t in targets],
+                                                   'tests': [dict(r) for r in tests.values()]}, repo)
+        for l in ax_evidence.prose_block(_ed['tests'], _ed.get('evidence_more', 0), 'test routes'): print(l)
     print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
           "does not encode — reflection, a service loader, a framework that instantiates by name, a subprocess, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
@@ -2087,4 +2386,17 @@ def _guess_lang(files):
 
 if __name__ == '__main__':
     import ax_pages; ax_pages.install('test-impact')  # pages and a next step (#1202)
+    if '--json' in sys.argv[1:]:
+        # an answer that selects nothing (no changed declaration the graph can name, no graph) is printed as prose;
+        # in --json mode it is a document too, with the prose kept, so stdout always parses
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try: code = main(sys.argv[1:])
+            except SystemExit as e: code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        text = buf.getvalue()
+        try: json.loads(text); sys.stdout.write(text)
+        except ValueError:
+            print(json.dumps({'changed': [], 'tests': [], 'prose': text.rstrip('\n').split('\n') if text.strip() else []}, indent=2))
+        sys.exit(code)
     sys.exit(main(sys.argv[1:]))

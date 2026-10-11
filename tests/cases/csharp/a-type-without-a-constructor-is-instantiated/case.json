@@ -1,0 +1,18 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a class that writes no constructor is instantiated where `new` names it, and a target-typed `new()` for a field of that type is one too (#1473)",
+   "run": ["impact", "SystemClock", "--kind", "type"],
+   "want": ["Wiring.Clock   src/Orders.cs:13   — instantiates it", "src/Orders.cs:12   — instantiates it"],
+   "avoid": ["change is local", "src/Orders.cs:14   — instantiates it"]},
+  {"why": "a partial class with no constructor is instantiated through either of its declarations",
+   "run": ["impact", "Ledger", "--kind", "type"],
+   "want": ["Wiring.Book   src/Orders.cs:15   — instantiates it"],
+   "avoid": ["src/Orders.cs:13   — instantiates it"]},
+  {"why": "control: a class with a written constructor is instantiated through the constructor, as before",
+   "run": ["impact", "GroundShipper", "--kind", "type"],
+   "want": ["Wiring.Shipper   src/Orders.cs:14   — instantiates it"],
+   "avoid": ["src/Orders.cs:13   — instantiates it"]},
+  {"why": "control: a type only taken as a parameter is never instantiated",
+   "run": ["impact", "NeverBuilt", "--kind", "type"],
+   "want": ["Wiring.Named"],
+   "avoid": ["instantiates it"]}]}

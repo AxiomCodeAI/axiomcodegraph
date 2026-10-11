@@ -1,0 +1,35 @@
+import_cause     bundler-alias/legacy/app.js:4:10  Lib/extra  not_staged
+import_cause     bundler-alias/legacy/app.js:5:10  Loose/extra  not_staged
+import_cause     bundler-alias/legacy/webpack.config.cjs:1:14  path  builtin
+import_cause     bundler-alias/src/pages/Home.js:6:10  @utils/date  not_staged
+import_cause     bundler-alias/vite.config.js:1:10  vite  not_staged
+import_cause     bundler-alias/vite.config.js:2:1  path  builtin
+import_cause     bundler-alias/vite.config.js:3:10  node:url  builtin
+import_cause     bundler-alias/vite.config.js:3:25  node:url  builtin
+import_cause     framework-alias/other/probe.js:2:10  $lib/helper  not_staged
+import_cause     jsconfig-paths/noalias/probe.js:2:10  @/check  not_staged
+import_cause     workspace-package/apps/app/src/main.js:5:10  not-in-this-repo  not_staged
+package_entry    @ws/app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    @ws/lib  .  []  MAIN  dist/index.js  MISSING_FILE  -> -
+package_entry    @ws/lib  .  [import]  EXPORTS  dist/index.mjs  MISSING_FILE  -> -
+package_entry    @ws/lib  .  [require]  EXPORTS  dist/index.js  MISSING_FILE  -> -
+package_entry    @ws/lib  ./sub  []  EXPORTS  dist/sub/index.js  MISSING_FILE  -> -
+package_entry    bundler-alias-fixture  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    framework-alias-fixture  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    path-alias-fixture  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    ws-tools  .  []  MAIN  dist/index.js  MISSING_FILE  -> -
+unresolved       bundler-alias/legacy/app.js:10:3  FUNCTION_CALL loose  callee_untyped
+unresolved       bundler-alias/legacy/app.js:9:3  FUNCTION_CALL extra  callee_untyped
+unresolved       bundler-alias/legacy/lib/util/trim.js:2:10  METHOD_CALL trim  receiver_untyped
+unresolved       bundler-alias/legacy/webpack.config.cjs:7:13  METHOD_CALL resolve  no_target
+unresolved       bundler-alias/legacy/webpack.config.cjs:8:13  METHOD_CALL join  no_target
+unresolved       bundler-alias/shared/fmt.js:2:10  METHOD_CALL toFixed  receiver_untyped
+unresolved       bundler-alias/src/pages/Home.js:10:3  FUNCTION_CALL scoped  callee_untyped
+unresolved       bundler-alias/src/utils/date.js:2:10  FUNCTION_CALL String  no_target
+unresolved       bundler-alias/vite.config.js:10:18  FUNCTION_CALL fileURLToPath  no_target
+unresolved       bundler-alias/vite.config.js:10:32  CONSTRUCTOR_CALL URL  no_target
+unresolved       bundler-alias/vite.config.js:6:16  FUNCTION_CALL defineConfig  callee_untyped
+unresolved       bundler-alias/vite.config.js:9:12  METHOD_CALL resolve  receiver_untyped
+unresolved       framework-alias/other/probe.js:5:10  FUNCTION_CALL helper  callee_untyped
+unresolved       jsconfig-paths/noalias/probe.js:5:10  FUNCTION_CALL checkA  callee_untyped
+unresolved       workspace-package/apps/app/src/main.js:12:10  FUNCTION_CALL outside  callee_untyped

@@ -62,6 +62,46 @@
    ]
   },
   {
+   "why": "a function literal wrapped by a library call and kept in a const (`const plugin = wrap(async () => …)`), then handed to a library registration (`host.register(plugin)`), is reached from the function that registers it, as the literal handed bare is; it was 'the two are independent in this graph'",
+   "run": [
+    "path",
+    "boot",
+    "migrate"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[callback_registered"
+   ],
+   "avoid": [
+    "the two are independent"
+   ]
+  },
+  {
+   "why": "CONTROL: the same literal handed to the registration bare is reached as before",
+   "run": [
+    "path",
+    "bootBare",
+    "migrate"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[callback_registered"
+   ]
+  },
+  {
+   "why": "CONTROL: a const holding what a library call built from a plain value registers no function",
+   "run": [
+    "path",
+    "bootSettings",
+    "migrate"
+   ],
+   "want": [],
+   "avoid": [
+    "1 of 1 target(s) reached"
+   ],
+   "expect_error": true
+  },
+  {
    "why": "CONTROL: a project higher-order function has a body that calls its parameter, so the callback it is handed is still reached through that call",
    "run": [
     "path",

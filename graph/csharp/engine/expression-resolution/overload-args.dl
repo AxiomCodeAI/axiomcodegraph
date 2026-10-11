@@ -163,6 +163,123 @@ ovl_rejected(prov, e, m) :-
     ovl_arg_type(prov, e, k, at), ovl_param_type(m, k, pt),
     !ovl_conv(at, pt).
 
+// ── 1b. NOT APPLICABLE, BY SHAPE ────────────────────────────────────────────
+// Three more readings the arguments make certain, each tested against the parameter
+// the argument lands on (an extension method called on a receiver shifted by one):
+//
+//   a LAMBDA        converts only to a delegate (or an expression of one): never to a
+//                   predefined type, and to Func<..> / Action<..> / Expression<..> only
+//                   with the delegate's parameter count. `Must(x => ..)` against
+//                   Must(Func<P, bool>) / Must(Func<T, P, bool>) keeps the first.
+//   a PREDEFINED    value (a literal, or a name declared with a predefined type) never
+//                   converts to a delegate, to a non-`params` array, or to a type in
+//                   source that declares no conversion operator, nor to an exception.
+//   a SOURCE-TYPED  argument (its type a class or struct in source) never converts to a
+//                   delegate, to a predefined type, or to another source type it neither
+//                   derives from nor implements, when neither declares a conversion.
+//
+// Prune-only, and the site is never emptied (ovl_survives below).
+ovl_ext_receiver(prov, e) :- call_receiver_expr(prov, e, r), !ref_names_type(prov, r, _).
+ovl_param_at(prov, e, m, k, p) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m), !method_is_extension(_, m),
+    param_decl(_, m, pos, _, p), k = to_number(pos), param_mode(_, p, "VALUE"), !param_is_params(_, p).
+ovl_param_at(prov, e, m, k, p) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m), method_is_extension(_, m), ovl_ext_receiver(prov, e),
+    param_decl(_, m, pos, _, p), k = to_number(pos) - 1, k >= 0, param_mode(_, p, "VALUE"), !param_is_params(_, p).
+ovl_param_at(prov, e, m, k, p) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m), method_is_extension(_, m), !ovl_ext_receiver(prov, e),
+    param_decl(_, m, pos, _, p), k = to_number(pos), param_mode(_, p, "VALUE"), !param_is_params(_, p).
+
+ovl_delegate_name("Func"). ovl_delegate_name("Action"). ovl_delegate_name("Predicate").
+ovl_delegate_name("Expression"). ovl_delegate_name("Comparison"). ovl_delegate_name("Converter").
+// the delegate a parameter's type names, and how many parameters it takes
+ovl_param_delegate(p, tr) :- param_type_ref(_, p, tr), type_ref_name(_, tr, n), ovl_delegate_name(n), n != "Expression".
+ovl_param_delegate(p, ar) :- param_type_ref(_, p, tr), type_ref_name(_, tr, "Expression"), type_ref_arg(_, tr, "0", ar).
+ovl_delegate_arity(tr, n) :- type_ref_name(_, tr, "Func"), type_ref_argc(_, tr, c), n = to_number(c) - 1.
+ovl_delegate_arity(tr, n) :- type_ref_name(_, tr, "Action"), type_ref_argc(_, tr, c), n = to_number(c).
+ovl_delegate_arity(tr, 1) :- type_ref_name(_, tr, "Predicate").
+ovl_delegate_arity(tr, 2) :- type_ref_name(_, tr, "Comparison").
+ovl_delegate_arity(tr, 1) :- type_ref_name(_, tr, "Converter").
+ovl_param_is_delegate(p) :- param_type_ref(_, p, tr), type_ref_name(_, tr, n), ovl_delegate_name(n).
+ovl_param_is_delegate(p) :- param_type_ref(_, p, tr), type_ref_resolves(_, tr, gk), type_group(_, t, gk), type_decl(_, _, _, _, "DELEGATE", t).
+
+ovl_lambda_arg(prov, e, k, n) :-
+    ovl_arg_at(prov, e, k, a), expr_anon_decl(prov, a, lam),
+    n = count : { param_decl(prov, lam, _, _, _) }.
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, n), ovl_param_at(prov, e, m, k, p),
+    ovl_param_delegate(p, tr), ovl_delegate_arity(tr, d), d != n.
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, _).
+
+// a parameter type no predefined value converts to
+ovl_param_closed(p) :- ovl_param_is_delegate(p).
+ovl_param_closed(p) :- param_type_name(_, p, _, ctn), strlen(ctn) > 2, substr(ctn, max(0, strlen(ctn) - 2), 2) = "[]".
+ovl_param_closed(p) :- param_type_name(_, p, tn, _), strlen(tn) >= 9, substr(tn, max(0, strlen(tn) - 9), 9) = "Exception".
+ovl_param_closed(p) :- param_type_ref(_, p, tr), type_ref_resolves(_, tr, gk), ovl_source_closed(gk).
+// a class or struct in source with no conversion operator of its own
+ovl_source_closed(gk) :-
+    type_group("client", t, gk), type_decl("client", _, _, _, tk, t), (tk = "CLASS" ; tk = "STRUCT" ; tk = "RECORD"),
+    !ovl_type_converts(gk).
+ovl_type_converts(gk) :- method_in_type(_, gk, m), method_kind(_, m, "CONVERSION_OPERATOR").
+ovl_rejected(prov, e, m) :-
+    ovl_arg_type(prov, e, k, _), ovl_param_at(prov, e, m, k, p), ovl_param_closed(p).
+
+// a source-typed argument
+ovl_arg_source(prov, e, k, gk) :-
+    ovl_arg_at(prov, e, k, a), !expr_anon_decl(prov, a, _), expr_type(prov, a, gk), ovl_source_closed(gk).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_source(prov, e, k, _), ovl_param_at(prov, e, m, k, p), ovl_param_is_delegate(p).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_source(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, _).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_source(prov, e, k, gk), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), type_group("client", _, pgk),
+    !type_self_or_ancestor(prov, gk, pgk), !type_satisfies(prov, gk, pgk), !ovl_type_converts(pgk).
+
+// An INTERFACE-typed argument converts only to that interface, one it extends, or
+// object: never to a class or struct in source, a delegate or a predefined type.
+ovl_arg_iface(prov, e, k, gk) :-
+    ovl_arg_at(prov, e, k, a), !expr_anon_decl(prov, a, _), expr_type(prov, a, gk),
+    type_group("client", t, gk), type_is_interface("client", t).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p), ovl_param_is_delegate(p).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, _).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), ovl_source_closed(pgk).
+ovl_rejected(prov, e, m) :-
+    ovl_arg_iface(prov, e, k, gk), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk), pgk != gk,
+    type_group("client", pt, pgk), type_is_interface("client", pt),
+    !type_self_or_ancestor(prov, gk, pgk), !type_satisfies(prov, gk, pgk), !interface_extends_tc(prov, gk, pgk).
+interface_extends_tc(prov, a, b) :- interface_extends(prov, a, b).
+interface_extends_tc(prov, a, c) :- interface_extends(prov, a, b), interface_extends_tc(prov, b, c).
+
+// A LAMBDA never converts to a class, struct, interface or enum declared in source, to
+// an array, or to the reflection types an overload commonly pairs it with
+// (`Map(m => m.Id)` against `Map(Type, MemberInfo)`).
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_ref(_, p, tr), type_ref_resolves(_, tr, pgk),
+    type_group("client", t, pgk), !type_is_delegate("client", t).
+ovl_rejected(prov, e, m) :-
+    ovl_lambda_arg(prov, e, k, _), ovl_param_at(prov, e, m, k, p),
+    param_type_name(_, p, tn, ctn), (ovl_reflection_type(tn) ; (strlen(ctn) > 2, substr(ctn, max(0, strlen(ctn) - 2), 2) = "[]")).
+ovl_reflection_type("Type"). ovl_reflection_type("MemberInfo"). ovl_reflection_type("PropertyInfo").
+ovl_reflection_type("FieldInfo"). ovl_reflection_type("MethodInfo"). ovl_reflection_type("ParameterInfo").
+ovl_reflection_type("ConstructorInfo").
+
+// EXPLICIT TYPE ARGUMENTS fix the generic arity: `GetField<int>(0)` is one of the
+// one-type-parameter overloads, never GetField(int) or GetField<T, TConverter>(int).
+ovl_rejected(prov, e, m) :-
+    ovl_cand(prov, e, m), call_type_argc(prov, e, n), n != "0", n != "",
+    method_type_arity(_, m, a), a != n, !method_is_extension(_, m).
+
 // ── 2. EXACT MATCH ──────────────────────────────────────────────────────────
 // Every argument identical to its parameter, as many parameters as arguments (no
 // default filled in, no params expansion), and not generic (a type parameter that

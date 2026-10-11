@@ -33,6 +33,7 @@ import {
   rangeOf,
   bindingPathOf,
 } from '@/utils/javascript';
+import { isVueTemplateTag } from '@/utils/vue-sfc';
 
 /**
  * `js_expression` and `js_call_site` — the spine.
@@ -308,6 +309,10 @@ export class JsExpressionExtractor {
       }
       child(node.left, JsEdgeRole.OPERAND, 0);
       child(node.right, JsEdgeRole.OPERAND, 1);
+      return;
+    }
+    if (isVueTemplateTag(node)) {
+      this.emitJsxChildren(node, row, next, ownerMethodHash);
       return;
     }
     if (ts.isCallExpression(node)) {
@@ -1239,6 +1244,9 @@ function expressionKindOf(node: ts.Expression): JsExpressionKind | undefined {
   if (isModuleEdgeCall(node)) {
     return JsExpressionKind.MODULE_EDGE_CALL;
   }
+  if (isVueTemplateTag(node)) {
+    return JsExpressionKind.JSX_ELEMENT;
+  }
   if (ts.isCallExpression(node)) {
     return JsExpressionKind.CALL;
   }
@@ -1323,7 +1331,7 @@ function expressionKindOf(node: ts.Expression): JsExpressionKind | undefined {
 }
 
 function isCallLike(node: ts.Expression): boolean {
-  return ts.isCallExpression(node) || ts.isNewExpression(node)
+  return (ts.isCallExpression(node) && !isVueTemplateTag(node)) || ts.isNewExpression(node)
     || ts.isTaggedTemplateExpression(node);
 }
 
@@ -1575,9 +1583,15 @@ function propertyKeyText(name: ts.PropertyName): string {
   return '';
 }
 
+/**
+ * A JSX element, or a `.vue` template tag: `<Child/>` is written into the
+ * component's virtual script as the marked call `Child(/*<tag>*\/)`, and it is
+ * the same render a JSX tag is — a JSX_ELEMENT whose tag is the callee, not a
+ * call of `Child`.
+ */
 function isJsxNode(node: ts.Node): boolean {
   return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)
-    || ts.isJsxFragment(node);
+    || ts.isJsxFragment(node) || isVueTemplateTag(node);
 }
 
 /**
@@ -1603,6 +1617,9 @@ function isValidIdentifierText(text: string): boolean {
 }
 
 function jsxTagReference(node: ts.Node): ts.Expression | undefined {
+  if (isVueTemplateTag(node)) {
+    return (node as ts.CallExpression).expression;
+  }
   const tagName = ts.isJsxElement(node)
     ? node.openingElement.tagName
     : ts.isJsxSelfClosingElement(node)

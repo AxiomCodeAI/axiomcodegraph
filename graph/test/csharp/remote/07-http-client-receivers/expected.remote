@@ -1,0 +1,5 @@
+edge	http	exact	/count	Depot.Checks.DepotChecks.Typed/0 -> Depot.Api.DepotEndpoints.Count/0
+edge	http	exact	/health	Depot.Checks.DepotChecks.Inline/0 -> Depot.Api.DepotEndpoints.Health/0
+edge	http	exact	/ready	Depot.Checks.DepotChecks.Nested/0 -> Depot.Api.DepotEndpoints.Ready/0
+edge	http	exact	/stats	Depot.Checks.DepotChecks.Local/0 -> Depot.Api.DepotEndpoints.Stats/0
+edge	http	exact	/version	Depot.Checks.DepotChecks.StaticField/0 -> Depot.Api.DepotEndpoints.Version/0

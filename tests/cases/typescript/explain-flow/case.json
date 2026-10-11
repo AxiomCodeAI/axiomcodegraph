@@ -108,6 +108,55 @@
     "page 1 of",
     "helper20"
    ]
+  },
+  {
+   "why": "a question of three clauses naming classes gets entry points that are types and one interface signature; a type starts the flow at its own methods, and a root with a body comes before a signature, so the answer carries code instead of a one-step flow that goes nowhere",
+   "run": [
+    "context",
+    "how is the ledger Store chosen and how does CachedStore cache entries; where does the audit journal get written",
+    "--source"
+   ],
+   "want": [
+    "how it runs —",
+    "   1 CachedStore.load ",
+    "|     const hit = this.hot.get(key);",
+    "AuditJournalRelay.relay"
+   ],
+   "avoid": [
+    "   1 AuditJournal.append "
+   ]
+  },
+  {
+   "why": "when every entry point is a type with no method there is no flow; the answer says so and lists the entry points and files it counted, instead of a count of files it does not show",
+   "run": [
+    "context",
+    "how is the QuotaShape chosen and how does QuotaBudget hold the spent amount; where does the window get read",
+    "--source"
+   ],
+   "want": [
+    "no call flow:",
+    "entry points (2):",
+    "QuotaShape ",
+    "where the work is (1 file(s)",
+    "ledger.ts"
+   ],
+   "avoid": [
+    "lie within 3 hops of the entry points; `--budget N` lists them"
+   ]
+  },
+  {
+   "why": "a middleware that calls its `next` parameter continues into what the same app registers after it (the TypeScript graph records the registration as the JavaScript one does); the continuation names the factory that made it",
+   "run": [
+    "context",
+    "how does a site request get its session checked and relayed",
+    "--from",
+    "checkSession"
+   ],
+   "want": [
+    "⇢ relayUpstream",
+    "runs next: registered after it by mountSite",
+    "made by createRelay"
+   ]
   }
  ]
 }
