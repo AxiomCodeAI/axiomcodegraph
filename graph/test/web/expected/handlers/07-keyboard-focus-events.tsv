@@ -1,10 +1,10 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/07-keyboard-focus-events   kinds: handler
 # shape: search boxes and menus driven by key and focus handlers
-handler	index.html:7:1	onblur	blur	-	on_attribute	3	|b()
-handler	index.html:7:1	onfocus	focus	-	on_attribute	3	|f()
-handler	index.html:7:1	onkeydown	keydown	-	on_attribute	9	|kd(event)
-handler	index.html:7:1	onkeypress	keypress	-	on_attribute	9	|kp(event)
-handler	index.html:7:1	onkeyup	keyup	-	on_attribute	9	|ku(event)
-handler	index.html:8:1	onfocusin	focusin	-	on_attribute	4	|fi()
-handler	index.html:8:1	onfocusout	focusout	-	on_attribute	4	|fo()
+handler	index.html:7:1	onblur	blur	written	-	on_attribute	3	|b()
+handler	index.html:7:1	onfocus	focus	written	-	on_attribute	3	|f()
+handler	index.html:7:1	onkeydown	keydown	written	-	on_attribute	9	|kd(event)
+handler	index.html:7:1	onkeypress	keypress	written	-	on_attribute	9	|kp(event)
+handler	index.html:7:1	onkeyup	keyup	written	-	on_attribute	9	|ku(event)
+handler	index.html:8:1	onfocusin	focusin	written	-	on_attribute	4	|fi()
+handler	index.html:8:1	onfocusout	focusout	written	-	on_attribute	4	|fo()

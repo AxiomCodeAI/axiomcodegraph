@@ -130,7 +130,7 @@ def derive(R, fn, arg):
     if fn == 'handlers':
         page, src = a
         kinds = {'EVENT_ATTRIBUTE': {'on_attribute'}, 'TEMPLATE_EVENT': {'vue', 'alpine', 'angular', 'angularjs', 'svelte', 'htmx', 'stimulus'}}.get(src, {src})
-        return sorted({(at_of(r[0]), r[2]) for r in R.by['handler'] if R.page_of(r[0]) == page and r[4] in kinds}), False
+        return sorted({(at_of(r[0]), r[2]) for r in R.by['handler'] if R.page_of(r[0]) == page and r[5] in kinds}), False
     if fn == 'linked_from':
         return sorted({(at_of(r[0]),) for r in R.by['links_to'] if r[2] == a[0] and r[4] != 'unknown'}), False
     if fn == 'chain_links':
@@ -267,11 +267,11 @@ def derive(R, fn, arg):
         for r in R.by['handler']:
             if R.page_of(r[0]) != page:
                 continue
-            if filt == 'onclick' and not (r[4] == 'on_attribute' and r[2] == 'click'):
+            if filt == 'onclick' and not (r[5] == 'on_attribute' and r[2] == 'click'):
                 continue
             if filt == 'click' and r[2] != 'click':
                 continue
-            out.add((at_of(r[0]), r[2], r[4], r[6][1:]))
+            out.add((at_of(r[0]), r[2], r[5], r[7][1:]))
         return sorted(out), False
     if fn == 'skipped_not_built':
         return [('skipped_not_built',)], True

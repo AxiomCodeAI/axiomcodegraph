@@ -140,6 +140,19 @@ export function expandNesting(text, parents) {
   return /^[>+~]/.test(text) ? `${P} ${text}` : `${P} ${text}`;
 }
 
+const ANB = /^([+-]?\d*n([+-]\d+)?|[+-]?\d+|even|odd|of|n|[+-]?n)$/i;
+function inNthArgument(n) {
+  for (let p = n.parent; p; p = p.parent) {
+    if (p.type === 'pseudo') {
+      if (!/^:nth-/i.test(p.value)) return false;
+      // inside :nth-*(): the An+B part is everything before `of`
+      const sel = n.parent; const idx = sel.nodes.indexOf(n);
+      const ofAt = sel.nodes.findIndex((x) => x.type === 'tag' && x.value.toLowerCase() === 'of');
+      return ANB.test(n.value) || ofAt < 0 || idx <= ofAt;
+    }
+  }
+  return false;
+}
 const PART_KIND = { tag: 'TYPE', universal: 'UNIVERSAL', class: 'CLASS', id: 'ID', attribute: 'ATTRIBUTE', nesting: 'NESTING' };
 function partsOf(text) {
   const parts = [];
@@ -149,6 +162,8 @@ function partsOf(text) {
         if (n.type === 'pseudo') {
           const el = n.value.startsWith('::') || /^:(before|after|first-line|first-letter)$/i.test(n.value);
           parts.push([el ? 'PSEUDO_ELEMENT' : 'PSEUDO_CLASS', n.value.replace(/^::?/, '').toLowerCase()]);
+        } else if (n.type === 'tag' && inNthArgument(n)) {
+          // An+B (`even`, `2n+1`, `-n+3`) and `of` inside :nth-*() are not type selectors; a tag in `of S` is
         } else if (PART_KIND[n.type]) {
           parts.push([PART_KIND[n.type], n.type === 'attribute' ? n.attribute : n.type === 'nesting' || n.type === 'universal' ? n.value : n.value]);
         }

@@ -1,8 +1,8 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/13-toggle-dialog-popover-events   kinds: handler
 # shape: disclosure widgets, popovers and dialogs reporting open/close
-handler	index.html:7:1	ontoggle	toggle	-	on_attribute	7	|t(this)
-handler	index.html:8:1	onbeforetoggle	beforetoggle	-	on_attribute	9	|bt(event)
-handler	index.html:8:1	ontoggle	toggle	-	on_attribute	9	|pt(event)
-handler	index.html:9:1	oncancel	cancel	-	on_attribute	9	|dx(event)
-handler	index.html:9:1	onclose	close	-	on_attribute	4	|dc()
+handler	index.html:7:1	ontoggle	toggle	written	-	on_attribute	7	|t(this)
+handler	index.html:8:1	onbeforetoggle	beforetoggle	written	-	on_attribute	9	|bt(event)
+handler	index.html:8:1	ontoggle	toggle	written	-	on_attribute	9	|pt(event)
+handler	index.html:9:1	oncancel	cancel	written	-	on_attribute	9	|dx(event)
+handler	index.html:9:1	onclose	close	written	-	on_attribute	4	|dc()

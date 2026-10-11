@@ -1,9 +1,9 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/02-javascript-urls   kinds: handler
 # shape: jQuery-era navigation and forms using javascript: URLs in href, iframe src, form action and button formaction, in mixed case and URL-encoded
-handler	index.html:10:1	src	navigate	-	javascript_url	5	|false
-handler	index.html:11:1	action	navigate	-	javascript_url	10	|submitIt()
-handler	index.html:11:38	formaction	navigate	-	javascript_url	9	|alt%28%29
-handler	index.html:7:6	xlink:href	navigate	-	javascript_url	7	|svgGo()
-handler	index.html:8:1	href	navigate	-	javascript_url	13	|toggleMenu(1)
-handler	index.html:9:1	href	navigate	-	javascript_url	7	|void(0)
+handler	index.html:10:1	src	navigate	written	-	javascript_url	5	|false
+handler	index.html:11:1	action	navigate	written	-	javascript_url	10	|submitIt()
+handler	index.html:11:38	formaction	navigate	written	-	javascript_url	9	|alt%28%29
+handler	index.html:7:6	xlink:href	navigate	written	-	javascript_url	7	|svgGo()
+handler	index.html:8:1	href	navigate	written	-	javascript_url	13	|toggleMenu(1)
+handler	index.html:9:1	href	navigate	written	-	javascript_url	7	|void(0)

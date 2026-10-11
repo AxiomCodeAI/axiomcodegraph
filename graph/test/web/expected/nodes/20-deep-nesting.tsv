@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
+# case: nodes/20-deep-nesting   kinds: styles,usage
+# shape: generated markup nesting 5,000 wrapper divs (stress shape: a page builder export); every walk must be iterative and the leaf still matched through descendant and child combinators
+styles	s.css:1:1/0	index.html:5:25016	match	-	-
+styles	s.css:2:1/0	index.html:5:25016	match	-	-
+styles	s.css:3:1/0	index.html:5:25016	match	-	-
+usage	s.css:1:1/0	matched	-	1	1	0
+usage	s.css:2:1/0	matched	-	1	1	0
+usage	s.css:3:1/0	matched	-	1	1	0
+usage	s.css:4:1/0	unmatched_static	-	1	0	1

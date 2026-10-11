@@ -45,7 +45,7 @@ export function handlersOf(page, el, written, raw, dialects) {
   const n = written; const ln = n.toLowerCase();
   const code = page.xml ? decodeXML(raw) : decodeHTMLAttribute(raw);
   const out = [];
-  const push = (event, mods, kind, c = code) => out.push({ written: n, event, modifiers: mods.filter(Boolean).join(','), kind, code: c });
+  const push = (event, mods, kind, c = code, source = 'written') => out.push({ written: n, event, modifiers: mods.filter(Boolean).join(','), kind, code: c, source });
   const splitMods = (s, sep) => (s ? s.slice(1).split(sep) : []);
   let m;
   if ((m = /^on([a-z]+)$/i.exec(n))) { if (DOM_EVENTS.has(m[1].toLowerCase())) push(m[1].toLowerCase(), [], 'on_attribute'); return out; }
@@ -70,8 +70,14 @@ export function handlersOf(page, el, written, raw, dialects) {
       const s = /^(?:([^\s>]+?)->)?(.+)$/.exec(act);
       const [evt, ...rest] = (s[1] ?? '').split('@');
       const [name, ...mods] = evt.split('.');
-      const event = name ? name.toLowerCase() : (STIMULUS_DEFAULT[el.tag] ?? '');
-      push(event, [...mods, ...rest.map((r) => `@${r}`)], 'stimulus', s[2]);
+      // no `event->`: Stimulus's default event for the element (stimulus ruling, iter2)
+      let event = name ? name.toLowerCase() : null; let source = 'written';
+      if (!event) {
+        const t = (el.node.attribs?.type ?? '').toLowerCase();
+        event = el.tag === 'input' && ['submit', 'button', 'reset'].includes(t) ? 'click' : STIMULUS_DEFAULT[el.tag] ?? '';
+        source = event ? 'stimulus_default' : 'stimulus_default_unknown';
+      }
+      push(event, [...mods, ...rest.map((r) => `@${r}`)], 'stimulus', s[2], source);
     }
     return out;
   }

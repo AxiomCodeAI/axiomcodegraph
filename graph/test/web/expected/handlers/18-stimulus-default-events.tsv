@@ -1,0 +1,14 @@
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
+# case: handlers/18-stimulus-default-events   kinds: handler
+# shape: Stimulus-style controllers wiring actions without an event: the default event by tag (a, button, input of each kind, textarea, select, form, details) and an element with no default
+handler	index.html:10:1	data-action	click	stimulus_default	-	stimulus	3	|f#b
+handler	index.html:11:1	data-action	click	stimulus_default	-	stimulus	3	|f#r
+handler	index.html:12:1	data-action	input	stimulus_default	-	stimulus	12	|search#query
+handler	index.html:13:1	data-action	input	stimulus_default	-	stimulus	9	|note#save
+handler	index.html:14:1	data-action	change	stimulus_default	-	stimulus	11	|filter#pick
+handler	index.html:15:1	data-action	submit	stimulus_default	-	stimulus	8	|f#submit
+handler	index.html:16:1	data-action	toggle	stimulus_default	-	stimulus	10	|faq#toggle
+handler	index.html:17:1	data-action	-	stimulus_default_unknown	-	stimulus	10	|panel#show
+handler	index.html:7:1	data-action	click	stimulus_default	-	stimulus	6	|nav#go
+handler	index.html:8:1	data-action	click	stimulus_default	-	stimulus	8	|cart#add
+handler	index.html:9:1	data-action	click	stimulus_default	-	stimulus	6	|f#send

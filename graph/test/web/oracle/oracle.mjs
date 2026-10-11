@@ -142,7 +142,7 @@ for (const page of pages) {
         if (seen.has(k)) { if (!page.xml) emit('html_gap', el.key, 'PARSE_ERROR', 'duplicate-attribute'); continue; }
         seen.add(k);
         for (const h of handlersOf(page, el, at.name, at.raw, dialects)) {
-          emit('handler', el.key, h.written, h.event, h.modifiers, h.kind, Buffer.byteLength(h.code, 'utf8'), `|${h.code}`);
+          emit('handler', el.key, h.written, h.event, h.source, h.modifiers, h.kind, Buffer.byteLength(h.code, 'utf8'), `|${h.code}`);
         }
       }
     }
@@ -480,7 +480,9 @@ if (DO_STYLES) for (const page of pages) {
       }
     }
   }
-  for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) carrierMiss.add(k);
+  // per page: a required class/id with no static carrier on THIS page (the view web_selector_unmatched_pages keeps
+  // this meaning; the selector row carries usage and the reason)
+  for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) { carrierMiss.add(k); emit('unknown', 'no_static_carrier', k, page.rel); }
 }
 
 /**
@@ -674,7 +676,7 @@ if (DO_STYLES) {
   for (const r of usageInput) {
     const f = r.split('\t');
     if (f[0] === 'styles') { const v = get(f[1]); v.pages.add(f[2].replace(/:\d+:\d+$/, '')); if (f[3] === 'match') v.match = true; else if (f[3] === 'conditional') v.cond = true; else { v.unk = true; v.unkReason = v.unkReason ?? f[4]; } }
-    if (f[0] === 'unknown' && f[3] !== '-' && /\/\d+$/.test(f[2])) { const v = get(f[2]); v.unk = true; v.unkReason = v.unkReason ?? f[1]; }
+    if (f[0] === 'unknown' && f[1] !== 'no_static_carrier' && f[3] !== '-' && /\/\d+$/.test(f[2])) { const v = get(f[2]); v.unk = true; v.unkReason = v.unkReason ?? f[1]; }
   }
   for (const s of sheets.values()) {
     const loading = [...(loadedBy.get(s.key) ?? [])].filter((p) => !pageByPath.get(p)?.isFragment);
@@ -687,8 +689,6 @@ if (DO_STYLES) {
         const reason = usage === 'unmatched_static' && carrierMiss.has(sel.key) ? 'no_static_carrier' : usage === 'unknown_only' ? (v.unkReason ?? '-') : '-';
         const unmatchedPages = loading.filter((p) => !v.pages.has(p));
         emit('usage', sel.key, usage, reason, loading.length, loading.length - unmatchedPages.length, unmatchedPages.length);
-        // the per-page list (view web_selector_unmatched_pages) for the no_static_carrier reason
-        if (reason === 'no_static_carrier') for (const p of unmatchedPages) emit('unknown', 'no_static_carrier', sel.key, p);
         if (RANK[usage] > RANK[best]) best = usage;
       }
       emit('rule_usage', r.key, best);
@@ -728,7 +728,12 @@ if (DO_STYLES) {
 // ── write ─────────────────────────────────────────────────────────────────────────────────────
 fs.mkdirSync(outDir, { recursive: true });
 rows.sort();
-fs.writeFileSync(path.join(outDir, 'rows.tsv'), rows.length ? `${rows.join('\n')}\n` : '');
+{
+  // streamed: the largest project's rows exceed V8's maximum string length as one join
+  const fd = fs.openSync(path.join(outDir, 'rows.tsv'), 'w');
+  for (let i = 0; i < rows.length; i += 50000) fs.writeSync(fd, `${rows.slice(i, i + 50000).join('\n')}\n`);
+  fs.closeSync(fd);
+}
 const counts = new Map();
 for (const r of rows) { const k = r.slice(0, r.indexOf('\t')); counts.set(k, (counts.get(k) ?? 0) + 1); }
 fs.writeFileSync(path.join(outDir, 'counts.tsv'), [...counts].sort().map(([k, v]) => `${k}\t${v}`).join('\n') + '\n');

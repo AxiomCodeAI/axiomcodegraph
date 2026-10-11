@@ -1,7 +1,7 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: crosslang/01-guard   kinds: script,script_body,handler,styles
 # shape: a typical admin page mixing markup, a stylesheet, an external and an inline <script> and an onclick attribute: the web graph holds HTML/CSS nodes only (scripts and handlers as plain HTML: src, type, body range, event, raw text), no JavaScript id, and building it leaves the javascript graph of the same tree byte-for-byte unchanged
-handler	index.html:9:1	onclick	click	-	on_attribute	4	|go()
+handler	index.html:9:1	onclick	click	written	-	on_attribute	4	|go()
 script	index.html:5:1	1	external	CLASSIC	-	{"src":"app.js"}	app.js	-
 script	index.html:6:1	2	inline	CLASSIC	-	{}	-	6:9-6:78
 script_body	index.html:6:1	69	1	|function go() { document.querySelector('.btn').classList.add('on'); }

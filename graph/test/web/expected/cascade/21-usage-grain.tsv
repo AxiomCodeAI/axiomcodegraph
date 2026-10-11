@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter2 — selector-grain usage, V1-21 aliases, V1-12 var scope rows read against the source
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: cascade/21-usage-grain   kinds: usage,rule_usage,unknown
 # shape: a vendor sheet loaded by three pages: selectors matched everywhere, only under :hover, only through a dynamic binding, on no page (with and without a static carrier anywhere), plus a sheet no page loads; usage and the unmatched-page list at the selector grain (SPEC 3.5 iter2, 9.9)
 rule_usage	orphan.css:1:1	not_loaded
@@ -8,6 +8,9 @@ rule_usage	s.css:3:1	unknown_only
 rule_usage	s.css:4:1	matched
 rule_usage	s.css:5:1	unmatched_static
 rule_usage	s.css:6:1	matched
+unknown	no_static_carrier	s.css:3:1/0	a.html
+unknown	no_static_carrier	s.css:3:1/0	c.html
+unknown	no_static_carrier	s.css:4:1/0	b.html
 unknown	no_static_carrier	s.css:5:1/0	a.html
 unknown	no_static_carrier	s.css:5:1/0	b.html
 unknown	no_static_carrier	s.css:5:1/0	c.html

@@ -1,9 +1,9 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: nodes/15-template-dialects   kinds: template_expr,handler
 # shape: Tailwind + Alpine dashboards: x-data, @click, :class, x-show; a Vue-style v-if; mustache text interpolation
-handler	index.html:4:3	@click	click	-	alpine	27	|open = !open; track('menu')
-handler	index.html:5:3	x-on:keydown.escape	keydown	escape	alpine	5	|close
-handler	index.html:7:3	onclick	click	-	on_attribute	22	|toggle(); return false
+handler	index.html:4:3	@click	click	written	-	alpine	27	|open = !open; track('menu')
+handler	index.html:5:3	x-on:keydown.escape	keydown	written	escape	alpine	5	|close
+handler	index.html:7:3	onclick	click	written	-	on_attribute	22	|toggle(); return false
 template_expr	index.html:3:1	x-data	{ open: false }
 template_expr	index.html:4:3	:class	open ? 'on' : ''
 template_expr	index.html:4:3	@click	open = !open; track('menu')

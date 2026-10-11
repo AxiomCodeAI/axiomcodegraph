@@ -1,15 +1,15 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/10-media-and-load-events   kinds: handler
 # shape: media pages and lazy assets reporting load and error per element
-handler	index.html:10:1	onended	ended	-	on_attribute	4	|en()
-handler	index.html:10:1	onerror	error	-	on_attribute	4	|ve()
-handler	index.html:10:1	onpause	pause	-	on_attribute	4	|pa()
-handler	index.html:10:1	onplay	play	-	on_attribute	3	|p()
-handler	index.html:10:1	ontimeupdate	timeupdate	-	on_attribute	8	|tu(this)
-handler	index.html:4:1	onerror	error	-	on_attribute	6	|fail()
-handler	index.html:4:1	onload	load	-	on_attribute	4	|ok()
-handler	index.html:5:1	onerror	error	-	on_attribute	9	|cssFail()
-handler	index.html:5:1	onload	load	-	on_attribute	7	|cssOk()
-handler	index.html:8:1	onerror	error	-	on_attribute	23	|this.src='fallback.png'
-handler	index.html:8:1	onload	load	-	on_attribute	11	|shown(this)
-handler	index.html:9:1	onload	load	-	on_attribute	8	|framed()
+handler	index.html:10:1	onended	ended	written	-	on_attribute	4	|en()
+handler	index.html:10:1	onerror	error	written	-	on_attribute	4	|ve()
+handler	index.html:10:1	onpause	pause	written	-	on_attribute	4	|pa()
+handler	index.html:10:1	onplay	play	written	-	on_attribute	3	|p()
+handler	index.html:10:1	ontimeupdate	timeupdate	written	-	on_attribute	8	|tu(this)
+handler	index.html:4:1	onerror	error	written	-	on_attribute	6	|fail()
+handler	index.html:4:1	onload	load	written	-	on_attribute	4	|ok()
+handler	index.html:5:1	onerror	error	written	-	on_attribute	9	|cssFail()
+handler	index.html:5:1	onload	load	written	-	on_attribute	7	|cssOk()
+handler	index.html:8:1	onerror	error	written	-	on_attribute	23	|this.src='fallback.png'
+handler	index.html:8:1	onload	load	written	-	on_attribute	11	|shown(this)
+handler	index.html:9:1	onload	load	written	-	on_attribute	8	|framed()

@@ -1,7 +1,7 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/16-html-case-duplicate   kinds: handler,html_gap
 # shape: hand-edited HTML with the same handler twice in different case: the first wins, the second is a duplicate-attribute parse gap
-handler	index.html:7:1	onclick	click	-	on_attribute	3	|a()
-handler	index.html:8:1	onclick	click	-	on_attribute	3	|c()
+handler	index.html:7:1	onclick	click	written	-	on_attribute	3	|a()
+handler	index.html:8:1	onclick	click	written	-	on_attribute	3	|c()
 html_gap	index.html:7:1	PARSE_ERROR	duplicate-attribute
 html_gap	index.html:8:1	PARSE_ERROR	duplicate-attribute

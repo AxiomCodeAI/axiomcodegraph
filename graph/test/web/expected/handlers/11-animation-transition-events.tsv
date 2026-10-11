@@ -1,10 +1,10 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/11-animation-transition-events   kinds: handler
 # shape: CSS-driven toasts and drawers finishing in handlers
-handler	index.html:7:1	onanimationend	animationend	-	on_attribute	4	|ae()
-handler	index.html:7:1	onanimationiteration	animationiteration	-	on_attribute	4	|ai()
-handler	index.html:7:1	onanimationstart	animationstart	-	on_attribute	4	|as()
-handler	index.html:7:1	ontransitioncancel	transitioncancel	-	on_attribute	4	|tc()
-handler	index.html:7:1	ontransitionend	transitionend	-	on_attribute	4	|te()
-handler	index.html:7:1	ontransitionrun	transitionrun	-	on_attribute	4	|tr()
-handler	index.html:7:1	ontransitionstart	transitionstart	-	on_attribute	4	|ts()
+handler	index.html:7:1	onanimationend	animationend	written	-	on_attribute	4	|ae()
+handler	index.html:7:1	onanimationiteration	animationiteration	written	-	on_attribute	4	|ai()
+handler	index.html:7:1	onanimationstart	animationstart	written	-	on_attribute	4	|as()
+handler	index.html:7:1	ontransitioncancel	transitioncancel	written	-	on_attribute	4	|tc()
+handler	index.html:7:1	ontransitionend	transitionend	written	-	on_attribute	4	|te()
+handler	index.html:7:1	ontransitionrun	transitionrun	written	-	on_attribute	4	|tr()
+handler	index.html:7:1	ontransitionstart	transitionstart	written	-	on_attribute	4	|ts()

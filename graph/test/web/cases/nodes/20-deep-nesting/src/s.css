@@ -1,0 +1,4 @@
+.leaf { a: 1 }
+#root .leaf { a: 2 }
+div > .leaf { a: 3 }
+#root > .leaf { a: 4 }

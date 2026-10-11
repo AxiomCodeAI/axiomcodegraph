@@ -25,22 +25,30 @@ function elementSet(pages) {
 export function signatures(pages) {
   const { all, kids, inSet } = elementSet(pages);
   const exact = new Map(); const shape = new Map(); const size = new Map();
+  // children before parents without recursion: `all` is in document (pre-)order, so reverse order is post-order-safe
   const visit = (el) => {
-    if (exact.has(el.key)) return;
     const ch = (kids.get(el.key) ?? []).filter(inSet);
-    ch.forEach(visit);
     const names = el.attrs.map((a) => a.name).filter((n) => n !== 'id' && n !== 'class' && n !== 'style').sort();
     exact.set(el.key, md5([el.tag, [...classTokens(el)].sort().join(' '), names.join(' '), ch.map((c) => exact.get(c.key)).join(',')].join('\u0001')));
     shape.set(el.key, md5([el.tag, ch.map((c) => shape.get(c.key)).join(',')].join('\u0001')));
     size.set(el.key, 1 + ch.reduce((n, c) => n + size.get(c.key), 0));
   };
-  for (const { el } of all) visit(el);
+  for (let i = all.length - 1; i >= 0; i--) visit(all[i].el);
   return { all, kids, inSet, exact, shape, size };
 }
 
 function slotsOf(occ, kidsOf, level) {
   // align occurrences pre-order; path = child-index path from the root ('.' for the root)
-  const walkers = occ.map((root) => { const out = []; const rec = (el, path) => { out.push({ el, path }); (kidsOf(el)).forEach((c, i) => rec(c, path === '.' ? `${i}` : `${path}/${i}`)); }; rec(root, '.'); return out; });
+  const walkers = occ.map((root) => {
+    const out = []; const stack = [[root, '.']];
+    while (stack.length) {
+      const [el, path] = stack.pop();
+      out.push({ el, path });
+      const ch = kidsOf(el);
+      for (let i = ch.length - 1; i >= 0; i--) stack.push([ch[i], path === '.' ? `${i}` : `${path}/${i}`]);
+    }
+    return out;
+  });
   const slots = [];
   const n = Math.min(...walkers.map((w) => w.length));
   for (let i = 0; i < n; i++) {

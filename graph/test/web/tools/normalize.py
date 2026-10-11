@@ -24,8 +24,9 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              kind external|inline; attributes = JSON object of every attribute as written (compared with sorted
              keys); body = the exact source text between the tags, byte for byte; body_lines = line breaks + 1
              (0 for an empty body); body range = first char after the start tag .. the `<` of `</script>`
-  web_handler(uid, page_uid, element_uid, file, line, col, attr_as_written, event, modifiers, source_kind, code,
-              code_bytes)  [SPEC 10] one row per handler attribute (one per `#` descriptor for data-action)
+  web_handler(uid, page_uid, element_uid, file, line, col, attr_as_written, event, event_source, modifiers, source_kind,
+              code, code_bytes)  [SPEC 10] one row per handler attribute (one per `#` descriptor for data-action);
+              event_source written | stimulus_default | stimulus_default_unknown
   web_gaps(uid, element_uid, gap_kind, detail)     compared only where a case asks for `html_gap`
   web_template_exprs(uid, element_uid, attribute_uid, expression_text)                         attribute_uid NULL = element text
   web_stylesheets(uid, file, source_kind, owner_element_uid)                                    source_kind FILE | HTML_STYLE_ELEMENT
@@ -33,8 +34,9 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_selectors(uid, rule_uid, position, selector_text, spec_a, spec_b, spec_c, usage, unknown_reason, pages_loading,
                 pages_matched, pages_unmatched)   [iter2 grain] usage per SPEC 9.9; no_static_carrier lives HERE
   web_rules.usage                                  best usage of its selectors
-  web_selector_unmatched_pages(selector_uid, page_uid)  VIEW: the per-page list; emitted as `unknown no_static_carrier`
-                                                   rows for selectors whose unknown_reason is no_static_carrier
+  web_selector_unmatched_pages(selector_uid, page_uid, unknown_reason)  VIEW: pages where a required class or id
+                                                   has no static carrier; rows WHERE unknown_reason='no_static_carrier'
+                                                   are emitted as `unknown no_static_carrier <selector> <page>`
   web_selector_parts(uid, selector_uid, part_kind, name)
   web_declarations(uid, rule_uid, attribute_uid, file, line, col, property, value_text, is_important)
   web_value_refs(uid, declaration_uid, rule_uid, reference_kind, name, fallback_text, url_kind, resolved_file)
@@ -161,21 +163,21 @@ def main():
                 continue
             emit('reference', key.get(e), a, url, URL_KIND.get(uk, uk), res)
         if want('script') or want('script_body'):
-            for (_u, e, ordinal, tw, st, kind, attrs, res, bl, bc, bel, bec, body, nbytes, nlines) in g.rows('web_script', [
+            for (_u, e, ordinal, tw, st, kind, sattrs, res, bl, bc, bel, bec, body, nbytes, nlines) in g.rows('web_script', [
                     'uid', 'element_uid', 'ordinal', 'type_as_written', 'script_type', 'kind', 'attributes', 'resolved_file',
                     'body_line', 'body_col', 'body_end_line', 'body_end_col', 'body', 'body_bytes', 'body_lines']):
                 try:
-                    attrs_c = json.dumps(json.loads(attrs or '{}'), sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+                    attrs_c = json.dumps(json.loads(sattrs or '{}'), sort_keys=True, separators=(',', ':'), ensure_ascii=False)
                 except ValueError:
-                    attrs_c = f'<not JSON: {attrs}>'
+                    attrs_c = f'<not JSON: {sattrs}>'
                 emit('script', key.get(e), ordinal, kind, st, tw, attrs_c, res if kind == 'external' else None,
                      f'{bl}:{bc}-{bel}:{bec}' if kind == 'inline' else None)
                 if kind == 'inline':
                     emit('script_body', key.get(e), nbytes, nlines, '|' + (body if body is not None else '<NULL>'))
         if want('handler'):
-            for _u, e, an, ev, mods, sk, code, cb in g.rows('web_handler', ['uid', 'element_uid', 'attr_as_written', 'event',
-                                                                            'modifiers', 'source_kind', 'code', 'code_bytes']):
-                emit('handler', key.get(e), an, ev, mods, sk, cb, '|' + (code or ''))
+            for _u, e, an, ev, es, mods, sk, code, cb in g.rows('web_handler', ['uid', 'element_uid', 'attr_as_written', 'event',
+                                                                                'event_source', 'modifiers', 'source_kind', 'code', 'code_bytes']):
+                emit('handler', key.get(e), an, ev, es, mods, sk, cb, '|' + (code or ''))
         if want('html_gap'):
             for _u, e, gk, det in g.rows('web_gaps', ['uid', 'element_uid', 'gap_kind', 'detail']):
                 if e:
@@ -210,8 +212,8 @@ def main():
                 sel_reason[uid] = ur
                 if uid in key and uid not in kf_sels:
                     emit('usage', key[uid], us, ur, pl, pm, pu)
-            for s_uid, p_uid in g.rows('web_selector_unmatched_pages', ['selector_uid', 'page_uid']):
-                if sel_reason.get(s_uid) == 'no_static_carrier':
+            for s_uid, p_uid, ur in g.rows('web_selector_unmatched_pages', ['selector_uid', 'page_uid', 'unknown_reason']):
+                if ur == 'no_static_carrier':
                     emit('unknown', 'no_static_carrier', key.get(s_uid), key.get(p_uid))
         if want('rule_usage'):
             for uid, us in g.rows('web_rules', ['uid', 'usage']):

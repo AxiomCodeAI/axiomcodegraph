@@ -211,13 +211,14 @@ export function compileQuery(query, pseudos, quirks) {
 
 /** Every element (written tree) under root matching fn, by DOM order. */
 export function matchAll(fn, root) {
+  // iterative pre-order (document order): deep pages overflowed a recursive walk
   const out = [];
-  const rec = (n) => {
-    for (const c of n.children ?? []) {
-      if (c.type === 'tag' || c.type === 'script' || c.type === 'style') { if (c.axKey && fn(c)) out.push(c); rec(c); }
-      else if (c.children) rec(c);
-    }
-  };
-  rec(root);
+  const stack = [root];
+  while (stack.length) {
+    const n = stack.pop();
+    if (n !== root && (n.type === 'tag' || n.type === 'script' || n.type === 'style') && n.axKey && fn(n)) out.push(n);
+    const ch = n.children ?? [];
+    for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
+  }
   return out;
 }

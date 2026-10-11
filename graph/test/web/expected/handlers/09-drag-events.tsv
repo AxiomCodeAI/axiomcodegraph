@@ -1,10 +1,10 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/09-drag-events   kinds: handler
 # shape: kanban boards with native drag and drop
-handler	index.html:7:1	ondrag	drag	-	on_attribute	3	|d()
-handler	index.html:7:1	ondragend	dragend	-	on_attribute	4	|de()
-handler	index.html:7:1	ondragstart	dragstart	-	on_attribute	9	|ds(event)
-handler	index.html:8:1	ondragenter	dragenter	-	on_attribute	5	|den()
-handler	index.html:8:1	ondragleave	dragleave	-	on_attribute	4	|dl()
-handler	index.html:8:1	ondragover	dragover	-	on_attribute	10	|dov(event)
-handler	index.html:8:1	ondrop	drop	-	on_attribute	11	|drop(event)
+handler	index.html:7:1	ondrag	drag	written	-	on_attribute	3	|d()
+handler	index.html:7:1	ondragend	dragend	written	-	on_attribute	4	|de()
+handler	index.html:7:1	ondragstart	dragstart	written	-	on_attribute	9	|ds(event)
+handler	index.html:8:1	ondragenter	dragenter	written	-	on_attribute	5	|den()
+handler	index.html:8:1	ondragleave	dragleave	written	-	on_attribute	4	|dl()
+handler	index.html:8:1	ondragover	dragover	written	-	on_attribute	10	|dov(event)
+handler	index.html:8:1	ondrop	drop	written	-	on_attribute	11	|drop(event)

@@ -27,46 +27,57 @@ function relink(parent) {
 
 // <template> content is a separate DocumentFragment in parse5; put it back under the element so
 // `template > p` reads like the source. The match is then marked inert (SPEC 3.2).
-function flattenTemplates(node) {
-  if (!node.children) return;
-  if (node.name === 'template' && node.children.length === 1 && node.children[0].type === 'root') {
-    node.children = node.children[0].children; relink(node);
+// Every tree walk here is ITERATIVE: a page can nest thousands of elements (a recursive walk overflowed the stack
+// at ~2,000 levels).
+function flattenTemplates(root) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node.children) continue;
+    if (node.name === 'template' && node.children.length === 1 && node.children[0].type === 'root') {
+      node.children = node.children[0].children; relink(node);
+    }
+    for (const c of node.children) stack.push(c);
   }
-  for (const c of node.children) flattenTemplates(c);
 }
 
 const keyOfLoc = (page, loc) => `${page}:${loc.startTag.startLine}:${loc.startTag.startCol}`;
 
 /** Splice implied elements (no start tag in the source) and duplicate-keyed clones out of the tree. */
-function spliceImplied(node, page, seen) {
-  if (!node.children) return;
-  let changed = false; const out = [];
-  for (const c of node.children) {
-    if (isEl(c)) {
-      const loc = c.sourceCodeLocation;
-      const key = loc && loc.startTag ? keyOfLoc(page, loc) : null;
-      if (!key || seen.has(key)) {
-        spliceImplied(c, page, seen);
-        out.push(...(c.children ?? [])); changed = true; continue;
+function spliceImplied(root, page, seen) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node.children) continue;
+    let changed = false; const out = [];
+    const queue = [...node.children];
+    while (queue.length) {
+      const c = queue.shift();
+      if (isEl(c)) {
+        const loc = c.sourceCodeLocation;
+        const key = loc && loc.startTag ? keyOfLoc(page, loc) : null;
+        if (!key || seen.has(key)) { queue.unshift(...(c.children ?? [])); changed = true; continue; }
+        seen.add(key);
+        c.axKey = key;
       }
-      seen.add(key);
-      c.axKey = key;
-      spliceImplied(c, page, seen);
+      out.push(c);
     }
-    out.push(c);
+    if (changed) { node.children = out; relink(node); }
+    for (let i = out.length - 1; i >= 0; i--) stack.push(out[i]);
   }
-  if (changed) { node.children = out; relink(node); }
 }
 
-function keyBrowser(node, page, seen) {
-  if (!node.children) return;
-  for (const c of node.children) {
-    if (isEl(c)) {
-      const loc = c.sourceCodeLocation;
+function keyBrowser(root, page, seen) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (isEl(node)) {
+      const loc = node.sourceCodeLocation;
       const key = loc && loc.startTag ? keyOfLoc(page, loc) : null;
-      if (key && !seen.has(key)) { seen.add(key); c.axKey = key; }
+      if (key && !seen.has(key)) { seen.add(key); node.axKey = key; }
     }
-    keyBrowser(c, page, seen);
+    const ch = node.children ?? [];
+    for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
   }
 }
 
@@ -93,9 +104,16 @@ export function parsePage(rel, rawText) {
   const hasDoctype = /^\s*(<!--[\s\S]*?-->\s*)*<!doctype/i.test(text.replace(/^﻿/, ''));
   const elements = []; const byKey = new Map(); const dynamicKeys = new Set(); const dynamicAttrKeys = new Set();
   let baseHref = null; let hasHtmlTag = false;
-  const visit = (node, parentKey, depth, inert) => {
-    for (const c of node.children ?? []) {
-      if (!isEl(c)) continue;
+  // pre-order, document order, iterative
+  const stack = [];
+  const pushChildren = (node, parentKey, depth, inert) => {
+    const ch = (node.children ?? []).filter(isEl);
+    for (let i = ch.length - 1; i >= 0; i--) stack.push([ch[i], parentKey, depth, inert]);
+  };
+  pushChildren(written, null, 0, null);
+  while (stack.length) {
+    const [c, parentKey, depth, inert] = stack.pop();
+    {
       const loc = c.sourceCodeLocation;
       const tag = c.name; const ns = NS[c.namespace] ?? 'html';
       const attrs = [];
@@ -117,10 +135,9 @@ export function parsePage(rel, rawText) {
       }
       elements.push(el); byKey.set(el.key, el);
       const childInert = inert ?? ((tag === 'template' || tag === 'noscript') && ns === 'html' ? tag : null);
-      visit(c, el.key, depth + 1, childInert);
+      pushChildren(c, el.key, depth + 1, childInert);
     }
-  };
-  visit(written, null, 0, null);
+  }
   // FRAGMENT = neither a doctype nor a written <html> start tag (the parser's rule, from the source).
   const isFragment = !hasDoctype && !hasHtmlTag;
   return { rel, xml: /\.xht(ml)?$/i.test(rel), text, lines, quirks, isFragment, hasHtmlTag, elements, byKey, writtenRoot: written, browserRoot: browser, baseHref, dynamicKeys, dynamicAttrKeys };

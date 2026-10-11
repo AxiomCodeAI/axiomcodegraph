@@ -1,18 +1,18 @@
-# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
 # case: handlers/03-framework-directives   kinds: handler
 # shape: component templates from several frameworks on one static page: Vue @/v-on with modifiers and a dynamic event, Angular (event) and on-event, AngularJS ng-click, Svelte on:click|modifiers, htmx hx-on, Stimulus data-action
-handler	index.html:10:1	(click)	click	-	angular	10	|go($event)
-handler	index.html:11:1	(keyup.enter)	keyup	enter	angular	6	|find()
-handler	index.html:12:1	on-click	click	-	angular	5	|go2()
-handler	index.html:13:1	ng-click	click	-	angularjs	9	|vm.open()
-handler	index.html:15:1	data-ng-dblclick	dblclick	-	angularjs	9	|vm.zoom()
-handler	index.html:16:1	on:click|preventDefault|once	click	preventDefault,once	svelte	8	|{toggle}
-handler	index.html:17:1	hx-on:click	click	-	htmx	8	|alert(1)
-handler	index.html:18:1	hx-on-mouseenter	mouseenter	-	htmx	6	|peek()
-handler	index.html:19:1	hx-on::after-request	htmx:after-request	-	htmx	12	|this.reset()
-handler	index.html:20:1	data-action	-	-	stimulus	9	|menu#open
-handler	index.html:20:1	data-action	click	-	stimulus	11	|menu#toggle
-handler	index.html:20:1	data-action	keydown	esc,@window	stimulus	10	|menu#close
-handler	index.html:7:1	@click.prevent	click	prevent	vue	4	|save
-handler	index.html:8:1	v-on:keyup.enter	keyup	enter	vue	8	|submit()
-handler	index.html:9:1	v-on:[evt]	[evt]	-	vue	6	|handle
+handler	index.html:10:1	(click)	click	written	-	angular	10	|go($event)
+handler	index.html:11:1	(keyup.enter)	keyup	written	enter	angular	6	|find()
+handler	index.html:12:1	on-click	click	written	-	angular	5	|go2()
+handler	index.html:13:1	ng-click	click	written	-	angularjs	9	|vm.open()
+handler	index.html:15:1	data-ng-dblclick	dblclick	written	-	angularjs	9	|vm.zoom()
+handler	index.html:16:1	on:click|preventDefault|once	click	written	preventDefault,once	svelte	8	|{toggle}
+handler	index.html:17:1	hx-on:click	click	written	-	htmx	8	|alert(1)
+handler	index.html:18:1	hx-on-mouseenter	mouseenter	written	-	htmx	6	|peek()
+handler	index.html:19:1	hx-on::after-request	htmx:after-request	written	-	htmx	12	|this.reset()
+handler	index.html:20:1	data-action	-	stimulus_default_unknown	-	stimulus	9	|menu#open
+handler	index.html:20:1	data-action	click	written	-	stimulus	11	|menu#toggle
+handler	index.html:20:1	data-action	keydown	written	esc,@window	stimulus	10	|menu#close
+handler	index.html:7:1	@click.prevent	click	written	prevent	vue	4	|save
+handler	index.html:8:1	v-on:keyup.enter	keyup	written	enter	vue	8	|submit()
+handler	index.html:9:1	v-on:[evt]	[evt]	written	-	vue	6	|handle
