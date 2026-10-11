@@ -53,9 +53,16 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_scripts',
-    description: 'One <script> element as markup: its src and the file it resolves to (an external script), its type, and for an inline one the body range, its line count and `inline_index` (its place among the page\'s inline scripts, document order). The body is not read as JavaScript here.',
-    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), t('script_kind', 'EXTERNAL or INLINE'), t('script_type'), t('src'), id('resolved_file'),
-      i('is_async'), i('is_defer'), i('is_nomodule'), i('body_line'), i('body_col'), i('body_end_line'), i('body_end_col'), i('body_length'), i('body_lines'), i('inline_index')],
+    description: 'One <script> element, in page order (`order_on_page`): its type (script_type as classified, type_as_written), module / nomodule / async / defer, its src and the file it resolves to, or for an inline one the body range, `body` (the exact source text between the tags, sliced from the file: CRLF kept, nothing trimmed), `body_lines`, `body_bytes` and `inline_index` (its place among the page\'s inline scripts). Non-JavaScript types (JSON, importmap, templates) are rows too, so a reader sees and skips them. Nothing here reads a body as JavaScript.',
+    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('order_on_page'), t('script_kind', 'EXTERNAL or INLINE'), t('script_type'),
+      t('type_as_written'), t('src'), id('resolved_file'), i('is_module'), i('is_async'), i('is_defer'), i('is_nomodule'), i('body_line'), i('body_col'), i('body_end_line'),
+      i('body_end_col'), i('body_length'), i('body_lines'), i('body_bytes'), t('body'), i('inline_index')],
+  },
+  {
+    name: 'web_handlers',
+    description: 'One event handler written on a tag, in page order (`handler_index`): an on* attribute in any case, a javascript: URL (href/src/action/formaction), Vue @x / v-on:x, Alpine x-on:x / @x, Angular (x) / on-x, AngularJS ng-x, Svelte on:x, htmx hx-on:x / hx-on::x, or a Stimulus-style data-action. `attr_as_written`, `event` (lowercase, no prefix), `modifiers` (.prevent, |once, keyup.enter …), `source_kind` (on_attr | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | other_dialect) and `code` verbatim as written in the file. No JavaScript is parsed.',
+    columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), id('tag'), t('attr_as_written'), id('event'), t('modifiers'), t('source_kind'),
+      t('code'), i('line'), i('col'), i('handler_index'), i('known_event', 'on* only: 1 when the event is a WHATWG event handler name (or touch*, mousewheel), 0 for an unknown name such as onclick2')],
   },
   {
     name: 'web_handler_calls',
@@ -189,6 +196,8 @@ export const WEB_TABLES: readonly TableSpec[] = [
 
 /** Views: the edges a reader expects by name that are a projection of a node table. */
 export const WEB_VIEWS: readonly string[] = [
+  `CREATE VIEW web_script AS SELECT * FROM web_scripts`,
+  `CREATE VIEW web_handler AS SELECT * FROM web_handlers`,
   // var(--x) per page: a use, every definition in scope on the page, and the inheritance status (SPEC §3.4, §3.4a). Not
   // materialized: it is the (use x def x page) set, quadratic on a large site; impact reads the stored tables.
   `CREATE VIEW web_var AS

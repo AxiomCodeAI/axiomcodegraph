@@ -107,6 +107,17 @@ const DYNAMIC_CLASS_ATTR = /^(:class|v-bind:class|x-bind:class|\[class(\.[^\]]+)
 const DYNAMIC_ID_ATTR = /^(:id|v-bind:id|x-bind:id|\[id\]|\[attr\.id\]|th:id|bind:id)$/i;
 const TEMPLATE_IN_VALUE = /\{\{|\{%|<%|\$\{|\{\$|@\{|\[\[/;
 const HTML_EXT = /\.(html?|xhtml)$/i;
+/** WHATWG GlobalEventHandlers, WindowEventHandlers and DocumentAndElementEventHandlers, plus touch* and mousewheel */
+const KNOWN_EVENTS = new Set(('abort auxclick beforeinput beforematch beforetoggle blur cancel canplay canplaythrough change click close contextlost '
+  + 'contextmenu contextrestored copy cuechange cut dblclick drag dragend dragenter dragleave dragover dragstart drop durationchange emptied ended error '
+  + 'focus formdata input invalid keydown keypress keyup load loadeddata loadedmetadata loadstart mousedown mouseenter mouseleave mousemove mouseout '
+  + 'mouseover mouseup paste pause play playing progress ratechange reset resize scroll scrollend securitypolicyviolation seeked seeking select '
+  + 'slotchange stalled submit suspend timeupdate toggle volumechange waiting webkitanimationend webkitanimationiteration webkitanimationstart '
+  + 'webkittransitionend wheel afterprint beforeprint beforeunload hashchange languagechange message messageerror offline online pagehide pagereveal '
+  + 'pageshow pageswap popstate rejectionhandled storage unhandledrejection unload animationstart animationiteration animationend animationcancel '
+  + 'transitionrun transitionstart transitionend transitioncancel pointerdown pointerup pointermove pointerover pointerout pointerenter pointerleave '
+  + 'pointercancel gotpointercapture lostpointercapture selectstart selectionchange focusin focusout readystatechange visibilitychange fullscreenchange '
+  + 'fullscreenerror touchstart touchend touchmove touchcancel mousewheel').split(/\s+/));
 const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr', 'keygen', 'command', 'basefont', 'bgsound', 'frame', 'image']);
 /** animation shorthand words that are not a keyframes name (CSS Animations 1 §3.13) */
 const ANIMATION_KEYWORDS = new Set(['none', 'infinite', 'normal', 'reverse', 'alternate', 'alternate-reverse', 'forwards', 'backwards', 'both',
@@ -382,31 +393,116 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       url_as_written: g(T.ref, r, 'urlAsWritten'), url_kind: g(T.ref, r, 'urlKind'), path: nz(g(T.ref, r, 'path')), query: nz(g(T.ref, r, 'query')),
       fragment: nz(g(T.ref, r, 'fragment')), resolved_file: onDisk(abs) ? rel(abs) : null, is_resolved: bool(g(T.ref, r, 'isResolved')) });
   }
-  // scripts: inline bodies numbered in document order (`inline_index`), with their body range and line count
+  // ── the page text, read once per page that needs a slice (script bodies, handler code as written) ──
+  const pageText = new Map<string, { text: string; starts: number[] } | null>();
+  const textOfPage = (pageId: string): { text: string; starts: number[] } | null => {
+    if (!pageText.has(pageId)) {
+      const p = pages.get(pageId);
+      let v: { text: string; starts: number[] } | null = null;
+      try {
+        let t = p ? fs.readFileSync(p.abs, 'utf8') : '';
+        if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); // the parser's positions are counted without the BOM
+        const starts = [0];
+        for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) starts.push(i + 1);
+        v = p ? { text: t, starts } : null;
+      } catch { v = null; }
+      pageText.set(pageId, v);
+    }
+    return pageText.get(pageId)!;
+  };
+  /** the 0-based offset of a 1-based (line, column) in the page text */
+  const offsetOf = (pt: { starts: number[] }, line: number, col: number): number => (pt.starts[line - 1] ?? 0) + col - 1;
+
+  // scripts: every <script>, in page order, with its type and attributes, and an inline one's body as written
+  // (sliced from the file by the parser's body range: CRLF kept, nothing trimmed). Nothing reads it as JavaScript.
   {
-    const inlineByPage = new Map<string, string[][]>();
-    for (const r of T.script.rows) {
-      const kind = g(T.script, r, 'scriptKind');
-      if (kind === 'INLINE') push(inlineByPage, g(T.script, r, 'documentLinkHash'), r);
-    }
-    const modPath = new Map<string, string>();
-    for (const [d, rows] of inlineByPage) {
+    const byPage = new Map<string, string[][]>();
+    for (const r of T.script.rows) push(byPage, g(T.script, r, 'documentLinkHash'), r);
+    for (const [d, rows] of byPage) {
       rows.sort((a, b) => { const sa = startOf(g(T.script, a, 'ownerElementLinkHash')), sb = startOf(g(T.script, b, 'ownerElementLinkHash')); return (sa[0] - sb[0]) || (sa[1] - sb[1]); });
-      void d;
-      rows.forEach((r, i) => modPath.set(g(T.script, r, 'htmlScriptUniqueHash'), String(i + 1)));
+      let inlineN = 0;
+      rows.forEach((r, i) => {
+        const id = g(T.script, r, 'htmlScriptUniqueHash');
+        const kind = g(T.script, r, 'scriptKind');
+        const abs = g(T.script, r, 'resolvedFilePath');
+        const resolved = onDisk(abs) ? rel(abs) : null;
+        const owner = g(T.script, r, 'ownerElementLinkHash');
+        const sl = num(g(T.script, r, 'bodyStartLine')), sc = num(g(T.script, r, 'bodyStartColumn')), el = num(g(T.script, r, 'bodyEndLine')), ec = num(g(T.script, r, 'bodyEndColumn'));
+        let body: string | null = null;
+        if (kind === 'INLINE' && sl !== null && sc !== null && el !== null && ec !== null && sl > 0) {
+          const pt = textOfPage(d);
+          if (pt) body = pt.text.slice(offsetOf(pt, sl, sc), offsetOf(pt, el, ec));
+        }
+        const inlineIndex = kind === 'INLINE' ? ++inlineN : null;
+        out('web_scripts').push({ uid: id, element_uid: owner, page_uid: d, file: fileOfPage(d), line: startOf(owner)[0] || null, col: startOf(owner)[1] || null,
+          order_on_page: i + 1, script_kind: kind, script_type: g(T.script, r, 'scriptType'), type_as_written: nz(g(T.script, r, 'typeAsWritten')),
+          src: nz(g(T.script, r, 'src')), resolved_file: resolved,
+          is_module: g(T.script, r, 'scriptType') === 'MODULE' ? 1 : 0, is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')),
+          is_nomodule: bool(g(T.script, r, 'isNoModule')), body_line: sl, body_col: sc, body_end_line: el, body_end_col: ec,
+          body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body.split('\n').length,
+          body_bytes: body === null ? null : Buffer.byteLength(body, 'utf8'), body, inline_index: inlineIndex });
+      });
     }
-    for (const r of T.script.rows) {
-      const d = g(T.script, r, 'documentLinkHash'), id = g(T.script, r, 'htmlScriptUniqueHash');
-      const abs = g(T.script, r, 'resolvedFilePath');
-      const resolved = onDisk(abs) ? rel(abs) : null;
-      const owner = g(T.script, r, 'ownerElementLinkHash');
-      out('web_scripts').push({ uid: id, element_uid: owner, page_uid: d, file: fileOfPage(d), line: startOf(owner)[0] || null,
-        script_kind: g(T.script, r, 'scriptKind'), script_type: g(T.script, r, 'scriptType'), src: nz(g(T.script, r, 'src')), resolved_file: resolved,
-        is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')), is_nomodule: bool(g(T.script, r, 'isNoModule')),
-        body_line: num(g(T.script, r, 'bodyStartLine')), body_col: num(g(T.script, r, 'bodyStartColumn')), body_end_line: num(g(T.script, r, 'bodyEndLine')),
-        body_end_col: num(g(T.script, r, 'bodyEndColumn')), body_length: num(g(T.script, r, 'bodyLength')),
-        body_lines: g(T.script, r, 'scriptKind') === 'INLINE' && num(g(T.script, r, 'bodyStartLine')) !== null ? (num(g(T.script, r, 'bodyEndLine'))! - num(g(T.script, r, 'bodyStartLine'))! + 1) : null,
-        inline_index: modPath.has(id) ? Number(modPath.get(id)) : null });
+  }
+  // handlers: every event-handler form written on a tag, one row each, the code verbatim (no JavaScript is parsed):
+  // on* in any case, javascript: URLs, Vue @x / v-on:x, Alpine x-on:x / @x, Angular (x) / on-x, AngularJS ng-x,
+  // Svelte on:x, htmx hx-on:x / hx-on::x, and a Stimulus-style data-action stored as written
+  {
+    const ANGULARJS_EVENTS = /^ng-(click|dblclick|submit|change|blur|focus|keyup|keydown|keypress|mousedown|mouseup|mouseenter|mouseleave|mousemove|mouseover|copy|cut|paste)$/i;
+    const alpineScope = (e: El | undefined): boolean => { for (let a = e ?? null; a; a = a.parent) if (a.attrs.has('x-data')) return true; return false; };
+    const handlersByPage = new Map<string, Record<string, string | number | null>[]>();
+    const rawValue = (pageId: string, line: number, col: number): string | null => {
+      const pt = textOfPage(pageId); if (!pt) return null;
+      const at = offsetOf(pt, line, col);
+      const m = /^[^\s=>]+\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/.exec(pt.text.slice(at, at + 200000));
+      return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
+    };
+    const handlerOf = (name: string, e: El | undefined): { kind: string; event: string; modifiers: string } | null => {
+      let m: RegExpExecArray | null;
+      if ((m = /^on([a-z][\w-]*)$/i.exec(name)) && !/^on[-:]/i.test(name)) return { kind: 'on_attr', event: m[1]!.toLowerCase(), modifiers: '' };
+      if ((m = /^(?:v-on:|@)([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/i.exec(name))) {
+        const alpine = name.startsWith('@') ? alpineScope(e) : false;
+        return { kind: alpine ? 'alpine' : 'vue', event: m[1]!.toLowerCase(), modifiers: m[2]! };
+      }
+      if ((m = /^x-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/i.exec(name))) return { kind: 'alpine', event: m[1]!.toLowerCase(), modifiers: m[2]! };
+      if ((m = /^\(([\w-]+)((?:\.[\w-]+)*)\)$/.exec(name))) return { kind: 'angular', event: m[1]!.toLowerCase(), modifiers: m[2]! };
+      if ((m = /^on-([\w-]+)$/i.exec(name))) return { kind: 'angular', event: m[1]!.toLowerCase(), modifiers: '' };
+      if ((m = ANGULARJS_EVENTS.exec(name))) return { kind: 'angularjs', event: m[1]!.toLowerCase(), modifiers: '' };
+      if ((m = /^on:([\w-]+)((?:\|[\w-]+)*)$/i.exec(name))) return { kind: 'svelte', event: m[1]!.toLowerCase(), modifiers: m[2]! };
+      if ((m = /^hx-on(?:::?|-)([\w:.-]+)$/i.exec(name))) return { kind: 'htmx', event: m[1]!.toLowerCase(), modifiers: '' };
+      if (name.toLowerCase() === 'data-action') return { kind: 'other_dialect', event: '', modifiers: '' };
+      return null;
+    };
+    for (const r of T.attr.rows) {
+      const prefix = g(T.attr, r, 'prefix'), name0 = g(T.attr, r, 'name');
+      const name = prefix ? `${prefix}:${name0}` : name0;
+      const elId = g(T.attr, r, 'ownerElementLinkHash'); const e = elById.get(elId);
+      const h = handlerOf(name, e);
+      if (!h) continue;
+      if (h.kind === 'on_attr' && g(T.attr, r, 'hasValue') !== 'true') continue; // a bare `once` runs nothing
+      const d = g(T.attr, r, 'documentLinkHash');
+      const line = num(g(T.attr, r, 'startLine')), col = num(g(T.attr, r, 'startColumn'));
+      const code = line !== null && col !== null ? (rawValue(d, line, col) ?? unesc(g(T.attr, r, 'value'))) : unesc(g(T.attr, r, 'value'));
+      let event = h.event;
+      if (h.kind === 'other_dialect') { const em = /^\s*([\w:.-]+)->/.exec(code); event = em ? em[1]!.toLowerCase() : ''; }
+      push(handlersByPage, d, { uid: g(T.attr, r, 'htmlAttributeUniqueHash'), element_uid: elId, attribute_uid: g(T.attr, r, 'htmlAttributeUniqueHash'), page_uid: d,
+        file: fileOfPage(d), tag: e?.tag ?? null, attr_as_written: name, event: nz(event), modifiers: nz(h.modifiers), source_kind: h.kind, code, line, col, handler_index: null,
+        known_event: h.kind === 'on_attr' ? (KNOWN_EVENTS.has(event) ? 1 : 0) : null });
+    }
+    for (const r of T.ref.rows) {
+      if (g(T.ref, r, 'urlKind') !== 'JAVASCRIPT_URI') continue;
+      const attr = g(T.ref, r, 'attributeName').toLowerCase();
+      if (!['href', 'src', 'action', 'formaction'].includes(attr)) continue;
+      const d = g(T.ref, r, 'documentLinkHash'); const elId = g(T.ref, r, 'ownerElementLinkHash');
+      const url = g(T.ref, r, 'urlAsWritten');
+      push(handlersByPage, d, { uid: g(T.ref, r, 'htmlReferenceUniqueHash'), element_uid: elId, attribute_uid: nz(g(T.ref, r, 'attributeLinkHash')), page_uid: d,
+        file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: g(T.ref, r, 'attributeName'),
+        event: attr === 'href' || attr === 'src' ? 'click' : 'submit', modifiers: null, source_kind: 'javascript_url', code: url.replace(/^\s*javascript:/i, ''),
+        line: num(g(T.ref, r, 'startLine')), col: num(g(T.ref, r, 'startColumn')), handler_index: null, known_event: null });
+    }
+    for (const rows of handlersByPage.values()) {
+      rows.sort((a, b) => ((a.line as number) - (b.line as number)) || ((a.col as number) - (b.col as number)));
+      rows.forEach((row, i) => { row.handler_index = i + 1; out('web_handlers').push(row); });
     }
   }
   for (const r of T.handler.rows) {
