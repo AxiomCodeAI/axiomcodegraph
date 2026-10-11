@@ -11,3 +11,17 @@ app.mjs:3:1 FUNCTION_CALL createClient  ->  boundary_lib  lib:lib/index.mjs:2:1 
 app.mjs:3:1 METHOD_CALL createClient().run  ->  boundary_lib  lib:lib/index.mjs:1:21 run
 app.mjs:4:1 METHOD_CALL m.createClient  ->  boundary_lib  lib:lib/index.mjs:2:1 createClient
 app.mjs:4:1 METHOD_CALL m.createClient().run  ->  boundary_lib  lib:lib/index.mjs:1:21 run
+receivers.js:10:21 METHOD_CALL this.repo.get  ->  ambiguous_unknown  -
+receivers.js:13:9 FUNCTION_CALL request  ->  ambiguous_unknown  -
+receivers.js:13:9 METHOD_CALL request(app).get  ->  ambiguous_unknown  -
+receivers.js:13:9 METHOD_CALL request(app).get('/x').expect  ->  ambiguous_unknown  -
+receivers.js:14:21 FUNCTION_CALL request  ->  ambiguous_unknown  -
+receivers.js:14:21 METHOD_CALL request(app).get  ->  ambiguous_unknown  -
+receivers.js:15:14 CONSTRUCTOR_CALL wire.Metadata  ->  ambiguous_unknown  -
+receivers.js:16:3 METHOD_CALL md.get  ->  ambiguous_unknown  -
+receivers.js:20:32 METHOD_CALL obj.get  ->  ambiguous_unknown  -
+receivers.js:21:33 METHOD_CALL request.mocked  ->  ambiguous_unknown  -
+receivers.js:21:33 METHOD_CALL request.mocked(new Repo()).get  ->  ambiguous_unknown  -
+receivers.js:21:48 CONSTRUCTOR_CALL Repo  ->  implicit_constructor  -
+receivers.js:23:11 METHOD_CALL request.agent  ->  ambiguous_unknown  -
+receivers.js:25:10 METHOD_CALL c.get  ->  ambiguous_unknown  -

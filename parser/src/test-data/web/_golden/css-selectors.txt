@@ -1,0 +1,27 @@
+selectorText=".nav > li.item:not(.hidden) a[href^=""http"" i]:hover::after"	position=0	specificityA=0	specificityB=5	specificityC=3	compoundCount=3	hasNesting=false	hasPseudoElement=true	startLine=7	startColumn=1	endLine=7	endColumn=59
+selectorText=#main .card	position=0	specificityA=1	specificityB=1	specificityC=0	compoundCount=2	hasNesting=false	hasPseudoElement=false	startLine=8	startColumn=1	endLine=8	endColumn=12
+selectorText=&:hover	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=true	hasPseudoElement=false	startLine=15	startColumn=39	endLine=15	endColumn=46
+selectorText=*	position=0	specificityA=0	specificityB=0	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=18	startColumn=1	endLine=18	endColumn=2
+selectorText=.a	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=1	startColumn=1	endLine=1	endColumn=3
+selectorText=.a	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=15	startColumn=1	endLine=15	endColumn=3
+selectorText=.b	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=1	startColumn=14	endLine=1	endColumn=16
+selectorText=.b &	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=2	hasNesting=true	hasPseudoElement=false	startLine=15	startColumn=19	endLine=15	endColumn=23
+selectorText=.broken	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=16	startColumn=1	endLine=16	endColumn=8
+selectorText=.c	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=1	startColumn=28	endLine=1	endColumn=30
+selectorText=.card	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=13	startColumn=41	endLine=13	endColumn=46
+selectorText=.card	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=9	startColumn=28	endLine=9	endColumn=33
+selectorText=.card--wide	position=1	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=8	startColumn=14	endLine=8	endColumn=25
+selectorText=.grid	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=12	startColumn=29	endLine=12	endColumn=34
+selectorText=.hero	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=13	startColumn=5	endLine=13	endColumn=10
+selectorText=.sidebar	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=14	startColumn=1	endLine=14	endColumn=9
+selectorText=.title::before	position=0	specificityA=0	specificityB=1	specificityC=1	compoundCount=1	hasNesting=false	hasPseudoElement=true	startLine=17	startColumn=1	endLine=17	endColumn=15
+selectorText=.title:before	position=1	specificityA=0	specificityB=1	specificityC=1	compoundCount=1	hasNesting=false	hasPseudoElement=true	startLine=17	startColumn=17	endLine=17	endColumn=30
+selectorText=.x	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=3	startColumn=1	endLine=3	endColumn=3
+selectorText=50%	position=0	specificityA=0	specificityB=0	specificityC=0	compoundCount=0	hasNesting=false	hasPseudoElement=false	startLine=10	startColumn=49	endLine=10	endColumn=53
+selectorText=:root	position=0	specificityA=0	specificityB=1	specificityC=0	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=6	startColumn=1	endLine=6	endColumn=6
+selectorText=body	position=0	specificityA=0	specificityB=0	specificityC=1	compoundCount=1	hasNesting=false	hasPseudoElement=false	startLine=1	startColumn=1	endLine=1	endColumn=5
+selectorText=col || td	position=0	specificityA=0	specificityB=0	specificityC=2	compoundCount=2	hasNesting=false	hasPseudoElement=false	startLine=20	startColumn=1	endLine=20	endColumn=10
+selectorText=from	position=0	specificityA=0	specificityB=0	specificityC=0	compoundCount=0	hasNesting=false	hasPseudoElement=false	startLine=10	startColumn=19	endLine=10	endColumn=24
+selectorText=h1 + p ~ em	position=0	specificityA=0	specificityB=0	specificityC=3	compoundCount=3	hasNesting=false	hasPseudoElement=false	startLine=19	startColumn=1	endLine=19	endColumn=12
+selectorText=to	position=0	specificityA=0	specificityB=0	specificityC=0	compoundCount=0	hasNesting=false	hasPseudoElement=false	startLine=10	startColumn=69	endLine=10	endColumn=72
+selectorText=ul li:nth-child(2n of .item)	position=2	specificityA=0	specificityB=2	specificityC=2	compoundCount=2	hasNesting=false	hasPseudoElement=false	startLine=8	startColumn=27	endLine=8	endColumn=55

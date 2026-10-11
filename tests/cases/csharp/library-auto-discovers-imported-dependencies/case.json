@@ -1,0 +1,8 @@
+{"lang": "csharp", "src": ".",
+ "checks": [
+  {"why": "`--library auto` reads the PackageReferences a .csproj declares, finds each package in the folder nuget.config names, and decompiles its assembly once; a package that was never restored is named",
+   "run": ["index", "{repo}", "--library", "auto"],
+   "want": ["auto: 1 NuGet package(s), decompiled from", "not in that folder (Example.NotRestored 2.0.0)"]},
+  {"why": "a chain is typed through the package's declared return type: Hello() returns Greeting, so Shout() resolves into the library",
+   "run": ["path", "Welcome.Run", "Greeting.Shout"],
+   "want": ["[library · call @ src/App/Welcome.cs:9] Example.Greeter.Greeting.Shout"]}]}

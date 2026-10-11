@@ -9,4 +9,5 @@ public sealed class AuditService
     public string Section() => AuditOptions.SectionName;
     public void Enable() { _o.Enabled = true; }
     public AuditOptions Options() => _o;
+    public void Raise() { _o.Limit += 1; }
 }

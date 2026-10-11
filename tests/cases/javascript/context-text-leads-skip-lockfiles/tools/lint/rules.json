@@ -1,0 +1,3 @@
+{
+  "rules": { "no-debug": "warn" }
+}

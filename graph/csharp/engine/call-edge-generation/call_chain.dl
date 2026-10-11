@@ -38,6 +38,10 @@
 //                     site in process (a mediator's Send reaching the handler for the
 //                     request type). Added beside the site's row, by
 //                     framework-behavior/dispatch.dl.
+//   callback_registered NOT the site's own target either: a method group handed
+//                     over as a value (an argument, or `+=` on an event the engine
+//                     does not know), which the receiver of it may invoke. Added
+//                     beside the call it is an argument of (resolution/delegates.dl).
 // ============================================================================
 
 // ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
@@ -96,8 +100,11 @@ call_target_count(prov, e, n) :-
 // A site whose receiver type has an INCOMPLETE HIERARCHY is never known_edge. The
 // member may well be declared in the base nobody staged, so the one target that
 // resolved is a target and so is whatever the missing base declares. Saying
-// known_edge there claims monomorphism the engine cannot support.
-site_leaves_client(prov, e) :- call_recv_type(prov, e, gk), type_hierarchy_incomplete(prov, gk).
+// known_edge there claims monomorphism the engine cannot support. Only an entry
+// member lookup can reach counts (type_members_incomplete): an unstaged interface
+// after a class's base, or on a struct, declares nothing a class or struct receiver
+// can bind to (#1431).
+site_leaves_client(prov, e) :- call_recv_type(prov, e, gk), type_members_incomplete(prov, gk).
 site_leaves_client(prov, e) :- client_calls_lib(prov, e, _, _).
 // A site whose target is an UNSTAGED type leaves the client too. Without this every
 // `Console.WriteLine` in a client-only run is counted as an engine blind spot, and on
@@ -108,6 +115,7 @@ site_leaves_client(prov, e) :- external_target(prov, e, _).
 // Invoke, which the runtime supplies (resolution/delegates.dl). The site gets an edge
 // to that member's Invoke node and the stored functions are in the envelope.
 site_leaves_client(prov, e) :- delegate_member_call(prov, e, _).
+site_leaves_client("client", e) :- delegate_param_call(e, _).
 
 call_class(prov, e, "fan_capped") :- call_fan_refused(prov, e).
 call_class(prov, e, "known_edge") :-
@@ -126,6 +134,17 @@ call_class(prov, e, "ambiguous_dynamic") :-
 // no user code to call, so nothing resolving is the right answer.
 call_class(prov, e, "known_implicit_ctor") :-
     call_target_count(prov, e, 0), call_ctor_implicit(prov, e, _).
+
+// ...AND WHICH TYPE IT CONSTRUCTS. The edge above has no callee, truthfully: there is
+// no constructor to point at. But the site still instantiates a type the engine
+// knows, and without the type a consumer asking "who creates SystemClock" found
+// nothing, while the same `new` of a class that writes a constructor is an edge to
+// that constructor (#1473). One row per declaration of the type (each part of a
+// partial class), keyed on the site, so it joins call_sites without touching the
+// edge table.
+ctor_implicit_type(e, t) :-
+    call_class("client", e, "known_implicit_ctor"),
+    call_ctor_implicit("client", e, gk), type_group("client", t, gk).
 
 // AN OPERATOR OR CAST THAT RAN NO USER CODE. `i + 1`, `s == null`, `(int)d`: the
 // operator is one of the language's built-ins and the cast is a numeric or
@@ -228,6 +247,31 @@ call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
     call_from("client", e, caller),
     invocation_site("client", e, kind).
 
+// client -> A DELEGATE PARAMETER'S INVOKE: `act(1)` through a parameter the engine
+// saw handed a function (resolution/delegate-params.dl). One node per parameter, the
+// member's shape, and what it may run is in method_dispatch_candidate.
+call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
+    delegate_param_call(e, p),
+    delegate_param_node(p, node),
+    call_from("client", e, caller),
+    invocation_site("client", e, kind).
+
+// ── HAND-OFF EDGES: A METHOD GROUP PASSED ON (#1550) ────────────────────────
+// `new Timer(Sweep, ...)`, `Run(Report)`, `ProcessExit += OnExit`: the enclosing
+// method hands the method to code that may invoke it (resolution/delegates.dl,
+// method_group_handoff). Tier `callback_registered`, the tier the JavaScript engine
+// gives the same hand-off, so no reader takes it for a call written there; kind
+// `ref`, Java's kind for `X::m`, the same construct. FromExpr is the method group
+// itself, positioned where the name is written.
+//
+// Not an invocation_site, for the reason the primary-constructor edge below is not:
+// the site universe is the parser's call list, and a method group is not a call. The
+// call it is an argument of (`Run`, `new Timer`) keeps its own row and tier.
+call_chain_edge(e, caller, "-", m, "client", "callback_registered", "ref") :-
+    method_group_handoff("client", e, m),
+    method_decl("client", _, _, _, m),
+    call_from_expr("client", e, caller).
+
 // ── SYNTHESISED EDGES: A PRIMARY CONSTRUCTOR'S BASE INVOCATION ──────────────
 // `class D(int a) : B(a)` calls B's constructor with no call syntax anywhere in the
 // body. The kind says primary_ctor_base so a synthesised edge is never mistaken for
@@ -252,6 +296,52 @@ call_chain_edge(tr, caller, "-", ctor, "lib", "boundary_lib", "primary_ctor_base
     method_decl("lib", _, _, _, ctor),
     type_ctor("client", gk, caller).
 
+// ── SYNTHESISED EDGES: THE IMPLICIT `base()` ────────────────────────────────
+// A constructor that writes neither `: base(..)` nor `: this(..)` runs its base
+// class's parameterless constructor before its own body, and a class that declares
+// no constructor at all gets one that does the same. Neither is written anywhere, so
+// without these edges a base constructor that every derived class runs has no caller.
+//
+// implicit_base_ctor(TypeGroup, Ctor): the constructor `base()` runs for a type --
+// its base class's constructor that takes no argument, or, where the base declares
+// no constructor either, the one the base's own implicit constructor runs.
+implicit_base_ctor(gk, ctor) :-
+    type_extends("client", gk, bgk),
+    type_ctor("client", bgk, ctor), ctor_accepts_argc("client", ctor, "0").
+implicit_base_ctor(gk, ctor) :-
+    type_extends("client", gk, bgk),
+    !type_ctor("client", bgk, _), type_group("client", _, bgk),
+    implicit_base_ctor(bgk, ctor).
+
+// A constructor that hands off with `: this(..)` or `: base(..)`, or a primary
+// constructor whose heritage passes arguments: the base constructor it runs is the
+// one written there, already an edge.
+ctor_has_initializer(m) :- call_is_base_ctor("client", e), expr_ultimate_method("client", e, m).
+ctor_has_initializer(m) :- call_is_this_ctor("client", e), expr_ultimate_method("client", e, m).
+ctor_has_initializer(m) :-
+    heritage_has_ctor_args("client", t, _), type_group("client", t, gk), type_ctor("client", gk, m).
+
+// The FromExpr is the base class's entry in the heritage clause, as for a primary
+// constructor's base invocation: the closest thing to where the call is written.
+implicit_base_site(gk, tr) :-
+    type_extends("client", gk, bgk),
+    heritage_resolves("client", gk, pos, bgk),
+    heritage_of_entity("client", gk, pos, _, _, tr), tr != "".
+
+// (1) A declared constructor with no initializer.
+call_chain_edge(tr, m, "-", ctor, "client", "known_edge", "implicit_base_ctor") :-
+    type_ctor("client", gk, m), method_decl("client", _, _, _, m),
+    !ctor_has_initializer(m),
+    implicit_base_ctor(gk, ctor),
+    implicit_base_site(gk, tr).
+
+// (2) `new T()` where T declares no constructor: the implicit one runs T's base's.
+// The edge sits on the `new` site itself, beside its known_implicit_ctor row.
+call_chain_edge(e, caller, "-", ctor, "client", "known_edge", "implicit_base_ctor") :-
+    call_ctor_implicit("client", e, gk),
+    implicit_base_ctor(gk, ctor),
+    call_from_expr("client", e, caller).
+
 // ── ACCESSOR EDGES: A PROPERTY READ IS A CALL ───────────────────────────────
 // `x.Name` invokes get_Name, `a[i]` an indexer accessor, `e += h` an add accessor.
 // These have no cs_call_site row -- the parser cannot know whether `x.Name` is a
@@ -275,6 +365,14 @@ call_chain_edge(e, caller, "-", acc, "lib", "boundary_lib", kind) :-
     accessor_edge("client", e, acc, kind),
     method_decl("lib", _, _, _, acc),
     call_from_expr("client", e, caller).
+
+// client -> the bodiless accessor the site is written against (properties.dl), with
+// the site's own tier, as call_names_bodiless does for a method.
+call_chain_edge(e, caller, "-", decl, "client", tier, kind) :-
+    accessor_names_bodiless("client", e, decl, kind),
+    method_decl("client", _, _, _, decl),
+    call_from_expr("client", e, caller),
+    accessor_tier("client", e, tier).
 
 // The tier of an accessor site, by the same rule as a call site: one target is
 // known_edge, several is a sound set. A property accessor can be virtual, so the fan
@@ -301,6 +399,7 @@ call_has_edge(prov, e) :- client_calls_client(prov, e, _, _).
 call_has_edge(prov, e) :- client_calls_lib(prov, e, _, _).
 call_has_edge("client", e) :- client_calls_external(e, _).
 call_has_edge("client", e) :- delegate_member_call("client", e, _).
+call_has_edge("client", e) :- delegate_param_call(e, _).
 
 call_chain_edge(e, caller, "-", "-", "-", cls, kind) :-
     invocation_site("client", e, kind),
@@ -328,6 +427,72 @@ call_chain_edge(acc, caller, "-", label, "external", "boundary_lib", "property_r
 call_chain_edge(e, caller, "-", label, "external", "boundary_lib", "indexer") :-
     external_element_access("client", e, label),
     call_from_expr("client", e, caller).
+
+// A MEMBER ACCESS ON A RECEIVER THAT IS A SITE WITH NO TYPE. `options.Value.MaxCount`
+// on an IOptions<WidgetOptions> the run was not given: `options.Value` is labelled
+// above, and nothing says what it returns, so `.MaxCount` has no member to look up
+// and no type to name. It reached the output as no row at all, while the sibling
+// `options.Value.Clamp()` is an ambiguous_unknown invocation, so impact dropped the
+// reader from its answer and from its `bound:` (#1441).
+//
+// THE RECEIVER MUST BE A SITE, not merely an untyped expression. A namespace
+// qualifier (`System.Text` in `System.Text.Encoding.UTF8`) is an untyped member
+// access too, and it is not a call. A call, a property read or an indexer is one, and
+// its result having no type is exactly the case this covers. Recursive, so every
+// link of `a.B.C.D` past the first untyped one is its own site.
+//
+// No target. The accessor NAME is kept (get_ for a read or read-write, set_ for a
+// write) in site_unresolved_member, which the bundle writes as the site's callee_name,
+// so a by-name lookup offers the reader as a lead exactly as it offers a method call
+// on the same receiver.
+member_access_site_untyped(prov, q) :-
+    csite(prov, q), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    external_property_read(prov, q, _), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    external_element_access(prov, q, _), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    unresolved_member_access(prov, q, _, _).
+// ...and through the syntax that passes a value on unchanged: `f()!.X`, `(f()).X`.
+member_access_site_untyped(prov, e) :-
+    expr_kind(prov, e, "UNARY"), expr_operator(prov, e, "!"),
+    expr_child(prov, e, "UNARY_OPERAND", _, x), member_access_site_untyped(prov, x).
+member_access_site_untyped(prov, e) :-
+    expr_kind(prov, e, "PARENTHESIZED"), !expr_type(prov, e, _),
+    expr_child(prov, e, "PARENTHESIZED_OPERAND", _, x), member_access_site_untyped(prov, x).
+
+unresolved_member_access(prov, acc, n, kind) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    !external_property_read(prov, acc, _),
+    !dynamic_property_read(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    member_access_site_untyped(prov, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    unresolved_member_access_kind(prov, acc, kind).
+// A compound assignment (`x.N += 1`) is kept as the read: one site, one name.
+unresolved_member_access_kind(prov, acc, "property_read") :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"), !expr_is_write_target(prov, acc).
+unresolved_member_access_kind(prov, acc, "property_write") :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"), expr_is_write_target(prov, acc).
+
+// (site, receiver text, accessor name), in the shape of site_unresolved_named: the
+// receiver text groups the failures, twenty reads off one untyped value being one gap.
+unresolved_member_accessor(acc, cat("get_", n)) :-
+    unresolved_member_access("client", acc, n, "property_read").
+unresolved_member_accessor(acc, cat("set_", n)) :-
+    unresolved_member_access("client", acc, n, "property_write").
+site_unresolved_member(acc, recv, name) :-
+    unresolved_member_accessor(acc, name),
+    expr_qualifier_child("client", acc, q), expr_written_name("client", q, recv).
+site_unresolved_member(acc, "<none>", name) :-
+    unresolved_member_accessor(acc, name),
+    expr_qualifier_child("client", acc, q), !expr_written_name("client", q, _).
+
+call_chain_edge(acc, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
+    unresolved_member_access("client", acc, _, kind),
+    call_from_expr("client", acc, caller).
 
 // A PROPERTY READ THROUGH `dynamic`. The same declared blind spot as a call through
 // `dynamic`, and it reaches the output for the same reason: a site that produced no
@@ -385,6 +550,10 @@ call_site_dropped(e) :- csite("client", e), !site_in_output(e).
 
 // call_chain_summary(Tier, Count) -- the per-tier tally, which is the one number a
 // run is judged on.
+// One count per DISTINCT tier: driven by call_class rows, the aggregate re-counted the
+// tier once per SITE in it (sites x tiers — 9.8s of a 36s solve for 7 rows, the single
+// hottest rule of the C# profile). Same fix as the python engine's site_class_kind.
+call_class_kind(cls) :- call_class("client", _, cls).
 call_chain_summary(cls, n) :-
-    call_class("client", _, cls),
+    call_class_kind(cls),
     n = count : { call_class("client", _, cls) }.

@@ -7,6 +7,7 @@ components/List.svelte:5:39 FUNCTION_CALL fetchProducts  ->  known_edge  lib/for
 components/List.svelte:6:29 FUNCTION_CALL formatPrice  ->  known_edge  lib/format.js:3:1 formatPrice
 components/Price.vue:1:25 FUNCTION_CALL onClick  ->  known_edge  components/Price.vue:8:1 onClick
 components/Price.vue:1:50 FUNCTION_CALL onlyInMarkup  ->  ambiguous_unknown  -
+components/Price.vue:1:50 FUNCTION_CALL onlyInMarkup  ->  callback_registered  components/Price.vue:7:24 <arrow>
 components/Price.vue:6:15 FUNCTION_CALL defineProps  ->  ambiguous_unknown  -
 components/Price.vue:7:15 FUNCTION_CALL computed  ->  ambiguous_unknown  -
 components/Price.vue:7:15 FUNCTION_CALL computed  ->  callback_registered  components/Price.vue:7:24 <arrow>

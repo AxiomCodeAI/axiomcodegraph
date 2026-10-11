@@ -1,0 +1,82 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a message written with an interpolated $\"...\" string hole between its words is found, and placed in the code that throws it; a doc quoting it as read does not hide the code",
+   "run": [
+    "context",
+    "which code throws 'has in its path'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] emits it   Messages.RequireScope   src/App/Messages.cs:",
+    "(with an interpolation between its words)",
+    "[text] docs/NOTES.md:1   not indexed"
+   ],
+   "avoid": [
+    "no line of the repository's files writes it"
+   ]
+  },
+  {
+   "why": "placeholders written with string.Format are gaps too",
+   "run": [
+    "context",
+    "which code returns 'quota for is exhausted after requests'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] names it   Messages.Quota   src/App/Messages.cs:"
+   ]
+  },
+  {
+   "why": "a message built with a concatenation",
+   "run": [
+    "context",
+    "which code returns 'the archive was never sealed'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] names it   Messages.Sealed   src/App/Messages.cs:"
+   ]
+  },
+  {
+   "why": "the message as printed, a value where the hole is, finds the same code",
+   "run": [
+    "path",
+    "*",
+    "no indexed file has src in its path"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] emits it   Messages.RequireScope",
+    "(with an interpolation in place of one word)"
+   ]
+  },
+  {
+   "why": "control: the words of a phrase written in two separate literals apart are not the phrase",
+   "run": [
+    "context",
+    "which code returns 'the ledger is out of balance'"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "[approx]",
+    "Messages.FarApart",
+    "src/App/Messages.cs:"
+   ]
+  },
+  {
+   "why": "control: a phrase no line writes, even with holes, is still absent",
+   "run": [
+    "context",
+    "which code prints 'the vault was never opened'"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "[approx]",
+    "src/App/Messages.cs:"
+   ]
+  }
+ ]
+}

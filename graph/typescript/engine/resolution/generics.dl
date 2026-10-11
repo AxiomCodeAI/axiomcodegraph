@@ -48,9 +48,7 @@ expr_decl_ref(e, r) :- expr_referenced("client", "VARIABLE", v, e),
     var_type_ref(_, r, v).
 expr_decl_ref(e, r) :- expr_referenced("client", "PARAMETER", p, e),
     param_type_ref(_, r, p).
-expr_decl_ref(e, r) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_decl_ref(e, r) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_type_ref(_, r, f).

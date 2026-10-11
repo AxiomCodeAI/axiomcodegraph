@@ -1,0 +1,169 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "BASE: a call through a value read by a computed key is unresolved, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "dispatch",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects dispatch and audit"
+   ]
+  },
+  {
+   "why": "the unresolved site and the call through a function-typed table are listed as work items",
+   "run": [
+    "impact",
+    "dispatch",
+    "--unknown"
+   ],
+   "want": [
+    "src/dispatch.ts:6:10  return fn(doc);"
+   ]
+  },
+  {
+   "why": "a call through a holder of a function type is listed too: the signature has no body",
+   "run": [
+    "impact",
+    "runTable",
+    "--unknown"
+   ],
+   "want": [
+    "src/dispatch.ts:10:10  return table[key](doc);  [calls a value typed by a function-type signature, not a body]"
+   ]
+  },
+  {
+   "why": "link records the target of the call at that line",
+   "run": [
+    "link",
+    "src/dispatch.ts:6",
+    "onSave"
+   ],
+   "want": [
+    "linked src/dispatch.ts:6:10 `fn` → onSave [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted]",
+   "run": [
+    "path",
+    "dispatch",
+    "audit"
+   ],
+   "want": [
+    "[asserted · call @ src/dispatch.ts:6] onSave",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted and selects the test through it",
+   "run": [
+    "impact",
+    "onSave",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] dispatch",
+    "dispatch.test.ts",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "src/dispatch.ts:6",
+    "onArchive"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "src/dispatch.ts:3",
+    "onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at src/dispatch.ts:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "src/dispatch.ts:19",
+    "onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling site stays unknown",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "src/dispatch.ts:15:10  return fn(doc);"
+   ],
+   "avoid": [
+    "→ linked"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "src/dispatch.ts",
+    "import * as handlers from './handlers';\n",
+    "import * as handlers from './handlers';\n// dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "dispatch",
+    "audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ src/dispatch.ts:8] onSave"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: after the rebuild the link is dropped and the answer says so",
+   "edit": [
+    "src/dispatch.ts",
+    "  return fn(doc);\n}\n\nexport function runTable",
+    "  return fn({ ...doc });\n}\n\nexport function runTable"
+   ],
+   "run": [
+    "path",
+    "dispatch",
+    "audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects",
+    "links: 1 of 1 asserted link(s) not applied (1 stale)"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  }
+ ]
+}

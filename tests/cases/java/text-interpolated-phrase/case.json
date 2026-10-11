@@ -1,0 +1,82 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a message written with String.format hole between its words is found, and placed in the code that throws it; a doc quoting it as read does not hide the code",
+   "run": [
+    "context",
+    "which code throws 'has in its path'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] emits it   Messages.requireScope   src/main/java/app/Messages.java:",
+    "(with an interpolation between its words)",
+    "[text] docs/NOTES.md:1   not indexed"
+   ],
+   "avoid": [
+    "no line of the repository's files writes it"
+   ]
+  },
+  {
+   "why": "placeholders written with a concatenation are gaps too",
+   "run": [
+    "context",
+    "which code returns 'quota for is exhausted after requests'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] names it   Messages.quota   src/main/java/app/Messages.java:"
+   ]
+  },
+  {
+   "why": "a message built with MessageFormat",
+   "run": [
+    "context",
+    "which code returns 'the archive was never sealed'"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] names it   Messages.sealed   src/main/java/app/Messages.java:"
+   ]
+  },
+  {
+   "why": "the message as printed, a value where the hole is, finds the same code",
+   "run": [
+    "path",
+    "*",
+    "no indexed file has src in its path"
+   ],
+   "expect_error": true,
+   "want": [
+    "[approx] emits it   Messages.requireScope",
+    "(with an interpolation in place of one word)"
+   ]
+  },
+  {
+   "why": "control: the words of a phrase written in two separate literals apart are not the phrase",
+   "run": [
+    "context",
+    "which code returns 'the ledger is out of balance'"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "[approx]",
+    "Messages.farApart",
+    "src/main/java/app/Messages.java:"
+   ]
+  },
+  {
+   "why": "control: a phrase no line writes, even with holes, is still absent",
+   "run": [
+    "context",
+    "which code prints 'the vault was never opened'"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "[approx]",
+    "src/main/java/app/Messages.java:"
+   ]
+  }
+ ]
+}

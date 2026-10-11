@@ -1,0 +1,10 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "`string.Format(..)` is a call on the framework's string, never on a project method that shares the name",
+   "run": ["impact", "Fmt.Format"], "want": ["[resolved] Use.Direct"], "avoid": ["[by name] Use.Keyword"]},
+  {"why": "a call on a qualified property declared with a library type (`r.Errors.Add`) is that library's member, not a call by name",
+   "run": ["impact", "Fmt.Add"], "avoid": ["[by name] Use.Property"]},
+  {"why": "the same through a qualified field",
+   "run": ["impact", "Fmt.Add"], "avoid": ["[by name] Use.Field"]},
+  {"why": "control: a qualified property of a project type still resolves to its member",
+   "run": ["impact", "Fmt.Add"], "want": ["[resolved] Use.Mine"]}]}

@@ -117,13 +117,13 @@ route_tail_declared(a) :- ann_on_method(_, a, n, _, _), cfg_route_ann(n), cfg_ro
 // then answers "who serves this route" with somebody else's outbound call.
 route_type_is_client(t) :- ann_on_type(_, _, n, t), cfg_client_type_ann(n).
 
-route_raw_of_method(m, path, "server") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+route_raw_own(m, path, "server") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
     cfg_route_ann(n), cfg_route_server_ann(n), !route_type_is_client(owner),
-    route_base(owner, base), path = cat(base, tail).
-route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
-    cfg_route_ann(n), !cfg_route_server_ann(n), route_base(owner, base), path = cat(base, tail).
-route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
-    cfg_route_ann(n), route_type_is_client(owner), route_base(owner, base), path = cat(base, tail).
+    route_base(owner, base), path_join(base, tail, path).
+route_raw_own(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), !cfg_route_server_ann(n), route_base(owner, base), path_join(base, tail, path).
+route_raw_own(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), route_type_is_client(owner), route_base(owner, base), path_join(base, tail, path).
 // A handler that names only its VERB still has a path: its resource class's. The
 // verb annotation contributes no remainder of its own, so the route is the base and
 // nothing more, which is what JAX-RS means by @GET on a method under @Path("/orders").
@@ -131,13 +131,91 @@ route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, 
 // its remainder from the @Path, and without the guard it would ALSO produce a second,
 // shorter route at the bare class path.
 method_route_ann(m) :- ann_on_method(_, _, n, m, _), cfg_route_ann(n).
-route_raw_of_method(m, base, "server") :- ann_on_method(_, _, n, m, owner),
+route_raw_own(m, base, "server") :- ann_on_method(_, _, n, m, owner),
     cfg_route_verb_ann(n, _), !method_route_ann(m),
     !route_type_is_client(owner), route_base(owner, base).
 // … and the same shape on a declarative client interface (MicroProfile @RegisterRestClient).
-route_raw_of_method(m, base, "client") :- ann_on_method(_, _, n, m, owner),
+route_raw_own(m, base, "client") :- ann_on_method(_, _, n, m, owner),
     cfg_route_verb_ann(n, _), !method_route_ann(m),
     route_type_is_client(owner), route_base(owner, base).
+route_raw_of_method(m, p, side) :- route_raw_own(m, p, side), method_owner("client", owner, m),
+    !locator_only_resource(owner).
+
+// ── joining the two halves: exactly one '/' between them ────────────────────
+// JAX-RS and Spring both insert the separator when they concatenate a class path and a
+// method path, and drop a doubled one: @Path("/items") + @Path("{id}") is /items/{id},
+// and @RequestMapping("/api/") + @GetMapping("/x") is /api/x. A bare cat() gave
+// /items{id} and /api//x, neither of which any client writes.
+path_join_demand(base, tail) :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), route_base(owner, base).
+path_join(b, t, t) :- path_join_demand(b, t), b = "".
+path_join(b, t, b) :- path_join_demand(b, t), b != "", t = "".
+path_join(b, t, j) :- path_join_demand(b, t), path_ends_slash(b), path_starts_slash(t),
+    j = cat(b, substr(t, 1, strlen(t) - 1)).
+path_join(b, t, j) :- path_join_demand(b, t), path_ends_slash(b), path_starts_other(t),
+    j = cat(b, t).
+path_join(b, t, j) :- path_join_demand(b, t), path_ends_other(b), path_starts_slash(t),
+    j = cat(b, t).
+path_join(b, t, j) :- path_join_demand(b, t), path_ends_other(b), path_starts_other(t),
+    j = cat(b, cat("/", t)).
+path_ends_slash(b) :- path_join_demand(b, _), strlen(b) > 0, substr(b, strlen(b) - 1, 1) = "/".
+path_starts_slash(t) :- path_join_demand(_, t), strlen(t) > 0, substr(t, 0, 1) = "/".
+// the negative halves are stated positively: the locator rules feed path_join_demand from
+// a route that path_join itself produced, so a negation here would be a cycle through it
+path_ends_other(b) :- path_join_demand(b, _), strlen(b) > 0, substr(b, strlen(b) - 1, 1) != "/".
+path_starts_other(t) :- path_join_demand(_, t), strlen(t) > 0, substr(t, 0, 1) != "/".
+
+// ── JAX-RS SUB-RESOURCE LOCATORS ────────────────────────────────────────────
+// A method with @Path and no verb returns the object that serves the rest of the request:
+//     @Path("/widgets") class Widgets { @Path("/{id}") Widget find(..) { .. } }
+//     class Widget { @GET String details() { .. } }
+// Widget.details serves GET /widgets/{id}. The locator's declared return type is the
+// resource; its verb methods take the locator's route, and its own @Path methods extend
+// it. One level only: a resource that returns its own type would otherwise grow the
+// route without end.
+jaxrs_locator(m, r) :- ann_on_method(_, _, n, m, owner), cfg_subresource_locator_ann(n),
+    !method_verb_declared(m), !route_type_is_client(owner),
+    method_return_type_resolves("client", m, _, r), r != owner.
+locator_base(r, raw) :- jaxrs_locator(m, r), route_raw_own(m, raw, "server").
+// A class with no @Path of its own that a locator returns is not a root resource: its
+// methods are served only below the locator, never at their own bare path.
+locator_only_resource(r) :- jaxrs_locator(_, r), !route_base_declared(r).
+route_raw_of_method(m, raw, "server") :- locator_base(r, raw), ann_on_method(_, _, n, m, r),
+    cfg_route_verb_ann(n, _), !method_route_ann(m).
+route_raw_of_method(m, p, "server") :- locator_base(r, raw), route_tail(m, tail),
+    ann_on_method(_, _, n, m, r), cfg_route_ann(n), cfg_route_server_ann(n), path_join(raw, tail, p).
+path_join_demand(raw, tail) :- locator_base(r, raw), route_tail(m, tail), ann_on_method(_, _, _, m, r).
+
+// ── SERVLETS MAPPED TO A URL PATTERN ────────────────────────────────────────
+// web.xml maps a servlet to its patterns through the <servlet-name> both elements carry:
+//   <servlet><servlet-name>w</servlet-name><servlet-class>app.W</servlet-class></servlet>
+//   <servlet-mapping><servlet-name>w</servlet-name><url-pattern>/widgets</url-pattern></servlet-mapping>
+// and @WebServlet("/widgets") / urlPatterns = {..} says the same on the class. The servlet's
+// do* methods serve the pattern, each for its own verb.
+servlet_decl_name(t, name, fp) :- xml_container_class("web_servlet", t, elem),
+    xml_elem("client", _, _, _, parent, fp, elem),
+    xml_elem("client", nt, _, raw, parent, _, _), cfg_xml_servlet_name_elem(nt),
+    cfg_clean(raw, name), name != "".
+servlet_mapped_pattern(name, pat, fp) :- xml_elem("client", mt, _, _, _, fp, mp), cfg_xml_servlet_mapping_elem(mt),
+    xml_elem("client", nt, _, rawn, mp, _, _), cfg_xml_servlet_name_elem(nt), cfg_clean(rawn, name),
+    xml_elem("client", pt, _, rawp, mp, _, _), cfg_xml_url_pattern_elem(pt), cfg_clean(rawp, pat).
+servlet_pattern(t, pat) :- servlet_decl_name(t, name, fp), servlet_mapped_pattern(name, pat, fp).
+servlet_pattern(t, pat) :- ann_on_type("client", a, "WebServlet", t), cfg_servlet_url_arg(arg),
+    ann_arg("client", a, arg, pat, "STRING_LITERAL", _).
+// An exact pattern is the route. A path-prefix pattern "/widgets/*" serves every path
+// below /widgets, which the join can only express as a template: /widgets/{path} meets a
+// client that concatenates "/widgets/" + id by route shape, never exactly. The catch-all
+// "/*", the default servlet "/" and an extension pattern "*.do" name no route.
+servlet_route_raw(t, pat) :- servlet_pattern(t, pat), !contains("*", pat), pat != "/", pat != "".
+servlet_route_raw(t, r) :- servlet_pattern(t, pat), strlen(pat) > 2,
+    substr(pat, strlen(pat) - 2, 2) = "/*", pre = substr(pat, 0, strlen(pat) - 2),
+    !contains("*", pre), r = cat(pre, "/{path}").
+servlet_handler(m, t, v) :- servlet_route_raw(t, _),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    cfg_servlet_verb_method(name, v).
+route_declared(raw) :- servlet_route_raw(_, raw).
+serves_destination(m, "http", u) :- servlet_handler(m, t, _), servlet_route_raw(t, raw), url_path(raw, u).
+
 route_declared(raw) :- route_raw_of_method(_, raw, _).
 // A declared route goes through the same normalisation as a client's URL, so
 // @GetMapping("pets/visits") and a client's "…/pets/visits?petId={id}" meet.
@@ -232,7 +310,13 @@ sends_destination_at(call, m, tr, d) :- sends_via(call, tr), call_site(call, nam
 
 // (d) an imperative HTTP call. The URL is routinely built by concatenation, so the
 //     destination is any path-shaped string written anywhere inside the URL argument.
-expr_descendant(a, a) :- sends_via(c, "http"), call_arg(c, _, a).
+// Only the URL argument. A RestTemplate send takes (url, request body, ..): reading every
+// argument made a body literal ("shipped") a destination of its own, which linked the
+// call to whatever handler served /shipped and, as a second fragment, cost it the route
+// it really calls. Every method in cfg_sends_http takes the URL first.
+http_url_arg(c, a) :- sends_via(c, "http"), call_site(c, name, _), cfg_sends_http(name),
+    call_arg(c, "0", a).
+expr_descendant(a, a) :- http_url_arg(_, a).
 expr_descendant(a, d) :- expr_descendant(a, c), expr_child("client", c, _, d).
 // Real code builds the URL into a local and passes the local:
 //     String url = base + "/api/x/" + id + "/detail";
@@ -244,8 +328,7 @@ expr_descendant(a, d) :- expr_descendant(a, c), expr_reference_name(c, n),
     java_local_variable(n, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, lv),
     expr_owner("client", lv, _, d).
 
-http_arg_literal(v) :- sends_via(call, "http"), call_site(call, name, _), cfg_sends_http(name),
-    call_arg(call, _, arg), expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
+http_arg_literal(v) :- http_url_arg(_, arg), expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
     expr_literal("client", v, d).
 // A URL literal is a destination in its own right. Without this the only client paths
 // that resolved were the ones that happened to be spelled identically to a declared
@@ -295,15 +378,43 @@ url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
 url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
     substr(q, 0, 1) != "/", u = cat("/", q).
 
-sends_destination_at(call, m, "http", u) :- sends_via(call, "http"), call_site(call, name, _),
-    cfg_sends_http(name), call_arg(call, _, arg), expr_descendant(arg, d),
+sends_destination_at(call, m, "http", u) :- http_url_arg(call, arg), expr_descendant(arg, d),
     arg_destination(d, p), url_path(p, u), expr_ultimate_method("client", call, m).
 sends_destination(m, tr, u) :- sends_destination_at(_, m, tr, u).
+
+// (e) the JAX-RS client: client.target("http://shop/orders").path("{id}").request().get(..).
+//     The URL is built across the chain, so it is followed from target(..) through each
+//     path(..) to request(..) and the verb that sends it. Kept apart from sends_via: the
+//     verb methods (put, delete) share names with RestTemplate's URL-first sends, and
+//     reading put(Entity.json(x))'s argument as a URL is the defect (d) above avoids.
+// The chain root is declared as the JAX-RS Client / WebTarget, and that name does not resolve
+// to a class of the project (a project's own `Client` with a target(..) method is not the
+// API), or is typed as the library's; or the chain starts on ClientBuilder itself.
+jaxrs_client_root(root) :- recv_type_simple(root, n), cfg_jaxrs_client_owner(n).
+jaxrs_client_root(root) :- recv_declared_simple(root, n), cfg_jaxrs_client_owner(n),
+    !expr_type("client", root, _).
+jaxrs_client_root(root) :- expr_reference_name(root, n), cfg_jaxrs_client_factory(n),
+    !simple_name_declared(n).
+jaxrs_target(call, d) :- call_site(call, "target", recv), recv_root(recv, root),
+    jaxrs_client_root(root), call_arg(call, "0", arg), arg_destination(arg, d).
+jaxrs_target(call, j) :- call_site(call, "path", recv), jaxrs_target(recv, base),
+    call_arg(call, "0", arg), expr_kind("client", "LITERAL", _, arg),
+    expr_literal("client", v, arg), path_join(base, v, j).
+path_join_demand(base, v) :- call_site(call, "path", recv), jaxrs_target(recv, base),
+    call_arg(call, "0", arg), expr_kind("client", "LITERAL", _, arg), expr_literal("client", v, arg).
+dest_raw(v) :- call_site(call, "target", _), call_arg(call, "0", arg),
+    expr_kind("client", "LITERAL", _, arg), expr_literal("client", v, arg).
+jaxrs_builder(call, d) :- call_site(call, "request", tgt), jaxrs_target(tgt, d).
+jaxrs_builder(call, d) :- call_site(call, n, inner), cfg_jaxrs_builder_step(n), jaxrs_builder(inner, d).
+jaxrs_send(call, m, d, v) :- call_site(call, n, b), cfg_jaxrs_invoke_verb(n, v), jaxrs_builder(b, d),
+    expr_ultimate_method("client", call, m).
+path_candidate(d) :- jaxrs_send(_, _, d, _).
+sends_destination_at(call, m, "http", u) :- jaxrs_send(call, m, d, _), url_path(d, u).
 
 // EVERY path fragment this one call writes. A URL built by concatenation leaves more
 // than one — "/api/inventory/" + sku + "/reserved" leaves two — and a prefix rule that
 // looks at only the first will answer the route that the second one rules out.
-send_fragment(call, f) :- sends_via(call, "http"), call_arg(call, _, arg),
+send_fragment(call, f) :- http_url_arg(call, arg),
     expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
     expr_literal("client", raw, d), url_path(raw, f).
 // NOTE: deliberately NOT gated on http_path_shaped. That guard wants two segments,
@@ -321,7 +432,7 @@ route_contradicted(call, s) :- send_fragment(call, f), serves_destination(_, "ht
 // where they are written, the FIRST is the route's literal prefix and the LAST is its
 // tail, and the segment counts must add up — which is what keeps
 // /api/x/{id}/reserve away from /api/x/{id}/reservation.
-send_frag_at(call, f, key) :- sends_via(call, "http"), call_arg(call, _, arg),
+send_frag_at(call, f, key) :- http_url_arg(call, arg),
     expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
     expr_literal("client", raw, d), url_path(raw, f),
     expr_src_pos("client", d, line, col),
@@ -428,6 +539,8 @@ method_verb(m, v) :- ann_on_method(_, _, n, m, _), cfg_route_verb_ann(n, v).
 method_verb_declared(m) :- ann_on_method(_, _, n, m, _), cfg_route_verb_ann(n, _).
 method_verb(m, "any") :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n), !method_verb_declared(m).
 cfg_route_verb_known(n) :- cfg_route_verb(n, _).
+// a servlet's doGet serves GET, its service(..) every verb
+method_verb(m, v) :- servlet_handler(m, _, v).
 // … the client's from the call it made, or from its own exchange annotation.
 call_verb(call, v) :- call_site(call, name, _), cfg_sends_verb(name, v).
 // a fluent chain names the verb one call earlier: .get().uri(path)
@@ -436,6 +549,8 @@ call_verb(call, v) :- call_site(call, _, recv), call_site(recv, name, _), cfg_se
 send_verb(m, v) :- sends_via(call, "http"), expr_ultimate_method("client", call, m), call_verb(call, v).
 send_verb(m, "any") :- sends_destination(m, "http", _), !send_verb_known(m).
 send_verb_known(m) :- sends_via(call, "http"), expr_ultimate_method("client", call, m), call_verb(call, _).
+send_verb(m, v) :- jaxrs_send(_, m, _, v).
+send_verb_known(m) :- jaxrs_send(_, m, _, _).
 send_verb(m, v) :- route_of_method(m, _, "client"), method_verb(m, v).
 
 // ── gRPC: the generated stub and the handler it serves (#1108) ──────────────────────────────
@@ -483,6 +598,89 @@ remote_edge_via(call, from, to, "grpc", key, conf) :- grpc_sends_at(call, from, 
     grpc_serves(to, key), from != to,
     // the stub's type resolved, so the pairing rests on a type rather than a name alone
     conf = "exact".
+
+// ── gRPC when the generated <S>Grpc holder is NOT in the source tree (#1548) ────────────────
+// protoc usually runs at build time, into target/ or build/, so neither the ImplBase nor the stub
+// has a java_type row and the rules above never fire. Both ends are still EXTERNAL types
+// (resolution/external-types.dl) whose names carry the holder as written: `extends
+// OrderServiceGrpc.OrderServiceImplBase` and a field of type `OrderServiceGrpc.OrderServiceBlockingStub`.
+// These clauses feed grpc_serves and grpc_sends_at, so the edge rule above is shared.
+//
+// The shape is checked, not just the suffix: the holder is `<S>Grpc` and the nested type is `<S>`
+// plus a server or client suffix, the same <S> on both. An external `RequestStub` or `Foo.BarStub`
+// is not a generated stub.
+//
+// The key is the QUALIFIED holder, read per file. The external node is shared by every file that
+// wrote the same name, and one real 2,800-file project imports `MetricsServiceGrpc` from three
+// packages (two versions of one API and an unrelated one): keyed on the simple name, each client
+// would be paired with all three services. A written package qualifier, then the file's
+// single-type import of the holder, then the file's own package when it has no on-demand import,
+// which is the order javac resolves the name in. A holder only an on-demand import could supply
+// is left unpaired.
+grpc_ext_name_demand(x, w) :- external_type(x), strlen(x) > 9,
+    w = substr(x, 9, strlen(x) - 9), contains(".", w),
+    grpc_generated_suffix(k), strlen(w) > strlen(k),
+    substr(w, max(0, strlen(w) - strlen(k)), min(strlen(k), strlen(w))) = k.
+grpc_generated_suffix(k) :- cfg_stub_client_suffix(k).
+grpc_generated_suffix(k) :- cfg_stub_base_suffix(k, "grpc_service"), !cfg_grpc_holder_suffix(k).
+grpc_ext_dot(w, i) :- grpc_ext_name_demand(_, w), i = range(0, strlen(w)), substr(w, i, 1) = ".".
+grpc_ext_last_dot(w, l) :- grpc_ext_dot(w, _), l = max i : grpc_ext_dot(w, i).
+grpc_ext_prev_dot(w, p) :- grpc_ext_last_dot(w, l), grpc_ext_dot(w, j), j < l,
+    p = max i : { grpc_ext_dot(w, i), i < l }.
+grpc_ext_has_prev(w) :- grpc_ext_prev_dot(w, _).
+// grpc_ext_parts(ExternalType, Qualifier, Holder, Nested): `a.b.FooGrpc.FooStub` -> a.b, FooGrpc, FooStub
+grpc_ext_parts(x, pre, h, n) :- grpc_ext_name_demand(x, w), grpc_ext_prev_dot(w, p), grpc_ext_last_dot(w, l),
+    pre = substr(w, 0, p), h = substr(w, p + 1, l - p - 1), n = substr(w, l + 1, strlen(w) - l - 1).
+grpc_ext_parts(x, "", h, n) :- grpc_ext_name_demand(x, w), !grpc_ext_has_prev(w), grpc_ext_last_dot(w, l),
+    h = substr(w, 0, l), n = substr(w, l + 1, strlen(w) - l - 1).
+grpc_ext_service(x, s, n) :- grpc_ext_parts(x, _, h, n), cfg_grpc_holder_suffix(hs),
+    strlen(h) > strlen(hs), substr(h, max(0, strlen(h) - strlen(hs)), min(strlen(hs), strlen(h))) = hs,
+    s = substr(h, 0, max(0, strlen(h) - strlen(hs))).
+grpc_ext_server(x) :- grpc_ext_service(x, s, n), cfg_stub_base_suffix(k, "grpc_service"), n = cat(s, k).
+grpc_ext_client(x) :- grpc_ext_service(x, s, n), cfg_stub_client_suffix(k), n = cat(s, k).
+
+// the service class that extends the external ImplBase, and the file that wrote the extends
+grpc_ext_impl_site(t, x, fp) :-
+    java_type_reference(_, "SUPER_TYPE", t, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_external(ref, x), grpc_ext_server(x),
+    java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, t).
+// a call on a receiver typed as an external stub, and the file of the method that makes it
+grpc_ext_send_site(call, from, x, fp, name) :- call_site(call, name, recv), name != "",
+    expr_type("external", recv, x), grpc_ext_client(x),
+    expr_ultimate_method("client", call, from),
+    java_method(_, _, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, from).
+
+grpc_ext_site(x, fp) :- grpc_ext_impl_site(_, x, fp).
+grpc_ext_site(x, fp) :- grpc_ext_send_site(_, _, x, fp, _).
+grpc_file_on_demand(fp) :- grpc_ext_site(_, fp), java_import(_, _, _, _, fp, _, "false", "true", _, _, _).
+grpc_file_package(fp, pkg) :- grpc_ext_site(_, fp),
+    java_type(n, q, _, _, _, _, "TOP_LEVEL_PLACEMENT", fp, _, _, _, _, _, _),
+    strlen(q) > strlen(n), pkg = substr(q, 0, max(0, strlen(q) - strlen(n) - 1)).
+grpc_file_package(fp, "") :- grpc_ext_site(_, fp),
+    java_type(n, n, _, _, _, _, "TOP_LEVEL_PLACEMENT", fp, _, _, _, _, _, _).
+// grpc_ext_holder_q(ExternalType, File, QualifiedHolder)
+grpc_ext_holder_q(x, fp, q) :- grpc_ext_site(x, fp), grpc_ext_parts(x, pre, h, _), pre != "",
+    q = cat(pre, cat(".", h)).
+grpc_ext_holder_q(x, fp, q) :- grpc_ext_site(x, fp), grpc_ext_parts(x, "", h, _),
+    java_import("SINGLE_TYPE", q, _, h, fp, _, "false", _, _, _, _).
+grpc_ext_holder_q(x, fp, q) :- grpc_ext_site(x, fp), grpc_ext_parts(x, "", h, _),
+    !type_has_explicit_import(h, fp), !grpc_file_on_demand(fp),
+    grpc_file_package(fp, pkg), pkg != "", q = cat(pkg, cat(".", h)).
+grpc_ext_holder_q(x, fp, h) :- grpc_ext_site(x, fp), grpc_ext_parts(x, "", h, _),
+    !type_has_explicit_import(h, fp), !grpc_file_on_demand(fp), grpc_file_package(fp, "").
+
+// An rpc method takes the response StreamObserver: (request, observer) for unary and server
+// streaming, (observer) for client and bidi streaming. With the ImplBase absent there is no
+// declaration to test an override against, and a helper written beside the rpcs has no observer.
+grpc_rpc_shaped(m) :- java_method_parameter(_, _, m, bt, _, _, _, _, _, _, _, _, _), cfg_grpc_observer_type(bt).
+
+grpc_ext_handler(t, x, fp) :- grpc_ext_impl_site(t, x, fp).
+grpc_ext_handler(t, x, fp) :- grpc_ext_impl_site(t0, x, fp), type_ancestor(t, t0).
+grpc_serves(m, key) :- grpc_ext_handler(t, x, fp), grpc_ext_holder_q(x, fp, q),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    name != "", grpc_rpc_shaped(m), key = cat(q, cat("/", name)).
+grpc_sends_at(call, from, key) :- grpc_ext_send_site(call, from, x, fp, name),
+    grpc_ext_holder_q(x, fp, q), key = cat(q, cat("/", name)).
 
 // (a) exact — a topic, a queue, or a route both ends spell the same way.
 remote_edge_via(call, from, to, tr, d, "exact") :- sends_destination_at(call, from, tr, d),

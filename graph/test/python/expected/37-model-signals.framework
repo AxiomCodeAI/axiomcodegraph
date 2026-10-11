@@ -1,0 +1,9 @@
+── framework_edge (4) ──
+  signal_dispatch    registered  views.create_order (views.py) -> models.audit_order (models.py)   [post_save]
+  signal_dispatch    registered  views.drop_order (views.py) -> models.before_order_delete (models.py)   [pre_delete]
+  signal_dispatch    registered  views.rename_order (views.py) -> models.audit_order (models.py)   [post_save]
+  signal_dispatch    registered  views.touch_invoice (views.py) -> models.audit_invoice (models.py)   [post_save]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

@@ -1,0 +1,36 @@
+models.js:10:19 CONSTRUCTOR_CALL Schema  ->  ambiguous_unknown  -
+models.js:11:51 METHOD_CALL this.find  ->  ambiguous_unknown  -
+models.js:12:1 METHOD_CALL docSchema.static  ->  ambiguous_unknown  -
+models.js:12:1 METHOD_CALL docSchema.static  ->  callback_registered  models.js:12:27 <function-expression>
+models.js:12:48 METHOD_CALL this.findLive  ->  known_edge  models.js:11:30 <function-expression>
+models.js:13:1 METHOD_CALL docSchema.static  ->  ambiguous_unknown  -
+models.js:13:1 METHOD_CALL docSchema.static  ->  callback_registered  models.js:13:20 purge
+models.js:15:1 METHOD_CALL docSchema.method  ->  ambiguous_unknown  -
+models.js:15:1 METHOD_CALL docSchema.method  ->  callback_registered  models.js:15:27 <function-expression>
+models.js:15:48 METHOD_CALL this.toRecord  ->  known_edge  models.js:14:30 <function-expression>
+models.js:18:19 CONSTRUCTOR_CALL mongoose.Schema  ->  ambiguous_unknown  -
+models.js:18:19 CONSTRUCTOR_CALL mongoose.Schema  ->  callback_registered  models.js:18:56 due
+models.js:22:21 CONSTRUCTOR_CALL OtherSchema  ->  ambiguous_unknown  -
+models.js:27:35 METHOD_CALL connection.model  ->  ambiguous_unknown  -
+models.js:28:10 METHOD_CALL mongoose.model  ->  ambiguous_unknown  -
+models.js:29:12 METHOD_CALL connection.model  ->  ambiguous_unknown  -
+repo.js:10:21 CONSTRUCTOR_CALL this.Doc  ->  ambiguous_unknown  -
+repo.js:10:21 METHOD_CALL new this.Doc({}).touch  ->  known_edge  models.js:15:27 <function-expression>
+repo.js:11:19 METHOD_CALL this.Doc.create  ->  ambiguous_unknown  -
+repo.js:12:20 METHOD_CALL this.Other.findLive  ->  ambiguous_unknown  -
+repo.js:24:15 METHOD_CALL registry.model  ->  known_edge  repo.js:23:20 model
+repo.js:27:16 CONSTRUCTOR_CALL DocRepository  ->  known_edge  repo.js:5:3 <constructor>
+repo.js:27:34 FUNCTION_CALL registerModels  ->  known_edge  models.js:25:1 registerModels
+repo.js:28:11 METHOD_CALL repo.list  ->  known_edge  repo.js:6:3 list
+repo.js:28:24 METHOD_CALL repo.take  ->  known_edge  repo.js:7:3 take
+repo.js:28:37 METHOD_CALL repo.purge  ->  known_edge  repo.js:8:3 purge
+repo.js:28:51 METHOD_CALL repo.due  ->  known_edge  repo.js:9:3 due
+repo.js:28:63 METHOD_CALL repo.record  ->  known_edge  repo.js:10:3 record
+repo.js:28:78 METHOD_CALL repo.save  ->  known_edge  repo.js:11:3 save
+repo.js:28:91 METHOD_CALL repo.other  ->  known_edge  repo.js:12:3 other
+repo.js:29:23 CONSTRUCTOR_CALL MemoryRepository  ->  implicit_constructor  -
+repo.js:29:5 METHOD_CALL plain.findLive  ->  known_edge  repo.js:24:37 findLive
+repo.js:6:19 METHOD_CALL this.Doc.findLive  ->  known_edge  models.js:11:30 <function-expression>
+repo.js:7:19 METHOD_CALL this.Doc.claim  ->  known_edge  models.js:12:27 <function-expression>
+repo.js:8:20 METHOD_CALL this.Doc.purge  ->  known_edge  models.js:13:20 purge
+repo.js:9:18 METHOD_CALL this.Job.due  ->  known_edge  models.js:18:56 due

@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
+  <ItemGroup><PackageReference Include="MSTest" Version="3.10.0" /><ProjectReference Include="../../src/App/App.csproj" /></ItemGroup>
+</Project>

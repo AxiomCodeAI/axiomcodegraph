@@ -67,6 +67,23 @@ function choose() {
 
 const py = findPython();
 const env = py.exe ? withPython(process.env, py) : { ...process.env };
+// THE PLUGIN DIRECTORY AS IT WAS SPELLED, NOT RESOLVED. node resolves links in __dirname, so SERVER names the build a
+// link pointed at when the server started, and server.py would take that build for the install for as long as it runs.
+// The path this file was started by keeps the link, and server.py follows it again on every call; a host that names
+// the directory itself (AXIOMCODE_PLUGIN_ROOT in its server entry) is left as it is.
+if (!env.AXIOMCODE_PLUGIN_ROOT && require.main === module && process.argv[1]) {
+  const fs = require('fs');
+  let started = path.resolve(process.argv[1]);
+  // a relative path (Codex runs `node mcp/launch.js` from the plugin) was made absolute from the resolved working
+  // directory; PWD, when it is the same directory, still has the links in it
+  const cwd = process.cwd(), pwd = process.env.PWD;
+  try {
+    if (pwd && pwd !== cwd && path.isAbsolute(pwd) && started.startsWith(cwd + path.sep) && fs.realpathSync(pwd) === cwd)
+      started = path.join(pwd, started.slice(cwd.length + 1));
+  } catch (e) { /* PWD gone: the path as node gave it */ }
+  const root = path.dirname(path.dirname(started));
+  if (fs.existsSync(path.join(root, 'mcp', 'server.py'))) env.AXIOMCODE_PLUGIN_ROOT = root;
+}
 const { bash, error } = findBash();
 if (bash) env.AXIOMCODE_BASH = bash;
 else process.stderr.write(`axiomcode mcp: ${error}\n  The server starts, but every tool will say it cannot run the CLI.\n`);

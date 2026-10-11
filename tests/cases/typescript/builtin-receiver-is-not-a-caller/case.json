@@ -1,0 +1,18 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "JSON.parse is the platform's: the function that writes it is listed apart as a call on the platform's value, not as a by-name caller of the project's parse, and the test around it is not a test of that method",
+   "run": ["impact", "FrameParser.parse", "--tests"],
+   "want": ["readAny", "any.test.ts", "a value a package or the platform"],
+   "avoid": ["config.test.ts"]},
+  {"why": "what a built-in call returns is the platform's too: Object.keys(o).forEach is the array's forEach, so the project's forEach has no by-name caller",
+   "run": ["impact", "FrameParser.forEach"],
+   "want": ["a value a package or the platform"],
+   "avoid": ["calls a method of this name (receiver not typed)"]},
+  {"why": "Promise.resolve is the platform's: the project's Queue.resolve keeps only its untyped caller, and only that caller's test",
+   "run": ["impact", "Queue.resolve", "--tests"],
+   "want": ["drainAny", "any.test.ts"],
+   "avoid": ["config.test.ts"]},
+  {"why": "CONTROL: an untyped receiver is still a by-name caller, and its test is still selected",
+   "run": ["impact", "FrameParser.parse", "--tests"],
+   "want": ["calls a method of this name (receiver not typed)", "any.test.ts"]}
+ ]}

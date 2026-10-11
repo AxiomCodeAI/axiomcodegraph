@@ -93,6 +93,17 @@ super_tvar_rename(sub, super, superParam, subVar) :- type_super_ref_h(sub, super
     lib_type_parameter(superParam, pos, _, _, _, _, super, _),
     java_type_reference("TYPE_VARIABLE", _, _, _, _, sref, pos, "1", _, _, subVar, _, _, _, _, _, _, _).
 
+// Positional rename, client subtype -> CLIENT supertype (`class Mid<S> extends Base<S>`, both
+// in the source). The clauses above only reach a library supertype, because the substitution
+// downstream once read only library methods; java_method_ret_tvar and the implicit-receiver
+// clauses in generic-chain.dl read client ones too, and a binding that stopped one level up a
+// client hierarchy lost every member declared higher (#1478).
+super_tvar_rename(sub, super, superParam, subVar) :- type_super_ref_h(sub, superName, sref),
+    type_parent(sub, super),
+    java_type(superName, _, _, _, _, _, _, _, _, _, _, _, _, super),
+    java_type_parameter(superParam, pos, _, _, _, _, super, _),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, sref, pos, "1", _, _, subVar, _, _, _, _, _, _, _).
+
 // Transitive climb: a binding on Sub carries to each Super via the positional rename,
 // closing over the whole ancestor chain (bounded — the type hierarchy is a finite DAG).
 type_arg_binding(ref, super, superParam, argType) :- type_arg_binding(ref, sub, subVar, argType),

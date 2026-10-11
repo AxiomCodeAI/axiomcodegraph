@@ -1,0 +1,10 @@
+import_cause     app.jsx:1:10  vue  not_staged
+import_cause     app.jsx:2:10  store-kit  not_staged
+import_cause     def.jsx:1:10  vue  not_staged
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       app.jsx:12:25  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       app.jsx:14:26  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       app.jsx:16:22  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       app.jsx:18:24  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       app.jsx:21:22  FUNCTION_CALL makeStore  callee_untyped
+unresolved       def.jsx:6:16  FUNCTION_CALL defineComponent  callee_untyped

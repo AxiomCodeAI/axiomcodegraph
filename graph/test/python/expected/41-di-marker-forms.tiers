@@ -1,0 +1,24 @@
+distinct call sites emitted: 32
+
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      7 rows      7 sites  ambiguous_unknown
+     25 rows     25 sites  boundary_lib
+
+--- edge rows by call kind ---
+      7  DECORATOR_APPLICATION
+      8  DECORATOR_CALL
+     17  SIMPLE_CALL
+
+--- unresolved reasons ---
+      7  decorator_factory_result_untyped
+
+--- the engine's own conservation ledger ---
+     32  _total_sites
+      7  ambiguous_unknown
+     25  boundary_lib
+
+--- reconciling rows against the conserved site count ---
+  edge rows                                  32
+  minus extra rows from multi-target sites    0
+  = tier/site pairs                          32
+  engine's conserved site total              32

@@ -1,0 +1,14 @@
+ambiguous_unknown	AS_TARGET	0	topics [EXPRESSION] -> -
+ambiguous_unknown	METHOD_PARAM	0	Bus [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_TYPE_ARGUMENT	0	Bus [EXPRESSION] -> -
+ambiguous_unknown	METHOD_TYPE_ARGUMENT	0	MiniBus [EXPRESSION] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	Bus [EXPRESSION] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	MiniBus [EXPRESSION] -> -
+known_edge	METHOD_PARAM	0	Bus [METHOD_PARAM] -> Handler
+known_edge	METHOD_PARAM	0	Indexer [METHOD_PARAM] -> Bus
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Bus
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Indexer
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> MiniBus
+known_edge	TYPE_ARGUMENT	1	Bus [EXPRESSION] -> Handler
+known_edge	TYPE_ARGUMENT	1	Bus [METHOD_PARAM] -> Handler
+known_edge	TYPE_ELEMENT	1	Bus [VARIABLE] -> Handler

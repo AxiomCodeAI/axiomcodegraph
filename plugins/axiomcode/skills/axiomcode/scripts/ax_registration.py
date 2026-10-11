@@ -16,6 +16,7 @@ what keeps `cache.get(key)` out of the answer. A declaration handed to anything 
 here: the reference alone says it is passed as a value (`valueref` in dl/impact.dl), and naming the receiving call as
 one that "calls it where the graph cannot follow" was wrong for every synchronous collection operation (#1166).
 """
+import collections
 import re
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
@@ -62,7 +63,7 @@ def registrations(q, site_file=None):
     sf = site_file or (lambda x: x)
     lits = {}
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        for v, f, l in _string_literals(q):
             lits.setdefault((f, l), []).append(v)
     # the declarations a name identifies uniquely: only those can be named as the registered declaration, because
     # a site names a VALUE by identifier and two callables of one name would each claim the other's registration
@@ -106,7 +107,7 @@ def route_site_lines(q, site_file=None):
         return {}
     lits = {}
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        for v, f, l in _string_literals(q):
             lits.setdefault((f, l), []).append(v)
     return _route_links(q, site_file or (lambda x: x), lits, set())[2]
 
@@ -627,6 +628,20 @@ def _has(q, t):
     return bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
 
 
+def _span_string_literals(q, f, a, b):
+    """the STRING literals inside one file span, kind-filtered the same way _string_literals is"""
+    try: return q("SELECT value, file, line FROM literals WHERE file = ? AND line BETWEEN ? AND ? AND kind = 'string'", f, a, b)
+    except Exception: return q("SELECT value, file, line FROM literals WHERE file = ? AND line BETWEEN ? AND ?", f, a, b)
+
+
+def _string_literals(q):
+    """the literals rows that are STRINGS, as (value, file, line). A v8 index also carries numbers and
+    booleans, which are never registration keys and would join everything (`"1"` matches every retry
+    count); a pre-v8 or degraded index has no kind column, and there every row is a string."""
+    try: return q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL AND kind = 'string'")
+    except Exception: return q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL")
+
+
 # ── the DECORATION path: the key is written at the `@`, and the owner is recorded ────────────────────────────
 # `registrations()` above skips DECORATOR_CALL sites deliberately, because a decoration is not a call that hands a
 # value over. It is the other half of the same idea and it carries BETTER evidence: the index records which
@@ -640,16 +655,77 @@ def _has(q, t):
 # Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
 # exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
 # begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
-def decoration_key_strings(text):
-    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose.
+# NOT EVERY QUOTED STRING IN A DECORATION IS WHAT IT REGISTERS THE DECLARATION UNDER (#1413). Three shapes carry a
+# string that no caller will ever write to reach the declaration, and each was printed as "registered under" and then
+# followed: a method that merely returned the same word was listed as reaching the change.
+#   1. a decoration that names a WARNING or a status, and registers nothing: `@SuppressWarnings("unchecked")`,
+#      `[SuppressMessage(...)]`, `@Deprecated(since = "2")`, `[Obsolete("...")]`, `@Generated("tool")`. A language-level
+#      table (the compilers' own annotations and the analysers' suppressions), not a framework list.
+_NOT_A_REGISTRAR = re.compile(r'^(Suppress\w*|Deprecated|Obsolete|Generated|SafeVarargs|FunctionalInterface)$')
+#   2. a KEYWORD argument that configures the registration rather than naming it: `mode="before"`, `methods=["GET"]`,
+#      `tags=["orders"]`, `method = "byShelf"`. A positional string is the key (`@router.post("/orders")`,
+#      `@receiver("order_created")`); a keyword one is only when the keyword says it names the thing registered.
+_KEY_KEYWORD = re.compile(r'^(value|values|path|paths|name|names|topics?|topic_?pattern|queues?|destinations?|channels?|'
+                          r'subjects?|commands?|events?|signals?|routes?|patterns?|urls?|uri|endpoint|keys?|routing_?key|'
+                          r'binding_?key|alias(es)?|rule|address|mapping)$', re.I)
+#   3. a string that names a MEMBER OF A TYPE THE SAME DECORATION NAMES: `@SelectProvider(type = StockSql.class,
+#      method = "byShelf")` points at StockSql.byShelf; it is a reference to that method, not a key for this one.
+#      Only decided with the graph (`names_member(type, name)`); without it the string is kept.
+#   4. a string that names a PARAMETER OF THE DECLARATION IT DECORATES: `@option("--params", "-p", "params")` on
+#      `def main(url, params)` binds the value a caller passes after `--params` to `params`. The flags are what a caller
+#      writes to reach the declaration; the parameter name is written by every function that builds a dict with a
+#      `params` key, and joined as a key it made each of them a caller of the command.
+#   5. a string inside ANOTHER call in the decoration: `type=File("wb")` configures a value, it names nothing registered.
+_STRING =re.compile(r'"([^"]{1,120})"|\'([^\']{1,120})\'')
+_KEYWORD_BEFORE = re.compile(r'(\w+)\s*[=:]\s*[\[{(]?\s*(?:(?:"[^"]*"|\'[^\']*\')\s*,\s*)*$')
+_TYPE_ARG = re.compile(r'(?<![\w."\'$])([A-Z][\w$]*)(?:\s*\.\s*class)?(?=\s*[,)\]}])')
+
+
+def decoration_key_strings(text, name=None, names_member=None, params=None):
+    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose,
+    and but the three shapes above (a non-registering decoration `name`, a configuring keyword, a member reference).
     A STRING WITH A SPACE IN IT IS PROSE, NOT A KEY: `@widgets.doc("Endpoint to list the widgets")`, `@Operation(summary = "List
     the orders")`, a cron expression, a query. No route, command, signal or table name is written with one, and read as
     a key the description was printed as what the framework dispatches on."""
+    if name and _NOT_A_REGISTRAR.match(name.split('.')[-1].lstrip('@[')):
+        return []
+    t = text or ''
+    types = _TYPE_ARG.findall(_STRING.sub('""', t)) if names_member else []
     out = set()
-    for a, b in re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''):
-        key = a or b
-        if key and not re.search(r'\s', key): out.add(key)
+    for m in _STRING.finditer(t):
+        key = m.group(1) or m.group(2)
+        if not key or re.search(r'\s', key): continue
+        kw = _KEYWORD_BEFORE.search(t[:m.start()].replace('"""', '"'))
+        if kw and not _KEY_KEYWORD.match(kw.group(1)): continue
+        if any(names_member(ty, key) for ty in types): continue
+        if _call_depth(t, m.start()) > 1: continue
+        if params and key in params: continue
+        out.add(key)
     return sorted(out)
+
+
+def _call_depth(t, i):
+    """how many parentheses are open at offset i of a decoration's text, strings blanked: 1 is the decoration's own
+    argument list"""
+    return _STRING.sub(lambda m: '"' + ' ' * (len(m.group(0)) - 2) + '"', t[:i]).count('(') - \
+        _STRING.sub(lambda m: '"' + ' ' * (len(m.group(0)) - 2) + '"', t[:i]).count(')')
+
+
+def _params_of(signature):
+    """the parameter names a `name(a, b=1, *c)` signature declares"""
+    m = re.search(r'\((.*)\)', signature or '')
+    if not m: return set()
+    return {re.sub(r'[:=].*$', '', p).strip().lstrip('*') for p in m.group(1).split(',')} - {''}
+
+
+def member_names(q):
+    """names_member for decoration_key_strings, read from the graph: does a type of this simple name declare a member
+    of that name"""
+    pairs = set()
+    if _has(q, 'symbols'):
+        for owner, n in q("SELECT owner, name FROM symbols WHERE owner IS NOT NULL AND method_id IS NOT NULL"):
+            if owner and n: pairs.add((owner.split('.')[-1], n))
+    return lambda ty, key: (ty.split('.')[-1], key) in pairs
 
 
 def decoration_keys(q, site_file=None):
@@ -664,13 +740,15 @@ def decoration_keys(q, site_file=None):
     # edges from one `@ValueSource` of resource paths. A route handler, a signal receiver or a CLI command is
     # production code; nothing is lost by declining to read a test's own decoration as a registration.
     tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
+    members = member_names(q)
+    sigs = dict(q("SELECT id, signature FROM symbols WHERE signature IS NOT NULL")) if _has(q, 'symbols') else {}
     out = []
     for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
                                         WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
         if owner in tests:
             continue
         short = (name or '').split('.')[-1]
-        for key in decoration_key_strings(text):
+        for key in decoration_key_strings(text, name, members, _params_of(sigs.get(owner))):
             kind = 'route' if key.startswith('/') else 'key'
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
@@ -772,7 +850,7 @@ def literal_verbs(q, at, site_file=None):
         short = re.sub(r'Async$', '', (n or '').split('.')[-1].split('<')[0]).upper()
         if short in _VERBS: calls[sf(f) if f else ''].append((a, b or a, short))
     out = set()
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in _string_literals(q):
         if not (isinstance(v, str) and v.startswith('/')): continue
         f2 = sf(f) if f else ''
         hold = [(b - a, -a, verb) for a, b, verb in calls.get(f2, ()) if a <= l <= b]
@@ -815,7 +893,7 @@ def value_route_registrations(q, site_file=None):
                 names_at.setdefault((f, l), set()).update(routed[(f, n)])
     import re
     out = []
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in _string_literals(q):
         if not (isinstance(v, str) and 0 < len(v) < 160):
             continue
         # A RESOURCE IS NOT A ROUTE. Measured on the JVM parser: the pair fired on
@@ -949,8 +1027,150 @@ def route_candidates(written, registered_keys):
 
 
 def all_registrations(q, site_file=None):
-    """Every (decl, file, line, kind, key, why) this module can derive, from all three sources."""
-    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)))
+    """Every (decl, file, line, kind, key, why) this module can derive, from all four sources."""
+    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)
+                      + table_registrations(q, site_file)))
+
+
+# ── a HANDLER TABLE: a declaration registered under the KEY of the entry that holds it ──────────────────────────
+# One service publishes an event by its type (`bus.publish(TOPICS.CREATED, doc)`, `emit("doc.created", …)`); another
+# holds a table of handlers keyed by the same string (`{ [TOPICS.CREATED]: onCreated }`, `{ 'doc.created'(env) {…} }`,
+# `{"doc.created": on_created}`) and a consumer looks the handler up by the message's type (`handlers[type](env)`).
+# The graph has both ends and the lookup is a computed member, so nothing joined the publisher to the handler: impact
+# of the producing method missed every consumer, and the tests that publish the type never reached the handler.
+# It is a registration like a route: the entry's key is what the dispatcher dispatches on. Two facts are read here:
+#   the table entry   a callable DECLARED on the entry's own line, right after its key (`[K]: function …`, `[K]: (e) =>`,
+#                     `'k'(e) {`, `"k": lambda e: …`), or a callable NAMED as the entry's whole value (`[K]: onCreated,`).
+#                     A key is a string literal or a constant reference resolved to one; an entry whose value is an
+#                     array, a call's result or a schema is data, not a handler, and registers nothing.
+#   the constant      `TOPICS.CREATED` is the string its declaration gives it (`export const TOPICS = { CREATED:
+#                     'doc.created' }`, `class Topics: CREATED = "doc.created"`, `static final String CREATED = …`),
+#                     kept only when every declaration of that name agrees. A key written through a constant is a
+#                     write of the string; the constant's own declaration and another table's key position are not.
+_IDENT = r'[A-Za-z_$][\w$]*'
+_CONST_REF = rf'{_IDENT}(?:\.{_IDENT})+'
+_KEY_STR = r"""(?P<qt>['"])([^'"\\\s]{1,120})(?P=qt)"""     # named: its group number differs in each pattern
+# the start of a function value: `function`, `async (e) =>`, `e =>`, `(e) =>`, a Python `lambda`
+_FN_START = rf'(?:async\s+)?(?:function\b|lambda\b|\(|{_IDENT}\s*=>)'
+# the key of an entry that DECLARES its handler on this line: `[K]: <fn>`, `[K](…) {`, `'k': <fn>`, `'k'(…) {`, and a
+# Python dict's `Topics.K: lambda …`. Method shorthand may carry `async` / `static` / `*`.
+_ENTRY_DECL = re.compile(rf"""^\s*(?:(?:async|static|get|set)\s+|\*\s*)*(?:(?:\[\s*({_CONST_REF}|{_IDENT})\s*\]|{_KEY_STR})\s*(?::\s*{_FN_START}|\()|({_CONST_REF})\s*:\s*{_FN_START})""")
+# an entry whose WHOLE value names a handler: `[K]: onCreated,` / `'k': handlers.onCreated,` / `"k": on_created,`
+_ENTRY_REF = re.compile(rf"""^\s*(?:\[\s*({_CONST_REF}|{_IDENT})\s*\]|{_KEY_STR}|({_CONST_REF}))\s*:\s*(?:this\.|self\.)?({_IDENT}(?:\.{_IDENT})*)\s*,?\s*(?:\}}\s*[,;)]*\s*)?$""")
+# a string constant: an object literal's `K: 'v'` (one per line or several on one), and a declaration `K = 'v'`
+_CONST_ENTRY = re.compile(rf"""(?:^|[{{,])\s*({_IDENT})\s*:\s*{_KEY_STR}\s*(?=,|\}}|$)""")
+_CONST_DECL = re.compile(rf"""(?:^|\s)({_IDENT})\s*(?::\s*[\w.<>\[\]]+\s*)?=\s*{_KEY_STR}\s*[;,]?\s*$""")
+# a key POSITION, not a write: the quoted key or the constant is followed by `:` (an entry, a `case`), `(` (a method
+# shorthand) or `]` and then `:` / `(` / `=` (a computed key, a C# index initializer)
+_KEY_POS = re.compile(r'\s*(?::(?!:)|\(|\]\s*[:(=])')
+
+
+def string_constants(q, read=None):
+    """({'TOPICS.CREATED': 'doc.created', 'CREATED_TYPE': 'doc.created', …}, {(file, line)}): the string each constant
+    name denotes, where every declaration of the name agrees, and the lines that declare them (a literal there is the
+    constant's definition, not a write of its value)."""
+    if not _has(q, 'symbols'):
+        return {}, set()
+    read = read or _source_reader(q)
+    seen = collections.defaultdict(set)
+    pos = set()
+    types = {i: n for i, n in q("SELECT id, name FROM symbols WHERE id IS NOT NULL AND method_id IS NULL AND type_id IS NOT NULL")}
+    for n, f, a, b, owner, kind in q("""SELECT name, file, line, end_line, owner, kind FROM symbols
+                                        WHERE method_id IS NULL AND name IS NOT NULL AND file IS NOT NULL AND line > 0
+                                          AND kind NOT IN ('class', 'interface', 'enum', 'record', 'struct', 'module', 'type', 'namespace')"""):
+        L = read(f)
+        if not L or not re.fullmatch(_IDENT, n): continue
+        b = max(a, min(b or a, a + 400, len(L)))
+        oname = (types.get(owner) or (owner or '').split('.')[-1]) if owner else ''
+        m = _CONST_DECL.search(L[a - 1]) if a <= len(L) else None
+        if m and m.group(1) == n and b == a:
+            seen[f'{oname}.{n}' if oname else n].add(m.group(3)); pos.add((f, a))
+            continue
+        for ln in range(a, b + 1):
+            for k, _qt, v in _CONST_ENTRY.findall(L[ln - 1]):
+                seen[f'{n}.{k}'].add(v); pos.add((f, ln))
+    return {k: next(iter(vs)) for k, vs in seen.items() if len(vs) == 1}, pos
+
+
+def _entry_key(m, consts):
+    """the string a matched entry is keyed by: its literal, or the constant it names resolved; None when unknown"""
+    ref, lit, cref = m.group(1), m.group(3), m.group(4)
+    if lit: return lit
+    return consts.get(ref or cref)
+
+
+def table_registrations(q, site_file=None, consts=None):
+    """[(decl, file, line, 'table', key, why)] — a callable registered in a handler table under the entry's key.
+    An entry in a test file is a fixture's table, and is not what the application dispatches on."""
+    if not _has(q, 'symbols'):
+        return []
+    sf = site_file or (lambda x: x)
+    read = _source_reader(q)
+    consts = string_constants(q, read)[0] if consts is None else consts
+    why = lambda key: f'registered in a handler table under "{key}" here — whoever dispatches the table by that key calls it, no call site does'
+    out = set()
+    by_line = collections.defaultdict(list)
+    for i, f, l in q("""SELECT id, file, line FROM symbols WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0
+                         AND (is_test IS NULL OR is_test = 0) AND kind NOT IN ('module', 'constructor')"""):
+        by_line[(f, l)].append(i)
+    for (f, l), ids in by_line.items():
+        L = read(f)
+        if not L or l > len(L) or len(ids) != 1: continue
+        m = _ENTRY_DECL.match(L[l - 1])
+        key = _entry_key(m, consts) if m else None
+        if key: out.add((ids[0], sf(f), l, 'table', key, why(key)))
+    # an entry whose value NAMES the handler: the declaration a name identifies uniquely, as `registrations()` requires
+    if _has(q, 'refs'):
+        once = {}
+        for n, i, c in q("""SELECT name, min(id), count(*) FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL
+                            AND name NOT LIKE '<%' GROUP BY name"""):
+            if c == 1: once[n] = i
+        tf = {x for (x,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+        for n, f, l in q("SELECT DISTINCT name, file, line FROM refs WHERE line > 0"):
+            if n not in once or f in tf: continue
+            L = read(f)
+            if not L or l > len(L): continue
+            m = _ENTRY_REF.match(L[l - 1])
+            if not m or m.group(5).split('.')[-1] != n: continue
+            key = _entry_key(m, consts)
+            if key: out.add((once[n], sf(f), l, 'table', key, why(key)))
+    return sorted(out)
+
+
+def table_key_writes(q, keys, consts=None, cpos=None):
+    """[(value, file, line)] — where a handler-table key in `keys` is WRITTEN: a literal of it, or a constant that
+    resolves to it, outside a key position and outside the constant's own declaration. What a table's key is joined to."""
+    if not keys:
+        return []
+    read = _source_reader(q)
+    if consts is None or cpos is None:
+        consts, cpos = string_constants(q, read)
+    out = set()
+    def written(text, token):
+        for mm in re.finditer(re.escape(token), text):
+            # a constant is not the tail of a longer name (`MY_TOPICS.X`) or the head of a longer chain (`TOPICS.X.y`)
+            if token[0] not in '\'"`' and (re.match(r'[\w$]', text[mm.start() - 1:mm.start()] or ' ')
+                                         or re.match(r'[\w$.]', text[mm.end():mm.end() + 1] or ' ')): continue
+            if not _KEY_POS.match(text, mm.end()): return True
+        return False
+    if _has(q, 'literals'):
+        for v, f, l in _string_literals(q):
+            if v not in keys or (f, l) in cpos: continue
+            L = read(f)
+            text = L[l - 1] if L and l <= len(L) else None
+            if text is None or written(text, f"'{v}'") or written(text, f'"{v}"') or written(text, f'`{v}`'):
+                out.add((v, f, l))
+    names = collections.defaultdict(set)                       # last segment -> the constants it may end
+    for c, v in consts.items():
+        if v in keys: names[c.split('.')[-1]].add(c)
+    if names and _has(q, 'refs'):
+        for n, f, l in q("SELECT DISTINCT name, file, line FROM refs WHERE line > 0"):
+            if n not in names or (f, l) in cpos: continue
+            L = read(f)
+            if not L or l > len(L): continue
+            for c in names[n]:
+                if written(L[l - 1], c): out.add((consts[c], f, l))
+    return sorted(out)
 
 
 # ── the same join the rules make, for a caller that has no Datalog ───────────────────────────────────────────
@@ -971,16 +1191,22 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
     if not _has(q, 'literals'):
         return []
     reg = collections.defaultdict(set)
-    for decl, _f, _l, _kind, key, _why in all_registrations(q, site_file):
-        if decl and key: reg[key].add(decl)
+    table = collections.defaultdict(set)                    # a handler table's key -> the declarations it registers
+    for decl, _f, _l, kind, key, _why in all_registrations(q, site_file):
+        if decl and key:
+            reg[key].add(decl)
+            if kind == 'table': table[key].add(decl)
     if not reg:
         return []
     writes = collections.defaultdict(set)
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in key_writes(q, set(table)):
         if not isinstance(v, str) or len(v) > 160: continue
         c = at(f, l)
-        if c: writes[v].add(c)
-    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items() if len(cs) > use_cap}
+        if c and c not in table.get(v, ()): writes[v].add(c)
+    # the rules' table_key: a table key's writers in test files drive its handler and are not counted against it
+    tests = {i for (i,) in q("SELECT id FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")} if table else set()
+    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items()
+                                                                if len(cs - tests if k in table else cs) > use_cap}
     out = set()
     for v, callers in writes.items():
         for key in route_candidates(v, reg):
@@ -989,3 +1215,140 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
                 for d in reg[key]:
                     if c != d: out.add((c, d, key))
     return sorted(out)
+
+
+def key_writes(q, table_keys=None):
+    """[(value, file, line)] — every string a callable writes that a registration key may be joined to: the literals,
+    except that a handler table's key is written where table_key_writes says (a dotted literal or a constant, never
+    the table's own key position or the constant's declaration)."""
+    if table_keys is None:
+        table_keys = {r[4] for r in table_registrations(q)}
+    rows = [(v, f, l) for v, f, l in _string_literals(q)
+            if v not in table_keys] if _has(q, 'literals') else []
+    return rows + table_key_writes(q, table_keys)
+
+
+# ── a servlet filter runs on every request of a test that loads it ───────────────────────────────────────────
+# A filter has no caller in the source: the servlet container calls doFilter / doFilterInternal on every request the
+# application serves, and a Spring MockMvc or web test serves its requests through the same chain. So a test that
+# sends a request through a context holding the filter runs the filter's body, and nothing in the graph says so:
+# `test-impact` after an edit to a filter's token parsing named no test while eight web-layer tests ran it on every
+# request.
+#
+# The link is drawn only where the context is known to hold the filter, which keeps it narrow:
+#   a filter INSTANCE handed to HttpSecurity addFilter / addFilterBefore / addFilterAfter / addFilterAt (a @Bean
+#     factory's return, a `new`, or a field of the filter's type, written inside the call) is held by every context
+#     that loads the configuration class declaring that call: a test naming it in @Import, @ContextConfiguration,
+#     @SpringJUnitConfig or @SpringBootTest(classes = ...), or a @SpringBootTest with no classes (the whole
+#     application). A @WebMvcTest slice alone is not credited: which configurations it picks up depends on the Boot
+#     version, and a test that needs the security chain imports it.
+#   a filter that is itself a @Component (or another stereotype) is held by a @SpringBootTest and by a @WebMvcTest
+#     slice, which includes Filter beans, and by a test that imports it.
+# and only for the test methods that send a request: a method that writes a path-shaped literal ("/orders") or calls
+# a request method (MockMvc perform, a test client's exchange / getForEntity / ...). A test class that loads the
+# configuration but sends nothing, and a test that sends requests without loading it, are not credited.
+FILTER_BASES = {'OncePerRequestFilter', 'GenericFilterBean', 'HttpFilter', 'GenericFilter', 'AbstractAuthenticationProcessingFilter',
+                'BasicAuthenticationFilter', 'UsernamePasswordAuthenticationFilter', 'AbstractPreAuthenticatedProcessingFilter'}
+FILTER_IFACES = {'javax.servlet.Filter', 'jakarta.servlet.Filter'}
+FILTER_ENTRY = {'doFilter', 'doFilterInternal', 'shouldNotFilter', 'attemptAuthentication', 'successfulAuthentication',
+                'unsuccessfulAuthentication'}
+FILTER_ADDERS = {'addFilter', 'addFilterBefore', 'addFilterAfter', 'addFilterAt'}
+STEREOTYPES = {'Component', 'Service', 'Configuration'}
+CONFIG_LOADERS = {'Import', 'ContextConfiguration', 'SpringJUnitConfig', 'SpringJUnitWebConfig', 'SpringBootTest'}
+REQUEST_CALLS = {'perform', 'exchange', 'getForEntity', 'postForEntity', 'getForObject', 'postForObject', 'patchForObject'}
+_CLASS_TOKEN = re.compile(r'\b([A-Z][\w$]*)\b')
+
+
+def filter_links(q):
+    """[(test method id, filter method id, how)] — the test sends a request through a context that holds the filter"""
+    if not all(_has(q, t) for t in ('types', 'methods', 'type_ancestors', 'call_sites', 'decorations', 'symbols')): return []
+    # cheap first: no ancestor named like a filter, no filter (the hooks ask this on every edit, graph_sql._has_framework_hops)
+    if not q("SELECT 1 FROM type_ancestors WHERE ancestor_type_id LIKE '%Filter' LIMIT 1"): return []
+    tname, qname = {}, {}
+    for i, n, qn, prov in q("SELECT id, name, qualified_name, provenance FROM types"):
+        if prov == 'client': tname[i] = n
+        else: qname[i] = qn
+    anc = collections.defaultdict(set)
+    for t, a in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[t].add(a)
+    def is_filter_base(a):
+        if a in tname: return False                      # a client type: the chain continues through its own ancestors
+        qn = (qname.get(a) or a.split(':', 1)[-1]).replace('$', '.')
+        return qn in FILTER_IFACES or qn.rsplit('.', 1)[-1] in FILTER_BASES
+    filters = {t for t in tname if any(is_filter_base(a) for a in anc.get(t, ()))}
+    if not filters: return []
+    entry = collections.defaultdict(set)                  # filter type -> the methods the container calls on it
+    for mid, n, own in q("SELECT id, name, owner_type_id FROM methods WHERE owner_type_id IS NOT NULL"):
+        if n not in FILTER_ENTRY: continue
+        for f in filters:
+            if own == f or own in anc.get(f, ()): entry[f].add(mid)
+    filters = {f for f in filters if entry[f]}
+    if not filters: return []
+    by_name = collections.defaultdict(set)
+    for f in filters: by_name[tname[f]].add(f)
+    decs = collections.defaultdict(list)
+    for o, n, text in q("SELECT owner_id, name, text FROM decorations"): decs[o].append((n.split('.')[-1], text or ''))
+    # (1) handed to HttpSecurity inside a configuration class: config type -> filters it adds
+    added = collections.defaultdict(set)
+    owner_of = {mid: own for mid, own in q("SELECT id, owner_type_id FROM methods")}
+    ret = {}
+    for mid, sig, kind, own in q("SELECT id, signature, kind, owner_type_id FROM methods"):
+        if 'CONSTRUCTOR' in (kind or '') and own in filters: ret[mid] = {own}
+        elif sig and ':' in sig: ret[mid] = by_name.get(sig.rsplit(':', 1)[-1].strip(), set())
+    ph = ','.join('?' * len(FILTER_ADDERS))
+    for sid, caller, fp, l1, c1, l2, c2 in q(f"""SELECT id, caller_id, file_path, start_line, start_column, end_line, end_column
+                                                FROM call_sites WHERE callee_name IN ({ph})""", *sorted(FILTER_ADDERS)):
+        conf = owner_of.get(caller)
+        if not conf: continue
+        got = set()
+        for isid, iname, ikind in q("""SELECT id, callee_name, kind FROM call_sites WHERE file_path = ? AND id <> ?
+                                           AND (start_line > ? OR (start_line = ? AND start_column > ?))
+                                           AND (end_line < ? OR (end_line = ? AND end_column <= ?))""", fp, sid, l1, l1, c1, l2, l2, c2):
+            for (m,) in q("SELECT callee_method_id FROM call_edges WHERE call_site_id = ? AND callee_method_id IS NOT NULL", isid):
+                got |= ret.get(m, set())
+            if ikind and 'constructor' in ikind.lower(): got |= by_name.get((iname or '').split('.')[-1], set())
+        if _has(q, 'refs') and _has(q, 'fields'):
+            rel = [r[0] for r in q("SELECT file FROM symbols WHERE id = ?", caller)]
+            if rel:
+                for (n,) in q("SELECT DISTINCT name FROM refs WHERE file = ? AND line BETWEEN ? AND ? AND entity_kind = 'FIELD'", rel[0], l1, l2):
+                    for (tn,) in q("SELECT type_name FROM fields WHERE name = ? AND owner_type_id = ?", n, conf):
+                        got |= by_name.get(re.sub(r'<.*', '', tn or '').split('.')[-1], set())
+        for f in got: added[conf].add(f)
+    # (2) a filter that is a component of the application
+    component = {f for f in filters if any(n in STEREOTYPES for n, _ in decs.get(f, ()))}
+    if not added and not component: return []
+    # the test classes, and what each one's context holds (its own decorations and its client ancestors')
+    tests = collections.defaultdict(set)
+    for i, own in q("""SELECT s.id, m.owner_type_id FROM symbols s JOIN methods m ON m.id = s.method_id
+                       WHERE s.is_test = 1 AND m.owner_type_id IS NOT NULL"""): tests[own].add(i)
+    cname = {t: tname[t] for t in set(added) | component}
+    out = set()
+    for t, ms in tests.items():
+        ds = [d for x in [t] + sorted(a for a in anc.get(t, ()) if a in tname) for d in decs.get(x, ())]
+        named = {tok for n, text in ds if n in CONFIG_LOADERS for tok in _CLASS_TOKEN.findall(text.split('(', 1)[1] if '(' in text else '')}
+        whole = any(n == 'SpringBootTest' and not re.search(r'\bclasses\s*=', text) for n, text in ds)
+        mvc = any(n == 'WebMvcTest' for n, _ in ds)
+        held = {}
+        for conf, fs in added.items():
+            if whole or cname[conf] in named:
+                for f in fs: held.setdefault(f, f"added to HttpSecurity in {cname[conf]}, which the test loads")
+        for f in component:
+            if whole or mvc or cname[f] in named: held.setdefault(f, f"a {tname[f]} component the test's context holds")
+        if not held: continue
+        for m in sorted(ms):
+            if not _sends_request(q, m): continue
+            for f, how in held.items():
+                for e in entry[f]: out.add((m, e, how))
+    return sorted(out)
+
+
+def _sends_request(q, m):
+    """the test method writes a path-shaped literal inside its own span, or calls a request method"""
+    s = q("SELECT file, line, end_line FROM symbols WHERE id = ?", m)
+    if not s or not s[0][1]: return False
+    f, a, b = s[0][0], s[0][1], s[0][2] or s[0][1]
+    ph = ','.join('?' * len(REQUEST_CALLS))
+    if q(f"SELECT 1 FROM call_sites WHERE caller_id = ? AND callee_name IN ({ph}) LIMIT 1", m, *sorted(REQUEST_CALLS)): return True
+    if _has(q, 'literals'):
+        for v, _f, _l in _span_string_literals(q, f, a, b):
+            if isinstance(v, str) and re.fullmatch(r'/[\w\-./{}:%]*', v): return True
+    return False

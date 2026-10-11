@@ -1,0 +1,17 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "@SuppressWarnings names a warning and registers nothing, so its string is no key (#1413)",
+   "expect_error": true, "run": ["path", "*", "StockSql.legacy"],
+   "avoid": ["registered under \"unchecked\""]},
+  {"why": "a method that only returns the same word is not a caller of the suppressed method (#1413)",
+   "run": ["impact", "StockSql.legacy"],
+   "avoid": ["Audit.level"]},
+  {"why": "@SelectProvider(type = StockSql.class, method = \"byShelf\") names a member of the type it names: a reference to StockSql.byShelf, not a key for the mapper method (#1413)",
+   "expect_error": true, "run": ["path", "*", "StockMapper.byShelf"],
+   "avoid": ["registered under \"byShelf\""]},
+  {"why": "@Select SQL text is prose, no key",
+   "expect_error": true, "run": ["path", "*", "StockMapper.total"],
+   "avoid": ["registered under"]},
+  {"why": "control: a route mapping is still the key its handler is registered under",
+   "expect_error": true, "run": ["path", "*", "ItemController.touch"],
+   "want": ["registered as a route \"/items/touch\" by @GetMapping"]}]}

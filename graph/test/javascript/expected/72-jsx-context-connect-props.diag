@@ -1,0 +1,26 @@
+import_cause     Auth.jsx:1:10  react  not_staged
+import_cause     Auth.jsx:1:25  react  not_staged
+import_cause     Auth.jsx:1:38  react  not_staged
+import_cause     Auth.jsx:1:50  react  not_staged
+import_cause     Profile.jsx:1:1  react  not_staged
+import_cause     Profile.jsx:2:10  react-redux  not_staged
+import_cause     Settings.jsx:1:10  react-redux  not_staged
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       Auth.jsx:12:18  FUNCTION_CALL useCallback  callee_untyped
+unresolved       Auth.jsx:13:27  FUNCTION_CALL useMemo  callee_untyped
+unresolved       Auth.jsx:18:22  FUNCTION_CALL useContext  callee_untyped
+unresolved       Auth.jsx:23:30  FUNCTION_CALL useContext  callee_untyped
+unresolved       Auth.jsx:32:30  FUNCTION_CALL useContext  callee_untyped
+unresolved       Auth.jsx:3:24  FUNCTION_CALL createContext  callee_untyped
+unresolved       Auth.jsx:4:25  FUNCTION_CALL createContext  callee_untyped
+unresolved       Profile.jsx:14:16  FUNCTION_CALL   callee_untyped
+unresolved       Profile.jsx:14:16  FUNCTION_CALL connect  callee_untyped
+unresolved       Profile.jsx:25:35  FUNCTION_CALL   callee_untyped
+unresolved       Profile.jsx:25:35  FUNCTION_CALL connect  callee_untyped
+unresolved       Settings.jsx:12:16  FUNCTION_CALL   callee_untyped
+unresolved       Settings.jsx:12:16  FUNCTION_CALL connect  callee_untyped
+unresolved       Settings.jsx:9:24  FUNCTION_CALL dispatch  callee_untyped
+value_callee     Profile.jsx:14:16  connect(null, { onSave: saveProfile })  expression
+value_callee     Profile.jsx:25:35  connect(null, { onOpen: openFavorites })  expression
+value_callee     Settings.jsx:12:16  connect(mapStateToProps, mapDispatchToProps)  expression
+value_callee     Settings.jsx:9:24  dispatch  parameter

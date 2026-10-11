@@ -63,30 +63,10 @@ usage: field_oracle.py --classes <dir>[,...] [--app-only] [--with-initializers] 
 import os, re, subprocess, sys, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bytecode_oracle import desc_params, compile_case, CLASS_HDR, INSTR, PRIM  # noqa: E402
+from bytecode_oracle import desc_params, compile_case, CLASS_HDR, INSTR, PRIM, strip_generics  # noqa: E402
+# strip_generics: see bytecode_oracle.py. It lived here first, when only this reader applied it; the
+# call-edge reader had the same blind spot and now shares the one function.
 
-
-def strip_generics(s):
-    """Remove every balanced <...> group from a javap class-header line.
-
-    CLASS_HDR matches the type-parameter list with `(?:<[^>]*>)?`, which stops at the FIRST `>`
-    -- so a bound that is itself generic, `class Base<T extends Connection$Base<T>> extends ...`,
-    leaves a stray `>` and the header does not match at all. The class is then never opened: every
-    field it declares is attributed to whichever class javap printed before it, and every access
-    to those fields is attributed to the wrong owner or dropped. Stripping the groups first makes
-    the match independent of how deeply nested the bounds are. (bytecode_oracle.py matches the
-    same headers with the same expression and has the same blind spot; fixing it there moves the
-    call-edge goldens, so it is left alone here.)"""
-    out, d = [], 0
-    for ch in s:
-        if ch == '<':
-            d += 1
-        elif ch == '>':
-            if d > 0:
-                d -= 1
-        elif d == 0:
-            out.append(ch)
-    return ''.join(out)
 
 # `  9: putfield      #13   // Field org/example/Foo.bar:I`  — javap omits the owner when the
 # field is declared in the class being printed, so the owner is optional and defaults to it.

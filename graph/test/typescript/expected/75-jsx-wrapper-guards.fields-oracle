@@ -1,9 +1,9 @@
 75-jsx-wrapper-guards [fields]
   precision 0.0000   (0 correct, 1 wrong)
   recall    0.0000   (0 of 1 the compiler resolved)
-  sites 5   resolved 1 (20.0%)
-  tiers ambiguous_unknown=4  known_edge=1
-  access read=5
-  not scored: 4 rows whose target is not a client declaration
+  sites 15   resolved 11 (73.3%)
+  tiers ambiguous_unknown=4  known_edge=11
+  access read=15
+  not scored: 14 rows whose target is not a client declaration
     WRONG   ui/Button#Button({ label: string }) READ { label: string }#label
     MISSING ui/Button#Button({ label: string }) READ ui/Button#label

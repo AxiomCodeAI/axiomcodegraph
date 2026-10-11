@@ -1,0 +1,8 @@
+71-object-handed-to-library-callback
+  precision 1.0000   (9 correct, 0 wrong)
+  recall    0.9000   (9 of 10 in the bytecode)
+  references 76   resolved 11 (14.5%)
+  tiers ambiguous_unknown=65  known_edge=11
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=4  IMPLEMENTS_INTERFACE=8  LOCAL_VARIABLE=1  METHOD_PARAM=35  METHOD_RETURN=9  OBJECT_CREATION_TYPE=16  SUPER_TYPE=3
+    MISSING app.Callbacks$anon:Comparator METHOD_PARAM app.Callbacks

@@ -1,0 +1,6 @@
+structural	app/globals#Array.map -> app/pipeline#Pipeline.map
+structural	fixture/globals#Array.map -> fixture/use#Bag.map
+value	app/globals#<function-type>@4:14 -> app/pipeline#<arrow>
+value	app/pipeline#<function-type>@9:19 -> app/pipeline#<arrow>
+value	fixture/globals#<function-type>@6:16 -> fixture/use#<arrow>
+value	fixture/use#<function-type>@9:16 -> fixture/use#<arrow>

@@ -1,0 +1,12 @@
+# Soufflé input-relation -> CSV basename for facts staged BESIDE the client IR that are not parser facts.
+# Same format and staging as client-ir.map (absent file = empty relation, so every project compiles one program),
+# but outside the frozen parser schema: no decls_base.dl row, no lib.map counterpart (a library's own summary of
+# its dependencies is not staged), declared in decls_all.dl instead.
+#
+# The library callback summaries graph/python/libsum/libsum.py writes from the project's installed dependencies
+# (framework-behavior/library-callbacks.dl). Absent = empty = no library hand-backs, exactly as before.
+py_lib_callback	py-lib-callback
+py_lib_field_init	py-lib-field-init
+py_lib_alias	py-lib-alias
+py_lib_decorates	py-lib-decorates
+py_lib_ancestor	py-lib-ancestor

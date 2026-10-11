@@ -1,0 +1,5 @@
+oracle=7 engine=9 agree=6 missing=1 (known 1, NEW 0) extra=3
+  known    Pipeline#map((value: T) =) -> Array#map((item: T) =)
+  extra    Pipeline#map((value: T) =) -> Array#map((v: T) =)
+  extra    Pipeline#map((value: T) =) -> Pipeline#map((value: T) =)
+  extra    fixture/use#keys(Row[]) -> Bag#map((item: T) =)

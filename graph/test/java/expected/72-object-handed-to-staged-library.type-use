@@ -1,0 +1,8 @@
+ambiguous_unknown	IMPLEMENTS_INTERFACE	1	app.Verifier.IsValid [TYPE] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.Rules#helper(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.Rules#valid(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.Verifier.IsValid#matches(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.Verifier.IsValid#size(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.Verifier#check() [METHOD] -> -
+boundary_lib	IMPLEMENTS_INTERFACE	0	app.Verifier.IsValid [TYPE] -> dep.Matcher
+known_edge	OBJECT_CREATION_TYPE	0	app.Verifier#check() [EXPRESSION] -> app.Verifier.IsValid

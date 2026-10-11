@@ -1,0 +1,14 @@
+ambiguous_unknown	FUNCTION_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L9 -> -
+ambiguous_unknown	FUNCTION_CALL	strict-site#strictSites(HandlerFactory,object) @L8 -> -
+known_edge	METHOD_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L6 -> Function#bind(any,any[])
+known_edge	METHOD_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L6 -> HandlerFactory#get(string)
+known_edge	METHOD_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L7 -> Function#call(any,any[])
+known_edge	METHOD_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L7 -> HandlerFactory#get(string)
+known_edge	METHOD_CALL	loose/loose-site#looseSites(HandlerFactory,object) @L8 -> Function#apply(any,any)
+known_edge	METHOD_CALL	loose/loose-site#ownBindLoose(OwnBindLoose) @L19 -> OwnBindLoose#bind(string)
+known_edge	METHOD_CALL	strict-site#ownBindStrict(OwnBind) @L18 -> OwnBind#bind(string)
+known_edge	METHOD_CALL	strict-site#strictSites(HandlerFactory,object) @L5 -> CallableFunction#bind(any,any)
+known_edge	METHOD_CALL	strict-site#strictSites(HandlerFactory,object) @L5 -> HandlerFactory#get(string)
+known_edge	METHOD_CALL	strict-site#strictSites(HandlerFactory,object) @L6 -> CallableFunction#call(any,any,any)
+known_edge	METHOD_CALL	strict-site#strictSites(HandlerFactory,object) @L6 -> HandlerFactory#get(string)
+known_edge	METHOD_CALL	strict-site#strictSites(HandlerFactory,object) @L7 -> CallableFunction#apply(any,any)

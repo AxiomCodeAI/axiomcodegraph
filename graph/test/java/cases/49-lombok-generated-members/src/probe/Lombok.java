@@ -67,7 +67,7 @@ public class Lombok {
         return isReady();
     }
 
-    /** SUBJECT C: the field the class annotation declares, and a call through it. */
+    /** SUBJECT C: the field the class annotation declares, and a call through it, typed as the annotation fixes it (#1408). */
     public void ownLogger() {
         log.info("count is {}", count);
     }
@@ -98,9 +98,9 @@ public class Lombok {
     }
 
     /**
-     * NOT COVERED, and pinned here so the gap stays visible rather than silent: the
-     * builder the class annotation declares needs a synthesized NESTED TYPE as well as
-     * methods. These sites are expected to stay unresolved.
+     * SUBJECT H: the builder the class annotation declares, on a library type. It needs
+     * a synthesized nested type as well as methods; every call in the chain is a
+     * boundary to a generated member (#1405).
      */
     public Catalog libraryBuilder() {
         return Catalog.builder().name("z").size(3).build();

@@ -39,7 +39,7 @@ def via_local(name):
 
 class Machine:
     def fire(self, event):
-        hook = getattr(self, f"on_{event}", None)
+        hook = getattr(self, event, None)
         if hook is not None:
             hook()
 

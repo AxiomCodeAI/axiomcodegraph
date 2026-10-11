@@ -1,0 +1,31 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a bare call of a name the file imports from a third-party package runs the package's function: it is no by-name caller of the project's function of that name, and the test is not selected even though its file loads the project's module",
+   "run": [
+    "impact",
+    "waitFor",
+    "--tests-only"
+   ],
+   "want": [
+    "src/test/own.test.ts ("
+   ],
+   "avoid": [
+    "src/test/library.test.ts ("
+   ]
+  },
+  {
+   "why": "control: the name imported from a package of this repository (a workspace) is the project's function",
+   "run": [
+    "impact",
+    "waitFor",
+    "--tests-only"
+   ],
+   "want": [
+    "src/test/workspace.test.ts ("
+   ]
+  }
+ ]
+}

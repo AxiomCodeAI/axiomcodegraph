@@ -1,0 +1,22 @@
+{
+ "lang": "java",
+ "checks": [
+  {
+   "why": "impact: an override whose only caller is a base nothing resolved calls (the dispatch hop from a framework's base) is an entry point, and the base it stands for is not listed in its place (#1475)",
+   "run": ["impact", "Orders.list"],
+   "want": ["1 hop(s)  OrdersHandler.handle @Override   src/main/java/app/OrdersHandler.java:4\n"],
+   "avoid": ["hop(s)  Handler.handle   src/main/java/app/Handler.java:4"]
+  },
+  {
+   "why": "path '*' lists the same override as an entry point (#1475)",
+   "run": ["path", "*", "Orders.list"],
+   "want": ["1 hop(s)  OrdersHandler.handle @Override   src/main/java/app/OrdersHandler.java:4\n"]
+  },
+  {
+   "why": "control: an implementation a resolved caller reaches is not an entry point, and a method nothing calls still is",
+   "run": ["impact", "Orders.list"],
+   "want": ["2 hop(s)  Boot.report   src/main/java/app/Boot.java:8\n"],
+   "avoid": ["hop(s)  OrderLister.listAll"]
+  }
+ ]
+}

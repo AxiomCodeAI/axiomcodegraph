@@ -1,0 +1,18 @@
+{"lang": "javascript", "src": ".",
+ "checks": [
+  {"why": "a helper beside the tests (test/helpers.js, a function named like a test) is the route to the change, not a test: no runner collects it, so the test that calls it is listed and the helper is not",
+   "run": ["test-impact", "{repo}", "services/search/src/indexer.js"],
+   "want": ["services/search/test/search.test.js   (1 test(s))", "services/search/test/indexer.test.js   (1 test(s))"],
+   "avoid": ["helpers.js   (", "helpers.js)"]},
+  {"why": "a test whose file never imports the changed one (joined to it only by a topic key and a handler table) is listed apart, after the tests that load it, with its own command",
+   "run": ["test-impact", "{repo}", "services/search/src/indexer.js"],
+   "want": ["tests to run: 3 test(s) in 3 file(s) that load the changed file", "further out: 2 test(s) in 2 file(s)", "then, further out: (cd services/producer && node --test test/service.test.js)"]},
+  {"why": "a test that loads the change but reaches it only beyond 3 hops (a pipeline of four calls) is further out too; CONTROL: a test that imports the change through a workspace package's export subpath (@demo/search/indexer) loads it, and stays with the near tests",
+   "run": ["test-impact", "{repo}", "services/search/src/indexer.js", "--json"],
+   "want": ["\"further_test_files\": [\n  \"services/producer/test/service.test.js\",\n  \"services/search/test/pipeline.test.js\"\n ]"],
+   "avoid": ["\"services/api/test/api.test.js\"\n ],\n \"command_further\""]},
+  {"why": "CONTROL: impact still counts every test that reaches the change, the key-joined one included",
+   "run": ["impact", "index", "--tests-only"],
+   "want": ["services/producer/test/service.test.js (1)", "services/api/test/api.test.js (1)", "services/search/test/search.test.js (1)"],
+   "avoid": ["treat them as tests to run"]}
+ ]}

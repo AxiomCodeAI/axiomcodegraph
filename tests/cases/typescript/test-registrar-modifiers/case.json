@@ -1,0 +1,118 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a formatter puts a long test name on its own line: `test.each(rows)(` opens the call and the arrow starts a later line naming no registrar, yet the runner runs it, so what it calls is tested by the file",
+   "run": [
+    "impact",
+    "total",
+    "--tests-only"
+   ],
+   "want": [
+    "src/wrapped.test.ts ("
+   ],
+   "avoid": []
+  },
+  {
+   "why": "the same layout for a plain `it(`: the name on its own line, the body on the next",
+   "run": [
+    "impact",
+    "packaging",
+    "--tests-only"
+   ],
+   "want": [
+    "src/wrapped.test.ts ("
+   ],
+   "avoid": [
+    "reach it by a route this count does not credit"
+   ]
+  },
+  {
+   "why": "control: a callback on its own line handed to an ordinary call inside a test body is that call's argument, not a second test",
+   "run": [
+    "impact",
+    "late",
+    "--tests-only"
+   ],
+   "want": [
+    "of 8 test method(s)",
+    "src/settle.test.ts ("
+   ],
+   "avoid": [
+    "of 9 test method(s)"
+   ]
+  },
+  {
+   "why": "test.each(rows) returns the registrar and the body is handed to THAT call: the body is a test, so what it calls is tested by the file",
+   "run": [
+    "impact",
+    "total",
+    "--tests-only"
+   ],
+   "want": [
+    "src/table.test.ts ("
+   ],
+   "avoid": [
+    "reach it by a route this count does not credit"
+   ]
+  },
+  {
+   "why": "describe.each(rows)(name, body) runs its suite body, so the tests registered inside it are tests",
+   "run": [
+    "impact",
+    "discount",
+    "--tests-only"
+   ],
+   "want": [
+    "src/table.test.ts ("
+   ],
+   "avoid": [
+    "reach it by a route this count does not credit"
+   ]
+  },
+  {
+   "why": "a modifier written as a member (it.concurrent) is still the runner registering a test",
+   "run": [
+    "impact",
+    "shipping",
+    "--tests-only"
+   ],
+   "want": [
+    "src/table.test.ts ("
+   ],
+   "avoid": [
+    "reach it by a route this count does not credit"
+   ]
+  },
+  {
+   "why": "a chain of modifiers ending in a table (test.concurrent.each(rows)) registers a test too",
+   "run": [
+    "impact",
+    "rounding",
+    "--tests-only"
+   ],
+   "want": [
+    "src/table.test.ts ("
+   ],
+   "avoid": [
+    "reach it by a route this count does not credit"
+   ]
+  },
+  {
+   "why": "control: `each` called on an object that is not a test runner is no test registrar; the audit is reached only through the test that calls runAudit",
+   "run": [
+    "impact",
+    "audit",
+    "--tests-only"
+   ],
+   "want": [
+    "src/batch.test.ts ("
+   ],
+   "avoid": [
+    "src/table.test.ts",
+    "batch.ts::<arrow>"
+   ]
+  }
+ ]
+}

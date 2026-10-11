@@ -37,6 +37,14 @@ if (args.length === 1 && args[0] === '--version') {
   process.exit(0);
 }
 
+// THE NODE FLOOR, SAID BEFORE ANYTHING RUNS. The graph is written with node:sqlite, which Node ships without a flag from
+// 22.13 (and 23.4); on 22.5-22.12 the index failed minutes in with "No such built-in module: node:sqlite". Asked by
+// version, not by loading the module, which would print Node's experimental-feature warning on every command.
+const [nodeMaj, nodeMin] = process.versions.node.split('.').map(Number);
+if (!(nodeMaj > 23 || (nodeMaj === 23 && nodeMin >= 4) || (nodeMaj === 22 && nodeMin >= 13))) {
+  fail(`axiomcode needs Node 22.13 or newer (it writes the graph with node:sqlite); this is Node ${process.versions.node}.`);
+}
+
 const { bash, error } = findBash();
 if (error) fail(error);
 const py = findPython();

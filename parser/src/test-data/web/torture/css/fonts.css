@@ -1,0 +1,38 @@
+/* F01 font faces: multiple src, local(), format(), tech(), unicode-range; and the families that use them */
+@font-face {
+  font-family: "Inter";
+  src: local("Inter"), local(Inter-Regular),
+       url(../fonts/inter.woff2) format("woff2") tech(variations),
+       url("../fonts/inter.woff") format("woff"),
+       url(../fonts/missing.woff) format("woff"),
+       url(https://fonts.example.com/inter.woff2);
+  font-weight: 100 900;
+  unicode-range: U+0000-00FF, U+0131;
+  font-display: swap;
+}
+@font-face { font-family: Inter; src: url(../fonts/inter.woff2); font-weight: bold }
+@font-face { font-family: 'Roboto Mono'; src: url(../fonts/roboto.woff2) }
+@font-face { font-family: "Unused Face"; src: url(../fonts/unused.woff2) }
+@font-face { src: url(../fonts/nameless.woff2) }
+@font-face { font-family: var(--font); src: url(../fonts/x.woff2) }
+@font-face { font-family: "Segoe UI"; src: local("Segoe UI") }
+.f1 { font-family: Inter }
+.f2 { font-family: "Inter" }
+.f3 { font-family: 'Inter' }
+.f4 { font-family: inter }                           /* case-insensitive match in browsers */
+.f5 { font-family: Roboto Mono, monospace }
+.f6 { font-family: "Roboto Mono", monospace }
+.f7 { font-family: Segoe UI, Inter, Arial, sans-serif }
+.f8 { font: 12px Inter }
+.f9 { font: bold 12px/1 "Roboto Mono", monospace }
+.f10 { font: italic small-caps bold condensed 16px/2 cursive }
+.f11 { font: caption }
+.f12 { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto }
+.f13 { font-family: "Nonexistent Face" }
+.f14 { font-family: Inter !important }
+.f15 { font-family: var(--font, Inter) }
+.f16 { font-family: "Inter", }
+.f17 { font-family: , Inter }
+.f18 { font-family: "Inter"Inter }
+.f19 { font-family: Inter Inter }
+.f20 { font-family: "Inter" "Inter" }

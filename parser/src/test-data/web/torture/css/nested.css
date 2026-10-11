@@ -1,0 +1,45 @@
+/* N01 CSS nesting: every & position, implicit nesting, nested at-rules with bare declarations */
+.card {
+  color: red;
+  &:hover { color: blue }
+  & .item { color: green }
+  .item & { color: yellow }
+  & + & { margin: 0 }
+  &.is-active { outline: 1px }
+  &#section-one { outline: 2px }
+  & > .nav, & ~ .nav { color: red }
+  .item, .nav { color: red }                 /* implicit & descendant, two selectors */
+  > .direct { color: red }                   /* leading combinator */
+  + .sib { color: red }
+  ~ .gen { color: red }
+  :hover { color: red }                      /* implicit: &:hover? no, & :hover descendant */
+  .a &, .b & { color: red }
+  &, &.x { color: red }
+  :is(&, .alias) .item { color: red }
+  &:not(.is-active) .item { color: red }
+  .parent & .child { color: red }
+  && { color: red }
+  & & { color: red }
+  @media (min-width: 1px) { color: red; & .item { color: blue } .nested-in-media { color: green } }
+  @supports (display: grid) { display: grid }
+  @container sidebar (min-width: 1px) { color: red }
+  @layer nested-layer { color: red }
+  @scope (.card) { .item { color: red } }
+  @starting-style { opacity: 0 }
+  --nested-var: 1;
+  .deep { .deeper { .deepest { color: var(--nested-var) } } }
+  @media (a) { @media (b) { @supports (c) { .x { color: red } } } }
+  & .item { & .leaf { color: red } }
+  .item { .leaf { color: red } }
+  @nest .parent & { color: red }             /* pre-standard @nest */
+  color: blue;                               /* declaration after nested rules */
+}
+.card.is-active { & .item { color: red } }
+.a, .b { & .c { color: red } .d & { color: red } }
+@media (x) { .outer { .inner { color: red } } }
+@layer l { .outer { & .inner { color: red } } }
+.p { &__elem { color: red } &--mod { color: red } }     /* BEM-style: invalid in CSS nesting, valid in Sass */
+.q { &-suffix { color: red } }
+.r { &:is(.s) { color: red } }
+.t { .u & .v & { color: red } }
+.w { &.x.y > &.z { color: red } }

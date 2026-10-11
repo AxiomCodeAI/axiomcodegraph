@@ -1,0 +1,2 @@
+{"name": "readkit", "main": "./index.js", "types": "./typings/index.d.ts",
+ "exports": {".": {"require": {"types": "./typings/index.d.ts", "default": "./index.js"}, "default": "./index.js"}}}

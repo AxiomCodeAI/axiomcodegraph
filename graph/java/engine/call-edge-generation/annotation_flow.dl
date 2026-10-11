@@ -21,6 +21,15 @@
 junit_entry_ann("Test").         junit_entry_ann("Before").      junit_entry_ann("After").
 junit_entry_ann("BeforeClass").  junit_entry_ann("AfterClass").  junit_entry_ann("BeforeEach").
 junit_entry_ann("AfterEach").    junit_entry_ann("ParameterizedTest"). junit_entry_ann("RepeatedTest").
+junit_entry_ann("TestFactory").  junit_entry_ann("TestTemplate").
+
+// A COMPOSED annotation: an annotation type meta-annotated with one of the above is read by the runner as that
+// annotation (JUnit 5 `@Target(METHOD) @Test @interface IntegrationCase {}`), transitively. Its own name says
+// nothing, so without this a method under it is no entry point (#1418). Only an annotation TYPE is followed: a class
+// that carries @Test-named annotations is not one, and an annotation that carries none (`@Audited`) stays out.
+junit_entry_ann(a) :- annotation_on(p, m, _, _, t, _), junit_entry_ann(m),
+    type_decl(p, a, _, _, tc, _, t), annotation_type_category(tc).
+annotation_type_category("ANNOTATION_INTERFACE_TYPE"). annotation_type_category("ANNOTATION_TYPE").
 
 http_entry_ann("GET").    http_entry_ann("POST").   http_entry_ann("PUT").    http_entry_ann("DELETE").
 http_entry_ann("PATCH").  http_entry_ann("HEAD").   http_entry_ann("OPTIONS"). http_entry_ann("Path").

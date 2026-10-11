@@ -1,0 +1,7 @@
+known_edge	METHOD_PARAM	0	loose/loose-site [METHOD_PARAM] -> HandlerFactory
+known_edge	METHOD_PARAM	0	loose/loose-site [METHOD_PARAM] -> OwnBindLoose
+known_edge	METHOD_PARAM	0	strict-site [METHOD_PARAM] -> HandlerFactory
+known_edge	METHOD_PARAM	0	strict-site [METHOD_PARAM] -> OwnBind
+known_edge	METHOD_RETURN	0	HandlerFactory [METHOD] -> Handler
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function

@@ -10,10 +10,12 @@ Each behaviour has a near-miss control that must keep today's answer:
       control                    on the base branch itself: no suggestion
   a new module                   one `added <file>` line; no docstring word, no parameter, nothing at line 1
       control                    a function added to an existing file keeps its own line
-  a copy without git             a refusal naming what to pass, not invented "added" declarations
-      control                    the same copy with a named file: every declaration in it counts, and its tests are named
-  a changed fixture              named as outside the index, with the test file that names it; the command holds only
-                                 the graph's language's test modules, and another language's tests are counted, not listed
+  a copy without git             against the file table its index kept: unchanged is "no change", an edited file counts
+                                 whole; read later from a git checkout, a file as the index read it is not an edit
+      control                    an edit after that index is reported; with no table, a refusal naming what to pass; a
+                                 named file: every declaration in it counts, and its tests are named
+  a changed fixture              named as outside the index; it lies in a tree a test reads by path, so it is case data
+                                 for that test, with that test's own pytest line; files inside the tree are its data
       control                    a data file no test names: said so, never "no change"
   a parameter edit in a package  every target `changed` prints is answered by `impact`, and test-impact resolves it
       control                    the same target under a prefix nothing declares is still refused
@@ -22,7 +24,7 @@ Each run builds a real graph in a throwaway git repository (Python, so the rules
 
     python3 tests/changed_range.py
 """
-import json, os, shutil, subprocess, sys, tempfile
+import json, os, re, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
@@ -121,14 +123,15 @@ def main():
         check(rc == 0 and 'tests/test_pricing.py' in out, 'test-impact --range selects the tests of the branch edit', out)
         check('test_stock' not in out, "test-impact --range does not select the tests of upstream's commit", out)
         check('tests/test_newmod.py' in out, 'a new test file is itself a test to run', out)
-        check("named as 'case.json' by: tests/test_cases.py" in out, 'the test that loads the changed fixture is named', out)
-        run = [l for l in out.split('\n') if 'with the tests above:' in l]
-        check(len(run) == 1 and 'pytest ' in run[0] and 'tests/test_cases.py' in run[0], 'the text tier adds its Python test to the pytest line', out)
+        # the fixture lies in a tree tests/test_cases.py reads by path (HERE, 'cases'): case data for that test
+        check("case data for tests/test_cases.py" in out, 'the test that loads the changed fixture is named', out)
+        run = [l.strip() for l in out.split('\n') if l.strip().startswith('pytest ') and 'tests/test_cases.py' in l]
+        check(len(run) == 1, "the fixture's reading test gets its own pytest line", out)
         check(run and not any(x in run[0] for x in ('.java', '.cs', 'helper.py')),
               "the pytest line holds no other language's file and no module pytest does not collect", out)
-        check('CaseLoader.java' not in out and 'CaseLoader.cs' not in out and "another language name them too" in out,
-              "another language's test files are counted, not listed: that language's graph answers for them", out)
-        check(any(l.startswith('next: run pytest') and '.java' not in l and '.cs' not in l for l in out.split('\n')),
+        check('CaseLoader.java' not in out and 'CaseLoader.cs' not in out and "named as 'case.json'" not in out,
+              "files inside the fixture tree that name it are its data, not its readers, and no name match lists them", out)
+        check(any(l.startswith('next: run') and 'pytest' in l and '.java' not in l and '.cs' not in l for l in out.split('\n')),
               'next: runs the Python tests only', out)
         check('page 1 of' not in out, 'no page footer', out)
 
@@ -177,7 +180,7 @@ def main():
         r = sh(pk, AX, 'changed', '.', '--range', 'HEAD~1..HEAD', '--json', env=env)
         try: targets = [e['target'] for e in json.loads(r.stdout)['changed'] if e.get('target')]
         except Exception: targets = []
-        check(any('(' in t and t.count('.') >= 3 for t in targets), 'changed hands over a package-qualified parameter target', r.stdout + r.stderr)
+        check(any(re.fullmatch(r'shop/pricing\.py:\d+\(\w+\)', t) for t in targets), 'changed hands over a parameter target on the declaration edited (file:line(param))', r.stdout + r.stderr)
         for t in dict.fromkeys(targets):
             r2, o2 = ax(pk, 'impact', t, '.')
             check(r2 == 0 and 'matches no package' not in o2, f'the printed target {t} is answered by impact', o2)
@@ -199,11 +202,32 @@ def main():
         shutil.copytree(repo, copy, ignore=shutil.ignore_patterns('.git', '.axiomcode'))
         built = sh(copy, AX, 'index', '.', '--lang', 'python', env=env)
         check(built.returncode == 0, 'the copy builds', built.stdout + built.stderr)
+        # no commit recorded: the baseline is the file table the index wrote (each file's hash as it was read)
+        rc, out = ax(copy, 'changed', '.')
+        check(rc == 0 and 'no change to a declaration' in out and 'indexed from' in out, 'no git: an unchanged copy right after its index is no change', out)
         write(copy, 'app/pricing.py', FILES['app/pricing.py'].replace('q * 2', 'q * 3'))
         rc, out = ax(copy, 'changed', '.')
-        check(rc != 0 and 'no git base' in out and 'added' not in out, 'no git: changed refuses, naming what to pass', out)
+        check(rc == 0 and 'named' in out and 'price' in out and 'discount' in out and 'level' not in out and 'added' not in out,
+              'no git: the file that differs from the index counts whole, the others not at all', out)
         rc, out = ax(copy, 'test-impact', '.')
-        check(rc != 0 and 'no git base' in out and 'page 1 of' not in out, 'no git: test-impact refuses, with no page footer', out)
+        check(rc == 0 and 'test_pricing' in out and 'test_stock' not in out and 'page 1 of' not in out, 'no git: test-impact selects the edited file\'s tests only', out)
+        # a graph with no commit read from a git checkout (a mirror synced without .git): HEAD is not what was indexed
+        copy2 = os.path.join(work, 'copy2')
+        shutil.copytree(copy, copy2, symlinks=True)
+        write(copy2, 'app/pricing.py', FILES['app/pricing.py'].replace('q * 2', 'q * 5'))
+        for c in (['init', '-q'], ['add', 'app', 'tests'], ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'older']): sh(copy2, 'git', *c)
+        write(copy2, 'app/pricing.py', FILES['app/pricing.py'])                               # the text the copy's index read
+        rc, out = ax(copy2, 'changed', '.')
+        check(rc == 0 and 'no change to a declaration' in out and 'price' not in out,
+              'no commit recorded, read in a git checkout: a file as the index read it is not an edit against HEAD', out)
+        write(copy2, 'app/stock.py', FILES['app/stock.py'].replace('return n', 'return n + 0'))
+        rc, out = ax(copy2, 'changed', '.')
+        check('level' in out and 'price' not in out, 'control: an edit made after that index is still reported, and only it', out)
+        for t in ('files.json', 'base-files.json'): os.remove(os.path.join(copy, '.axiomcode', 'out', t))
+        rc, out = ax(copy, 'changed', '.')
+        check(rc != 0 and 'no git base' in out and 'added' not in out, 'control: no git and no file table: changed refuses, naming what to pass', out)
+        rc, out = ax(copy, 'test-impact', '.')
+        check(rc != 0 and 'no git base' in out and 'page 1 of' not in out, 'control: no git and no file table: test-impact refuses, with no page footer', out)
         rc, out = ax(copy, 'test-impact', '.', 'app/pricing.py')
         check(rc == 0 and 'tests/test_pricing.py' in out and 'test_stock' not in out, 'control: test-impact <file> on the copy names that file\'s tests', out)
         rc, out = ax(copy, 'changed', '.', 'app/pricing.py')

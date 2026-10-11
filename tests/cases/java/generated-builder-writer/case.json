@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a @Builder setter the engine resolved is a writer of the field; a same-named call on another type's builder chain is not (#1409, #1405)",
+   "run": ["impact", "ProfileParam.email", "--kind", "field", "--limit", "50"],
+   "want": ["[resolved] Profiles.param", "sets it through the generated builder / fluent email()",
+            "calls a same-named email() that the engine did not place on this type's builder or accessors"],
+   "avoid": ["Profiles.notify", "[by name] Profiles.view   src/pkg/Profiles.java:11   — sets it"]},
+  {"why": "a boolean field named isX: the setter is setX and the getter isX, both resolved (#1404)",
+   "run": ["impact", "Account.isLocked", "--kind", "field", "--limit", "50"],
+   "want": ["writes it through setLocked()", "reads it through isLocked()", "Profiles.lock"]}]}

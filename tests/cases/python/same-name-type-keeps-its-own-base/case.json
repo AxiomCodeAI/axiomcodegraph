@@ -1,0 +1,23 @@
+{
+ "lang": "python",
+ "checks": [
+  {
+   "why": "a method of app.model.basket.Basket is not on a subtype of View because app.web.basket.Basket shares its simple name",
+   "run": ["impact", "app/model/basket.py:2", "--delete"],
+   "want": ["the change is local"],
+   "avoid": ["extends View", "subtype of View", "NOT CHECKED"]
+  },
+  {
+   "why": "control: the view Basket's method keeps its base and its NOT CHECKED reason",
+   "run": ["impact", "app/web/basket.py:5", "--delete"],
+   "want": ["NOT CHECKED: Basket extends View"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "control: the only class of its name still shows its base",
+   "run": ["impact", "app/web/basket.py:10", "--delete"],
+   "want": ["NOT CHECKED: Header extends View"],
+   "avoid": ["the change is local"]
+  }
+ ]
+}

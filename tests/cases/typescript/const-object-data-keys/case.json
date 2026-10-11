@@ -1,0 +1,43 @@
+{
+ "lang": "typescript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a data-valued key of an exported const object, through Object.freeze, is a declaration read by the function that reads TOPICS.CREATED",
+   "run": ["impact", "TOPICS.CREATED"],
+   "want": ["change: field TOPICS.CREATED   [field]", "create   service.ts:6"],
+   "avoid": ["nothing named", "enqueue"]
+  },
+  {
+   "why": "through `as const` too, and a same-named key of another object is another declaration",
+   "run": ["impact", "QUEUES.CREATED"],
+   "want": ["change: field QUEUES.CREATED   [field]", "enqueue   service.ts:10"],
+   "avoid": ["nothing named", "create   service.ts"]
+  },
+  {
+   "why": "a nested literal's key is declared under its key chain",
+   "run": ["impact", "LIMITS.nested.depth"],
+   "want": ["change: field LIMITS.nested.depth   [field]", "nestedDepth   service.ts:14"],
+   "avoid": ["nothing named"]
+  },
+  {
+   "why": "a function-valued key inside Object.freeze is owned by the variable, as it is in a bare literal",
+   "run": ["impact", "HANDLERS.run"],
+   "want": ["change: HANDLERS.run   [method]", "dispatch   service.ts:18"],
+   "avoid": ["nothing named", "[field]"]
+  },
+  {
+   "why": "CONTROL: a function-valued key stays the method it was, not a second field",
+   "run": ["impact", "helpers.shout"],
+   "want": ["change: helpers.shout   [method]", "loud   service.ts:22"],
+   "avoid": ["[field]", "more than one kind"]
+  },
+  {
+   "why": "CONTROL: an object literal inside a function body declares nothing",
+   "run": ["impact", "counts.page"],
+   "expect_error": true,
+   "want": ["the graph has no declaration for 'counts.page'"],
+   "avoid": ["change: field counts.page"]
+  }
+ ]
+}

@@ -3,8 +3,12 @@ import Java from 'tree-sitter-java';
 
 import { FILE_EXTENSIONS } from '@/constants/consts';
 import { LanguageParser } from '@/parsers/language-parser';
+import { materializeTree } from '@/parsers/mirror-tree';
 import { ProjectLanguage } from '@/types/ProjectInfo';
 import { withRetry } from '@/utils/retry-decorator';
+
+/** tree-sitter-java `extras`: the only node types that parse as extra. */
+const JAVA_EXTRA_TYPES: ReadonlySet<string> = new Set(['line_comment', 'block_comment']);
 
 /**
  * Java-specific tree-sitter parser implementation
@@ -68,11 +72,21 @@ export class JavaParser implements LanguageParser {
   }
 
   /**
-   * Gets the root node of a parsed tree
+   * Gets the root node of a parsed tree.
+   *
+   * With `sourceCode`, the root is a one-pass plain-JS mirror of the tree
+   * (see `../mirror-tree`): every stage after it reads JS properties instead
+   * of re-crossing the tree-sitter FFI per property access. Tree-sitter still
+   * parses every file. Without it, the real tree-sitter root is returned.
+   *
    * @param tree Parsed syntax tree
+   * @param sourceCode The exact string the tree was parsed from
    * @returns Root syntax node
    */
-  getRootNode(tree: Parser.Tree): Parser.SyntaxNode {
+  getRootNode(tree: Parser.Tree, sourceCode?: string): Parser.SyntaxNode {
+    if (sourceCode !== undefined) {
+      return materializeTree(tree, sourceCode, JAVA_EXTRA_TYPES) as unknown as Parser.SyntaxNode;
+    }
     return tree.rootNode;
   }
 

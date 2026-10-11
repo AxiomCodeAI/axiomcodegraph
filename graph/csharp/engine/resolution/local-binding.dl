@@ -220,7 +220,8 @@ ref_unbound(prov, e, n) :-
     !ref_names_type(prov, e, _).
 
 // A reference that names a TYPE rather than a value: the receiver of a static call.
-// Resolved through type_name_resolves in the file's scope.
+// Resolved through type_name_resolves in the file's scope, at the arity written on
+// it: `Cache<int>.Get()` names Cache`1, not a non-generic Cache.
 //
 // NOT WHERE THE NAME ALSO BINDS TO A VALUE. C# allows a member and a type to share a
 // name (the language's own "Color Color" rule) and prefers the MEMBER in an
@@ -235,10 +236,10 @@ ref_binds_value(prov, e) :- ref_denotes(prov, e, _, _).
 ref_binds_value(prov, e) :- local_binds(prov, e, _).
 
 ref_names_type(prov, e, gk) :-
-    expr_written_name(prov, e, n),
+    expr_written_name(prov, e, n), expr_type_argc(prov, e, ar),
     expr_ultimate_module(prov, e, mod),
     !ref_binds_value(prov, e),
-    type_name_resolves(prov, mod, n, "0", gk).
+    type_name_resolves(prov, mod, n, ar, gk).
 
 // ── IMPLICIT `this` ─────────────────────────────────────────────────────────
 // An unqualified instance member reference has an implicit `this` receiver whose

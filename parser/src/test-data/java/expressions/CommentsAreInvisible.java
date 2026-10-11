@@ -39,4 +39,8 @@ public class CommentsAreInvisible {
     void castExpression()  { Object x = (Object) /* a */ f(); }
     void forClauses()      { for (int i = /* a */ 0; /* b */ c; /* c */ i++) { } }
     int switchArm()        { return switch (1) { default -> /* a */ f(); }; }
+    Object fieldInit = /* a */ new Object();
+    Runnable fieldAnon = // a
+        new Runnable() { public void run() { f(); } };
+    void tryResource() throws Exception { try (java.io.StringReader r = /* a */ new java.io.StringReader("")) { f(); } }
 }

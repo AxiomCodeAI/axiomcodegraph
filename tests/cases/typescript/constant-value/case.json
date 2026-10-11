@@ -1,0 +1,16 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a numeric module constant answers with its value: the number a spec would print",
+   "run": ["impact", "MAX_ITEMS"],
+   "want": ["const MAX_ITEMS = 5"]},
+  {"why": "a string constant answers with its value, quoted as a string",
+   "run": ["impact", "TIER_NAME"],
+   "want": ["const TIER_NAME = 'gold'"]},
+  {"why": "a boolean constant answers with its value",
+   "run": ["impact", "ENABLED"],
+   "want": ["const ENABLED = true"]},
+  {"why": "control: a constant initialized through a CALL names no value — the 3 on that line is an argument, not what RETRY_LIMIT holds",
+   "run": ["impact", "RETRY_LIMIT"],
+   "want": ["const RETRY_LIMIT"],
+   "avoid": ["RETRY_LIMIT = 3", "RETRY_LIMIT = "]}
+ ]}

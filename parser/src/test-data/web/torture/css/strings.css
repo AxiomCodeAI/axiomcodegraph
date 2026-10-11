@@ -1,0 +1,36 @@
+/* S01 strings and comments that contain CSS syntax */
+.s1 { content: "}" }
+.s2 { content: "{" }
+.s3 { content: ";" }
+.s4 { content: "a; color: red" }
+.s5 { content: "/* not a comment */" }
+.s6 { content: "url(not.png)" }
+.s7 { content: 'var(--not)' }
+.s8 { content: "\"" }
+.s9 { content: '\'' }
+.s10 { content: "\201C \201D" }
+.s11 { content: "line\
+continued" }
+.s12 { content: "unterminated }
+.s13 { color: red }
+.s14 { content: "\"; } .injected { color: red }" }
+.s15 { background: url("a)b.png") }
+.s16 { background: url('a"b.png') }
+.s17 { background: url(a\)b.png) }
+.s18 { font-family: "Font; Name" }
+.s19 { font-family: "Font } Name" }
+.s20 { quotes: "«" "»" }
+.s21 { content: attr(data-page) }
+.s22 { content: counter(a) " / " counter(b) }
+.s23 { grid-template-areas: "header header" "sidebar main" }
+.s24 { content: "{{ not_a_template }}" }
+.s25 { content: "<%= not_erb %>" }
+.s26 { content: "${not_dollar}" }
+.s27[data-x="}"] { color: red }
+.s28[data-x=";"] { color: red }
+.s29[data-x="url(x)"] { color: red }
+.s30:not([data-x="{"]) { color: red }
+/* .s31 { color: red } */
+/* a comment with url(img/bg.png) and var(--x) and .commented-class */
+/* unterminated comment at the end of the file
+.s32 { color: red }

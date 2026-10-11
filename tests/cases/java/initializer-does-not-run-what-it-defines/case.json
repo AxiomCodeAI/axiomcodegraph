@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a method of an anonymous class written in a static block runs when it is called on the object, not when the block runs: a test that only initializes the type does not reach it",
+   "run": ["impact", "Upper.of", "--tests"],
+   "want": ["PromoterTest::promotes"],
+   "avoid": ["PeekTest"]},
+  {"why": "control: what the static block itself calls still reaches every test that initializes the type",
+   "run": ["impact", "Tables.prime", "--tests"],
+   "want": ["PeekTest::peeks", "PromoterTest::promotes"],
+   "avoid": ["0 of"]}]}

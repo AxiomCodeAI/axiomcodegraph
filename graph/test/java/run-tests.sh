@@ -187,6 +187,12 @@ if ! bash "$ROOT/graph/test/tools/xml-skip-test.sh"; then
   echo "aborting: a file the extractor failed on left no skip row"
   exit 1
 fi
+# An XML id is printed by the config golden (a declared unknown names its value reference),
+# so an id that hashes the checkout path fails every checkout but the one that blessed it.
+if ! bash "$ROOT/graph/test/tools/xml-id-portable-test.sh"; then
+  echo "aborting: XML ids depend on the directory the tree was parsed from"
+  exit 1
+fi
 
 if ! bash "$HERE/tools/synthetic-callee-test.sh"; then
   echo "aborting: the class-file oracle emits compiler-generated callees as ground truth"

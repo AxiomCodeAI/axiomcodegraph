@@ -1,0 +1,39 @@
+property=--brand	valueText=#09f	isImportant=false	isCustomProperty=true	vendorPrefix=	position=1	startLine=6	startColumn=21	endLine=6	endColumn=35
+property=--gap	valueText=8px	isImportant=false	isCustomProperty=true	vendorPrefix=	position=0	startLine=6	startColumn=9	endLine=6	endColumn=20
+property=-webkit-font-smoothing	valueText=antialiased	isImportant=false	isCustomProperty=false	vendorPrefix=-webkit-	position=1	startLine=1	startColumn=19	endLine=1	endColumn=54
+property=animation	valueText=spin 1s linear infinite	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=8	startColumn=100	endLine=8	endColumn=135
+property=background	valueText=url(../img/bg.png) no-repeat	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=8	startColumn=58	endLine=8	endColumn=99
+property=background	valueText=url(static/img/hero.png)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=13	startColumn=34	endLine=13	endColumn=70
+property=box-sizing	valueText=border-box	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=18	startColumn=5	endLine=18	endColumn=27
+property=color	valueText=	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=16	startColumn=11	endLine=16	endColumn=19
+property=color	valueText=	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=3	startColumn=6	endLine=3	endColumn=14
+property=color	valueText=	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=4	startColumn=16	endLine=4	endColumn=24
+property=color	valueText=blue	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=1	startColumn=17	endLine=1	endColumn=27
+property=color	valueText=blue	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=15	startColumn=6	endLine=15	endColumn=18
+property=color	valueText=green	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=15	startColumn=49	endLine=15	endColumn=61
+property=color	valueText=red	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=1	startColumn=4	endLine=1	endColumn=13
+property=color	valueText=red	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=15	startColumn=26	endLine=15	endColumn=36
+property=color	valueText=var(--brand)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=13	startColumn=13	endLine=13	endColumn=33
+property=color	valueText=var(--brand)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=25	startColumn=49	endLine=25	endColumn=69
+property=color	valueText=var(--brand, red)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=7	startColumn=62	endLine=7	endColumn=87
+property=container-name	valueText=sidebar	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=14	startColumn=12	endLine=14	endColumn=36
+property=container-type	valueText=inline-size	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=14	startColumn=37	endLine=14	endColumn=64
+property=content	valueText=""""""	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=17	startColumn=33	endLine=17	endColumn=44
+property=display	valueText=flex	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=2	startColumn=15	endLine=2	endColumn=29
+property=display	valueText=grid	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=12	startColumn=37	endLine=12	endColumn=50
+property=font-family	valueText="""Inter"""	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=11	startColumn=14	endLine=11	endColumn=35
+property=font-family	valueText="""Inter"", Segoe UI, sans-serif"	isImportant=false	isCustomProperty=false	vendorPrefix=	position=2	startLine=8	startColumn=136	endLine=8	endColumn=178
+property=gap	valueText=1rem	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=13	startColumn=49	endLine=13	endColumn=58
+property=gap	valueText=var(--gap)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=7	startColumn=88	endLine=7	endColumn=103
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=1	startColumn=31	endLine=1	endColumn=40
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=1	startColumn=8	endLine=1	endColumn=18
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=19	startColumn=15	endLine=19	endColumn=24
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=20	startColumn=13	endLine=20	endColumn=22
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=25	startColumn=70	endLine=25	endColumn=78
+property=margin	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=4	startColumn=25	endLine=4	endColumn=34
+property=opacity	valueText=.5	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=10	startColumn=55	endLine=10	endColumn=66
+property=padding	valueText=0	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=1	startColumn=40	endLine=1	endColumn=49
+property=padding	valueText=calc(var(--gap) * 2)	isImportant=true	isCustomProperty=false	vendorPrefix=	position=0	startLine=9	startColumn=36	endLine=9	endColumn=76
+property=src	valueText="url(/fonts/inter.woff2) format(""woff2"")"	isImportant=false	isCustomProperty=false	vendorPrefix=	position=1	startLine=11	startColumn=36	endLine=11	endColumn=80
+property=transform	valueText=rotate(0)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=10	startColumn=26	endLine=10	endColumn=46
+property=transform	valueText=rotate(1turn)	isImportant=false	isCustomProperty=false	vendorPrefix=	position=0	startLine=10	startColumn=74	endLine=10	endColumn=98

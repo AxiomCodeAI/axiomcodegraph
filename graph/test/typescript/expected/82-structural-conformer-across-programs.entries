@@ -1,0 +1,7 @@
+── entry_point (6) ──
+  exported_from_entry_module app/pipeline#build   pipeline.ts:14
+  exported_from_entry_module fixture/use#keys   use.ts:12
+  unimported_module app/globals#<module>   globals.d.ts:1
+  unimported_module app/pipeline#<module>   pipeline.ts:1
+  unimported_module fixture/globals#<module>   globals.d.ts:1
+  unimported_module fixture/use#<module>   use.ts:1

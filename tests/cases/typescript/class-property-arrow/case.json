@@ -1,0 +1,23 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a class property initialised with an arrow is a method named for its field: the engine resolves this.handler() to that arrow, so the caller is resolved, not a same-scope guess, and the member reads as Svc.handler, never Svc.<arrow>",
+   "run": ["impact", "Svc.handler"],
+   "want": ["Svc.run", "[resolved]"],
+   "avoid": ["Svc.<arrow>   src/svc.ts:6", "nothing named", "[in scope] Svc.run"]},
+  {"why": "a property written over several lines (run:\n T =\n () => ...) starts its field lines above its arrow: it is still one member, the method, not a field beside a method of the same name",
+   "run": ["impact", "Svc.wide"],
+   "want": ["change: Svc.wide   [method]", "Svc.go"],
+   "avoid": ["more than one kind", "field Svc.wide"]},
+  {"why": "the arrow's own callee lists it by its field's name",
+   "run": ["impact", "audit"],
+   "want": ["Svc.handler", "standalone"],
+   "avoid": ["Svc.<arrow>   src/svc.ts:6"]},
+  {"why": "control: a property whose initializer is a CALL wrapping the arrow (debounce(() => ...)) stays a field; the wrapped arrow does not take its name",
+   "run": ["impact", "Svc.throttled"],
+   "want": ["change: field Svc.throttled"],
+   "avoid": ["nothing named"]},
+  {"why": "control: a module const bound to an arrow is still the function standalone",
+   "run": ["impact", "standalone"],
+   "want": ["main"],
+   "avoid": ["<arrow>", "nothing named"]}
+ ]}

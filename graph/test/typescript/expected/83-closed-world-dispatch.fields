@@ -1,0 +1,2 @@
+known_edge	read	handlers#main() -> handlers#registry
+known_edge	read	handlers#register(HandlerClass) -> handlers#registry

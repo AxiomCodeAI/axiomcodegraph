@@ -1,0 +1,14 @@
+{"lang": "csharp",
+ "checks": [
+  {"why": "a C# configuration key written Section:Key is a key: its readers by the key string, what reaches them, and the appsettings.json line that defines it (#1443)",
+   "run": ["impact", "Widgets:MaxCount"],
+   "want": ["configuration key Widgets:MaxCount", "Reader.Raw", "Reader.Typed", "App/appsettings.json:3", "Gate.Open"],
+   "avoid": ["nothing named 'Widgets'", "Reader.Min", "Reader.Orders", "appsettings.json:6"]},
+  {"why": "near miss: the same leaf under another section is another key",
+   "run": ["impact", "Orders:MaxCount"],
+   "want": ["Reader.Orders", "App/appsettings.json:6"],
+   "avoid": ["Reader.Raw", "Reader.Typed"]},
+  {"why": "a C# string literal is stored without its quotes, so a quoted-string question finds it",
+   "run": ["impact", "\"Widgets:MinCount\""],
+   "want": ["Reader.Min"],
+   "avoid": ["appears in no literal"]}]}

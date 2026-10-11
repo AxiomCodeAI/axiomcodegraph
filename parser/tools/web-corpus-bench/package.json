@@ -1,0 +1,13 @@
+{
+  "name": "web-corpus-bench",
+  "private": true,
+  "description": "Stress-tests the HTML/CSS front end against parse5, htmlparser2, css-tree and postcss over large corpora.",
+  "dependencies": {
+    "@bramus/specificity": "^2.4.2",
+    "css-tree": "^3.1.0",
+    "htmlparser2": "^9.1.0",
+    "parse5": "^7.2.1",
+    "postcss": "^8.5.0",
+    "postcss-selector-parser": "^7.1.0"
+  }
+}

@@ -1,0 +1,35 @@
+bound.js:16:16 FUNCTION_CALL_BIND this.repo.append.bind  ->  known_edge  bound.js:5:3 append
+bound.js:17:19 FUNCTION_CALL promisify  ->  ambient_terminal  -
+bound.js:17:19 FUNCTION_CALL promisify  ->  callback_registered  bound.js:6:3 find
+bound.js:17:29 FUNCTION_CALL_BIND r.find.bind  ->  known_edge  bound.js:6:3 find
+bound.js:19:17 METHOD_CALL this.add  ->  known_edge  bound.js:5:3 append
+bound.js:20:19 METHOD_CALL this.lookup  ->  known_edge  bound.js:6:3 find
+bound.js:22:33 CONSTRUCTOR_CALL Service  ->  known_edge  bound.js:14:3 <constructor>
+bound.js:22:45 CONSTRUCTOR_CALL Repo  ->  implicit_constructor  -
+bound.js:23:14 CONSTRUCTOR_CALL Repo  ->  implicit_constructor  -
+bound.js:24:15 FUNCTION_CALL_BIND repo.append.bind  ->  known_edge  bound.js:5:3 append
+bound.js:25:33 FUNCTION_CALL bound  ->  known_edge  bound.js:5:3 append
+bound.js:26:17 FUNCTION_CALL promisify  ->  ambient_terminal  -
+bound.js:26:17 FUNCTION_CALL promisify  ->  callback_registered  bound.js:6:3 find
+bound.js:26:27 FUNCTION_CALL_BIND repo.find.bind  ->  known_edge  bound.js:6:3 find
+bound.js:27:36 FUNCTION_CALL wrapped  ->  known_edge  bound.js:6:3 find
+bound.js:29:22 METHOD_CALL util.promisify  ->  ambient_terminal  -
+bound.js:29:22 METHOD_CALL util.promisify  ->  callback_registered  bound.js:6:3 find
+bound.js:29:37 FUNCTION_CALL_BIND repo.find.bind  ->  known_edge  bound.js:6:3 find
+bound.js:30:38 FUNCTION_CALL viaNamespace  ->  known_edge  bound.js:6:3 find
+bound.js:33:30 METHOD_CALL this.repo.append  ->  known_edge  bound.js:5:3 append
+bound.js:34:17 FUNCTION_CALL_BIND onEvent.bind  ->  known_edge  bound.js:33:1 onEvent
+bound.js:34:38 CONSTRUCTOR_CALL Repo  ->  implicit_constructor  -
+bound.js:35:26 FUNCTION_CALL handler  ->  known_edge  bound.js:33:1 onEvent
+bound.js:37:43 METHOD_CALL this.store.append  ->  known_edge  bound.js:9:3 append
+bound.js:39:24 FUNCTION_CALL_BIND handlers.created.bind  ->  known_edge  bound.js:37:12 onCreated
+bound.js:39:55 CONSTRUCTOR_CALL Other  ->  implicit_constructor  -
+bound.js:42:30 METHOD_CALL this.repo.append  ->  ambiguous_unknown  -
+bound.js:43:34 FUNCTION_CALL_CALL unbound.call  ->  known_edge  bound.js:42:1 unbound
+bound.js:43:55 CONSTRUCTOR_CALL Repo  ->  implicit_constructor  -
+bound.js:44:18 FUNCTION_CALL_BIND repo.find.bind  ->  known_edge  bound.js:6:3 find
+bound.js:45:35 FUNCTION_CALL_BIND fn.bind  ->  ambiguous_unknown  -
+bound.js:45:57 FUNCTION_CALL g  ->  ambiguous_unknown  -
+bound.js:47:17 METHOD_CALL own.promisify  ->  callback_registered  bound.js:6:3 find
+bound.js:47:17 METHOD_CALL own.promisify  ->  known_edge  bound.js:46:15 promisify
+bound.js:48:37 FUNCTION_CALL notUtil  ->  known_edge  bound.js:46:37 <arrow>

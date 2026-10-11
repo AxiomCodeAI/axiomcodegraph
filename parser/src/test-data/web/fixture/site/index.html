@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture site</title>
+  <base href="/">
+  <link rel="stylesheet" href="static/css/app.css">
+  <link rel="icon" href="static/img/favicon.png">
+  <link rel="modulepreload" href="js/app.js">
+  <script src="js/vendor.js" async></script>
+  <script src="https://cdn.example.com/lib.js" defer></script>
+  <style>
+    .hero { color: var(--brand); background: url(static/img/hero.png) }
+  </style>
+  <script type="importmap">{ "imports": { "lib": "./js/lib.js" } }</script>
+</head>
+<body class="home dark">
+  <nav class="nav">
+    <ul>
+      <li class="item"><a href="/about#team" onclick="track('nav', this); return go()">About</a></li>
+      <li class="item hidden"><a href="page.html?x=1#top">Page</a></li>
+      <li class="item"><a href="mailto:hi@example.com">Mail</a></li>
+    </ul>
+  </nav>
+  <div id="main" class="card card--wide" style="color: var(--brand); margin:0" data-role="main" aria-label="Main" role="region">
+    <p>Hello<p>unclosed paragraph
+    <img src="static/img/logo.png" srcset="static/img/logo.png 1x, static/img/logo@2x.png 2x" alt="">
+    <picture><source srcset="static/img/hero.webp" type="image/webp"><img src="static/img/hero.png" alt="hero"></picture>
+    <form action="/submit" method="post">
+      <label for="q">Query</label><input id="q" name="q" type="text" disabled>
+      <button formaction="/alt" onclick="if (confirm('?')) remove(1)">Go</button>
+      <button type="submit" onclick="app.submit(event)">Send</button>
+    </form>
+    <a href="javascript:toggle()">toggle</a>
+    <a href="javascript:void(0)" onclick="{{ handler }}">template handler</a>
+    <iframe src="partials/frame.html"></iframe>
+    <template><span class="tpl">t</span></template>
+    <svg viewBox="0 0 10 10"><use href="static/img/sprite.svg#icon"/><use xlink:href="#local"/></svg>
+    <video src="media/clip.mp4" poster="static/img/poster.png"></video>
+  </div>
+  <script type="module">
+    import { init } from './js/app.js';
+    init();
+  </script>
+  <script type="text/x-template" id="tpl-row"><tr><td>{{ name }}</td></tr></script>
+  <script type="application/ld+json">{"@context": "https://schema.org"}</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+ambiguous_unknown	DECORATOR_APPLICATION	handlers.<module> -> -
+ambiguous_unknown	METHOD_CALL	handlers.<module> -> -
+ambiguous_unknown	METHOD_CALL	orders.close -> -
+ambiguous_unknown	METHOD_CALL	orders.ship -> -
+boundary_lib	DECORATOR_CALL	handlers.<module> -> external:receiver
+boundary_lib	SIMPLE_CALL	signals.<module> -> builtin:object.__init__
+known_edge	DECORATOR_CALL	handlers.<module> -> handlers.remember
+known_edge	METHOD_CALL	orders.not_a_signal -> orders.Outbox.asend
+known_edge	METHOD_CALL	orders.pay -> signals.Signal.asend
+known_edge	METHOD_CALL	orders.place -> signals.Signal.send
+known_edge	METHOD_CALL	orders.void -> signals.Signal.send

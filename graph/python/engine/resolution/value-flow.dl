@@ -97,6 +97,52 @@ param_arg_type(ph, t) :-
     param_decl("client", kw, _, _, m, ph),
     expr_type("client", a, t).
 
+// ── a parameter the TEST RUNNER fills ─────────────────────────────────────────
+// pytest calls `test_commit(session=<what the session fixture yielded>)`: the call is the runner's,
+// so no call site spells it, but it is an argument reaching a parameter all the same, and
+// the parameter is typed exactly as one passed at a call site would be. Which fixture
+// serves the parameter is framework-behavior/dispatch.dl's py_fixs_injection (2a), the
+// runner's own lookup (same class, same module, nearest conftest, a pytest_plugins
+// module), so this is as deterministic as a name the LEGB walk resolves.
+// MEASURED across ten public suites: 1,529 method calls on such parameters were
+// ambiguous_unknown, and everything derived from them (`tx = session.begin(); tx.commit()`)
+// with them; a suite whose fixtures carry annotations resolved its own.
+param_arg_type(ph, t) :-
+    py_fixs_injection(req, fix, pn),
+    param_decl("client", pn, _, _, req, ph),
+    py_fixture_value_type(fix, t).
+
+// ── a parameter's DEFAULT VALUE reaches it ────────────────────────────────────
+// `def getter(val, field_obj=field_obj): return field_obj.deserialize(val)` -- the closure
+// idiom that pins a loop variable -- is called with one argument, so the only value
+// field_obj ever holds is its default, and no call site passes one. The default is an
+// argument the def statement writes once, evaluated where the def runs: one more value
+// reaching the parameter, alongside whatever the call sites pass.
+param_arg_type(ph, t) :- param_default_expr("client", e, ph), expr_type("client", e, t).
+param_arg_class(ph, t) :- param_default_expr("client", e, ph), expr_type_class_object("client", e, t).
+param_arg_method(ph, m) :- param_default_expr("client", e, ph), expr_denotes_method("client", e, m).
+
+// ── a parameter the runner fills from a PARAMETRIZE row, or from FIXTURE PARAMS ──
+// `@pytest.mark.parametrize("cls", [String, Integer])` calls the test once per value, so
+// each value reaches `cls` as an argument would: an instance types it, a class object
+// makes it that class, a function makes it callable as that function. Inside a fixture
+// declared `params=[...]`, `request.param` is each of those values in turn.
+// framework-behavior/dispatch.dl reads the rows (py_pz_param_value, py_pz_request_param).
+param_arg_type(ph, t) :- py_pz_param_value(ph, v), expr_type("client", v, t).
+param_arg_class(ph, t) :- py_pz_param_value(ph, v), expr_type_class_object("client", v, t).
+param_arg_method(ph, m) :- py_pz_param_value(ph, v), expr_denotes_method("client", v, m).
+expr_type("client", e, t) :- py_pz_request_param(e, v), expr_type("client", v, t).
+expr_type_class_object("client", e, t) :- py_pz_request_param(e, v), expr_type_class_object("client", v, t).
+expr_denotes_method("client", e, m) :- py_pz_request_param(e, v), expr_denotes_method("client", v, m).
+// a fixture that hands back a CLASS (`return request.param` over classes) makes the
+// requesting parameter that class, as a returned instance makes it an instance
+py_fixture_value_class(fix, t) :- py_fixture_decl(fix, _),
+    method_return_value_expr("client", fix, e), expr_type_class_object("client", e, t).
+param_arg_class(ph, t) :-
+    py_fixs_injection(req, fix, pn),
+    param_decl("client", pn, _, _, req, ph),
+    py_fixture_value_class(fix, t).
+
 // ── param_arg_method(ParamHash, MethodHash) — a CALLABLE reaching a parameter ──
 // `Delegator(target)` puts the FUNCTION `target` into the parameter `fn`. Java would
 // need a functional interface for this; in Python it is an ordinary assignment.
@@ -230,9 +276,8 @@ type_attr_class_value(p, t, n, c) :-
 // never a single edge to the assigned value. `self.x = ...` is left to the field rules,
 // which see it with its write count.
 instance_attr_method_value(p, t, n, m) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    attr_access(p, e, n, obj),
     expr_name_context(p, "STORE", e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     !expr_node(p, "SELF_REFERENCE", _, _, obj),
     expr_type(p, obj, t),
     assign_pair(p, e, val),
@@ -242,10 +287,9 @@ instance_attr_method_value(p, t, n, m) :-
 // denotes what was assigned to it, beside the bound class method expr_denotes_bound_method
 // already gives it.
 expr_denotes_method(p, e, m) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    attr_access(p, e, n, obj),
     !expr_name_context(p, "STORE", e),
     !call_callee_expr(_, e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     expr_type(p, obj, t),
     instance_attr_method_value(p, t, n, m).
 
@@ -260,9 +304,7 @@ method_dispatch_candidate(base, m, "value") :-
 // Read as a value -- `k = self._row_class` -- the attribute denotes the class, so a
 // call on it or through it resolves like any other class object.
 expr_type_class_object(p, e, c) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    !expr_name_context(p, "STORE", e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj), !expr_name_context(p, "STORE", e),
     expr_type(p, obj, t),
     type_attr_class_value(p, t, n, c).
 
@@ -329,14 +371,13 @@ partial_target(site, m) :-
     call_arg(site, "0", a),
     expr_denotes_method("client", a, m).
 
-// ── a name holding a partial denotes the partial's target ────────────────────
-binding_value_method(p, b, m) :-
-    binding_rebinding(p, "1", _, _, b),
-    expr_binding(p, b, "STORE", tgt),
-    assign_pair(p, tgt, val),
-    call_of_expr(val, site),
-    partial_target(site, m),
-    p = "client".
+// ── a partial denotes the partial's target ───────────────────────────────────
+// The call EXPRESSION, so wherever the partial goes the target goes with it: a name
+// (`add_ten = partial(add, 10)`, through (d)'s alias rule), an attribute
+// (`self.op = partial(repo.append)`, through field_holds_method), an argument.
+expr_denotes_method("client", e, m) :-
+    call_of_expr(e, site),
+    partial_target(site, m).
 
 // ── param_arg_class(ParamHash, TypeHash) — a CLASS OBJECT reaching a parameter ─
 // Distinct from param_arg_type on purpose: param_arg_type means "an INSTANCE of this
@@ -409,12 +450,34 @@ expr_type_class_object(p, e, t) :-
 annotation_names_a_class("type").
 annotation_names_a_class("Type").
 
+// ── param_class_object_ref(Prov, ParamHash, SubscriptRef) ─────────────────────
+// The `type[...]` subscript a parameter's annotation IS, or one operand of its union is.
+// `cls: type[Command] | None = None` (and `Optional[type[Command]]`) is the default-None
+// spelling of the same class-object parameter: the body replaces None with a default class
+// and calls `cls(...)`. Read only at the top level, that call stayed unresolved, and so did
+// every constructor reached through it.
+param_class_object_ref("client", ph, r) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", _, "METHOD_PARAM", tn, _, r),
+    annotation_names_a_class(tn).
+param_class_object_ref("client", ph, s) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    union_operand("client", r, s),
+    type_ref("client", _, _, tn, _, s),
+    annotation_names_a_class(tn).
+
 expr_type_class_object("client", e, t) :-
     expr_names_param("client", e, ph),
     type_ref_owner("client", ph, "METHOD_PARAM", r),
     type_ref("client", _, "METHOD_PARAM", tn, _, r),
     annotation_names_a_class(tn),
     type_ref_nesting("client", r, _, "1", child),
+    type_ref_resolved("client", t, child).
+expr_type_class_object("client", e, t) :-
+    expr_names_param("client", e, ph),
+    param_class_object_ref("client", ph, s),
+    type_ref_owner("client", ph, "METHOD_PARAM", r), s != r,
+    type_ref_nesting("client", s, _, _, child),
     type_ref_resolved("client", t, child).
 
 // A name written MORE THAN ONCE takes the union, for the same reason the instance side

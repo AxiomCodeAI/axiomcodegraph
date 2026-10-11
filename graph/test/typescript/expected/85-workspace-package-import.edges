@@ -1,0 +1,8 @@
+known_edge	FUNCTION_CALL	S#run() @L15 -> packages/lib/src/index#f()
+known_edge	FUNCTION_CALL	S#run() @L16 -> packages/lib/src/sub/index#g()
+known_edge	FUNCTION_CALL	S#run() @L18 -> packages/lib/src/feature/flags#isOn(string)
+known_edge	FUNCTION_CALL	S#run() @L19 -> packages/tools/src/index#tool()
+known_edge	FUNCTION_CALL	S#run() @L21 -> packages/tools/src/deep#deep()
+known_edge	FUNCTION_CALL	S#run() @L22 -> apps/app/src/local#local()
+known_edge	METHOD_CALL	S#run() @L17 -> Bus#publish(string)
+known_edge	METHOD_CALL	S#run() @L23 -> apps/app/types/zod#string()

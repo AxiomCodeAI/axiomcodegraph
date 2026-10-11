@@ -1,7 +1,7 @@
 62-field-access-and-type-use [fields]
   precision 1.0000   (20 correct, 0 wrong)
   recall    1.0000   (20 of 20 the compiler resolved)
-  sites 19   resolved 18 (94.7%)
-  tiers ambiguous_unknown=1  known_edge=18
-  access read=11  readwrite=3  write=5
-  not scored: 1 rows whose target is not a client declaration
+  sites 20   resolved 19 (95.0%)
+  tiers ambiguous_unknown=1  known_edge=19
+  access read=12  readwrite=3  write=5
+  not scored: 2 rows whose target is not a client declaration

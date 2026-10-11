@@ -47,3 +47,22 @@ export function each(xs: number[], fn: (n: number) => void): void {
 export function useEach(xs: number[]): void {
   each(xs, (n) => record(n + RATE))
 }
+
+// a host registration with no body: the const handed to it holds a library-wrapped function literal, and
+// registering the const reaches that literal as registering the literal bare does
+import { migrate, plugin, settings } from './plugin'
+declare const host: { register(p: unknown): void }
+
+export function boot(): void {
+  host.register(plugin)
+}
+
+// CONTROL: the literal handed bare, already reached from the site that hands it
+export function bootBare(): void {
+  host.register(async () => migrate())
+}
+
+// CONTROL: a const with no function in it registers nothing
+export function bootSettings(): void {
+  host.register(settings)
+}

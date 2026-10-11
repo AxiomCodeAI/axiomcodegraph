@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  http       main.create_order   main.py:42
+  http       main.get_order   main.py:58
+  http       main.list_orders   main.py:37
+  http       main.list_widgets   main.py:52
+  http       main.patch_orders   main.py:47

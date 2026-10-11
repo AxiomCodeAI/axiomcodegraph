@@ -111,9 +111,7 @@ field_flow_type(f, prov, t) :- field_initializer("client", e, f),
 // ── the receiver takes what its field holds ─────────────────────────────────
 // `this.repo.find()`: the property access is typed by the field's flowed type as well
 // as its declared one.
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_flow_type(f, prov, t).
@@ -123,9 +121,7 @@ expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 // fixpoint, whereas an arbitrary qualifier's type comes from expr_type and feeding that
 // into a negated relation would put the negation inside its own cycle. Java's
 // type-flow.dl draws the identical line and records the identical reason.
-expr_exact_type(e, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_exact_type(e, t) :- property_access_recv(e, n, q),
     expr_kind("client", "THIS_REFERENCE", _, q),
     expr_enclosing_type(q, encl),
     field_in_enclosing(encl, n, f),
@@ -212,29 +208,182 @@ holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
 // ============================================================================
 call_runs_client_body(ce) :- call_runs_method(ce, m), method_prov(m, "client").
 hof_boundary_site(ce) :- call_site("client", _, _, _, _, ce, _), !call_runs_client_body(ce).
+// A Map or Set stores, finds and drops its argument and never calls it (`subs.add(h)`,
+// `handlers.set(k, h)`, `seen.has(h)`); only `forEach` runs what it is handed. The function
+// is reached where it is taken back out and called, not where it is stored.
+collection_store_site(ce) :- expr_resolves_to_method(ce, m), method_decl("lib", mn, _, _, m), mn != "forEach",
+    method_owner("lib", t, m), type_decl("lib", tn, _, _, _, _, t), keyed_collection_name(tn).
+collection_store_site(ce) :- call_site("client", _, mn, _, recv, ce, _), recv != "", mn != "forEach",
+    expr_type(recv, _, t), type_decl(_, tn, _, _, _, _, t), keyed_collection_name(tn).
+collection_store_site(ce) :- call_site("client", _, mn, _, recv, ce, _), recv != "", mn != "forEach",
+    collection_receiver(recv).
+// Without the standard library staged there is no Map declaration to resolve to, so the
+// receiver is recognised by the reference it was declared with, or by the `new Map()` an
+// un-annotated variable is initialised with. Recognised by NAME only where the program
+// does not declare that name itself (builtin_container_ref).
+collection_receiver(e) :- expr_decl_ref(e, r), keyed_collection_ref(r).
+collection_receiver(e) :- new_expression_ref(e, r), keyed_collection_ref(r).
+collection_receiver(e) :- expr_referenced("client", "VARIABLE", v, e), !var_has_declared_type(v),
+    var_initializer("client", _, init, v), init != "", collection_receiver(init).
+keyed_collection_ref(r) :- type_ref(_, "TYPE_REFERENCE", _, tn, _, _, _, r), keyed_collection_name(tn),
+    builtin_container_ref(r).
+keyed_collection_name("Map").
+keyed_collection_name("ReadonlyMap").
+keyed_collection_name("WeakMap").
+keyed_collection_name("Set").
+keyed_collection_name("ReadonlySet").
+keyed_collection_name("WeakSet").
 
 value_branch(a, a) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     !expr_kind("client", "CALL_EXPRESSION", _, x),        # `xs.map(make())` hands over what make RETURNS
     expr_callable(x, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     expr_referenced("client", k, h, x),
     holder_ref_kind(k),
     holder_holds_function(h, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     ts_field_access_target(x, f),
     holder_holds_function(f, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     expr_kind("client", "CALL_EXPRESSION", _, x),
     call_runs(x, f),
     holder_holds_function(f, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     method_value(x, m).
+
+// …AND A PROXY HANDLER'S TRAPS. `new Proxy(target, handler)` and `Proxy.revocable(target, handler)` hand the runtime
+// an object whose `get` / `set` / `has` … the runtime calls on every touch of the proxy. No call site names a trap, so
+// what the traps call was reached by nothing: a change to the draft logic of a Proxy-based library selected none of the
+// tests that create drafts. The creating site hands each trap the handler defines, the way `xs.map(cb)` hands `cb`.
+// The handler is followed through the holders it is read from (a const, a reassigned `let`, a parameter it was passed
+// as: holder_value), to an object literal's methods or the methods of the class a `new C()` builds, its bases included.
+proxy_site(ce) :- call_site("client", "CONSTRUCTOR_CALL", "Proxy", _, _, ce, _), !type_decl("client", "Proxy", _, _, _, _, _).
+proxy_site(ce) :- call_site("client", _, "revocable", "IDENTIFIER", recv, ce, _), expr_name("client", "Proxy", recv),
+    !type_decl("client", "Proxy", _, _, _, _, _).
+proxy_handler_value(ce, a) :- proxy_site(ce), expr_child("client", ce, "ARGUMENT", "1", a).
+proxy_handler_value(ce, v) :- proxy_handler_value(ce, e), expr_referenced("client", k, h, e), holder_ref_kind(k),
+    holder_value(h, v).
+proxy_handler_value(ce, x) :- proxy_handler_value(ce, e), value_branch_of(e, x).
+handed_function(ce, m) :- proxy_handler_value(ce, o), objlit_member_fn(o, name, m), proxy_trap_name(name).
+handed_function(ce, m) :- proxy_handler_value(ce, n), expr_kind("client", "NEW_EXPRESSION", _, n), expr_type(n, _, t),
+    proxy_handler_class(t, c), method_owner("client", c, m), method_decl("client", name, _, _, m), proxy_trap_name(name).
+proxy_handler_class(t, t) :- type_decl("client", _, _, _, _, _, t).
+proxy_handler_class(t, a) :- type_decl("client", _, _, _, _, _, t), type_ancestor(t, a).
+// a conditional or a cast between the holder and the site: `isArray ? arrayTraps : objectTraps`, `h as ProxyHandler<T>`
+value_branch_of(e, x) :- expr_kind("client", "TERNARY_EXPRESSION", _, e), expr_child("client", e, r, _, x), ternary_value_role(r).
+value_branch_of(e, x) :- expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, x).
+ternary_value_role("TERNARY_THEN").
+ternary_value_role("TERNARY_ELSE").
+proxy_trap_name("get").
+proxy_trap_name("set").
+proxy_trap_name("has").
+proxy_trap_name("deleteProperty").
+proxy_trap_name("ownKeys").
+proxy_trap_name("getOwnPropertyDescriptor").
+proxy_trap_name("defineProperty").
+proxy_trap_name("getPrototypeOf").
+proxy_trap_name("setPrototypeOf").
+proxy_trap_name("isExtensible").
+proxy_trap_name("preventExtensions").
+proxy_trap_name("apply").
+proxy_trap_name("construct").
+
+// …AND A FUNCTION WRITTEN AS A JSX ATTRIBUTE OR CHILD. `<canvas onPointerMove={this.handleMove}/>`,
+// `<button onClick={onSave}/>`, `<List renderItem={renderRow}/>`: the element is handed the function and
+// the renderer runs it, on an event or while it renders. The parser writes each `{…}` as an expression
+// ROOT of its own, linked to no element (an intrinsic tag has no call site at all), so no rule above saw
+// it: a handler read off a field or named by reference was reached by nothing, and its whole body was
+// cut off from the tests that render the component and fire the event. The `{…}` itself is the site that
+// hands the function over, from the function it is written in, the way `xs.map(cb)` hands over `cb`;
+// what the value is read through is followed exactly as for an argument (value_branch, holders, a field
+// holding an arrow, a method read as a value, `bind`). A call there (`onClick={make()}`) hands over what
+// the call returns, not its callee, and stays out.
+jsx_value_root(r) :- expr_root_context("client", "JSX_EMBEDDED_EXPRESSION", r), expr_kind("client", _, "ROOT", r).
+value_branch(r, r) :- jsx_value_root(r).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),
+    expr_callable(x, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    expr_referenced("client", k, h, x), holder_ref_kind(k),
+    holder_holds_function(h, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    method_value(x, m).
+// the function the `{…}` is written in: its block's method, or the module initializer at top level
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "BLOCK", b, _, r), block_owner("client", c, _, b), c != "".
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "METHOD", c, _, r), c != "".
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "MODULE_INIT", _, _, r),
+    expr_module("client", mod, r), module_init("client", c, mod).
+
+// …AND A CLASS COMPONENT'S RENDER AND LIFECYCLE. `<App/>` where App is a class builds an instance
+// (callee-resolution rule 13 resolves the tag to the constructor), and from then on the renderer
+// calls the instance's render and its lifecycle methods; nothing in the program does. Without these
+// the whole component below its constructor was unreachable from every test that mounts it. Only a
+// class that has a render method — its own or inherited — is a component.
+jsx_class_component_site(ce, t) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    name_binds(mod, cn, _, "TYPE", t),
+    method_in_scope(t, "render", "false", _).
+jsx_lifecycle_name("render").
+jsx_lifecycle_name("componentDidMount").
+jsx_lifecycle_name("componentDidUpdate").
+jsx_lifecycle_name("componentWillUnmount").
+jsx_lifecycle_name("shouldComponentUpdate").
+jsx_lifecycle_name("getSnapshotBeforeUpdate").
+jsx_lifecycle_name("componentDidCatch").
+jsx_lifecycle_name("componentWillMount").
+jsx_lifecycle_name("componentWillReceiveProps").
+jsx_lifecycle_name("componentWillUpdate").
+jsx_lifecycle_name("UNSAFE_componentWillMount").
+jsx_lifecycle_name("UNSAFE_componentWillReceiveProps").
+jsx_lifecycle_name("UNSAFE_componentWillUpdate").
+handed_function(ce, m) :- jsx_class_component_site(ce, t),
+    jsx_lifecycle_name(n),
+    method_in_scope(t, n, "false", m).
+// the static ones the renderer calls on the class itself
+jsx_static_lifecycle_name("getDerivedStateFromProps").
+jsx_static_lifecycle_name("getDerivedStateFromError").
+handed_function(ce, m) :- jsx_class_component_site(ce, t),
+    jsx_static_lifecycle_name(n),
+    method_in_scope(t, n, "true", m).
+
+// …AND WHAT A LIBRARY CALL WRAPPED, KEPT IN A HOLDER. `export const plugin = fp(async (app) => …)`, then
+// `app.register(plugin)`: the holder keeps what a call with no client body RETURNED, so no holder rule above
+// sees a function in it, and the registration reached nothing although the same literal handed to it bare
+// is reached. A library wrapper hands back the function it was handed, or one that runs it (`fp`,
+// `defineExtension`, `debounce`), so the function the wrapping site was handed is what the holder hands on.
+// Only a wrapping site at the library boundary: a project wrapper has a body, and what it returns is
+// followed through that body (fn_value_call, below). The const is named here or imported from the
+// module that wraps it (expr_holder), which is the usual shape: a plugin module, a registering app.
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_holder(x, h),
+    holder_wraps_handed_function(h, m).
+// A const's own initializer only, and only a call of a declaration, not of a value the project holds: a
+// reassignment (`state = createState(set, get)`) and a call through a parameter hand back what the project
+// function returns, which is data as often as it is the function it was handed.
+// And not a call whose result the types say is data: `setTimeout(cb)` returns a timer, `xs.filter(cb)` an
+// array, and `clearTimeout(timer)` runs nothing. A result typed with no call signature is data; an untyped
+// one (a package with no types staged) or a callable one (`fp`'s plugin type, a mock) is kept.
+holder_wraps_handed_function(h, m) :- var_initializer("client", _, e, h), e != "",
+    value_branch(e, w),
+    expr_kind("client", "CALL_EXPRESSION", _, w),
+    hof_boundary_site(w),
+    !called_through(w, _),
+    !call_returns_data(w),
+    handed_function(w, m).
+call_returns_data(w) :- expr_type(w, _, t), !call_signature_in_scope(t, _), !call_result_callable(w).
+call_result_callable(w) :- expr_shape(w, s), call_signature_in_scope(s, _).
 
 // ── method_value(Expr, Method): an INSTANCE method read as a value, not called ──
 // `xs.forEach(this.handle, this)`, `el.addEventListener('click', this.onClick)`,
@@ -245,15 +394,11 @@ handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUM
 // instance call `recv.name()` looks it up (callee-resolution rules 4 and 6). Without it a
 // method passed by reference had no edge from the function that passes it, where a free
 // function passed at the same position had one.
-method_value(x, m) :- expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+method_value(x, m) :- property_access_recv(x, n, q),
     expr_type(q, _, qt),
     method_in_scope(qt, n, "false", m),
     !method_is_accessor(m).
-method_value(x, m) :- expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+method_value(x, m) :- property_access_recv(x, n, q),
     expr_shape(q, s),
     method_in_scope(s, n, _, m),
     !method_is_accessor(m).
@@ -286,6 +431,22 @@ value_branch(root, x) :- value_branch(root, e),
     expr_kind_is_transparent(k),
     expr_child("client", e, r, _, x),
     edge_role_is_operand(r).
+// `Object.assign(target, …sources)` evaluates to its TARGET. A callable API is often a function object built this way
+// (`export const widget: Factory = assign(createWidget, members)`, `Object.assign(task, { started, finished })`)
+// and typed by a callable interface whose call signature has no body: the holder held the call's result, which the
+// platform's merge never returned a function for, so a call of it ran nothing. The merge is read the same way when
+// it is reached through an alias (`export const assign = Object.assign`), never by the name `assign` alone.
+value_branch(root, x) :- value_branch(root, e),
+    object_assign_call(e),
+    expr_child("client", e, "ARGUMENT", "0", x).
+object_assign_ref(x) :- property_access_recv(x, "assign", q),
+    expr_name("client", "Object", q),
+    expr_kind("client", "IDENTIFIER_REFERENCE", _, q).
+object_assign_call(e) :- call_callee_expr(_, e, ne), object_assign_ref(ne).
+object_assign_call(e) :- call_callee_expr(_, e, ne),
+    expr_holder(ne, h),
+    holder_value(h, v),
+    object_assign_ref(v).
 binary_op_yields_operand("??", "LEFT_OPERAND").
 binary_op_yields_operand("??", "RIGHT_OPERAND").
 binary_op_yields_operand("||", "LEFT_OPERAND").
@@ -353,7 +514,10 @@ ref_call_signature(r, sig) :- ref_type_target(r, _, t), call_signature_in_scope(
 
 typed_holder_signature(h, sig) :- field_type_ref("client", r, h), ref_call_signature(r, sig).
 typed_holder_signature(h, sig) :- var_type_ref("client", r, h), ref_call_signature(r, sig).
-typed_holder_signature(h, sig) :- param_type_ref("client", r, h), ref_call_signature(r, sig).
+// …except the function parameter of a method that files it in a keyed registry a dispatch reads:
+// what runs it is the publish on the same key (call-edge-generation/keyed_registry.dl), and the
+// type would hand it to every call of that type, whatever the key
+typed_holder_signature(h, sig) :- param_type_ref("client", r, h), ref_call_signature(r, sig), !kr_registry_param(h).
 
 method_dispatch_candidate(sig, m, "value") :- typed_holder_signature(h, sig),
     holder_holds_function(h, m),
@@ -470,6 +634,20 @@ call_runs(ce, m) :- callee_branch(ce, x),
 call_runs(ce, m) :- callee_branch(ce, x),
     ts_field_access_target(x, f),
     holder_holds_function(f, m).
+// A CALL THROUGH AN IMPORTED HOLDER. A package's public functions are often its default instance's methods,
+// exported as consts: `export const createDraft = immer.createDraft.bind(immer)`, `export const plain =
+// engine.plain`. The holder rules know what the const holds (method_value follows the read and `bind`), but a
+// call names the const through an import, and the two clauses above take only a local variable, a parameter
+// or a field: every caller outside the defining module — its whole test suite — ran nothing. expr_holder
+// follows the import, and a namespace member, to the exporting module's own variable, never by name.
+call_runs(ce, m) :- call_callee_expr(_, ce, x),
+    expr_referenced("client", "IMPORT_BINDING", _, x),
+    expr_holder(x, h),
+    holder_holds_function(h, m).
+call_runs(ce, m) :- call_callee_expr(_, ce, x),
+    expr_namespace_member(x),
+    expr_holder(x, h),
+    holder_holds_function(h, m).
 
 // ============================================================================
 // A FUNCTION ASSIGNED TO AN INTERFACE'S METHOD MEMBER IMPLEMENTS IT  (#1283)
@@ -571,6 +749,11 @@ expr_holder(x, f) :- ts_field_access_target(x, f).
 // an imported `const` is the exporting module's variable
 expr_holder(x, v) :- expr_referenced("client", "IMPORT_BINDING", ih, x),
     import_binds(ih, _, "VARIABLE", v).
+// …and so is one read off a namespace import, `api.createDraft`
+expr_holder(x, v) :- property_access_recv(x, n, q),
+    expr_namespace(q, _, mod),
+    module_export(_, mod, n, "VARIABLE", v).
+expr_namespace_member(x) :- property_access_recv(x, _, q), expr_namespace(q, _, _).
 
 // ── holder_elem_fn(Holder, Fn): an element of the holder's collection is, or holds, Fn ──
 holder_elem_fn(h, m) :- holder_elem_value(h, x),

@@ -1,0 +1,9 @@
+{"lang": "csharp", "src": "app", "library": "lib/Example.Kit",
+ "checks": [
+  {"why": "an internal member of a library base is not accessible from the client, so the simple name is the client's own class (#1538)",
+   "run": ["path", "Gadget.Check", "Limits.Allow"],
+   "want": ["App.cs:7"],
+   "avoid": ["no chain of resolved calls"]},
+  {"why": "control: a protected member of the library base is accessible to the derived type and still wins the simple name, so the client class of that name is not called",
+   "run": ["impact", "Quotas.Allow"],
+   "avoid": ["[resolved] Gadget.Other"]}]}

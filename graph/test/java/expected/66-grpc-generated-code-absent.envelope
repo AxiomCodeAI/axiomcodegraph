@@ -1,0 +1,1 @@
+nominal	app.inventory.InventoryService.reserve -> app.inventory.AuditedInventoryService.reserve

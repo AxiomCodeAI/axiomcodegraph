@@ -1,0 +1,46 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a call made only under `if __name__ == \"__main__\":` runs when the file is a script, not on import: breaking `show` breaks no file that merely imports the module",
+   "run": [
+    "impact",
+    "show",
+    "--tests"
+   ],
+   "want": [
+    "0 of 2 test method(s) reach the change"
+   ],
+   "avoid": [
+    "at import"
+   ]
+  },
+  {
+   "why": "a guard written as a conjunction (`cond and __name__ == \"__main__\"`) is still false on import",
+   "run": [
+    "impact",
+    "banner",
+    "--tests"
+   ],
+   "want": [
+    "0 of 2 test method(s) reach the change"
+   ],
+   "avoid": [
+    "at import"
+   ]
+  },
+  {
+   "why": "CONTROL: a call the module body makes OUTSIDE the guard does run on import, so an importer breaks with `render`",
+   "run": [
+    "impact",
+    "render",
+    "--tests"
+   ],
+   "want": [
+    "test_other.<module>",
+    "1 at import"
+   ]
+  }
+ ]
+}

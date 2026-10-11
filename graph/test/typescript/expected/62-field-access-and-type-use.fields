@@ -8,6 +8,7 @@ known_edge	read	Box#run() -> Box#label
 known_edge	read	Box#staticRead() -> Box#static total
 known_edge	read	Box#viaInterface(Shaped) -> Shaped#width
 known_edge	read	Narrow#own() -> Narrow#width
+known_edge	read	members#Shaped2() -> members#Marker2
 known_edge	readwrite	Box#compound(number) -> Box#width
 known_edge	readwrite	Box#decrement() -> Box#hidden
 known_edge	readwrite	Box#increment() -> Box#hidden

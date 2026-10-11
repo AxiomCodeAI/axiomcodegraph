@@ -1,0 +1,3 @@
+known_edge	read	S#run() -> S#bus
+known_edge	read	S#run() -> index#K
+known_edge	read	S#run() -> zod#z

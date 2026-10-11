@@ -22,6 +22,8 @@ ambiguous_unknown	METHOD_RETURN	0	testcases.config.Store#read(String) [METHOD] -
 ambiguous_unknown	METHOD_RETURN	0	testcases.config.XmlCodec#encode(String) [METHOD] -> -
 known_edge	ANNOTATION_TYPE	0	testcases.config.DbStore [ANNOTATION] -> testcases.config.Service
 known_edge	ANNOTATION_TYPE	0	testcases.config.JsonCodec [ANNOTATION] -> testcases.config.Service
+known_edge	ANNOTATION_TYPE	0	testcases.config.Service1 [ANNOTATION] -> testcases.config.Autowired
+known_edge	ANNOTATION_TYPE	0	testcases.config.Service1 [ANNOTATION] -> testcases.config.Qualifier
 known_edge	ANNOTATION_TYPE	0	testcases.config.Service1 [ANNOTATION] -> testcases.config.Service
 known_edge	ANNOTATION_TYPE	0	testcases.config.Service2 [ANNOTATION] -> testcases.config.Service
 known_edge	ANNOTATION_TYPE	0	testcases.config.XmlCodec [ANNOTATION] -> testcases.config.Service

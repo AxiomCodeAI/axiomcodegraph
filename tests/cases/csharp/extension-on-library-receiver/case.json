@@ -1,0 +1,16 @@
+{"lang": "csharp", "src": "src", "library": "lib/Example.Kit",
+ "checks": [
+  {"why": "with --library, an in-source extension on a library-typed receiver is the call's target, not a member of the library type (#1535)",
+   "run": ["path", "Program.Main", "OrderExtensions.Describe"],
+   "want": ["→ [known_edge · call @ src/app/App.cs:15] OrderExtensions.Describe"],
+   "avoid": ["the two are independent"]},
+  {"why": "the extension's this type is a library base of the receiver's library type (#1535)",
+   "run": ["path", "Program.Main", "OrderExtensions.Check"],
+   "want": ["OrderExtensions.Check"],
+   "avoid": ["the two are independent"]},
+  {"why": "control: an extension on an in-source type resolves as before",
+   "run": ["path", "Program.Main", "OrderExtensions.Label"],
+   "want": ["OrderExtensions.Label"]},
+  {"why": "near-miss control: an extension on an unrelated in-source type is not matched to the library receiver",
+   "run": ["impact", "OrderExtensions.Tag"],
+   "avoid": ["Program.NotAnOrder   src/app/App.cs:16   — calls it"]}]}

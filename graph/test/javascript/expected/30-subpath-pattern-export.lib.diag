@@ -1,5 +1,7 @@
 import_cause     app.js:7:18  kit/internal/secret  staged_unreached
 import_cause     app.js:8:16  kit/feat/deep/none  staged_unreached
+library_receiver app.js:9:66  internal.secret  kit/internal/secret
+library_receiver app.js:9:85  nested.x  kit/feat/deep/none
 package_entry    case30-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 package_entry    kit  .  [default]  EXPORTS  src/index.js  RESOLVED  -> lib:src/index.js
 package_entry    kit  .  [node.require]  EXPORTS  src/index.js  RESOLVED  -> lib:src/index.js

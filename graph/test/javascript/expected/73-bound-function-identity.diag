@@ -1,0 +1,11 @@
+import_cause     bound.js:28:14  util  builtin
+import_cause     bound.js:2:9  util  builtin
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       bound.js:17:19  FUNCTION_CALL promisify  no_target
+unresolved       bound.js:26:17  FUNCTION_CALL promisify  no_target
+unresolved       bound.js:29:22  METHOD_CALL promisify  no_target
+unresolved       bound.js:42:30  METHOD_CALL append  receiver_untyped
+unresolved       bound.js:45:35  FUNCTION_CALL_BIND fn  callee_untyped
+unresolved       bound.js:45:57  FUNCTION_CALL g  callee_untyped
+value_callee     bound.js:45:35  fn.bind  parameter
+value_callee     bound.js:45:57  g  local

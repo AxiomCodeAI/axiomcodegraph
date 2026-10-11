@@ -1,0 +1,121 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "a method of an entity is not on a subtype of ViewComponent because a view component in another namespace shares the entity's simple name",
+   "run": [
+    "impact",
+    "Basket.Clear",
+    "--delete"
+   ],
+   "want": [
+    "the change is local"
+   ],
+   "avoid": [
+    "extends ViewComponent",
+    "subtype of ViewComponent",
+    "NOT CHECKED"
+   ]
+  },
+  {
+   "why": "the same method targeted by file:line answers for its own declaring type only",
+   "run": [
+    "impact",
+    "src/App/Entities.cs:8",
+    "--delete"
+   ],
+   "want": [
+    "Basket.Clear (at src/App/Entities.cs:8)",
+    "the change is local"
+   ],
+   "avoid": [
+    "extends ViewComponent",
+    "NOT CHECKED"
+   ]
+  },
+  {
+   "why": "the entity type targeted by file:line does not inherit the other Basket's base",
+   "run": [
+    "impact",
+    "src/App/Entities.cs:4",
+    "--delete"
+   ],
+   "want": [
+    "class Basket (at src/App/Entities.cs:4)"
+   ],
+   "avoid": [
+    "extends ViewComponent",
+    "NOT CHECKED"
+   ]
+  },
+  {
+   "why": "control: the view component Basket, by file:line, keeps its base and its NOT CHECKED reason",
+   "run": [
+    "impact",
+    "src/App/Components.cs:6",
+    "--delete"
+   ],
+   "want": [
+    "NOT CHECKED: Basket extends ViewComponent",
+    "NOT SAFE TO ASSUME"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a method of the view component Basket keeps its base",
+   "run": [
+    "impact",
+    "Basket.Invoke",
+    "--delete"
+   ],
+   "want": [
+    "Basket extends ViewComponent"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: the only class of its name still shows its base",
+   "run": [
+    "impact",
+    "Header.Invoke",
+    "--delete"
+   ],
+   "want": [
+    "NOT CHECKED: Header extends ViewComponent"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a method on the part of a partial class that writes no base still has the base the other part writes",
+   "run": [
+    "impact",
+    "Footer.Render",
+    "--delete"
+   ],
+   "want": [
+    "Footer extends ViewComponent"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: path's empty-upstream note names the base only for the component's method",
+   "run": [
+    "path",
+    "*",
+    "Basket.Clear"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "ViewComponent"
+   ]
+  }
+ ]
+}

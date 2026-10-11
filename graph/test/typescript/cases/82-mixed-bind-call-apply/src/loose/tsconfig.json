@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "strict": false,
+    "strictBindCallApply": false,
+    "noLib": true
+  },
+  "include": ["**/*", "../globals.d.ts"]
+}

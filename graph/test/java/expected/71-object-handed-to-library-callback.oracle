@@ -1,0 +1,8 @@
+oracle=20 engine=25 agree=19 missing=1 (known 1, NEW 0) extra=6
+  known-missing  app.Callbacks#sortAnonymous -> app.Callbacks$anon:Comparator#<init>
+  extra    app.Callbacks#consume -> app.Callbacks$anon:Comparator#compare(String,String)
+  extra    app.Callbacks#consume -> app.Callbacks.ByLength#compare(String,String)
+  extra    app.Callbacks#filterNamed -> app.Callbacks.NonEmpty#test(String)
+  extra    app.Callbacks#mapNamed -> app.Callbacks.Shouty#apply(String)
+  extra    app.Callbacks#sortHeld -> app.Callbacks.ByLength#compare(String,String)
+  extra    app.Callbacks#sortNamed -> app.Callbacks.ByLength#compare(String,String)

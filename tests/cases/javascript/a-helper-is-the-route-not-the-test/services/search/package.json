@@ -1,0 +1,2 @@
+{"name": "@demo/search", "type": "module", "exports": {".": "./src/index.js", "./indexer": "./src/indexer.js"},
+ "scripts": {"test": "node --test test/*.test.js"}}

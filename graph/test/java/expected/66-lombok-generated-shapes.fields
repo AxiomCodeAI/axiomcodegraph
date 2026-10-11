@@ -1,0 +1,7 @@
+ambiguous_unknown	read	probe.Worker#<type-initializer>() -> -
+known_edge	read	probe.Point#sum() -> probe.Point#x
+known_edge	read	probe.Point#sum() -> probe.Point#y
+known_edge	read	probe.Temp#kelvin() -> probe.Temp#degrees
+known_edge	read	probe.Worker#work() -> generated:probe.Worker#log
+known_edge	read	probe.Worker#work() -> probe.Worker#audit
+known_edge	write	probe.Ticket.TicketBuilder#title(String) -> probe.Ticket.TicketBuilder#title

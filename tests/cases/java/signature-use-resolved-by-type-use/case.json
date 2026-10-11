@@ -1,0 +1,12 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a parameter, return or type-argument use that type_use resolves to the type is listed resolved, not as [text] (#1422)",
+   "run": ["impact", "Customer", "--kind", "type"],
+   "want": ["[resolved] CustomerStore.findById", "names it in its signature (the return type)",
+            "[resolved] CustomerStore.findAll", "a type argument of the return type",
+            "[resolved] CustomerStore.save", "names it in its signature (a parameter)",
+            "[resolved] CustomerLabel.label"],
+   "avoid": ["[text] CustomerStore", "[text] CustomerLabel.label", "[text] CustomerDesk.open"]},
+  {"why": "control: the construction stays a resolved instantiation",
+   "run": ["impact", "Customer", "--kind", "type"],
+   "want": ["instantiates it"]}]}

@@ -1,0 +1,9 @@
+{"lang": "python", "src": "src",
+ "checks": [
+  {"why": "a Python function's name written as a string is explained in Python terms, not as a Java bean qualifier (#1487)",
+   "run": ["impact", "on_saved"],
+   "want": ["also written as a string in 2 place(s)", "not by the Python name"],
+   "avoid": ["bean qualifier", "Java name"]},
+  {"why": "control: a name written as a string nowhere gets no string hint at all",
+   "run": ["impact", "on_deleted"],
+   "avoid": ["also written as a string"]}]}

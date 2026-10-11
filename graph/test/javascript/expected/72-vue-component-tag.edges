@@ -1,0 +1,26 @@
+components/Aliased.vue:4:19 FUNCTION_CALL aliasedLocal  ->  known_edge  components/Aliased.vue:2:1 aliasedLocal
+components/Child.vue:4:18 FUNCTION_CALL childLocal  ->  known_edge  components/Child.vue:2:1 childLocal
+components/Defined.vue:3:16 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+components/Defined.vue:3:16 FUNCTION_CALL defineComponent  ->  callback_registered  components/Defined.vue:4:3 setup
+components/Defined.vue:4:20 FUNCTION_CALL definedSetup  ->  known_edge  components/Defined.vue:6:1 definedSetup
+components/Legacy.vue:4:78 FUNCTION_CALL legacyInit  ->  known_edge  components/Legacy.vue:3:1 legacyInit
+components/Legacy.vue:6:15 JSX_ELEMENT Child(/*<tag>*/)  ->  known_edge  components/Child.vue:1:1 <module>
+components/MyWidget.vue:2:1 FUNCTION_CALL defineProps  ->  ambiguous_unknown  -
+components/MyWidget.vue:5:21 FUNCTION_CALL widgetLabel  ->  known_edge  components/MyWidget.vue:3:1 widgetLabel
+views/Parent.vue:11:26 FUNCTION_CALL String  ->  ambient_terminal  -
+views/Parent.vue:15:6 JSX_ELEMENT Child(/*<tag>*/)  ->  known_edge  components/Child.vue:1:1 <module>
+views/Parent.vue:16:6 JSX_ELEMENT MyWidget(/*<tag>*/)  ->  known_edge  components/MyWidget.vue:1:1 <module>
+views/Parent.vue:17:6 JSX_ELEMENT Legacy(/*<tag>*/)  ->  known_edge  components/Legacy.vue:1:1 <module>
+views/Parent.vue:18:6 JSX_ELEMENT Defined(/*<tag>*/)  ->  known_edge  components/Defined.vue:4:3 setup
+views/Parent.vue:19:6 JSX_ELEMENT Local(/*<tag>*/)  ->  known_edge  views/Parent.vue:9:33 setup
+views/Parent.vue:20:6 JSX_ELEMENT Badge(/*<tag>*/)  ->  known_edge  components/badge.js:1:1 Badge
+views/Parent.vue:21:6 JSX_ELEMENT Store(/*<tag>*/)  ->  ambiguous_unknown  -
+views/Parent.vue:22:15 FUNCTION_CALL fmt  ->  known_edge  views/Parent.vue:11:1 fmt
+views/Parent.vue:9:15 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+views/Parent.vue:9:15 FUNCTION_CALL defineComponent  ->  callback_registered  views/Parent.vue:9:33 setup
+views/Parent.vue:9:50 FUNCTION_CALL localSetup  ->  known_edge  views/Parent.vue:10:1 localSetup
+views/Shell.vue:10:6 JSX_ELEMENT Badge(/*<tag>*/)  ->  known_edge  components/badge.js:1:1 Badge
+views/Shell.vue:8:6 JSX_ELEMENT Aliased(/*<tag>*/)  ->  known_edge  components/Aliased.vue:1:1 <module>
+views/Shell.vue:9:6 JSX_ELEMENT Gone(/*<tag>*/)  ->  ambiguous_unknown  -
+vite.config.js:3:28 FUNCTION_CALL fileURLToPath  ->  ambient_terminal  -
+vite.config.js:3:42 CONSTRUCTOR_CALL URL  ->  ambient_terminal  -

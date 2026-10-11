@@ -1,0 +1,41 @@
+{
+ "lang": "java",
+ "src": ".",
+ "checks": [
+  {
+   "why": "`--library auto` reads the dependencies pom.xml declares (a ${property} version resolved) in the Maven repository .mvn/maven.config names: one through its sources jar, one with only a class jar decompiled, and one that is absent named",
+   "run": [
+    "index",
+    "{repo}",
+    "--library",
+    "auto"
+   ],
+   "want": [
+    "auto: 1 Java dependency source jar(s) and 1 decompiled class jar(s)",
+    "not in the repository (com.example:absent:3.0)"
+   ]
+  },
+  {
+   "why": "a chain is typed through the dependency's declared return type: hello() returns Greeting, so shout() resolves into the library",
+   "run": [
+    "path",
+    "welcome",
+    "Greeting.shout"
+   ],
+   "want": [
+    "[library · call @ src/main/java/app/Main.java:8] com.example.greeter.Greeting.shout"
+   ]
+  },
+  {
+   "why": "a dependency that ships no sources is decompiled from its class jar, and a chain is typed through it: next() returns Step, so size() resolves into the library",
+   "run": [
+    "path",
+    "advance",
+    "Step.size"
+   ],
+   "want": [
+    "[library · call @ src/main/java/app/Main.java:12] com.example.nosources.Step.size"
+   ]
+  }
+ ]
+}

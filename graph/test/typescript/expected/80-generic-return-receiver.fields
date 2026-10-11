@@ -1,2 +1,10 @@
 known_edge	read	Circ#area() -> Circ#r
 known_edge	read	Sq#area() -> Sq#s
+known_edge	read	use#<module-init>() -> use#WARRIOR
+known_edge	read	use#<module-init>() -> use#container
+known_edge	read	use#ctlAnyIndex(string) -> use#anyBag
+known_edge	read	use#indexValue(string) -> use#shapes
+known_edge	read	use#recordArea(string,number) -> use#makers
+known_edge	read	use#run() -> use#WARRIOR
+known_edge	read	use#run() -> use#container
+known_edge	read	use#totalArea(string,number) -> use#factories

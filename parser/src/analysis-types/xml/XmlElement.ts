@@ -36,6 +36,7 @@ export class XmlElement implements EntityIdentifiable {
   private endLine: number;
   private parentElementHash: string;
   private serviceVersionLinkHash: string;
+  private idPath: string;
   private xmlElementUniqueHash: string = '';
 
   private constructor(builder: XmlElementBuilder) {
@@ -53,6 +54,7 @@ export class XmlElement implements EntityIdentifiable {
     this.endLine = builder.endLine;
     this.parentElementHash = builder.parentElementHash;
     this.serviceVersionLinkHash = builder.serviceVersionLinkHash;
+    this.idPath = builder.idPath;
 
     this.generateHash();
   }
@@ -96,8 +98,9 @@ export class XmlElement implements EntityIdentifiable {
     const content =
       this.tagName +
       '||' + this.xPath +
-      '||' + this.filePath +
-      '||' + this.baseMservPath +
+      // A root-relative idPath names the file on its own; the absolute file and
+      // project paths are hashed only where no idPath was given.
+      (this.idPath ? '||' + this.idPath : '||' + this.filePath + '||' + this.baseMservPath) +
       '||' + this.startLine +
       '||' + this.serviceVersionLinkHash;
 
@@ -167,6 +170,7 @@ class XmlElementBuilder {
   endLine: number;
   parentElementHash: string = '';
   serviceVersionLinkHash: string;
+  idPath: string = '';
 
   constructor(
     tagName: string,
@@ -215,6 +219,17 @@ class XmlElementBuilder {
 
   withParentElementHash(hash: string): XmlElementBuilder {
     this.parentElementHash = hash;
+    return this;
+  }
+
+  /**
+   * The file's path as its key sees it: relative to the analysis root, '/'-separated.
+   * The absolute filePath stays a payload column, but it moves with the directory the
+   * analysis ran in, so a key built from it differed in every checkout of one tree.
+   * Unset (a caller that never says), the key falls back to filePath as before.
+   */
+  withIdPath(idPath: string): XmlElementBuilder {
+    this.idPath = idPath;
     return this;
   }
 

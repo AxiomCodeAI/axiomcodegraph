@@ -18,83 +18,108 @@
  *
  * usage: node tsc_oracle_case.mjs <src-dir> [lib-dir]
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { loadProgram } from '../ground-truth/tsc-program.mjs';
 
-const {
-  ts, program, checker, own, reachable, labelOf, callerOf, diagnostics,
-  implicitCtorOwner, labelOfImplicitCtor,
-} = loadProgram(process.argv[2], process.argv[3], 'tsc_oracle_case');
+// ONE PROGRAM PER tsconfig. A tsconfig.json below the case root is a second program,
+// exactly as the parser treats it, and a file is answered by the program whose directory
+// is nearest above it — so a case can compile one directory strict and another loose
+// (#416). A case with only the root tsconfig loads one program, as before.
+const caseRoot = path.resolve(process.argv[2] ?? '.');
+const programDirs = [caseRoot];
+(function walk(d) {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const sub = path.join(d, e.name);
+    if (fs.existsSync(path.join(sub, 'tsconfig.json'))) programDirs.push(sub);
+    walk(sub);
+  }
+})(caseRoot);
+const programs = programDirs.map((dir) => ({
+  dir, ...loadProgram(process.argv[2], process.argv[3], 'tsc_oracle_case', dir),
+}));
+const governing = (file) => programs
+  .filter((p) => file === p.dir || file.startsWith(p.dir + path.sep))
+  .reduce((a, b) => (b.dir.length > a.dir.length ? b : a));
 
 const pairs = new Set();
-for (const sf of program.getSourceFiles()) {
-  if (!own.has(path.resolve(sf.fileName))) continue;
-  const visit = (node) => {
-    // A DECORATOR APPLICATION IS A CALL, and this side did not think so. The project
-    // oracle enumerates `ts.isDecorator` and calls it DECORATOR_CALL; this list omitted
-    // it, so the per-case suite was blind to decorators entirely — green on them whatever
-    // the engine did, while a project run counted 191 absences on a decorator-driven
-    // codebase. No case had ever used a decorator, so nothing caught the disagreement.
-    // Whichever side is right, both must say it, and the compiler settles it: it resolves
-    // the application, because a decorator is a function invoked with (target, key,
-    // descriptor). #233.
-    if (ts.isCallExpression(node) || ts.isNewExpression(node)
-      || ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)
-      || ts.isTaggedTemplateExpression(node) || ts.isDecorator(node)) {
-      let sig;
-      try { sig = checker.getResolvedSignature(node); } catch { sig = undefined; }
-      let decl = sig?.declaration;
-      // AN IMPLICIT CONSTRUCTOR HAS NO DECLARATION. `new Bag()` on a class that
-      // declares no constructor anywhere in its chain resolves to a signature whose
-      // `declaration` is undefined, so the site was silently unscored — and the
-      // engine's answer for it, whatever it was, went unchecked. The parser now
-      // synthesises that constructor on the ROOT class of the `extends` chain (the
-      // one that extends nothing; a subclass runs its base's), so the compiler side
-      // names the same declaration: the root class, labelled as its `<new>`. #583.
-      let target;
-      if (decl === undefined && ts.isNewExpression(node)) {
-        const cls = implicitCtorOwner(node);
-        target = cls === undefined ? undefined : labelOfImplicitCtor(cls);
-      } else {
-        target = labelOf(decl);
+for (const { dir, ts, program, checker, own, labelOf, callerOf,
+  implicitCtorOwner, labelOfImplicitCtor } of programs) {
+  for (const sf of program.getSourceFiles()) {
+    const file = path.resolve(sf.fileName);
+    if (!own.has(file) || governing(file).dir !== dir) continue;
+    const visit = (node) => {
+      // A DECORATOR APPLICATION IS A CALL, and this side did not think so. The project
+      // oracle enumerates `ts.isDecorator` and calls it DECORATOR_CALL; this list omitted
+      // it, so the per-case suite was blind to decorators entirely — green on them whatever
+      // the engine did, while a project run counted 191 absences on a decorator-driven
+      // codebase. No case had ever used a decorator, so nothing caught the disagreement.
+      // Whichever side is right, both must say it, and the compiler settles it: it resolves
+      // the application, because a decorator is a function invoked with (target, key,
+      // descriptor). #233.
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)
+        || ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)
+        || ts.isTaggedTemplateExpression(node) || ts.isDecorator(node)) {
+        let sig;
+        try { sig = checker.getResolvedSignature(node); } catch { sig = undefined; }
+        let decl = sig?.declaration;
+        // AN IMPLICIT CONSTRUCTOR HAS NO DECLARATION. `new Bag()` on a class that
+        // declares no constructor anywhere in its chain resolves to a signature whose
+        // `declaration` is undefined, so the site was silently unscored — and the
+        // engine's answer for it, whatever it was, went unchecked. The parser now
+        // synthesises that constructor on the ROOT class of the `extends` chain (the
+        // one that extends nothing; a subclass runs its base's), so the compiler side
+        // names the same declaration: the root class, labelled as its `<new>`. #583.
+        let target;
+        if (decl === undefined && ts.isNewExpression(node)) {
+          const cls = implicitCtorOwner(node);
+          target = cls === undefined ? undefined : labelOfImplicitCtor(cls);
+        } else {
+          target = labelOf(decl);
+        }
+        if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
       }
-      if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
-    }
-    // AN ACCESSOR IS INVOKED BY THE ACCESS. `c.req.url` runs `get url()` and `c.res = r`
-    // runs `set res(v)`, and the compiler knows which declaration each is: the symbol at
-    // the property name carries the get and set declarations. A read names the getter; an
-    // assignment target names the setter; a compound assignment or an update (`x.n += 1`,
-    // `x.n++`) reads then writes and names both. The engine emits these as PROPERTY_READ /
-    // PROPERTY_WRITE edges (#703), and without this they would be unscored extras: the
-    // one shape whose ground truth is the compiler's and was never asked of it.
-    if (ts.isPropertyAccessExpression(node)) {
-      let sym;
-      try { sym = checker.getSymbolAtLocation(node.name); } catch { sym = undefined; }
-      if (sym && (sym.flags & ts.SymbolFlags.Alias)) sym = checker.getAliasedSymbol(sym);
-      if (sym && (sym.flags & (ts.SymbolFlags.GetAccessor | ts.SymbolFlags.SetAccessor))) {
-        const parent = node.parent;
-        const isLeft = ts.isBinaryExpression(parent) && parent.left === node
-          && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
-          && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
-        const plain = isLeft && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
-        const update = (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
-          && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken);
-        const reads = !plain;
-        const writes = isLeft || update;
-        for (const d of sym.declarations ?? []) {
-          if ((reads && ts.isGetAccessorDeclaration(d)) || (writes && ts.isSetAccessorDeclaration(d))) {
-            const target = labelOf(d);
-            if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
+      // AN ACCESSOR IS INVOKED BY THE ACCESS. `c.req.url` runs `get url()` and `c.res = r`
+      // runs `set res(v)`, and the compiler knows which declaration each is: the symbol at
+      // the property name carries the get and set declarations. A read names the getter; an
+      // assignment target names the setter; a compound assignment or an update (`x.n += 1`,
+      // `x.n++`) reads then writes and names both. The engine emits these as PROPERTY_READ /
+      // PROPERTY_WRITE edges (#703), and without this they would be unscored extras: the
+      // one shape whose ground truth is the compiler's and was never asked of it.
+      if (ts.isPropertyAccessExpression(node)) {
+        let sym;
+        try { sym = checker.getSymbolAtLocation(node.name); } catch { sym = undefined; }
+        if (sym && (sym.flags & ts.SymbolFlags.Alias)) sym = checker.getAliasedSymbol(sym);
+        if (sym && (sym.flags & (ts.SymbolFlags.GetAccessor | ts.SymbolFlags.SetAccessor))) {
+          const parent = node.parent;
+          const isLeft = ts.isBinaryExpression(parent) && parent.left === node
+            && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+            && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+          const plain = isLeft && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+          const update = (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
+            && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken);
+          const reads = !plain;
+          const writes = isLeft || update;
+          for (const d of sym.declarations ?? []) {
+            if ((reads && ts.isGetAccessorDeclaration(d)) || (writes && ts.isSetAccessorDeclaration(d))) {
+              const target = labelOf(d);
+              if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
+            }
           }
         }
       }
-    }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(sf, visit);
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sf, visit);
+  }
 }
 
-const diags = diagnostics();
+// A diagnostic counts only in a file its own program governs: the root program also
+// compiles the nested program's files under the root's options, and those are not the
+// options the author wrote for them.
+const diags = programs.flatMap((p) => p.diagnostics().filter((d) => !d.file
+  || governing(path.resolve(d.file.fileName)).dir === p.dir));
 if (diags.length > 0) {
   // A case that does not typecheck has an unreliable oracle: the checker still
   // answers, but it answers about a program the author did not mean to write.
@@ -102,7 +127,7 @@ if (diags.length > 0) {
   // case does not typecheck -- threw a ReferenceError instead of printing anything, and
   // the author saw a stack trace from the oracle rather than the compiler's message.
   // The branch only runs when a fixture fails to compile, which is why it survived.
-  const caseRoot = path.resolve(process.argv[2] ?? '.');
+  const { ts } = programs[0];
   for (const d of diags.slice(0, 8)) {
     // A diagnostic about the PROGRAM rather than a file -- a bad compiler option, a
     // missing lib -- carries no `d.file` either.

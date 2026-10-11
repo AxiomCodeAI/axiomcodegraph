@@ -155,6 +155,11 @@ expr_value(e, k, i) :- expr_kind(_, "NEW", _, e), new_callee_value(e, "func", m)
 // (callee-resolution.dl); the VALUE of the expression is f as well.
 expr_value(e, "func", m) :- expr_kind(_, "CALL", _, e), call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, e, _, _),
     expr_child(_, e, "CALLEE", _, c), expr_value(c, "func", m).
+// `promisify(f)` evaluates to a function that runs f (with a callback appended), so a call
+// through it reaches f: the wrapper is transparent. What the argument holds is what the
+// result holds, so `promisify(fs.readFile)` stays the platform's and an unknown argument
+// stays unknown. ambient.dl keeps the platform's own value off it (modelled_platform_call).
+expr_value(ce, k, i) :- promisify_call(ce), call_arg(ce, 0, a), expr_value(a, k, i).
 // Transparent wrappers: `await x`, `(c ? a : b)`, `a || b`, `a && b`, `a ?? b`,
 // `x = v` (an assignment expression evaluates to v), `(a, b)`.
 expr_value(e, k, i) :- expr_kind(_, "AWAIT", _, e), expr_child(_, e, _, _, c), expr_value(c, k, i).
@@ -259,8 +264,15 @@ param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
 // values on every export, a 20-minute solve — because a generic library is exactly
 // the shape whose parameters unify everything. What a library does with a callback it
 // is handed is a MODEL (resolution/frameworks.dl), stated per library, not inferred.
-param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
-    method_decl("client", _, _, _, _, _, _, m),
+// The program's sites pass their arguments unless the PROGRAM calls the function from
+// more places than the cap; a test file's sites only while every site together stays
+// under it (fan-cap.dl).
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !site_in_test_module(ce),
+    !method_is_hot_in_program(m, _), method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
+    expr_value(arg, k, i).
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), site_in_test_module(ce),
+    !method_is_hot(m, _), method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
 // THE ONE LIBRARY EXCEPTION: a UMD wrapper (#710). `(function (root, factory) {
@@ -278,8 +290,12 @@ param_value(p, "func", f) :- call_site(_, "IIFE_CALL", _, _, _, _, ce, _, _), ca
     expr_value(arg, "func", f).
 // A rest parameter IS an array; the arguments at and past its position are its elements.
 param_value(p, "arr", p) :- param_is_rest(_, p).
-elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
-    method_decl("client", _, _, _, _, _, _, m),
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !site_in_test_module(ce),
+    !method_is_hot_in_program(m, _), method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
+    expr_value(arg, k, i).
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), site_in_test_module(ce),
+    !method_is_hot(m, _), method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
 // A default value: `cb = () => {}`. The parser gives the parameter the default's
@@ -330,6 +346,18 @@ this_value(m, k, i) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m,
 this_value(m, "obj", l) :- expr_child(_, l, "PROPERTY_VALUE", _, v), expr_kind(_, "OBJECT_LITERAL", _, l),
     expr_introduces(_, m, v), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 this_value(m, "obj", l) :- literal_owns_method(l, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+// `f.bind(o)` fixes f's `this` to o for every call through what it returns, wherever that
+// value travels: `onEvent.bind({ repo })` then `this.repo.append()` inside onEvent. The
+// thisArg is the site's RECEIVER child. Only objects and instances, and only a function no
+// class owns (a member's `this` is its instance already): `bind(null)` and a primitive
+// bind nothing, and a class member re-bound to its own instance adds nothing new.
+// `f.call(o)` / `f.apply(o)` are not read here: they run f once at that site.
+this_value(m, k, i) :- call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, "func", m),
+    method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _),
+    expr_child(_, ce, "RECEIVER", _, o), expr_value(o, k, i), bound_this_kind(k).
+bound_this_kind("obj").
+bound_this_kind("inst").
 // `T.prototype.constructor = T` is a BACK-REFERENCE, not an installation: nothing
 // calls it with the prototype as `this`, and reading it as one gave a constructor
 // the `Object.create(Base.prototype)` object as `this` (#708).
@@ -476,8 +504,13 @@ carry_step(x, c) :- expr_kind(_, "BINARY", _, x), expr_operator(_, op, x), binar
 carry_step(x, c) :- expr_kind(_, "ASSIGNMENT", _, x), expr_child(_, x, "ASSIGNMENT_VALUE", _, c).
 carry_step(x, c) :- expr_kind(_, "SEQUENCE", _, x), sequence_last(x, c).
 carry_step(x, c) :- expr_binding(_, v, x), var_init(_, _, c, v).
-carry_step(x, c) :- expr_binding(_, v, x), expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+// An assignment writing variable v the value c, KEYED BY THE VARIABLE and enumerated
+// once. Anchored on expr_binding the clause below visited every USE of every variable
+// and re-scanned the assignments for each: 3.1 minutes of a 6-minute solve, half the
+// profile, for 16.5K rows.
+var_assigned_value(v, c) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_binding(_, v, tgt), expr_child(_, a, "ASSIGNMENT_VALUE", _, c).
+carry_step(x, c) :- expr_binding(_, v, x), var_assigned_value(v, c).
 carry_rest(e, x) :- carry_part(e, x), !carries_param_call(x, _).
 // What the carrying return holds read context-insensitively: every caller's argument
 // merged (and nothing once the wrapper is over the fan cap). Only the fallbacks below

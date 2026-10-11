@@ -1,0 +1,55 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a constructor the tests call 24 times is not a generic utility: the program's own `new Codec(name, {decode})` reaches the parameter, so `codec.decode()` in the loader calls the stored callback and the loader's test reaches it",
+   "run": [
+    "impact",
+    "decode_alpha",
+    "--tests"
+   ],
+   "want": [
+    "load",
+    "load.test.js"
+   ],
+   "avoid": [
+    "tests: 0 of"
+   ]
+  },
+  {
+   "why": "a test's argument does not flow into the program's parameter: the loader's call is one of the three library callbacks and the fallback, never a test's own decoder",
+   "run": [
+    "impact",
+    "customDecode3"
+   ],
+   "avoid": [
+    "load   "
+   ]
+  },
+  {
+   "why": "CONTROL: a utility the PROGRAM calls from 23 places stays capped: what it is handed is not followed, so the callback is not a callee of each",
+   "run": [
+    "impact",
+    "onItem"
+   ],
+   "avoid": [
+    "each   "
+   ]
+  },
+  {
+   "why": "a test still hands the program what it calls back: a plugin passed from a test to core.extend is called with the class, so the method it adds is what the test's `core().shout()` calls (what flowed before keeps flowing)",
+   "run": [
+    "path",
+    "src/test/plugin.test.js",
+    "shout"
+   ],
+   "want": [
+    "known_edge"
+   ],
+   "avoid": [
+    "receiver not typed"
+   ]
+  }
+ ]
+}

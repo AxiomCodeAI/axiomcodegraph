@@ -70,18 +70,19 @@ function sourceStemsFor(targetPath: string): string[] {
  *
  * @returns `[moduleHash, exact]` — `exact` when the target itself is the walked file
  */
-function sourceModuleFor(
+function sourceModuleFor<T>(
   packageDir: string,
   targetPath: string,
-  moduleHashOf: (absolutePath: string) => string | undefined
-): [string, boolean] | undefined {
+  moduleHashOf: (absolutePath: string) => T | undefined,
+  extensions: readonly string[] = SOURCE_EXTENSIONS
+): [T, boolean] | undefined {
   const exact = moduleHashOf(path.normalize(path.resolve(packageDir, targetPath)));
   if (exact !== undefined) {
     return [exact, true];
   }
   for (const stem of sourceStemsFor(targetPath)) {
     for (const candidate of [stem, `${stem}/index`]) {
-      for (const extension of SOURCE_EXTENSIONS) {
+      for (const extension of extensions) {
         const hash = moduleHashOf(path.normalize(path.resolve(packageDir, candidate + extension)));
         if (hash !== undefined) {
           return [hash, false];
@@ -136,6 +137,61 @@ function sourceModulesForPattern(
     }
   }
   return [];
+}
+
+/**
+ * The walked source module a consumer's import of `subpath` (`"."`, `"./sub"`) binds
+ * to, by the same convention as the entry rows: the package's own entry for that
+ * subpath, mapped from build output back to source.
+ *
+ * `source` and `types` count for `"."` as they do for the rows. A subpath pattern
+ * substitutes its `*` into the target, as Node does. A package with no `exports`
+ * publishes every file, so a deep subpath (`"./sub"`, `"./dist/sub"`) is its own
+ * target. With `exports` present, a subpath it does not list is blocked for Node and
+ * binds to nothing here either. `extensions` are the source extensions looked for, in
+ * order: TypeScript's by default, JavaScript's for a JavaScript workspace.
+ */
+export function sourceModuleForSubpath<T>(
+  facts: PackageJsonFacts,
+  subpath: string,
+  moduleHashOf: (absolutePath: string) => T | undefined,
+  extensions: readonly string[] = SOURCE_EXTENSIONS
+): T | undefined {
+  const packageDir = path.dirname(facts.path);
+  const strip = (target: string): string => target.replace(/^\.\//, '');
+  const entries = packageEntriesOf(facts);
+  const targets: string[] = [];
+  if (subpath === '.' && facts.source !== undefined && facts.source !== '') {
+    targets.push(strip(facts.source));
+  }
+  for (const entry of entries) {
+    if (entry.subpath === subpath && entry.targetPath !== '' && !entry.targetPath.includes('*')) {
+      targets.push(entry.targetPath);
+    }
+  }
+  for (const entry of entries) {
+    const [before, after, ...more] = entry.subpath.split('*');
+    if (after === undefined || more.length > 0 || entry.targetPath === ''
+      || !subpath.startsWith(before!) || !subpath.endsWith(after)
+      || subpath.length < before!.length + after.length) {
+      continue;
+    }
+    const match = subpath.slice(before!.length, subpath.length - after.length);
+    targets.push(entry.targetPath.split('*').join(match));
+  }
+  if (subpath === '.' && facts.types !== undefined && facts.types !== '') {
+    targets.push(strip(facts.types));
+  }
+  if (subpath !== '.' && facts.exports === undefined) {
+    targets.push(strip(subpath));
+  }
+  for (const target of targets) {
+    const found = sourceModuleFor(packageDir, target, moduleHashOf, extensions);
+    if (found !== undefined) {
+      return found[0];
+    }
+  }
+  return undefined;
 }
 
 const SOURCE_OF: Record<JsPackageEntrySource, TsPackageEntrySource> = {

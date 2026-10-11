@@ -15,6 +15,7 @@ known_edge	ANNOTATION_PARAM	0	testcases.config.Annotated [ANNOTATION_ARGUMENT] -
 known_edge	ANNOTATION_PARAM	0	testcases.config.Annotated [ANNOTATION_ARGUMENT] -> testcases.config.IndexedBy
 known_edge	ANNOTATION_TYPE	0	testcases.config.Annotated [ANNOTATION] -> testcases.config.Codec
 known_edge	ANNOTATION_TYPE	0	testcases.config.Annotated [ANNOTATION] -> testcases.config.Idx
+known_edge	ANNOTATION_TYPE	0	testcases.config.Consumer [ANNOTATION] -> testcases.config.Value
 known_edge	ANNOTATION_TYPE	0	testcases.config.SvcProps [ANNOTATION] -> testcases.config.ConfigurationProperties
 known_edge	FIELD_TYPE	0	testcases.config.SvcProps [FIELD] -> testcases.config.Nested
 known_edge	METHOD_RETURN	0	testcases.config.Codec#index() [METHOD] -> testcases.config.Idx

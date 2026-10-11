@@ -5,11 +5,12 @@
 .decl dst(q:symbol, m:symbol)              .input dst
 .decl byname(c:symbol, n:symbol)           .input byname
 .decl named(n:symbol, m:symbol)            .input named
+.decl rejected_edge(c:symbol, m:symbol)    .input rejected_edge   // leads an asserted-links rejection takes out (ax_links.py)
 
 // ── the optimistic closure: unresolved sites taken by name ─────────────────────────────────────────────────────
 .decl edge_opt(a:symbol, b:symbol, t:symbol)
 edge_opt(a, b, t) :- edge(a, b, t).
-edge_opt(c, m, "by-name") :- byname(c, n), named(n, m).
+edge_opt(c, m, "by-name") :- byname(c, n), named(n, m), !rejected_edge(c, m).
 .decl step_opt(q:symbol, m:symbol, d:number)
 step_opt(q, m, 0) :- src(q, m).
 step_opt(q, b, d+1) :- step_opt(q, a, d), edge_opt(a, b, _), d < 40.

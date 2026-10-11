@@ -1,0 +1,16 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "vitest only type-checks a *.test-d.ts file and runs none of its code: a body change cannot fail it, so it is listed apart and not counted",
+   "run": ["impact", "price", "--tests-only"],
+   "want": ["tests: 2 of", "[type test] 1 test(s) in 1 file(s)", "src/test/price.test-d.ts (1)"]
+  },
+  {
+   "why": "control: a runtime test file is counted, including one whose name only says `types`",
+   "run": ["impact", "price", "--tests-only"],
+   "want": ["src/test/price.test.ts (1)", "src/test/price.types.test.ts (1)"]
+  }
+ ]
+}

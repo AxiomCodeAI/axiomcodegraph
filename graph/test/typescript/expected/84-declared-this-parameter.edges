@@ -1,0 +1,9 @@
+ambiguous_unknown	METHOD_CALL	x#<module-init>() @L8 -> -
+ambiguous_unknown	METHOD_CALL	x#<module-init>() @L9 -> -
+ambiguous_unknown	METHOD_CALL	x#onUntyped(number) @L12 -> -
+known_edge	CONSTRUCTOR_CALL	x#<module-init>() @L14 -> Repo#<new>()
+known_edge	CONSTRUCTOR_CALL	x#<module-init>() @L8 -> Repo#<new>()
+known_edge	CONSTRUCTOR_CALL	x#<module-init>() @L9 -> Other#<new>()
+known_edge	METHOD_CALL	Owner#run(number) @L15 -> Repo#append(number)
+known_edge	METHOD_CALL	x#onEvent(number) @L6 -> Repo#append(number)
+known_edge	METHOD_CALL	x#onShape(number) @L7 -> Other#append(number)

@@ -1,0 +1,26 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a decorator matched only by its name that REGISTERS the function and hands it back unchanged: calling the decorated function never runs the decorator, so a change to what the decorator calls does not reach the decorated function (it used to be listed as a caller of the decorator, and everything reaching it with it)",
+   "run": [
+    "impact",
+    "remember"
+   ],
+   "avoid": [
+    "on_order_created"
+   ]
+  },
+  {
+   "why": "the control: a decorator matched only by its name that hands back a WRAPPER. The decorated name now denotes the wrapper, so a change the wrapper reaches still reaches the decorated declaration",
+   "run": [
+    "impact",
+    "tick"
+   ],
+   "want": [
+    "crunch_numbers"
+   ]
+  }
+ ]
+}

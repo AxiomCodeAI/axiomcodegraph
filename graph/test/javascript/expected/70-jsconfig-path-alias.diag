@@ -1,3 +1,0 @@
-import_cause     noalias/probe.js:2:10  @/check  not_staged
-package_entry    path-alias-fixture  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
-unresolved       noalias/probe.js:5:10  FUNCTION_CALL checkA  callee_untyped

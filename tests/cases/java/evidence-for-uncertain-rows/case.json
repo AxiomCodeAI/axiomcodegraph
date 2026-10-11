@@ -1,0 +1,31 @@
+{
+ "lang": "java",
+ "src": ".",
+ "checks": [
+  {
+   "why": "Java: a one-of-a-set call through a JDK functional interface decides on the field that holds it",
+   "run": [
+    "impact",
+    "java/app/Pipeline.java:7",
+    "--evidence",
+    "--grep"
+   ],
+   "want": [
+    "decided  L6: private final Function<String, String> loader;  [field \u00b7 type Function]"
+   ]
+  },
+  {
+   "why": "Java: path's hop through the same call carries the same decider",
+   "run": [
+    "path",
+    "Cache.load",
+    "Pipeline.apply",
+    "--evidence",
+    "--grep"
+   ],
+   "want": [
+    "private final Function<String, String> loader;"
+   ]
+  }
+ ]
+}

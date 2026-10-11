@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="demo.order.OrderMapper">
+  <select id="findById" resultType="demo.order.Order">
+    select id, number from orders where id = #{id}
+  </select>
+  <select id="findByNumber" resultType="demo.order.Order">
+    select id, number from orders where number = #{number}
+  </select>
+  <select id="selectOne" resultType="demo.order.Order">
+    select id, number from orders where id = #{id}
+  </select>
+</mapper>

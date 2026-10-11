@@ -1,0 +1,5 @@
+# The per-case oracle compiles every file under src/ as ONE program (tsc-program.mjs walks
+# the directory), so the two programs' `interface Array` merge and the fixture's later
+# `map` overload is the one it picks. In the real layout app/ and fixture/ are separate
+# programs and `this.items.map` resolves to app/globals.d.ts, which is what the engine says.
+Pipeline#map((value: T) =) -> Array#map((item: T) =)

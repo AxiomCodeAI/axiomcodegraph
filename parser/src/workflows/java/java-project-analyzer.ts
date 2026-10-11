@@ -27,6 +27,13 @@ import { TypeRegistryExtractor, ImportExtractor } from '@/parsers/java/extractor
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import {
+  extractJavaFileFacts,
+  JavaFileFacts,
+  JavaParseOutcome,
+  parseFilesInPool,
+  parsePoolJobs,
+} from '@/workflows/java/java-parse-pool';
 
 export class JavaProjectAnalyzer {
   private codeExtractor: CodeExtractor;
@@ -50,6 +57,19 @@ export class JavaProjectAnalyzer {
   private skippedFiles: { filePath: string; baseMservPath: string; serviceVersionHash: string; reason: SkippedFileReason; uniqueFileHash: string }[] = [];
   private importExtractor: ImportExtractor;
   private outputDir: string;
+  /**
+   * Serializes the pooled extract+consume section across projects.
+   *
+   * `analyzeJavaProjects` runs projects through `Promise.all`, and in the
+   * SERIAL path that is safe for the `all*` arrays because each project's
+   * per-file loop is synchronous — once it starts, it runs to completion
+   * before any other project can append. The pooled path awaits between
+   * consumes, so without this gate two projects' appends would interleave by
+   * worker timing and the output bytes would change run to run. Each
+   * project's pooled section therefore takes its turn on this chain, keeping
+   * a project's appends as atomic as the serial loop's.
+   */
+  private poolTurn: Promise<void> = Promise.resolve();
 
   constructor(codeExtractor?: CodeExtractor, outputDir?: string) {
     this.codeExtractor = codeExtractor || new CodeExtractor();
@@ -181,126 +201,111 @@ export class JavaProjectAnalyzer {
 
     console.log(`   🔍 Found ${javaFiles.length} Java file(s), extracting types...`);
 
-    const fileContents = await this.readFiles(javaFiles, projectPath, serviceVersionHash);
-
-    // Extract from each file and collect type parameters after each file
     const typeRegistries: TypeRegistry[] = [];
-    const extractor = this.codeExtractor.getExtractor(
-      ProjectLanguage.JAVA,
-      JAVA_ENTITY_TYPES.TYPE_REGISTRY
-    ) as any;
 
-    for (const fileData of fileContents) {
-      const typesFromFile = this.codeExtractor.extract<TypeRegistry>(
-        ProjectLanguage.JAVA,
-        JAVA_ENTITY_TYPES.TYPE_REGISTRY,
-        fileData.path,
-        fileData.content,
-        serviceVersionHash
-      );
-      typeRegistries.push(...typesFromFile);
+    // One file's outcome, appended the same way whichever thread produced it.
+    // The pool calls this in file order as results arrive, and the serial
+    // loop calls it inline, so the accumulation order — and therefore the
+    // output bytes — is identical across the two paths.
+    const consumeOutcome = (filePath: string, outcome: JavaParseOutcome): void => {
+      if (outcome.skipReason !== undefined) {
+        this.recordPoolSkip(filePath, projectPath, serviceVersionHash, outcome);
+        return;
+      }
+      if (!outcome.facts) return;
+      this.appendFileFacts(typeRegistries, outcome.facts);
+    };
 
-      // Collect type parameters from this file immediately
-      if (extractor && 'getExtractedTypeParameters' in extractor) {
-        const typeParams = extractor.getExtractedTypeParameters();
-        this.allTypeParameters.push(...typeParams);
+    // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files
+    // (java-parse-pool.ts): read, parse, extract and hash are independent
+    // between files. AXIOMCODE_PARSE_JOBS=1 restores the strict serial path;
+    // the pool declining (no compiled worker beside this file) falls back to
+    // it too. In the pooled path the worker reads its own file and applies
+    // `readFiles`' three rejections itself; the serial path below keeps
+    // reading everything up front, exactly as before.
+    const jobs = parsePoolJobs(javaFiles.length);
+    let pooled = false;
+    if (jobs > 1) {
+      // Take this project's turn on the pool chain — see `poolTurn`.
+      const myTurn = this.poolTurn;
+      let release!: () => void;
+      this.poolTurn = new Promise<void>(resolve => (release = resolve));
+      await myTurn;
+      try {
+        pooled = await parseFilesInPool(
+          javaFiles.map((filePath, i) => ({ i, filePath, serviceVersionHash })),
+          jobs,
+          (i, outcome) => consumeOutcome(javaFiles[i] as string, outcome)
+        );
+      } finally {
+        release();
       }
-      
-      // Collect type references from this file immediately
-      if (extractor && 'getExtractedTypeReferences' in extractor) {
-        const typeRefs = extractor.getExtractedTypeReferences();
-        this.allTypeReferences.push(...typeRefs);
+    }
+    if (!pooled) {
+      const fileContents = await this.readFiles(javaFiles, projectPath, serviceVersionHash);
+      for (const fileData of fileContents) {
+        consumeOutcome(fileData.path, {
+          facts: extractJavaFileFacts(
+            this.codeExtractor,
+            this.importExtractor,
+            fileData.path,
+            fileData.content,
+            serviceVersionHash
+          ),
+        });
       }
-      
-      // Collect annotations from this file immediately
-      if (extractor && 'getExtractedAnnotations' in extractor) {
-        const annotations = extractor.getExtractedAnnotations();
-        this.allAnnotations.push(...annotations);
-      }
-      
-      // Collect annotation arguments from this file immediately
-      if (extractor && 'getExtractedAnnotationArguments' in extractor) {
-        const annotationArgs = extractor.getExtractedAnnotationArguments();
-        this.allAnnotationArguments.push(...annotationArgs);
-      }
-      
-      // Collect methods from this file immediately
-      if (extractor && 'getExtractedMethods' in extractor) {
-        const methods = extractor.getExtractedMethods();
-        this.allMethods.push(...methods);
-      }
-      
-      // Collect method parameters from this file immediately
-      if (extractor && 'getExtractedMethodParameters' in extractor) {
-        const methodParams = extractor.getExtractedMethodParameters();
-        this.allMethodParameters.push(...methodParams);
-      }
-      
-      // Collect method type parameters from this file immediately
-      if (extractor && 'getExtractedMethodTypeParameters' in extractor) {
-        const methodTypeParams = extractor.getExtractedMethodTypeParameters();
-        this.allMethodTypeParameters.push(...methodTypeParams);
-      }
-      
-      // Collect enum constants from this file immediately
-      if (extractor && 'getExtractedEnumConstants' in extractor) {
-        const enumConstants = extractor.getExtractedEnumConstants();
-        this.allEnumConstants.push(...enumConstants);
-      }
-
-      // Collect the module declaration from this file, if it was a module-info.java
-      if (extractor && 'getExtractedModules' in extractor) {
-        const modules = extractor.getExtractedModules();
-        this.allModules.push(...modules);
-      }
-
-      // Collect module directives from this file immediately
-      if (extractor && 'getExtractedModuleDirectives' in extractor) {
-        const moduleDirectives = extractor.getExtractedModuleDirectives();
-        this.allModuleDirectives.push(...moduleDirectives);
-      }
-      
-      // Collect fields from this file immediately
-      if (extractor && 'getExtractedFields' in extractor) {
-        const fields = extractor.getExtractedFields();
-        this.allFields.push(...fields);
-      }
-      
-      // Extract imports from this file
-      const importsFromFile = this.importExtractor.extract(
-        fileData.path,
-        fileData.content,
-        serviceVersionHash
-      );
-      this.allImports.push(...importsFromFile);
-      
-      // Collect expressions from this file immediately
-      if (extractor && 'getExtractedExpressions' in extractor) {
-        const expressions = extractor.getExtractedExpressions();
-        this.allExpressions.push(...expressions);
-      }
-      
-      // Collect local variables from this file immediately
-      if (extractor && 'getExtractedLocalVariables' in extractor) {
-        const localVariables = extractor.getExtractedLocalVariables();
-        this.allLocalVariables.push(...localVariables);
-      }
-      
-      // Collect blocks from this file immediately
-      if (extractor && 'getExtractedBlocks' in extractor) {
-        const blocks = extractor.getExtractedBlocks();
-        this.allBlocks.push(...blocks);
-      }
-      
-      // Collect comments from this file immediately
-      if (extractor && 'getExtractedComments' in extractor) {
-        const comments = extractor.getExtractedComments();
-        this.allComments.push(...comments);
-      }
-      
     }
 
     return typeRegistries;
+  }
+
+  /**
+   * Appends one file's tables to the project's accumulators — the body the
+   * serial loop ran inline, applied identically to a worker's thawed reply.
+   */
+  private appendFileFacts(typeRegistries: TypeRegistry[], facts: JavaFileFacts): void {
+    typeRegistries.push(...facts.typeRegistries);
+    this.allTypeParameters.push(...facts.typeParameters);
+    this.allTypeReferences.push(...facts.typeReferences);
+    this.allAnnotations.push(...facts.annotations);
+    this.allAnnotationArguments.push(...facts.annotationArguments);
+    this.allMethods.push(...facts.methods);
+    this.allMethodParameters.push(...facts.methodParameters);
+    this.allMethodTypeParameters.push(...facts.methodTypeParameters);
+    this.allEnumConstants.push(...facts.enumConstants);
+    this.allModules.push(...facts.modules);
+    this.allModuleDirectives.push(...facts.moduleDirectives);
+    this.allFields.push(...facts.fields);
+    this.allImports.push(...facts.imports);
+    this.allExpressions.push(...facts.expressions);
+    this.allLocalVariables.push(...facts.localVariables);
+    this.allBlocks.push(...facts.blocks);
+    this.allComments.push(...facts.comments);
+  }
+
+  /**
+   * Records a skip reported by a worker, with the same row and the same log
+   * line `readFiles` produces for that rejection in the serial path.
+   */
+  private recordPoolSkip(
+    filePath: string,
+    baseMservPath: string,
+    serviceVersionHash: string,
+    outcome: JavaParseOutcome
+  ): void {
+    const reason = outcome.skipReason as SkippedFileReason;
+    if (reason === SkippedFileReason.READ_ERROR) {
+      console.error(`Error reading file ${filePath}:`, outcome.readErrorDetail);
+    } else if (reason === SkippedFileReason.FILE_TOO_LARGE) {
+      console.log(`   ⏭️  Skipping very large file (${outcome.lineCount} lines): ${filePath}`);
+    } else {
+      console.warn(`Skipping ${filePath}: empty or invalid content`);
+    }
+    const uniqueFileHash = EntityUtils.generateEntityHash(
+      ENTITY_IDENTIFIERS.SKIPPED_FILE,
+      `${filePath}||${baseMservPath}||${serviceVersionHash}||${reason}`
+    );
+    this.skippedFiles.push({ filePath, baseMservPath, serviceVersionHash, reason, uniqueFileHash });
   }
 
   /**

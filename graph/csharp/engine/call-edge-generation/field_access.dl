@@ -1,0 +1,105 @@
+// ============================================================================
+// CALL-EDGE-GEN · FIELD ACCESS AS A DATA EDGE  (#1445, the C# half of #663)
+//
+// One row per (member access, resolved field), with the direction the data moves and
+// how well the site resolved: the same six columns Java and TypeScript export, so the
+// bundle reads one shape for every front end and `impact Type.Field` answers a C#
+// field from the engine rather than from a name match.
+//
+// WHY IT WAS MISSING. A C# member access `x.Name` is resolved by the engine, not the
+// parser (resolution/properties.dl says why: whether `Name` is a field, a property or
+// an event is a resolution outcome). properties.dl turned the PROPERTY outcome into an
+// accessor call and nothing turned the FIELD outcome into anything, so `_o.Limit` and
+// `AuditOptions.SectionName` had no edge at all. A reader of another type's same-named
+// field was then indistinguishable from a reader of this one.
+//
+// NOTHING NEW IS RESOLVED HERE. The joins are property_access's, with "field" in place
+// of "property" in the member lookup: the qualifier typed by expr_type (an instance
+// access) or named as a type by ref_names_type (a static field or a const), then
+// member_lookup, which already carries C#'s hiding law and the client-to-library base
+// chain. An unqualified name the parser bound itself (ref_denotes FIELD) is taken as
+// the parser gave it, as property_access_unqualified takes a bare property.
+//
+// A PROPERTY IS NOT HERE. It is a call, and call_chain.dl emits it through its accessor.
+// The two are disjoint by construction: member_lookup's "field" kind holds fields and
+// consts, its "property" kind holds properties. An ENUM MEMBER is not here either: the
+// bundle's `fields` table does not list C# enum members, so a row naming one would
+// point at nothing.
+//
+// ONLY RESOLVED SITES HAVE A ROW. Java and TypeScript also emit an ambiguous_unknown row
+// for a field-access site that did not resolve, because their parsers say which sites
+// are field accesses. A C# MEMBER_ACCESS is a field, a property, an event, a method
+// group or a namespace step until resolution says which, so an unresolved one is not
+// known to be a field access at all, and a row for it would claim a blind spot on a
+// field that may not exist. Unresolved member accesses stay counted where they already
+// are (member_lookup_miss_real, external_property_read).
+//
+// TIERS:
+//   known_edge      exactly one field. A field is not virtually dispatched, so this is
+//                   the storage location the access binds to.
+//   multi_inferred  2+: the receiver typed to more than one type, and each named a field.
+//   boundary_lib    the field is declared in a staged library type.
+// ============================================================================
+
+// ── RESOLUTION ──────────────────────────────────────────────────────────────
+// `x.Name` on an instance: the qualifier's type declares (or inherits) a field `Name`.
+// A member access that is the callee of an invocation is a method, never a field.
+cs_field_access_target(prov, acc, f) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_is_callee(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, recvGk),
+    member_lookup(prov, recvGk, n, "field", f).
+
+// `Type.Name`: a static field or a const read through a type name.
+cs_field_access_target(prov, acc, f) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_is_callee(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, gk),
+    member_lookup(prov, gk, n, "field", f).
+
+// `Name` unqualified, with an implicit `this` or the declaring type: the parser binds
+// these itself. The MEMBER_NAME child of a member access is excluded: the access is
+// the site, and counting its name child as well would store every qualified access
+// twice.
+cs_field_access_target(prov, e, f) :-
+    ref_denotes(prov, e, "FIELD", f),
+    !cs_member_name_expr(prov, e).
+cs_member_name_expr(prov, e) :- expr_member_name_child(prov, _, e).
+
+// ── ACCESS DIRECTION ────────────────────────────────────────────────────────
+// properties.dl's write / read-write tests, reused so the two relations cannot disagree
+// about whether a position writes:
+//   write      a plain assignment or an object-initializer target; the old value is not read
+//   readwrite  a compound assignment or `++` / `--`
+//   read       everything else
+cs_field_access_kind(prov, e, "write")     :- cs_field_access_target(prov, e, _), expr_is_write_target(prov, e).
+cs_field_access_kind(prov, e, "readwrite") :- cs_field_access_target(prov, e, _), expr_is_readwrite_target(prov, e),
+    !expr_is_write_target(prov, e).
+cs_field_access_kind(prov, e, "read")      :- cs_field_access_target(prov, e, _),
+    !expr_is_write_target(prov, e), !expr_is_readwrite_target(prov, e).
+
+// ── TIER ────────────────────────────────────────────────────────────────────
+cs_field_access_count(prov, e, c) :- cs_field_access_target(prov, e, _),
+    c = count : { cs_field_access_target(prov, e, _) }.
+cs_field_access_class(prov, e, "known_edge")     :- cs_field_access_count(prov, e, 1).
+cs_field_access_class(prov, e, "multi_inferred") :- cs_field_access_count(prov, e, c), c >= 2.
+
+// ── THE EXPORTED ROW — field_access(Site, Caller, Field, Prov, Tier, Access) ─
+// The caller is call_from_expr's, the same attribution an accessor edge gets: the
+// enclosing method, or the type for a field initializer. Client sites only, as every
+// other exported edge.
+field_access(e, caller, f, "client", cls, acc) :-
+    cs_field_access_target("client", e, f), field_decl("client", _, _, f),
+    call_from_expr("client", e, caller),
+    cs_field_access_class("client", e, cls), cs_field_access_kind("client", e, acc).
+field_access(e, caller, f, "lib", "boundary_lib", acc) :-
+    cs_field_access_target("client", e, f), field_decl("lib", _, _, f),
+    !field_decl("client", _, _, f),
+    call_from_expr("client", e, caller),
+    cs_field_access_kind("client", e, acc).

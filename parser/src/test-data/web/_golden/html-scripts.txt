@@ -1,0 +1,11 @@
+scriptKind=EXTERNAL	scriptType=CLASSIC	typeAsWritten=	src=//cdn.example.com/x.js	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=0	bodyStartColumn=0	bodyEndLine=0	bodyEndColumn=0	bodyLength=0
+scriptKind=EXTERNAL	scriptType=CLASSIC	typeAsWritten=	src=/assets/main.js	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=0	bodyStartColumn=0	bodyEndLine=0	bodyEndColumn=0	bodyLength=0
+scriptKind=EXTERNAL	scriptType=CLASSIC	typeAsWritten=	src=https://cdn.example.com/lib.js	isAsync=false	isDefer=true	isNoModule=false	bodyStartLine=0	bodyStartColumn=0	bodyEndLine=0	bodyEndColumn=0	bodyLength=0
+scriptKind=EXTERNAL	scriptType=CLASSIC	typeAsWritten=	src=js/vendor.js	isAsync=true	isDefer=false	isNoModule=false	bodyStartLine=0	bodyStartColumn=0	bodyEndLine=0	bodyEndColumn=0	bodyLength=0
+scriptKind=INLINE	scriptType=DATA_BLOCK	typeAsWritten=text/x-mathjax-config	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=7	bodyStartColumn=38	bodyEndLine=7	bodyEndColumn=61	bodyLength=23
+scriptKind=INLINE	scriptType=IMPORTMAP	typeAsWritten=importmap	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=15	bodyStartColumn=28	bodyEndLine=15	bodyEndColumn=67	bodyLength=39
+scriptKind=INLINE	scriptType=JSON	typeAsWritten=application/ld+json	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=46	bodyStartColumn=38	bodyEndLine=46	bodyEndColumn=72	bodyLength=34
+scriptKind=INLINE	scriptType=MODULE	typeAsWritten=module	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=41	bodyStartColumn=25	bodyEndLine=44	bodyEndColumn=3	bodyLength=55
+scriptKind=INLINE	scriptType=SPECULATION_RULES	typeAsWritten=speculationrules	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=5	bodyStartColumn=33	bodyEndLine=5	bodyEndColumn=92	bodyLength=59
+scriptKind=INLINE	scriptType=TEMPLATE	typeAsWritten=text/x-template	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=45	bodyStartColumn=47	bodyEndLine=45	bodyEndColumn=75	bodyLength=28
+scriptKind=INLINE	scriptType=TRANSPILED	typeAsWritten=text/babel	src=	isAsync=false	isDefer=false	isNoModule=false	bodyStartLine=6	bodyStartColumn=27	bodyEndLine=6	bodyEndColumn=42	bodyLength=15

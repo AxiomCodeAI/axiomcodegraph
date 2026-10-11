@@ -1,0 +1,10 @@
+# Accepted gaps for 86-keyed-callback-registry — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# The call through an element of a Set held in a Map resolves, for the compiler, to the element's
+# function type; with no standard library staged the engine cannot type the Set's elements, so the
+# call site stays unresolved (Bus.dispatch annotates its array, so its call resolves). The functions that call RUNS are reached by the keyed-registry edges
+# (event_dispatch) from each publisher, which is what this case is about.
+MiniBus#<arrow@55>(?) -> MiniBus#<arrow@47>(unknown)
+MiniBus#fire(string,unknown) -> MiniBus#<arrow@47>(unknown)

@@ -6,6 +6,7 @@ import Parser from 'tree-sitter';
 import CSharp from 'tree-sitter-c-sharp';
 
 import { FILE_EXTENSIONS } from '@/constants/consts';
+import { materializeTree } from '@/parsers/mirror-tree';
 import {
   CSHARP_CALLBACK_PARSE_THRESHOLD,
   CSHARP_PARSE_CHUNK_SIZE,
@@ -81,6 +82,20 @@ export function stripUtf8Bom(sourceCode: string): string {
   return sourceCode.startsWith(UTF8_BOM) ? sourceCode.slice(UTF8_BOM.length) : sourceCode;
 }
 
+/** tree-sitter-c-sharp `extras`: the only node types that parse as extra. */
+const CS_EXTRA_TYPES: ReadonlySet<string> = new Set([
+  'comment',
+  'preproc_region',
+  'preproc_endregion',
+  'preproc_line',
+  'preproc_pragma',
+  'preproc_nullable',
+  'preproc_error',
+  'preproc_warning',
+  'preproc_define',
+  'preproc_undef',
+]);
+
 export class CSharpParser implements LanguageParser {
   readonly language = ProjectLanguage.CSHARP;
   readonly fileExtension = FILE_EXTENSIONS.CSHARP;
@@ -142,7 +157,16 @@ export class CSharpParser implements LanguageParser {
     return parseWithRetry(source);
   }
 
-  getRootNode(tree: Parser.Tree): Parser.SyntaxNode {
+  getRootNode(tree: Parser.Tree, sourceCode?: string): Parser.SyntaxNode {
+    // With `sourceCode`, the root is a one-pass plain-JS mirror of the tree
+    // (see `../mirror-tree`): every stage after it reads JS properties
+    // instead of re-crossing the tree-sitter FFI per property access.
+    // Tree-sitter still parses every file.
+    if (sourceCode !== undefined) {
+      // parse() strips a leading BOM, so the mirror slices text from the SAME
+      // string the tree's byte offsets are relative to, whatever was passed.
+      return materializeTree(tree, stripUtf8Bom(sourceCode), CS_EXTRA_TYPES) as unknown as Parser.SyntaxNode;
+    }
     return tree.rootNode;
   }
 

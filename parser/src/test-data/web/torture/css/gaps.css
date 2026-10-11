@@ -1,0 +1,34 @@
+/* G01 syntax the grammar must survive, with rows still emitted for the readable rest */
+.before-gaps { color: red }
+.g1 { color: red
+.g2 { color: blue }
+.g3 { color: red }}
+}
+.g4 { ; color: red }
+.g5 { color: red; ; ; }
+.g6 { color }
+.g7 { : }
+.g8 { @media (x) { color: red } }
+.g9 { color: red } .g10
+.g11 { color: red } }
+@media { .g12 { color: red } }
+@media screen { .g13 { color: red }
+.g14 { color: red }
+@unknown-rule foo { .g15 { color: red } }
+@unknown-statement foo bar;
+@import "late.css";                         /* @import after rules is ignored by browsers */
+@charset "utf-8";                           /* @charset not first is ignored by browsers */
+.g16 { color: red } /* unclosed comment
+.g17 { color: red }
+*/
+.g18 { color: red }
+<!-- .g19 { color: red } -->
+.g20 { color: red }
+.g21 { background: url(img/bg.png }
+.g22 { color: rgb(1, 2 }
+.g23 { width: calc(1px + }
+.g24 { content: "x }
+.g25 { color: red }
+.g26 [ { color: red }
+.g27 ( { color: red }
+.g28 { color: red

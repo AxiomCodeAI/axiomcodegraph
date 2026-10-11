@@ -2,4 +2,14 @@ ambiguous_unknown	read	app#<arrow@15>(?) -> -
 ambiguous_unknown	read	app#<arrow@16>(?) -> -
 ambiguous_unknown	read	app#<arrow@18>(?) -> -
 ambiguous_unknown	read	app#<arrow@19>() -> -
+known_edge	read	app#Page() -> app#DynAwait
+known_edge	read	app#Page() -> app#DynDefault
+known_edge	read	app#Page() -> app#DynNamed
+known_edge	read	app#Page() -> app#LazyBlock
+known_edge	read	app#Page() -> app#LazyDefault
+known_edge	read	app#Page() -> app#LazyNamed
+known_edge	read	app#Page() -> app#Made
+known_edge	read	app#Page() -> app#Memoed
+known_edge	read	app#Page() -> app#Observed
+known_edge	read	app#Page() -> app#Thing
 known_edge	read	ui/Button#Button({ label: string }) -> { label: string }#label

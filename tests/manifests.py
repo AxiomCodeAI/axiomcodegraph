@@ -172,11 +172,13 @@ def main():
                 if re.search(r'(?<!")\$\{CLAUDE_PLUGIN_ROOT\}', hook['command']):
                     bad.append(f"hooks.json {event}: {hook['command']!r} leaves ${{CLAUDE_PLUGIN_ROOT}} unquoted")
 
-    # Every host is told about the same seven tools.
+    # Every host is told about the same tools, as they are called: impact(name), path(start, end), …
     server = open(os.path.join(PLUGIN, 'mcp', 'server.py')).read()
-    tools = set(re.findall(r'^def (axiomcode_\w+)\(', server, re.M))
+    tools = set(re.findall(r'^def (\w+)\(', server[server.index('@srv.tool()'):], re.M)) if '@srv.tool()' in server else set()
+    if not tools:
+        bad.append("mcp/server.py: no tool was found, so no context file was checked")
     context = open(os.path.join(ROOT, gemini['contextFileName'])).read()
-    for tool in sorted(tools - set(re.findall(r'\b(axiomcode_\w+)\b', context))):
+    for tool in sorted(t for t in tools if not re.search(r'(?<![\w.])' + t + r'\(', context)):
         bad.append(f"{gemini['contextFileName']}: does not name the {tool} tool")
 
     for b in bad:

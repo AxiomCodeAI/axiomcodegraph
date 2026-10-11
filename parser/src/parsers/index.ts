@@ -10,3 +10,5 @@ export {
   PythonParser,
   PythonScopeExtractor,
 } from '@/parsers/python';
+export { HtmlParser } from '@/parsers/html';
+export { CssParser } from '@/parsers/css';

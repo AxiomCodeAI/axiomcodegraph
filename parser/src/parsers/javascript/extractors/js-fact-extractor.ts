@@ -112,6 +112,11 @@ export interface JsFileExtractionOptions {
   /** Absolute path -> project-relative path, extension stripped. */
   readonly toProjectRelative: (absolutePath: string) => string;
   /**
+   * A bare specifier naming a package this repository declares -> the absolute path of
+   * the walked source module its entry is built from (`WorkspacePackages`).
+   */
+  readonly resolveWorkspaceModule?: (specifier: string) => string | undefined;
+  /**
    * How `sourceText` parses, when the file's extension cannot say: a `.vue`
    * component's virtual script is JS or JSX by its `lang`, not by its name.
    */
@@ -384,6 +389,7 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     typeHashByNode: declarations.typeHashByNode,
     moduleInitMethodHash: declarations.moduleInitMethodHash,
     toProjectRelative: options.toProjectRelative,
+    resolveWorkspaceModule: options.resolveWorkspaceModule,
     projectModuleHashes: options.projectModuleHashes,
     declarationTargetByName,
   });

@@ -1,0 +1,15 @@
+bound.js:22:33 CONSTRUCTOR_CALL Service  EXACT  bound.js:14:3
+bound.js:22:45 CONSTRUCTOR_CALL Repo  SYNTHESIZED_OK  
+bound.js:23:14 CONSTRUCTOR_CALL Repo  SYNTHESIZED_OK  
+bound.js:24:15 FUNCTION_CALL_BIND bind  EXACT  bound.js:5:3
+bound.js:26:27 FUNCTION_CALL_BIND bind  EXACT  bound.js:6:3
+bound.js:29:37 FUNCTION_CALL_BIND bind  EXACT  bound.js:6:3
+bound.js:34:17 FUNCTION_CALL_BIND bind  EXACT  bound.js:33:1
+bound.js:34:38 CONSTRUCTOR_CALL Repo  SYNTHESIZED_OK  
+bound.js:39:24 FUNCTION_CALL_BIND bind  EXACT  bound.js:37:12
+bound.js:39:55 CONSTRUCTOR_CALL Other  SYNTHESIZED_OK  
+bound.js:43:34 FUNCTION_CALL_CALL call  EXACT  bound.js:42:1
+bound.js:43:55 CONSTRUCTOR_CALL Repo  SYNTHESIZED_OK  
+bound.js:44:18 FUNCTION_CALL_BIND bind  EXACT  bound.js:6:3
+bound.js:47:17 METHOD_CALL promisify  EXACT  bound.js:46:15
+# defects: 0

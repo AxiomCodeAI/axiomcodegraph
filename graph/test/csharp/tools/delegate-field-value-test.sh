@@ -81,7 +81,8 @@ q(){ sqlite3 -separator ' ' "$DB" "$1"; }
 got="$(q "SELECT b.qualified_name, c.name FROM dispatch_candidates d
           JOIN methods b ON b.id = d.base_method_id JOIN methods c ON c.id = d.candidate_method_id
           WHERE d.basis = 'value' ORDER BY 1, 2")"
-want="Cases.DelegateFields.App.Fetch.Invoke <lambda>
+want="Cases.DelegateFields.App.Apply.f.Invoke GetPath
+Cases.DelegateFields.App.Fetch.Invoke <lambda>
 Cases.DelegateFields.App.getPath.Invoke GetPath
 Cases.DelegateFields.App.getPath.Invoke GetPathLoose
 Cases.DelegateFields.App.late.Invoke Fallback
@@ -107,9 +108,12 @@ callers(){ q "SELECT DISTINCT c.name FROM call_edges e JOIN methods b ON b.id = 
 [ "$(callers Cases.DelegateFields.Holder.Handler.Invoke)" = "ViaProperty " ] || bad "a call through a property does not reach its node"
 [ "$(callers Cases.DelegateFields.Routes.Handler.Invoke)" = "Serve " ] || bad "Type.f(x) on a static field does not reach its node"
 [ "$(callers Cases.DelegateFields.App.other.Invoke)" = "UsesOther " ] || bad "the control field's node has callers '$(callers Cases.DelegateFields.App.other.Invoke)', expected UsesOther only"
-# CONTROL: a local and a parameter of delegate type are not fields, and a field
-# nothing is seen storing a function into (`made = Make()`) keeps no node.
-for m in ViaLocal Apply UsesMade; do
+# A PARAMETER of delegate type is followed too (resolution/delegate-params.dl):
+# `Apply(GetPath, url)` hands GetPath to `f`, so `f(url)` reaches f's node.
+[ "$(callers Cases.DelegateFields.App.Apply.f.Invoke)" = "Apply " ] || bad "f(url) through a parameter handed GetPath does not reach the parameter's node"
+# CONTROL: a local of delegate type is not followed, and a field nothing is seen
+# storing a function into (`made = Make()`) keeps no node.
+for m in ViaLocal UsesMade; do
   t="$(q "SELECT group_concat(e.tier) FROM call_edges e JOIN methods c ON c.id = e.caller_id WHERE c.name = '$m' AND e.kind = 'delegate'")"
   [ "$t" = "ambiguous_unknown" ] || bad "the delegate call in $m is '$t', expected it to stay ambiguous_unknown"
 done

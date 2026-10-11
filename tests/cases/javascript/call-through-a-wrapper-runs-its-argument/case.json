@@ -1,0 +1,16 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "calling what `promisable(op3Impl, 2)` returned runs op3Impl: the test that calls the export reaches the function the module wrapped",
+   "run": ["impact", "op3Impl", "--tests"],
+   "want": ["op3.test.js"],
+   "avoid": ["tests: 0 of", "op4.test.js"]},
+  {"why": "the same through a member of a re-exporting object: lib.op4(...) runs op4Impl, and no other wrapped function",
+   "run": ["impact", "op4Impl", "--tests"],
+   "want": ["op4.test.js"],
+   "avoid": ["op3.test.js"]},
+  {"why": "the wrapper's own call of its parameter still holds every wrapped function only per site: op3's test is not a test of op5Impl",
+   "run": ["impact", "op5Impl", "--tests"],
+   "avoid": ["op3.test.js", "op4.test.js"]},
+  {"why": "CONTROL: a wrapper whose closure never calls its parameter runs nothing it was handed, so calling the labelled export does not reach secret",
+   "run": ["impact", "secret", "--tests"],
+   "avoid": ["named.test.js"]}]}

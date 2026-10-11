@@ -1,0 +1,18 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "with no JDK staged, `final StringBuilder sb = new StringBuilder(); sb.toString()` is a call on a platform type (the creation's type is no staged declaration), not an untyped call that may be any client toString",
+   "run": ["impact", "Report.toString", "--tests"],
+   "want": ["ReportTest::prints"],
+   "avoid": ["FormatterTest", "PainterTest"]},
+  {"why": "a static call on a platform type (`Math.max`) never runs a client method of that name",
+   "run": ["impact", "Report.max", "--tests"],
+   "want": ["PainterTest::clamps"],
+   "avoid": ["FormatterTest"]},
+  {"why": "control: a local of a client type built with `new` is still pinned to the type built",
+   "run": ["impact", "Square.area", "--tests"],
+   "want": ["0 of"],
+   "avoid": ["PainterTest"]},
+  {"why": "control: the pinned local still reaches the type built",
+   "run": ["impact", "Circle.area", "--tests"],
+   "want": ["PainterTest::paints"],
+   "avoid": ["FormatterTest"]}]}

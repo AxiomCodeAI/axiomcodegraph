@@ -3,7 +3,7 @@
  "src": "src",
  "checks": [
   {
-   "why": "a graph indexed from a working tree with uncommitted edits has spans in that text's line numbers; against the committed file they can run past its end, and `changed` (and test-impact, which calls it) crashed with an IndexError. It now reads the file clamped and says the positions may be off until a re-index",
+   "why": "a graph indexed from a working tree with uncommitted edits has spans in that text's line numbers; against the committed file they can run past its end, and `changed` (and test-impact, which calls it) crashed with an IndexError. With no recorded tree, the file on disk is the text the spans are checked against and carried from, so the edit is read exactly: `a` gained a parameter",
    "run": [
     "changed",
     "{repo}",
@@ -16,12 +16,15 @@
    ],
    "want": [
     "changed declarations",
-    "indexed from a working tree with uncommitted edits"
+    "signature  a",
+    "+strict"
    ],
    "avoid": [
     "Traceback",
     "IndexError",
-    "added      src/app.ts: the graph"
+    "added      src/app.ts: the graph",
+    "signature  b",
+    "body       b"
    ]
   }
  ]

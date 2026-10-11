@@ -103,6 +103,7 @@ arrays. That is the engine, entirely.
 | module graph | `resolution/module-graph.dl` | one export surface for both systems, keyed by name with `default` for `module.exports = X`; a CommonJS default value's properties ARE its members |
 | hierarchy | `resolution/type-hierarchy.dl` | ONE closure — every heritage form inherits members, there is no `implements` |
 | value flow | `resolution/value-flow.dl` | the may-analysis above |
+| instance state | `resolution/instance-state.dl` | an `("alloc", new-expression)` value beside `("inst", T)`, and the facts that let impact walk a callback or dependency given to ONE instance (a constructor option, a subscription) only from callers whose receiver may be that instance |
 | arrays | `resolution/arrays.dl` | the one platform type modelled: `push`, `[i]`, `map`, `forEach`, `for..of`, `T[]`; `Map` / `Set` as collections, including an instance of a class that extends one (#619) |
 | ambient | `resolution/ambient.dl` | platform names as values, so a site reached through one is classified from the value, not the syntax |
 | JSDoc types | `resolution/reference-types.dl` | `@param`/`@type`/`@returns`, `import()` types, typedef aliases, wrappers |

@@ -1,0 +1,3 @@
+known_edge	read	fewer#callAmbient() -> fewer#ambient
+known_edge	read	fewer#callSiblingsOne() -> fewer#siblings
+known_edge	read	fewer#callSiblingsTwo() -> fewer#siblings

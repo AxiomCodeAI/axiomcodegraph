@@ -215,6 +215,81 @@
    "avoid": [
     "connection is UNKNOWN, not absent"
    ]
+  },
+  {
+   "why": "Svc.login calls this.find(), a field holding what a platform call (promisify) returned for a bound project method: the wrapper runs that method, so path says unknown and names the same-named site, never independent",
+   "run": [
+    "path",
+    "Svc.login",
+    "Store.find"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`find()` in Svc.login at src/shapes.js:42 — the callee is a function stored in a field",
+    "named like the target: if it holds Store.find, the chain is real"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "the same wrapper held in a module variable, bound to a method the graph resolves: the wrapper runs it, so the chain is real",
+   "run": [
+    "path",
+    "viaModule",
+    "Store.find"
+   ],
+   "want": [
+    "→ [known_edge · call @ src/shapes.js:44] Store.find"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "a field wrapper whose bound receiver is typed by the argument its constructor is given resolves the same way",
+   "run": [
+    "path",
+    "Auth.login",
+    "Store.find"
+   ],
+   "want": [
+    "→ [known_edge · call @ src/shapes.js:45] Store.find"
+   ],
+   "avoid": []
+  },
+  {
+   "why": "control: a field holding what a platform call returned for a platform function (promisify(setTimeout)) is a platform call",
+   "run": [
+    "path",
+    "Clock.tick",
+    "Store.find"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a platform call handed a bound PLATFORM function (promisify(Math.max.bind(Math))) is a platform call",
+   "run": [
+    "path",
+    "Reader.go",
+    "Store.find"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
   }
  ]
 }

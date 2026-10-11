@@ -1,5 +1,3 @@
-ambiguous_unknown	method	probe.Lombok#libraryBuilder() -> -
-ambiguous_unknown	method	probe.Lombok#ownLogger() -> -
 boundary_lib	method	probe.Lombok#chainControls(Shelf) -> dep.Catalog#describe()
 boundary_lib	method	probe.Lombok#chainControls(Shelf) -> dep.Shelf#current()
 boundary_lib	method	probe.Lombok#chainControls(Shelf) -> generated:dep.Shelf#getCatalog/0
@@ -11,8 +9,13 @@ boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Cata
 boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Catalog#getSize/0
 boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Catalog#setName/1
 boundary_lib	method	probe.Lombok#libraryBooleanAccessor(Catalog) -> generated:dep.Catalog#isArchived/0
+boundary_lib	method	probe.Lombok#libraryBuilder() -> generated:dep.Catalog#builder/0
+boundary_lib	method	probe.Lombok#libraryBuilder() -> generated:dep.Catalog.CatalogBuilder#build/0
+boundary_lib	method	probe.Lombok#libraryBuilder() -> generated:dep.Catalog.CatalogBuilder#name/1
+boundary_lib	method	probe.Lombok#libraryBuilder() -> generated:dep.Catalog.CatalogBuilder#size/1
 boundary_lib	method	probe.Lombok#libraryHandWritten(Catalog) -> dep.Catalog#describe()
 boundary_lib	method	probe.Lombok#libraryShadowedAccessor(Catalog) -> dep.Catalog#getLabel()
+boundary_lib	method	probe.Lombok#ownLogger() -> external:org.slf4j.Logger.info
 known_edge	method	probe.Lombok#main(String[]) -> probe.Lombok#handWritten()
 known_edge	method	probe.Lombok#main(String[]) -> probe.Lombok#libraryAccessors(Catalog)
 known_edge	method	probe.Lombok#main(String[]) -> probe.Lombok#libraryBooleanAccessor(Catalog)

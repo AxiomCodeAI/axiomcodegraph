@@ -1,0 +1,11 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a src-layout package is imported by its package name: `from app import lookup` in a test is an import of src/app/__init__.py, so the test file reaches what that import runs",
+   "run": ["impact", "src/app/registry.py:4", "--tests"],
+   "want": ["test_lookup.py"]},
+  {"why": "pytest imports tests/conftest.py before every test file under it, so a function that runs while the package is imported (normalise, through the module-level @register) breaks a test file that never imports the package itself",
+   "run": ["impact", "src/app/registry.py:4", "--tests"],
+   "want": ["test_plain.py"]},
+  {"why": "CONTROL: describe runs at no import, so a test file that does not call it is not reached by the import walk",
+   "run": ["impact", "src/app/registry.py:19", "--tests"],
+   "avoid": ["test_plain.py"]}]}

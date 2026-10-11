@@ -94,16 +94,42 @@ implements_shape("client", impl, ifaceM) :-
     method_paramc("client", impl, pc), method_paramc("lib", ifaceM, pc),
     method_type_arity("client", impl, ar), method_type_arity("lib", ifaceM, ar).
 
-// The explicit form, matched by the interface NAME written on the declaration.
+// The explicit form, matched by the interface NAME written on the declaration. A
+// generic interface is written with its arguments -- `IOpt<T, P> IOpt<T, P>.Dep()` --
+// and the declaration's name carries none, so the name is compared up to its `<`.
+explicit_iface_written(s) :- method_explicit_interface(_, _, s).
+explicit_iface_written(s) :- property_explicit_interface(_, _, s).
+explicit_iface_base(s, s) :- explicit_iface_written(s), !contains("<", s).
+explicit_iface_base(s, b) :-
+    explicit_iface_written(s), contains("<", s),
+    i = range(1, strlen(s)), substr(s, i, 1) = "<", b = substr(s, 0, i), !contains("<", b).
 implements_shape(prov, impl, ifaceM) :-
     method_explicit_interface(prov, impl, ifaceName),
+    explicit_iface_base(ifaceName, ifaceBase),
     method_in_type(prov, gk, impl),
     type_satisfies(prov, gk, igk),
     type_group(prov, it, igk), type_decl(prov, iname, iqn, _, _, it),
-    (ifaceName = iname ; ifaceName = iqn),
+    (ifaceBase = iname ; ifaceBase = iqn),
     interface_member(prov, igk, n, "method", ifaceM),
     method_name(prov, impl, n),
     method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc).
+
+// An explicit PROPERTY, indexer or event: `int IOpt<T, P>.Count { get; }`. The name is
+// written on the property, not on its accessors, so each accessor is paired with the
+// interface accessor of the same name (get_Count, set_Count, get_this[], add_E).
+implements_shape(prov, impl, ifaceM) :-
+    accessor_is_explicit(prov, impl, ifaceName),
+    explicit_iface_base(ifaceName, ifaceBase),
+    method_in_type(prov, gk, impl),
+    type_satisfies(prov, gk, igk),
+    type_group(prov, it, igk), type_decl(prov, iname, iqn, _, _, it),
+    (ifaceBase = iname ; ifaceBase = iqn),
+    method_in_type(prov, igk, ifaceM), method_is_accessor(prov, ifaceM),
+    method_name(prov, impl, n), method_name(prov, ifaceM, n),
+    method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc).
+accessor_is_explicit(prov, acc, iface) :-
+    method_accessor_of(prov, acc, p, _), property_explicit_interface(prov, p, iface).
+member_is_explicit_impl(prov, acc) :- accessor_is_explicit(prov, acc, _).
 
 // AND NOT WHERE A PARAMETER TYPE PROVES THEM DIFFERENT (#1246). Name and count alone
 // paired an explicit `IKeyed.K(string)` with `IKeyed.K(int)`, so the fan of a call the
@@ -251,6 +277,51 @@ dispatch_runtime_shape("client", m, t) :-
     member_method("client", cgk, n, t),
     method_paramc("lib", m, pc), method_paramc("client", t, pc),
     method_type_arity("lib", m, ar), method_type_arity("client", t, ar).
+
+// ── ACCESSORS DISPATCH LIKE METHODS ─────────────────────────────────────────
+// `s.Area` on an abstract `Shape`, `p.Len` on an `IPlain`, `o[i]` on an interface
+// indexer: the accessor that runs is the runtime type's own. Accessors are kept out of
+// the name table (member_method cannot find them), so the per-runtime-type lookup above
+// never answered for one and a read through an interface or a virtual property stopped
+// at the declaration, which has no body. Looked up here by the accessor's own name
+// (get_Area, set_Len, get_this[]) along the class chain, nearest first, with the
+// parameter count separating indexer overloads.
+accessor_cand(prov, gk, n, acc, 0) :-
+    method_in_type(prov, gk, acc), method_is_accessor(prov, acc), method_name(prov, acc, n),
+    !accessor_is_explicit(prov, acc, _).
+accessor_cand(prov, gk, n, acc, d) :-
+    type_base_chain(prov, gk, bgk, d),
+    method_in_type(prov, bgk, acc), method_is_accessor(prov, acc), method_name(prov, acc, n),
+    !accessor_is_explicit(prov, acc, _).
+accessor_cand("client", gk, n, acc, d) :-
+    type_base_chain("client", gk, bgk, d),
+    method_in_type("lib", bgk, acc), method_is_accessor("lib", acc), method_name("lib", acc, n),
+    !accessor_is_explicit("lib", acc, _).
+accessor_best(prov, gk, n, pc, d) :-
+    accessor_cand(prov, gk, n, a, _), method_paramc_any(a, pc),
+    d = min k : { accessor_cand(prov, gk, n, a2, k), method_paramc_any(a2, pc) }.
+accessor_member(prov, gk, n, pc, acc) :-
+    accessor_cand(prov, gk, n, acc, d), method_paramc_any(acc, pc), accessor_best(prov, gk, n, pc, d).
+method_paramc_any(m, pc) :- method_paramc(_, m, pc).
+
+// An accessor is dispatchable when its property is: `virtual`, `abstract` or `override`
+// is written on the property, and the accessor rows carry none of it.
+method_is_dispatchable(prov, acc) :-
+    method_accessor_of(prov, acc, p, _), property_modifier(prov, p, mod),
+    (mod = "virtual" ; mod = "abstract" ; mod = "override").
+
+dispatch_runtime_shape(prov, m, t) :-
+    method_is_accessor(prov, m), method_is_dispatchable(prov, m),
+    method_in_type(prov, ogk, m), method_name(prov, m, n), method_paramc(prov, m, pc),
+    type_self_or_ancestor(prov, cgk, ogk),
+    type_is_concrete(prov, cgk),
+    accessor_member(prov, cgk, n, pc, t).
+dispatch_runtime_shape("client", m, t) :-
+    method_is_accessor("lib", m), method_is_dispatchable("lib", m),
+    method_in_type("lib", ogk, m), method_name("lib", m, n), method_paramc("lib", m, pc),
+    type_self_or_ancestor("client", cgk, ogk),
+    type_is_concrete("client", cgk),
+    accessor_member("client", cgk, n, pc, t).
 
 // AN EXPLICIT INTERFACE IMPLEMENTATION IS THE SECOND WAY A CONCRETE TYPE CAN
 // ANSWER FOR AN INTERFACE MEMBER, and the clause above cannot see it.

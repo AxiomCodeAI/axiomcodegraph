@@ -1,0 +1,6 @@
+known_edge	FIELD_TYPE	0	Ctx [FIELD] -> Repo
+known_edge	FIELD_TYPE	1	x [METHOD_PARAM] -> Other
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Ctx
+known_edge	OBJECT_CREATION_TYPE	0	Owner [EXPRESSION] -> Repo
+known_edge	OBJECT_CREATION_TYPE	0	x [EXPRESSION] -> Other
+known_edge	OBJECT_CREATION_TYPE	0	x [EXPRESSION] -> Repo

@@ -1,4 +1,0 @@
-app.js:11:10 FUNCTION_CALL checkB  ->  known_edge  lib/check.js:5:1 checkB
-app.js:7:10 FUNCTION_CALL checkA  ->  known_edge  lib/check.js:1:1 checkA
-noalias/probe.js:5:10 FUNCTION_CALL checkA  ->  ambiguous_unknown  -
-remix/app/route.js:5:10 FUNCTION_CALL getNote  ->  known_edge  remix/app/models/note.server.js:1:1 getNote

@@ -1,0 +1,169 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "BASE: a reflective MethodInfo.Invoke ends in the library, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "DispatchTests.Saves",
+    "Handlers.Audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects DispatchTests.Saves and Handlers.Audit"
+   ]
+  },
+  {
+   "why": "the reflective call is listed as a work item: resolved into the library, what it runs unknown",
+   "run": [
+    "impact",
+    "Dispatch.Run",
+    "--unknown"
+   ],
+   "want": [
+    "App/Dispatch.cs:12:22  return m.Invoke(null, new object[] { doc });  [runs a value through MethodInfo.Invoke]"
+   ]
+  },
+  {
+   "why": "link records the target of the reflective call",
+   "run": [
+    "link",
+    "App/Dispatch.cs:12",
+    "Handlers.OnSave"
+   ],
+   "want": [
+    "linked App/Dispatch.cs:12:22 `Invoke` → Handlers.OnSave [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted]",
+   "run": [
+    "path",
+    "DispatchTests.Saves",
+    "Handlers.Audit"
+   ],
+   "want": [
+    "[asserted · call @ App/Dispatch.cs:12] Handlers.OnSave",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted and selects the test through it",
+   "run": [
+    "impact",
+    "Handlers.OnSave",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] Dispatch.Run",
+    "DispatchTests::Saves",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ]
+  },
+  {
+   "why": "a delegate held in a table, called by its holder's name, can be linked too",
+   "run": [
+    "link",
+    "App/Dispatch.cs:17",
+    "Handlers.OnLoad"
+   ],
+   "want": [
+    "linked App/Dispatch.cs:17:20 `table` → Handlers.OnLoad [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "App/Dispatch.cs:12",
+    "Handlers.OnArchive"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "App/Dispatch.cs:3",
+    "Handlers.OnLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at App/Dispatch.cs:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "App/Dispatch.cs:28",
+    "Handlers.OnLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `Audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling reflective site stays unknown",
+   "run": [
+    "impact",
+    "Dispatch.Purge",
+    "--unknown"
+   ],
+   "want": [
+    "App/Dispatch.cs:23:22  return m.Invoke(null, new object[] { doc });  [runs a value through MethodInfo.Invoke]"
+   ],
+   "avoid": [
+    "App/Dispatch.cs:23:22  return m.Invoke(null, new object[] { doc });  [runs a value through MethodInfo.Invoke]  → linked"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "App/Dispatch.cs",
+    "using System.Reflection;\n",
+    "using System.Reflection;\n// dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "DispatchTests.Saves",
+    "Handlers.Audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ App/Dispatch.cs:14] Handlers.OnSave"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: after the rebuild the link is dropped and the answer says so",
+   "edit": [
+    "App/Dispatch.cs",
+    "            return m.Invoke(null, new object[] { doc });\n        }\n\n        public static object RunTable",
+    "            return m.Invoke(null, new object[] { new Dictionary<string, object>(doc) });\n        }\n\n        public static object RunTable"
+   ],
+   "run": [
+    "path",
+    "DispatchTests.Saves",
+    "Handlers.Audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects",
+    "not applied",
+    "1 stale"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  }
+ ]
+}

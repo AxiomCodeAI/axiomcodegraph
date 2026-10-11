@@ -1,0 +1,18 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "@parametrize(\"FieldClass\", ALL_FIELDS) where ALL_FIELDS is a list of classes another test module holds: FieldClass is each class, FieldClass() constructs it, and field.deserialize() resolves",
+   "run": ["impact", "string_done", "--tests"],
+   "want": ["test_fields.py"],
+   "avoid": ["test_boxes.py", "test_convert.py"]},
+  {"why": "several argument names: `box` is the SECOND element of each row, and pytest.param(...) rows count too",
+   "run": ["impact", "box_done", "--tests"],
+   "want": ["test_boxes.py"],
+   "avoid": ["test_fields.py"]},
+  {"why": "a fixture declared params=(Converter,) returns request.param, a CLASS; the fixture that calls it builds a Converter, and the test's converter.structure() resolves",
+   "run": ["impact", "plain_done", "--tests"],
+   "want": ["test_convert.py"],
+   "avoid": ["test_fields.py"]},
+  {"why": "CONTROL: string values naming a class are strings, not the class: nothing reaches Unused.structure",
+   "run": ["impact", "never_done", "--tests"],
+   "want": ["tests: 0 of"],
+   "avoid": ["test_strings.py", "test_convert.py"]}]}

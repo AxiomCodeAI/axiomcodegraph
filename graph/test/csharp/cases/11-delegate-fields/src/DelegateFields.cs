@@ -75,7 +75,7 @@ public class App
     public string UsesOther(string url) => other(url);
     public string UsesMade(string url) => made(url);
 
-    // CONTROL: a local of delegate type, and a method group passed as an argument.
+    // CONTROL: a local of delegate type. A method group passed as an argument gets a callback_registered hand-off edge (#1550), and the parameter it lands in gets a value node (delegate-params.dl).
     public string ViaLocal(string url) { Func<string, string> f = GetPath; return f(url); }
     public string Passed(string url) => Apply(GetPath, url);
     static string Apply(Func<string, string> f, string url) => f(url);

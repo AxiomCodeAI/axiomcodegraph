@@ -1,0 +1,35 @@
+ruleKind=AT_RULE	atRuleName=charset	name=	preludeText="""utf-8"""	selectorCount=0	declarationCount=0	childRuleCount=0	nestingDepth=0	position=0	startLine=1	startColumn=1	endLine=1	endColumn=18
+ruleKind=AT_RULE	atRuleName=container	name=sidebar	preludeText=sidebar (min-width: 400px)	selectorCount=0	declarationCount=0	childRuleCount=1	nestingDepth=0	position=11	startLine=13	startColumn=1	endLine=13	endColumn=62
+ruleKind=AT_RULE	atRuleName=font-face	name=Inter	preludeText=	selectorCount=0	declarationCount=2	childRuleCount=0	nestingDepth=0	position=9	startLine=11	startColumn=1	endLine=11	endColumn=82
+ruleKind=AT_RULE	atRuleName=import	name=	preludeText="""missing.css"""	selectorCount=0	declarationCount=0	childRuleCount=0	nestingDepth=0	position=2	startLine=4	startColumn=1	endLine=4	endColumn=23
+ruleKind=AT_RULE	atRuleName=import	name=	preludeText="url(""base.css"") layer(base)"	selectorCount=0	declarationCount=0	childRuleCount=0	nestingDepth=0	position=1	startLine=3	startColumn=1	endLine=3	endColumn=37
+ruleKind=AT_RULE	atRuleName=include	name=	preludeText=flex	selectorCount=0	declarationCount=0	childRuleCount=0	nestingDepth=1	position=0	startLine=3	startColumn=23	endLine=3	endColumn=37
+ruleKind=AT_RULE	atRuleName=keyframes	name=spin	preludeText=spin	selectorCount=0	declarationCount=0	childRuleCount=3	nestingDepth=0	position=8	startLine=10	startColumn=1	endLine=10	endColumn=102
+ruleKind=AT_RULE	atRuleName=layer	name=	preludeText=base, components	selectorCount=0	declarationCount=0	childRuleCount=0	nestingDepth=0	position=3	startLine=5	startColumn=1	endLine=5	endColumn=25
+ruleKind=AT_RULE	atRuleName=media	name=	preludeText=(min-width: 40em)	selectorCount=0	declarationCount=0	childRuleCount=1	nestingDepth=0	position=7	startLine=9	startColumn=1	endLine=9	endColumn=80
+ruleKind=AT_RULE	atRuleName=mixin	name=	preludeText=flex	selectorCount=0	declarationCount=1	childRuleCount=0	nestingDepth=0	position=0	startLine=2	startColumn=1	endLine=2	endColumn=31
+ruleKind=AT_RULE	atRuleName=supports	name=	preludeText=(display: grid)	selectorCount=0	declarationCount=0	childRuleCount=1	nestingDepth=0	position=10	startLine=12	startColumn=1	endLine=12	endColumn=54
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=".nav > li.item:not(.hidden) a[href^=""http"" i]:hover::after"	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=5	startLine=7	startColumn=1	endLine=7	endColumn=105
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=#main .card, .card--wide, ul li:nth-child(2n of .item)	selectorCount=3	declarationCount=3	childRuleCount=0	nestingDepth=0	position=6	startLine=8	startColumn=1	endLine=8	endColumn=180
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=&:hover	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=1	startLine=15	startColumn=39	endLine=15	endColumn=63
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=*	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=16	startLine=18	startColumn=1	endLine=18	endColumn=29
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.a	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=0	startLine=1	startColumn=1	endLine=1	endColumn=14
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.a	selectorCount=1	declarationCount=1	childRuleCount=2	nestingDepth=0	position=13	startLine=15	startColumn=1	endLine=15	endColumn=65
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.b	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=1	startLine=1	startColumn=14	endLine=1	endColumn=28
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.b &	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=0	startLine=15	startColumn=19	endLine=15	endColumn=38
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.broken	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=14	startLine=16	startColumn=1	endLine=16	endColumn=21
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.c	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=2	startLine=1	startColumn=28	endLine=1	endColumn=50
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.card	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=0	startLine=13	startColumn=41	endLine=13	endColumn=60
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.card	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=0	startLine=9	startColumn=28	endLine=9	endColumn=78
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.grid	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=0	startLine=12	startColumn=29	endLine=12	endColumn=52
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.hero	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=0	startLine=13	startColumn=5	endLine=13	endColumn=72
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.sidebar	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=12	startLine=14	startColumn=1	endLine=14	endColumn=66
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.title::before, .title:before	selectorCount=2	declarationCount=1	childRuleCount=0	nestingDepth=0	position=15	startLine=17	startColumn=1	endLine=17	endColumn=46
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=.x	selectorCount=1	declarationCount=1	childRuleCount=1	nestingDepth=0	position=1	startLine=3	startColumn=1	endLine=3	endColumn=39
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=50%	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=1	startLine=10	startColumn=49	endLine=10	endColumn=68
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=:root	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=4	startLine=6	startColumn=1	endLine=6	endColumn=37
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=body	selectorCount=1	declarationCount=2	childRuleCount=0	nestingDepth=0	position=0	startLine=1	startColumn=1	endLine=1	endColumn=56
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=col || td	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=18	startLine=20	startColumn=1	endLine=20	endColumn=24
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=from	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=0	startLine=10	startColumn=19	endLine=10	endColumn=48
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=h1 + p ~ em	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=0	position=17	startLine=19	startColumn=1	endLine=19	endColumn=26
+ruleKind=STYLE_RULE	atRuleName=	name=	preludeText=to	selectorCount=1	declarationCount=1	childRuleCount=0	nestingDepth=1	position=2	startLine=10	startColumn=69	endLine=10	endColumn=100

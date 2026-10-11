@@ -45,9 +45,24 @@
 // right-hand side (`f = Make()`) stores the call's return value, which is not
 // followed.
 //
+// A FIELD-LIKE EVENT IS FOLLOWED AS A FIELD IS (#1449). `public event EventHandler?
+// Ticked;` is a delegate field the compiler wraps in add and remove accessors: `+=`
+// adds the handler to the same invocation list, and `Ticked?.Invoke(...)` inside the
+// class calls through it. So an event member is one more member kind here, with its
+// own Invoke node. An event with explicit accessors cannot be invoked by name (CS0079),
+// so treating every event this way adds no call that does not compile; its `+=` keeps
+// the event_subscribe accessor edge (properties.dl) beside what is stored.
+//
+// A METHOD GROUP HANDED OVER (#1550). A method group that is not stored in a member
+// this file follows -- an argument (`new Timer(Sweep, ...)`, `Run(Report)`,
+// `token.Register(OnStop)`) or the value assigned to a member the engine does not know
+// (`AppDomain.CurrentDomain.ProcessExit += OnExit`) -- is handed to code that may
+// invoke it, and nothing else names it. method_group_handoff below records it, and
+// call_chain.dl emits it as a `callback_registered` edge from the enclosing method.
+//
 // NOT HANDLED, and left exactly as before: a delegate that reaches the field from a
-// parameter or a local (`this.f = f`), a local or parameter of delegate type invoked
-// directly, and an event (`+=` on an event is an accessor call, accessor-edges).
+// parameter or a local (`this.f = f`), and a local or parameter of delegate type
+// invoked directly.
 // ============================================================================
 
 // ── THE MEMBER AN EXPRESSION DENOTES ────────────────────────────────────────
@@ -60,6 +75,8 @@ delegate_member_ref(prov, e, mem) :-
 delegate_member_ref(prov, e, mem) :-
     expr_kind(prov, e, "NAME_REFERENCE"), ref_denotes(prov, e, "PROPERTY", mem).
 delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "NAME_REFERENCE"), ref_denotes(prov, e, "EVENT", mem).
+delegate_member_ref(prov, e, mem) :-
     expr_kind(prov, e, "MEMBER_ACCESS"),
     expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nm),
     expr_written_name(prov, nm, n),
@@ -71,6 +88,7 @@ delegate_qualifier_type(prov, q, gk) :- expr_type(prov, q, gk).
 delegate_qualifier_type(prov, q, gk) :- ref_names_type(prov, q, gk).
 delegate_member_kind("field").
 delegate_member_kind("property").
+delegate_member_kind("event").
 
 // The null-forgiving `!` and parentheses around a callee or a receiver name the
 // same member: `named!(url)`, `(f)(url)`.
@@ -130,15 +148,18 @@ delegate_value_method(prov, e, m) :- delegate_stored_expr(prov, e), expr_anon_de
 // the plain positions METHOD_GROUP, but not a name inside `?:` or `??`, so the name
 // is looked up here rather than read off that mark. Every overload of the name is a
 // candidate: which one the conversion picks needs the delegate's parameter types.
-delegate_value_method(prov, e, m) :-
-    delegate_stored_expr(prov, e),
+delegate_value_method(prov, e, m) :- delegate_group_method(prov, e, m).
+delegate_group_demand(prov, e) :- delegate_stored_expr(prov, e).
+delegate_group_demand(prov, e) :- delegate_handed_expr(prov, e).
+delegate_group_method(prov, e, m) :-
+    delegate_group_demand(prov, e),
     expr_kind(prov, e, "NAME_REFERENCE"), expr_ref_unknown(prov, e),
     expr_written_name(prov, e, n), !local_binds(prov, e, _),
     expr_ultimate_type_group(prov, e, gk),
     member_lookup(prov, gk, n, "method", m).
 // `this.M` and `Type.M`.
-delegate_value_method(prov, e, m) :-
-    delegate_stored_expr(prov, e),
+delegate_group_method(prov, e, m) :-
+    delegate_group_demand(prov, e),
     expr_kind(prov, e, "MEMBER_ACCESS"),
     expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nm),
     expr_written_name(prov, nm, n),
@@ -159,6 +180,36 @@ delegate_member_holds(prov, mem, m) :-
     delegate_member_holds(prov, src, m).
 
 delegate_member_holds_any(prov, mem) :- delegate_member_holds(prov, mem, _).
+
+// ── A METHOD GROUP HANDED OVER, NOT STORED IN A FOLLOWED MEMBER (#1550) ────
+// An argument, and the branches inside it (`?:`, `??`, a cast, parentheses,
+// `new Action(M)`). A lambda argument is left out: it is its own method, already
+// defined inside the caller, and an edge to it would say the same thing twice.
+delegate_arg_expr(prov, e) :- expr_child(prov, _, "ARGUMENT", _, e).
+delegate_arg_expr(prov, c) :- delegate_arg_expr(prov, p), delegate_value_branch(prov, p, c).
+// The value of `=`, `+=` or `??=` whose target is not a member this file follows:
+// an event or a property of an unstaged type, `AppDomain.CurrentDomain.ProcessExit
+// += OnExit`. A target that IS followed stores the method in its envelope instead.
+delegate_handed_value(prov, v) :-
+    expr_kind(prov, a, "ASSIGNMENT"), expr_operator(prov, a, "="),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), !delegate_member_ref(prov, t, _),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+delegate_handed_value(prov, v) :-
+    expr_kind(prov, a, "COMPOUND_ASSIGNMENT"), expr_operator(prov, a, op), delegate_storing_op(op),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), !delegate_member_ref(prov, t, _),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+delegate_handed_value(prov, c) :- delegate_handed_value(prov, p), delegate_value_branch(prov, p, c).
+delegate_handed_expr(prov, e) :- delegate_arg_expr(prov, e).
+delegate_handed_expr(prov, e) :- delegate_handed_value(prov, e).
+
+// method_group_handoff(Prov, Expr, Method): Expr, in one of those positions, converts
+// the method group naming Method. The same lookup a stored value gets, so every
+// overload of the name is a candidate: which one the conversion picks needs the
+// delegate's parameter types, and each is exported as a hand-off, never as a call.
+method_group_handoff(prov, e, m) :-
+    delegate_handed_expr(prov, e), !expr_anon_decl(prov, e, _),
+    delegate_group_method(prov, e, m),
+    method_decl(prov, _, _, _, m).
 
 // ── A CALL THROUGH THE MEMBER ───────────────────────────────────────────────
 // delegate_member_call(Prov, Site, Member).
@@ -192,6 +243,8 @@ delegate_member_owner(prov, f, t) :- field_decl(prov, _, t, f).
 delegate_member_owner(prov, p, t) :- property_decl(prov, _, t, p).
 delegate_member_name(prov, f, n) :- field_decl(prov, n, _, f).
 delegate_member_name(prov, p, n) :- property_decl(prov, n, _, p).
+delegate_member_owner(prov, ev, t) :- event_decl(prov, _, t, ev).
+delegate_member_name(prov, ev, n) :- event_decl(prov, n, _, ev).
 
 // delegate_invoke_node(Member, NodeId) -- one per member some call goes through.
 delegate_invoke_node(mem, id) :-

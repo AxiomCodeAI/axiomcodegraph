@@ -1,0 +1,7 @@
+# Accepted gaps for 83-closed-world-dispatch — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# `new C()` where C is typed by a construct-signature alias: the compiler names the
+# alias's signature, the engine leaves the site ambiguous_unknown. Unrelated to the
+# closed-world fan this case is about.
+handlers#main() -> handlers#<arrow@36>()

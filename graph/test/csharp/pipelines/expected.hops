@@ -4,6 +4,10 @@ registered	Shop.DataSetup.<lambda>	Shop.EventsInterceptor.SavingChangesAsync
 registered	Shop.DataSetup.AddData	Shop.Seeder.ExecuteAsync
 registered	Shop.OrderEndpoints.MapOrders	Shop.IdempotencyFilter.InvokeAsync
 registered	Shop.OrderEndpoints.MapOrders	Shop.NonEmptyFilter.InvokeAsync
+registered	Shop.OrderEndpoints.MapOrders	Shop.OrderEndpoints.Create
+registered	Shop.OrderEndpoints.MapOrders	Shop.OrderEndpoints.Get
+registered	Shop.OrderEndpoints.MapOrders	Shop.OrderEndpoints.Health
+registered	Shop.OrderEndpoints.MapOrders	Shop.OrderEndpoints.Lines
 registered	Shop.OrderEndpoints.MapOrders	Shop.TenantFilter.InvokeAsync
 registered	Shop.OrdersHost.<lambda>	Shop.ErrorInterceptor.UnaryServerHandler
 registered	Shop.OrdersHost.Configure	Shop.CorrelationInterceptor.AsyncUnaryCall

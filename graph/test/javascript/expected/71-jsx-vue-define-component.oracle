@@ -1,0 +1,7 @@
+app.jsx:12:53 FUNCTION_CALL leaf  EXACT  app.jsx:5:1
+app.jsx:14:55 FUNCTION_CALL renderLeaf  EXACT  app.jsx:6:1
+app.jsx:16:51 FUNCTION_CALL fnLeaf  EXACT  app.jsx:7:1
+app.jsx:18:52 FUNCTION_CALL bothLeaf  EXACT  app.jsx:8:1
+app.jsx:21:44 FUNCTION_CALL storeLeaf  EXACT  app.jsx:9:1
+def.jsx:6:44 FUNCTION_CALL defLeaf  EXACT  def.jsx:3:1
+# defects: 0

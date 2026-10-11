@@ -1,0 +1,9 @@
+function Thing(n, unit) {
+  this.n = n
+}
+
+Thing.prototype.twice = function twice() {
+  return this.n * 2
+}
+
+module.exports = Thing

@@ -1,0 +1,18 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a static call through a constructed generic type, `Cache<int>.Get()`, reaches the generic type's member",
+   "run": ["impact", "src/Cache.cs:5"],
+   "want": ["[resolved] Use.Typed"]},
+  {"why": "control: the non-generic type of the same name is not reached from the generic receiver",
+   "run": ["impact", "src/Cache.cs:12"],
+   "want": ["[resolved] Use.Plain"],
+   "avoid": ["[resolved] Use.Typed"]},
+  {"why": "and the generic member is not reached from the non-generic receiver",
+   "run": ["impact", "src/Cache.cs:5"],
+   "avoid": ["[resolved] Use.Plain"]},
+  {"why": "a call on the result of a static call through a generic type",
+   "run": ["impact", "Pair.Use"],
+   "want": ["[resolved] Use.Chained"]},
+  {"why": "a static field read through a generic type name types the chain",
+   "run": ["impact", "Store.Touch"],
+   "want": ["[resolved] Use.Member"]}]}

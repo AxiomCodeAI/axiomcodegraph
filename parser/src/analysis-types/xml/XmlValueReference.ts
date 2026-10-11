@@ -32,6 +32,7 @@ export class XmlValueReference implements EntityIdentifiable {
   private startLine: number;
   private endLine: number;
   private serviceVersionLinkHash: string;
+  private idPath: string;
   private xmlValueReferenceUniqueHash: string = '';
 
   private constructor(builder: XmlValueReferenceBuilder) {
@@ -47,6 +48,7 @@ export class XmlValueReference implements EntityIdentifiable {
     this.startLine = builder.startLine;
     this.endLine = builder.endLine;
     this.serviceVersionLinkHash = builder.serviceVersionLinkHash;
+    this.idPath = builder.idPath;
 
     this.generateHash();
   }
@@ -80,6 +82,7 @@ export class XmlValueReference implements EntityIdentifiable {
   getStartLine(): number { return this.startLine; }
   getEndLine(): number { return this.endLine; }
   getServiceVersionLinkHash(): string { return this.serviceVersionLinkHash; }
+  getIdPath(): string { return this.idPath; }
 
   getHash(): string {
     return this.xmlValueReferenceUniqueHash;
@@ -93,7 +96,7 @@ export class XmlValueReference implements EntityIdentifiable {
       '||' + this.ownerElementHash +
       '||' + this.ownerAttributeName +
       '||' + this.depth +
-      '||' + this.filePath +
+      '||' + (this.idPath || this.filePath) +
       '||' + this.startLine +
       '||' + this.serviceVersionLinkHash;
 
@@ -157,6 +160,7 @@ class XmlValueReferenceBuilder {
   startLine: number;
   endLine: number;
   serviceVersionLinkHash: string;
+  idPath: string = '';
 
   constructor(
     referenceExpression: string,
@@ -192,6 +196,17 @@ class XmlValueReferenceBuilder {
 
   withDepth(depth: number): XmlValueReferenceBuilder {
     this.depth = depth;
+    return this;
+  }
+
+  /**
+   * The file's path as its key sees it: relative to the analysis root, '/'-separated.
+   * The absolute filePath stays a payload column, but it moves with the directory the
+   * analysis ran in, so a key built from it differed in every checkout of one tree.
+   * Unset (a caller that never says), the key falls back to filePath as before.
+   */
+  withIdPath(idPath: string): XmlValueReferenceBuilder {
+    this.idPath = idPath;
     return this;
   }
 

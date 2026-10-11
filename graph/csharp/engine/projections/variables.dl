@@ -61,6 +61,10 @@ var_initializer("lib", v, e) :-
 // The initializer IS a value of the variable's type.
 var_value_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "LOCAL", _, v).
 var_value_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "CONST", _, v).
+// A `using` resource -- `using (var w = new Writer())` and `using var w = ...;` -- is
+// the disposable itself, so its initializer is a value of its type exactly as a
+// local's is. Without it every call on such a resource has an untyped receiver.
+var_value_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "USING", _, v).
 // The initializer is a COLLECTION and the variable takes its element type.
 var_iterated_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "FOREACH", _, v).
 

@@ -1,0 +1,60 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "path '*': a route lambda and a lifecycle override the subclass calls through base. are entry points, each with its reason from entry_points (#1492)",
+   "run": [
+    "path",
+    "*",
+    "Store.List"
+   ],
+   "want": [
+    "WidgetRoutes.<lambda>   src/Widgets.cs:9   — an HTTP route handler",
+    "Worker.StartAsync   src/Widgets.cs:25   — a lifecycle callback",
+    "TimedWorker.StartAsync   src/Widgets.cs:31   — a lifecycle callback",
+    "UserRoutes.Handle   src/Widgets.cs:20   — an HTTP route handler"
+   ]
+  },
+  {
+   "why": "control, path '*': the method that only registers the route lambda is not where execution enters, an implementation called through its interface or a handler called by the lambda is still not one, and a caller-less method with no entry_points row still is",
+   "run": [
+    "path",
+    "*",
+    "Store.List"
+   ],
+   "avoid": [
+    "hop(s)  WidgetRoutes.AddRoutes   src/Widgets.cs:7\n",
+    "hop(s)  Audit.Record   src/Widgets.cs:38\n",
+    "hop(s)  WidgetRoutes.Handle   src/Widgets.cs:11\n"
+   ],
+   "want": [
+    "hop(s)  Nightly.Run   src/Widgets.cs:44\n"
+   ]
+  },
+  {
+   "why": "impact lists the same entry points, with the same reasons (#1492)",
+   "run": [
+    "impact",
+    "Store.List"
+   ],
+   "want": [
+    "WidgetRoutes.<lambda>   src/Widgets.cs:9   — an HTTP route handler",
+    "Worker.StartAsync   src/Widgets.cs:25   — a lifecycle callback",
+    "TimedWorker.StartAsync   src/Widgets.cs:31   — a lifecycle callback",
+    "hop(s)  Nightly.Run   src/Widgets.cs:44"
+   ]
+  },
+  {
+   "why": "control, impact: an implementation reached through its interface from a resolved caller is not an entry point, nor is the lambda's definer",
+   "run": [
+    "impact",
+    "Store.List"
+   ],
+   "avoid": [
+    "hop(s)  WidgetRoutes.AddRoutes",
+    "hop(s)  Audit.Record",
+    "hop(s)  WidgetRoutes.Handle"
+   ]
+  }
+ ]
+}

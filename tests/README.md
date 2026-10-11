@@ -15,18 +15,28 @@ One check needs no graph and is its own script:
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape, on a small
                                          Python case by default; --lang java|csharp|typescript for the others
                                          (typescript needs the TypeScript engine; indexes, so it needs the engine)
-    python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
-                                         never raises, silent without a graph, once per session across
-                                         repositories, and names the verb for a declared name it is searched for)
-    python3 tests/hook_languages.py      the edit hooks speak for C# as for Java and Python, from one extension table,
-                                         and a body edit's command runs the classes that extend an abstract test base
+    python3 tests/hook_languages.py      the edit hook and the tests verb speak for C# as for Java and Python, from one
+                                         extension table, and the tests command runs the classes that extend an abstract
+                                         test base
                                          (indexes a small C# project, so it needs the engine)
+    python3 tests/hook_rebase.py         after a rebase, `changed` lists only the local edits and says the base moved; a
+                                         signature edit is reported before it lands with nothing upstream did; `--range`
+                                         from a branch left behind its remote reads from the remote's fork (indexes a small
+                                         project)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)
+    python3 tests/diff_verb.py           `axiomcode diff` matches two graphs of one tree by file, line, name and callee, never
+                                         by id: one tree indexed at two paths diffs to nothing, one added call is exactly one
+                                         row, in Python, Java and C# (builds real graphs, needs the engine)
     python3 tests/graph_verb.py          `axiomcode graph` draws the existing graph and rebuilds a stale one with the flags it
                                          was indexed with; no rebuild path (refresh, repair, bare index) solves a language an
                                          explicit --lang left out (builds real graphs, needs the engine)
+    python3 tests/repo_arg.py            a repository argument that is not there (every verb, the MCP tools' repo=, --src)
+                                         is an error naming it, with nothing built in the working directory; an absolute
+                                         --src is used as given (indexes a small Python project, so it needs the engine)
+    python3 tests/row_order.py           rows tied on one file line print in one order: the same answers, byte for byte,
+                                         under several hash seeds (indexes small cases, so it needs the engine)
     python3 tests/indexed_tree.py        changed compares against the tree the graph was indexed from, so an
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
@@ -46,14 +56,6 @@ One check needs no graph and is its own script:
                                          without the server (#1425; indexes one case, so it needs the engine)
     python3 tests/hosts.py               each hook tells Cursor and Gemini CLI what it tells the original host,
                                          in their own event names and output shape (indexes one case, so it needs the engine)
-    python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
-                                         the budget said spent once, its second half kept for edges into unopened files
-                                         (#1199; indexes a small project, so it needs the engine)
-    python3 tests/enrich_lines.py        what one enrichment line says: a caller count of 0 says why (entry point, by-name
-                                         sites, a framework annotation), production callers before tests, a base before its
-                                         overrides, no annotation for a shell grep over output or logs, nothing for an edit
-                                         that changes no declaration, one line of tests for a body edit (#1507, #1546, #1604;
-                                         indexes a small project, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in, finds the
                                          engine the last build used before PATH (the refresh runs from a hook, with the
                                          hook's PATH), follows a Windows npm shim, and names every place it looked when
@@ -100,6 +102,14 @@ One check needs no graph and is its own script:
     python3 tests/script_tests.py        a script-style test (a test-tree file run as a program, no framework) is selected by
                                          test-impact with the command its project runs it by, beside a framework test that keeps
                                          its own; a helper and a runner's setup file are not (indexes two cases, needs the engine)
+    python3 tests/case_runner.py         a changed file under a case runner's cases/ (tests/cases/<lang>/<case>/, graph/test/
+                                         <lang>/cases/<case>/) and a golden named for a case map to that runner's command for
+                                         the one case, a rule file under graph/<lang>/ to graph/test/<lang>/run-tests.sh; a
+                                         program started through its dispatcher is credited to the test that starts it; controls:
+                                         a real pytest file beside the cases keeps pytest, a fixture's own test is not selected;
+                                         a fixture tree of any name maps to the script or test that reads it by path, a golden
+                                         to the test that opens it, and a shared data-file name (case.json) is no name match
+                                         (indexes one repository, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

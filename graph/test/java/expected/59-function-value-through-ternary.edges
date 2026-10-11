@@ -1,6 +1,6 @@
-ambiguous_unknown	method	probe.App#<type-initializer>() -> -
-ambiguous_unknown	method	probe.App#callers() -> -
+boundary_lib	method	probe.App#<type-initializer>() -> external:java.lang.Boolean.getBoolean
 boundary_lib	method	probe.App#callOther(App,String) -> external:java.util.function.Function.apply
+boundary_lib	method	probe.App#callers() -> external:java.lang.Boolean.getBoolean
 boundary_lib	method	probe.App#callers() -> external:java.util.function.Function.apply
 boundary_lib	method	probe.App#dispatch(String) -> external:java.util.function.Function.apply
 boundary_lib	method	probe.App#getPath(String) -> external:String.split

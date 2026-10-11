@@ -1,10 +1,10 @@
 74-jsx-component-forms [fields]
   precision 0.2857   (2 correct, 5 wrong)
   recall    0.2500   (2 of 8 the compiler resolved)
-  sites 8   resolved 7 (87.5%)
-  tiers ambiguous_unknown=1  known_edge=7
-  access read=7  write=1
-  not scored: 1 rows whose target is not a client declaration
+  sites 13   resolved 12 (92.3%)
+  tiers ambiguous_unknown=1  known_edge=12
+  access read=12  write=1
+  not scored: 6 rows whose target is not a client declaration
     WRONG   Panel#render() READ { title: string }#title
     WRONG   parts#Avatar({ src: string }) READ { src: string }#src
     WRONG   parts#Chip({ text: string }) READ { text: string }#text

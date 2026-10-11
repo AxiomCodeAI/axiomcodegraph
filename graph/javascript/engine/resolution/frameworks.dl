@@ -153,6 +153,70 @@ express_error_value(k, i) :- expr_root("client", "THROW", e), expr_value(e, k, i
 express_error_value(k, i) :- call_site("client", _, _, _, _, _, ce, _, _), callee_value(ce, "func", m), model_express_value("next", "func", m),
     call_arg(ce, 0, arg), expr_value(arg, k, i).
 
+// ── ORM model factories: a model carries its schema's statics ───────────────
+// `const s = new Schema({...}); s.statics.findLive = function () {...};
+// const Doc = connection.model('Doc', s); Doc.findLive()` — the package builds the
+// model class at runtime from the schema, so nothing in the tree declares it, and
+// `connection` is usually a parameter nobody visible passes. The SCHEMA is the value
+// that says what the model has: whatever `schema.statics` holds (member writes,
+// `schema.static('n', f)`, `schema.static({ n: f })`, `new Schema(def, { statics })`)
+// is a member of every model made from it, and whatever `schema.methods` holds is a
+// member of every document `new Model(...)` makes. The factory call is recognised by
+// its schema ARGUMENT, not by its receiver.
+//
+// A schema is a `new` of the package's `Schema`, reached through an import of a
+// modelled package — named, default, namespace or require, directly or through a
+// local alias or destructure (`const { Schema } = mongoose`). The package need not be
+// installed. The five values are all keyed by the `new Schema(...)` site, so every
+// model of one schema shares its members. Every other member of them (`find`,
+// `create`, `save`) is the package's and stays unknown: package_model_kind keeps
+// those sites receiver_untyped (callee-resolution.dl), as they were.
+orm_schema_package("mongoose").
+orm_ref(e, "") :- expr_kind(_, "MODULE_EDGE_CALL", _, e), expr_module_edge(_, imp, e),
+    import_decl(_, spec, _, _, _, _, _, _, imp), orm_schema_package(spec).
+orm_ref(e, "") :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_decl(_, spec, _, bf, _, _, _, _, imp), import_binds_whole_module(bf), orm_schema_package(spec).
+orm_ref(e, n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_decl(_, spec, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "", orm_schema_package(spec).
+orm_ref(e, n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), !var_import(_, _, v),
+    var_init(_, _, init, v), var_binding_path(_, n, v), orm_ref(init, "").
+orm_ref(e, n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), !var_import(_, _, v),
+    var_init(_, _, init, v), !var_binding_path(_, _, v), orm_ref(init, n).
+orm_ref(e, n) :- expr_kind(_, k, _, e), access_kind_reads_member(k), expr_name(_, n, e), n != "",
+    expr_child(_, e, "ACCESS_TARGET", _, r), orm_ref(r, "").
+orm_schema_site(ne) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ne, _, _),
+    expr_child(_, ne, "CALLEE", _, c), orm_ref(c, "Schema").
+orm_schema_site(ne) :- call_site(_, "CONSTRUCTOR_CALL", "Schema", "SYNTACTIC", _, _, ne, _, _),
+    expr_child(_, ne, "RECEIVER", _, r), orm_ref(r, "").
+package_model_kind("orm_schema").
+package_model_kind("orm_statics").
+package_model_kind("orm_methods").
+package_model_kind("orm_model").
+package_model_kind("orm_doc").
+orm_part("statics", "orm_statics", "static").
+orm_part("methods", "orm_methods", "method").
+expr_value(ne, "orm_schema", ne) :- orm_schema_site(ne).
+prop_value("orm_schema", s, part, pk, s) :- orm_schema_site(s), orm_part(part, pk, _).
+prop_value("orm_schema", s, part, k, i) :- orm_schema_site(s), orm_part(part, _, _),
+    call_arg(s, 1, o), expr_value(o, "obj", l), prop_value("obj", l, part, k, i).
+member_write(pk, s, n, k, i) :- call_site(_, ck, cn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    orm_part(_, pk, cn), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "orm_schema", s),
+    call_arg(ce, 0, a), expr_value(a, "str", n), call_arg(ce, 1, f), expr_value(f, k, i).
+member_write(pk, s, n, k, i) :- call_site(_, ck, cn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    orm_part(_, pk, cn), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "orm_schema", s),
+    call_arg(ce, 0, a), expr_value(a, "obj", l), prop_value("obj", l, n, k, i).
+// `x.model(name, schema)` / `model(name, schema)`: the model. `new Model(...)`: a document.
+orm_model_call(ce, s) :- call_site(_, ck, "model", _, _, _, ce, _, _),
+    (call_kind_is_member_form(ck) ; call_kind_is_callee_form(ck)),
+    call_arg(ce, 1, a), expr_value(a, "orm_schema", s).
+expr_value(ce, "orm_model", s) :- orm_model_call(ce, s).
+expr_value(ne, "orm_doc", s) :- expr_kind(_, "NEW", _, ne), new_callee_value(ne, "orm_model", s).
+prop_value("orm_model", s, n, k, i) :- prop_value("orm_schema", s, "statics", k0, i0), prop_value(k0, i0, n, k, i).
+prop_value("orm_doc", s, n, k, i) :- prop_value("orm_schema", s, "methods", k0, i0), prop_value(k0, i0, n, k, i).
+// A static runs with the model as `this`, a method with the document.
+this_value(m, "orm_model", s) :- prop_value("orm_model", s, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+this_value(m, "orm_doc", s) :- prop_value("orm_doc", s, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+
 // ── property descriptors (#489) ─────────────────────────────────────────────
 // `Object.defineProperty(o, 'm', { value: f })`, `Object.defineProperties(o, { m: {...} })`,
 // `Object.create(proto, { m: {...} })`, and the export form a bundler-compiled CommonJS

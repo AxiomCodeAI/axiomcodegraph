@@ -1,0 +1,9 @@
+oracle=6 engine=12 agree=5 missing=1 (known 1, NEW 0) extra=7
+  known    handlers#main() -> handlers#<arrow@36>()
+  extra    handlers#dispatch(Handler,string) -> Base#handle(string)
+  extra    handlers#dispatch(Handler,string) -> Built#handle(string)
+  extra    handlers#dispatch(Handler,string) -> Orphan#handle(string)
+  extra    handlers#dispatch(Handler,string) -> Provided#handle(string)
+  extra    handlers#dispatch(Handler,string) -> Registered#handle(string)
+  extra    handlers#dispatch(Handler,string) -> TypeOnly#handle(string)
+  extra    handlers#dispatch(Handler,string) -> Unused#handle(string)

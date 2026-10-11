@@ -1,0 +1,86 @@
+// ============================================================================
+// Call-edge generation · EXCEPTION HANDLERS  (a built exception -> the handler it runs)
+//
+//     throw new OrderNotFound(id);                               // written here
+//     repo.find(id).orElseThrow(OrderNotFound::new);             // or here
+//     @RestControllerAdvice class Errors {
+//         @ExceptionHandler(OrderNotFound.class) ResponseEntity<?> missing(OrderNotFound e) { … }
+//     }                                                           // run from there
+//
+// When an exception leaves a request handler, the web framework looks up the handler
+// method declared for the exception's type and runs it to build the response: one in
+// the same controller, or one in an advice class, which serves every controller. No
+// call site names the handler, so without this file `impact` on a handler listed no
+// dependent, `path '*' <handler>` found nothing, and a change to the exception's
+// handling looked local to the advice class.
+//
+// WHY A CALL EDGE WITH TIER event_dispatch. It is the shape event_dispatch.dl and
+// entity_lifecycle.dl already model: one JVM, keyed on a TYPE, the handler running in
+// the same request before the response is written. The KIND column, `exception_handler`,
+// tells it apart from an application event or an entity callback. The constructor row
+// of the `new` itself is kept: the edge is ADDED beside it.
+//
+// THE KEY IS THE BUILT EXCEPTION'S TYPE, with the subtype rule the framework applies: a
+// handler for OrderNotFound runs for an ExpressOrderNotFound, and a handler for the
+// subtype does not run for the base. The handled types are the classes the annotation
+// names, or, when it names none, the handler's parameter type.
+//
+// THE SITE IS WHERE THE EXCEPTION IS BUILT: `new X(..)` and the `X::new` handed to an
+// orElseThrow. That is where a change in handling is felt, and a project exception type
+// is built to be thrown.
+//
+// WHAT IS NOT MODELLED, and stays unlinked rather than guessed:
+//   - a handler for a LIBRARY type (Exception, RuntimeException, a validation or
+//     framework exception): the framework or a library throws those, not a client
+//     `new`, and every `new IllegalStateException` in the project would reach it. Only a
+//     type the project declares is a key;
+//   - whether the building method runs under a request at all: a job that throws the
+//     same type is linked too, which is the static answer to "which handler would take
+//     this";
+//   - which of two matching handlers is closer: both are linked;
+//   - an advice's basePackages / assignableTypes / annotations filter: it is read as
+//     serving every controller.
+// ============================================================================
+
+// ── the handlers, and the types each one takes ──────────────────────────────
+exh_ann_method(m, a) :- ann_on_method(_, a, n, m, _), cfg_exh_ann(n), method_owner("client", _, m).
+exh_names_classes(m) :- exh_ann_method(m, a),
+    ann_arg(_, a, arg, _, "CLASS_REFERENCE", _), cfg_exh_arg(arg).
+exh_handles(m, t) :- exh_ann_method(m, a),
+    ann_arg(_, a, arg, v, "CLASS_REFERENCE", _), cfg_exh_arg(arg),
+    config_class_ref("annotation", a, v, t, "client").
+exh_handles(m, t) :- exh_ann_method(m, _), !exh_names_classes(m),
+    event_param_type(m, t), java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// a handler of an advice class serves every controller; any other serves its own type
+exh_global(m) :- exh_ann_method(m, _), method_owner("client", t, m),
+    ann_on_type(_, _, n, t), cfg_exh_advice_ann(n).
+
+// ── where a project exception is built ──────────────────────────────────────
+exh_built(call, caller, t) :-
+    java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_type("client", call, t), call_from(call, caller).
+exh_built(mr, caller, t) :-
+    java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type("client", q, t), call_from(mr, caller).
+exh_built(mr, caller, t) :-
+    java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    method_ref_qualifier_resolves("client", mr, _, t), call_from(mr, caller).
+
+// the handler takes the built type itself, or an ancestor of it
+exh_handles_built(m, t) :- exh_handles(m, t).
+exh_handles_built(m, bt) :- exh_built(_, _, bt), type_ancestor(bt, t), exh_handles(m, t).
+
+// ── the edge ────────────────────────────────────────────────────────────────
+exh_edge(call, caller, m) :- exh_built(call, caller, bt), exh_handles_built(m, bt),
+    exh_global(m), caller != m.
+exh_edge(call, caller, m) :- exh_built(call, caller, bt), exh_handles_built(m, bt),
+    !exh_global(m), caller != m,
+    method_owner("client", ht, m), method_owner("client", ht, caller).
+exh_edge(call, caller, m) :- exh_built(call, caller, bt), exh_handles_built(m, bt),
+    !exh_global(m), caller != m,
+    method_owner("client", ht, m), method_owner("client", ct, caller), type_ancestor(ct, ht).
+
+call_chain_edge(call, caller, "-", m, "client", "event_dispatch", "exception_handler") :-
+    exh_edge(call, caller, m).

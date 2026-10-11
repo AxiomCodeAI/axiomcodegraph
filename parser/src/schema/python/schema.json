@@ -636,6 +636,7 @@
      "ABSTRACTMETHOD",
      "CACHED_PROPERTY",
      "CLASSMETHOD",
+     "COMPUTED_FIELD",
      "CONTEXTMANAGER",
      "DATACLASS",
      "DELETER",
@@ -648,6 +649,7 @@
      "PROPERTY",
      "SETTER",
      "STATICMETHOD",
+     "VALIDATE_CALL",
      "WRAPS"
     ]
    }

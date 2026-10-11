@@ -10,6 +10,10 @@ that resolves to a file THIS GRAPH INDEXED. A test that only reads the same path
 starts no process and is not linked; a path naming a file of another language is in no graph of this language and is
 not linked either (a spawn across languages is not built here).
 
+A Python spawn can name a MODULE instead of a path: `[sys.executable, "-m", "pkg"]` runs pkg/__main__.py, and
+`-m pkg.tool` runs pkg/tool.py, as __main__ either way. The name after `-m` is resolved like an import, from the
+repository root or a source root, and only to a file this graph indexed (`-m pytest`, `-m coverage` name none).
+
 Both backends read this module (dl/impact.dl through the `spawns_fact` input, graph_sql through its edge list), so
 they cannot drift apart on what counts as a spawn.
 """
@@ -119,6 +123,32 @@ def _resolve(lits, f, known):
     return out
 
 
+MODULE = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*')
+TEST_DIR = {'test', 'tests', 'testing'}
+
+
+def _resolve_modules(lits, known):
+    """the indexed files `python -m pkg.mod` runs: pkg/mod/__main__.py for a package, else pkg/mod.py.
+
+    The name is a MODULE, found on the import path, so it is matched from the repository root or from a source root
+    (`src/`): a directory that is no package itself and no test directory. `-m coverage run -m typer` names two
+    modules; the one this graph indexed is the one linked, and one it did not index (coverage, pytest) names none."""
+    out = set()
+    for i in range(len(lits) - 1):
+        if lits[i] != '-m' or not MODULE.fullmatch(lits[i + 1]): continue
+        rel = lits[i + 1].replace('.', '/')
+        for cand in (rel + '/__main__.py', rel + '.py'):
+            hits = []
+            for p in known:
+                if p != cand and not p.endswith('/' + cand): continue
+                root = p[:len(p) - len(cand)].rstrip('/')
+                if root and (root + '/__init__.py' in known or TEST_DIR & set(root.split('/'))): continue
+                hits.append((len(root), p))
+            if hits:
+                out.add(min(hits)[1]); break
+    return out
+
+
 def links(test_files, mod_of, lines, at):
     """-> sorted [(caller, script_module, file, line)]: in a test file, a spawn whose arguments name an indexed script.
 
@@ -140,7 +170,9 @@ def links(test_files, mod_of, lines, at):
                       and text[max(0, m.start() - 40):m.start()].rstrip()[-1:] != '.']
         for end in sorted(set(sites)):
             arg = _balanced(text, end)
-            targets = _resolve(_literals(text, arg), f, known)
+            lits = _literals(text, arg)
+            targets = _resolve(lits, f, known)
+            if fam == 'py': targets |= _resolve_modules(lits, known)
             if not targets: continue
             line = text.count('\n', 0, end) + 1
             c = at(f, line) or mod_of.get(f)

@@ -1,0 +1,94 @@
+{
+ "lang": "python",
+ "checks": [
+  {
+   "why": "control: a named impact --json is the verb's own document, with no edits in it",
+   "run": [
+    "impact",
+    "helper",
+    "--json"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"targets\""
+   ],
+   "avoid": [
+    "\"edits\"",
+    "your edits:"
+   ]
+  },
+  {
+   "why": "impact --json with no name answers for the working tree's edits, as impact with no name does at the front door; it printed the usage text",
+   "edit": [
+    "app/shapes.py",
+    "return 1",
+    "return 2"
+   ],
+   "run": [
+    "impact",
+    "--json",
+    "--no-refresh"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"edits\"",
+    "your edits:"
+   ],
+   "avoid": [
+    "usage: axiomcode impact"
+   ]
+  },
+  {
+   "why": "--json always parses: impact on a name nothing declares is a document with the refusal as its prose",
+   "run": [
+    "impact",
+    "NoSuchName",
+    "--json"
+   ],
+   "stdout_json": true,
+   "expect_error": true,
+   "want": [
+    "\"refusal\"",
+    "nothing named 'NoSuchName'"
+   ]
+  },
+  {
+   "why": "--json always parses: path to a name nothing declares",
+   "run": [
+    "path",
+    "main",
+    "NoSuchName",
+    "--json"
+   ],
+   "stdout_json": true,
+   "expect_error": true,
+   "want": [
+    "nothing named 'NoSuchName'"
+   ]
+  },
+  {
+   "why": "--json always parses: tests for the edits",
+   "run": [
+    "tests",
+    "--json"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"changed\""
+   ]
+  },
+  {
+   "why": "--json always parses: context on a task the graph holds nothing for",
+   "run": [
+    "context",
+    "zzqq nothing",
+    "--json"
+   ],
+   "stdout_json": true,
+   "expect_error": true,
+   "want": [
+    "\"task\""
+   ]
+  }
+ ]
+}

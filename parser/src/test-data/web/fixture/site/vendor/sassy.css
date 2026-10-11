@@ -1,0 +1,3 @@
+$primary: #333;
+@mixin flex { display: flex; }
+.x { color: $primary; @include flex; }

@@ -1,2 +1,6 @@
 ambiguous_unknown	read	app#<arrow@6>(?) -> -
 ambiguous_unknown	read	app#useName() -> -
+known_edge	read	app#App() -> app#LazyDefault
+known_edge	read	app#App() -> app#LazyNamedObj
+known_edge	read	app#App() -> app#MemoPicked
+known_edge	read	app#App() -> parts#MemoFwd

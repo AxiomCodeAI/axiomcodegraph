@@ -1,0 +1,4 @@
+<div class="widget" x-data="{ open: false }" @click="open = !open" hx-get="/items" :class="{ on: open }">
+  <span class="label">{{#each items}}{{this}}{{/each}}</span>
+  <% if (user) { %><em><%= user.name %></em><% } %>
+</div>

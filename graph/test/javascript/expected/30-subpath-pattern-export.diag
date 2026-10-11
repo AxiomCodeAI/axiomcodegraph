@@ -6,6 +6,9 @@ import_cause     app.js:7:18  kit/internal/secret  not_staged
 import_cause     app.js:8:16  kit/feat/deep/none  not_staged
 import_cause     app.mjs:1:10  kit/mjs/gamma  not_staged
 import_cause     app.mjs:2:10  kit/feat/alpha  not_staged
+library_receiver app.js:9:19  createApp().start  kit
+library_receiver app.js:9:66  internal.secret  kit/internal/secret
+library_receiver app.js:9:85  nested.x  kit/feat/deep/none
 package_entry    case30-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       app.js:9:19  FUNCTION_CALL createApp  callee_untyped
 unresolved       app.js:9:19  METHOD_CALL start  receiver_untyped

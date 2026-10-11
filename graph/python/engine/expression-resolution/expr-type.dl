@@ -152,25 +152,44 @@ expr_type(p, e, t) :-
 // of any length follows by recursion, since the object's type is derived the same way.
 // Same two field-type sources and the same declared_dispatch widening as the self clauses,
 // so no new precision assumption is introduced.
-expr_type(p, e, t) :-
+
+// ── attr_access(p, e, n, obj): a named attribute access and its object, ONCE ─────────
+// This three-atom prefix sat inline in 13 recursive clauses of the typing fixpoint, and
+// semi-naive evaluation re-ran the expr_node scan every iteration — 79 iterations on a
+// 526k-LOC subject, ~20% of the solve between them. Hoisted below the fixpoint (pure
+// syntax), each clause starts from its recursive delta and probes this table.
+attr_access(p, e, n, obj) :-
     expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj).
+
+expr_type(p, e, t) :-
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_declared_type(p, f, d),
     declared_dispatch(p, d, t).
 expr_type(p, e, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_from_param(p, f, d),
     declared_dispatch(p, d, t).
 expr_type(p, e, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
+    field_type_from_construction(p, f, t).
+// (i2c) the SAME hop with a CLASS OBJECT in the object position (#1518):
+// `Order.objects.open_orders()` where the class body says `objects = OrderManager()`.
+// The clause above joins expr_type, an INSTANCE type, so the class spelling had no
+// clause while `Order().objects` resolved. Only a CLASS-BODY assignment is read here:
+// an attribute written through `self` in a method does not exist on the class object,
+// so typing `Cls.x` from it would name something the class never holds.
+expr_type(p, e, t) :-
+    attr_access(p, e, n, obj),
+    expr_type_class_object(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_decl(p, n, _, "CLASS_BODY_ASSIGN", f),
     field_type_from_construction(p, f, t).
 // ── (i3) A PROPERTY READ IS A CALL, SO IT HAS A RETURN TYPE (issue #286) ─────
 // `attribute-lookup.dl` already argues that `obj.x` on a `@property` is a method call, and
@@ -199,8 +218,7 @@ expr_type(p, e, t) :-
 // Same widening as everywhere else: the declared type goes out through declared_dispatch,
 // so an overriding subclass is not dropped and the annotation is not treated as exact.
 property_read_of(p, e, obj, n, g) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_property_getter(p, ot, n, g).
 // A USER-WRITTEN DATA DESCRIPTOR reaches the same two clauses (issue #326). `@property`
@@ -208,8 +226,7 @@ property_read_of(p, e, obj, n, g) :-
 // agree; type_descriptor_getter (resolution/attribute-lookup.dl) is deliberately shaped
 // like type_property_getter so this is one more clause rather than a parallel path.
 property_read_of(p, e, obj, n, g) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_descriptor_getter(p, ot, n, g).
 // (i3a) the getter's declared `-> X`.
@@ -417,6 +434,19 @@ binding_value_type(p, b, t) :-
     assign_pair(p, tgt, val),
     expr_type(p, val, t).
 
+// ── AN IMPORTED MODULE-LEVEL VALUE IS THE BINDING IT NAMES (#1140) ───────────
+// `from order_service import order_service` resolves to the exporting module's
+// own binding row (import_resolved_target kind VARIABLE), and that binding's
+// value type is derived above from its assignment. Without this clause the
+// type stopped at the module boundary: the same `order_service.cancel()` was a
+// known edge next to the assignment and a name match one import away. The
+// write-count trade-offs are inherited, not re-decided -- a multi-write export
+// arrives as the union and the tier follows from the target count as usual.
+binding_value_type(p, b, t) :-
+    import_binding(p, b, i),
+    import_resolved_target(p, "VARIABLE", b2, i),
+    binding_value_type(p, b2, t).
+
 // ── A CONDITIONAL EXPRESSION IS EITHER BRANCH ────────────────────────────────
 // `w = HtmlWriter() if flag else PlainWriter()`. CONDITIONAL_EXPRESSION was present in
 // the IR with BODY / CONDITION / ORELSE children and NO rule read it, so a ternary had
@@ -555,6 +585,15 @@ binding_declared_nominal(p, bind, d) :-
     binding_declared_ref(p, bind, r),
     type_ref_resolved(p, d, r),
     !type_is_structural(p, d).
+// `x: Optional[Order] = ...` / `x: Order | None = ...` IS an Order (or None) — the rule the
+// parameter, return and field annotations already have (resolution/annotations.dl,
+// "Optional[X] IS X"), which the local annotation alone was missing: a local written
+// with the commonest modern spelling stayed untyped while the same annotation on a
+// parameter resolved.
+binding_declared_nominal(p, bind, t) :-
+    type_ref_owner(p, bind, "BINDING", r),
+    type_ref(p, k, "VARIABLE_ANNOTATION", _, _, r), annotation_optional_kind(k),
+    type_ref_element(p, r, t), !type_is_structural(p, t).
 // The FK is resolved on only 14 of 479 variable annotations, so the name-based lookup
 // beside it is what carries this -- the same two clauses the parameter path uses, with
 // the same kind restriction. A SUBSCRIPT or a UNION names no single type and is served by
@@ -632,8 +671,7 @@ expr_type_untypable(p, e, "unresolved_name") :-
 
 // (2b) the same hop through ANY object, not only self.
 expr_type_untypable(p, e, "attribute_untyped") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_unknown(p, f), !expr_any_type(p, e).
@@ -643,8 +681,7 @@ expr_type_untypable(p, e, "attribute_untyped") :-
 //     one wants the field annotated or its writes typed, the other wants the object typed.
 //     Reporting them as one reason would point at the wrong layer.
 expr_type_untypable(p, e, "attribute_object_untyped") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     !expr_any_type(p, obj),
     !expr_any_type(p, e).
 
@@ -661,8 +698,7 @@ expr_type_untypable(p, e, "attribute_object_untyped") :-
 // `handler` is a METHOD is a call through a bound method, which resolution/value-flow.dl
 // owns; labelling it "absent" would be wrong rather than merely unhelpful.
 expr_type_untypable(p, e, "attribute_absent_on_type") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     !type_attr_field(p, ot, n, _),
     !mro_lookup(p, ot, n, _),
@@ -686,8 +722,7 @@ expr_type_untypable(p, e, "attribute_absent_on_type") :-
 // and no amount of field typing will reach it. Merging them would put the largest single
 // shape in the residual behind a name that suggests the wrong fix.
 expr_type_untypable(p, e, "class_attribute_absent") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type_class_object(p, obj, ot),
     !type_attr_field(p, ot, n, _),
     !mro_lookup(p, ot, n, _),

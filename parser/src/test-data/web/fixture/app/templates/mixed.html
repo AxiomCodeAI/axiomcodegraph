@@ -1,0 +1,12 @@
+@model Shop.Models.Cart
+<ul *ngIf="items.length" [class.on]="open" (click)="toggle()" #list>
+  <li *ngFor="let item of items; let i = index" [(ngModel)]="item.qty">@Model.Count items</li>
+  <?php echo $total; ?>
+</ul>
+<div id="vue-root">
+  <my-list v-for="row in rows" :key="row.id" v-model="selected" @select="pick(row)">
+    <template #default="{ item }">{{ format(item.name) }}</template>
+  </my-list>
+  <input v-model.trim="query" @keyup.enter="search()">
+  <div x-data="{ open: false }" x-ref="panel" x-show="open">alpine</div>
+</div>

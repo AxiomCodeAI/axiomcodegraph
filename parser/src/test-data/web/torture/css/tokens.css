@@ -1,0 +1,35 @@
+/* K01 custom properties: defined at :root, overridden per theme, registered, used in fallbacks and shorthands */
+@import "theme.css";
+:root {
+  --brand: #09f;
+  --gap: 8px;
+  --anchor: var(--brand);
+  --fallback-brand: pink;
+  --font: Inter, sans-serif;
+  --anim: spin;
+  --duration: 1s;
+  --easing: ease-in;
+  --pad: 1px;
+  --wide: 70rem;
+}
+:root.dark, .dark, [data-theme="dark"], html[data-theme=dark] body { --brand: #fff; }
+@media (prefers-color-scheme: dark) { :root { --brand: #000 } }
+@property --brand { syntax: '<color>'; inherits: true; initial-value: red }
+@property --registered-never-used { syntax: '*'; inherits: false }
+.scoped { --gap: 4px; }
+.scoped .child { gap: var(--gap); }
+.uses-undefined { color: var(--undefined-anywhere); }
+.uses-undefined-with-fallback { color: var(--undefined-anywhere, red); }
+.defined-in-style-attr { padding: var(--local); }      /* --local is defined only in a style="" attribute of index.html */
+.var-in-selector-arg:is(.x) { --in-is: 1 }
+.var-name-cases { color: var(--BRAND); color: var( --brand ); color: var(--brand,); color: var(--brand , 1px 2px); color: var(--brand, url(img/bg.png)); color: var(--brand, var(--gap)) }
+.var-not-a-var { color: var(brand); color: var(); color: var(--); }
+.var-in-shorthand { margin: var(--gap) calc(var(--gap) * 2) 0 var(--gap, var(--pad)); }
+.var-in-important { color: var(--brand) !important; }
+.var-in-url { background: url(var(--url)); }           /* not valid CSS, but written */
+.var-in-string { content: "var(--brand)"; }
+.var-in-comment { /* color: var(--commented) */ color: red; }
+.var-in-custom { --alias: var(--brand); --chain: var(--alias); color: var(--chain); }
+.var-in-animation { animation: var(--anim) var(--duration); }
+.var-in-font { font-family: var(--font); font: 12px var(--font); }
+.var-in-container { container-name: var(--container-name); }

@@ -1,0 +1,62 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "require('../') in a package whose package.json names a hand-written declaration (types / an exports types condition) loads index.js at runtime: the test that calls the class it exports reaches the method",
+   "run": [
+    "impact",
+    "Reader.skipBlank",
+    "--tests"
+   ],
+   "want": [
+    "reader.test.js",
+    "tests: 1 of"
+   ],
+   "avoid": [
+    "tests: 0 of"
+   ]
+  },
+  {
+   "why": "require('../lib/format.js') beside a format.d.ts loads the .js: the test's call is an exact edge, not a name match",
+   "run": [
+    "path",
+    "src/test/format.test.js",
+    "wrap"
+   ],
+   "want": [
+    "known_edge"
+   ],
+   "avoid": [
+    "receiver not typed",
+    "callee is"
+   ]
+  },
+  {
+   "why": "path from the test file is an exact chain through the runtime module, not an unknown receiver",
+   "run": [
+    "path",
+    "src/test/reader.test.js",
+    "Reader.readAll"
+   ],
+   "want": [
+    "known_edge"
+   ],
+   "avoid": [
+    "receiver not typed"
+   ]
+  },
+  {
+   "why": "CONTROL: a module that exists only as a declaration has no code to run; a call through it stays unresolved and is never linked to a same-named project method",
+   "run": [
+    "path",
+    "src/test/shape.test.js",
+    "Square.area"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "known_edge"
+   ]
+  }
+ ]
+}

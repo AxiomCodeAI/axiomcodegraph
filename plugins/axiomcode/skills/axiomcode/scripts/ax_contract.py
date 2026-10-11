@@ -438,6 +438,11 @@ def ensure_graph(repo, db):
     AXIOMCODE_GRAPH points at a graph someone else built and placed; nothing is built into it."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
     rr = os.path.realpath(repo); auto = os.environ.get('AXIOMCODE_AUTOBUILD')
+    # a repository that is not there is an error that names it, never a build: the dispatcher refuses one first, and
+    # this holds the same for a verb script run directly
+    if not os.path.isdir(rr):
+        print(f"axiomcode: no such directory: {repo} (the repository to ask). Nothing was built or asked.", file=sys.stderr)
+        sys.exit(2)
     if not os.environ.get('AXIOMCODE_GRAPH'): ax_fresh.relink(rr)     # a pointer into another checkout is not this graph (#1605)
     if os.path.exists(db): return True
     # A BUILD IS RUNNING: wait for it, never start a second one (#1305). The graph (or the baseline graph `changed` reads,

@@ -1,0 +1,21 @@
+── framework_edge (16) ──
+  model_hook         registered  service.load_widget (service.py) -> models.Widget.check_all (models.py)   [root_validator]
+  model_hook         registered  service.load_widget (service.py) -> models.Widget.check_id (models.py)   [validator]
+  model_hook         registered  service.load_widget (service.py) -> models.Widget.check_size (models.py)   [field_validator]
+  model_hook         registered  service.load_widget (service.py) -> models.Widget.model_post_init (models.py)   [model_post_init]
+  model_hook         registered  service.load_widget (service.py) -> models.new_id (models.py)   [default_factory]
+  model_hook         registered  service.make_gizmo (service.py) -> models.Widget.check_all (models.py)   [root_validator]
+  model_hook         registered  service.make_gizmo (service.py) -> models.Widget.check_id (models.py)   [validator]
+  model_hook         registered  service.make_gizmo (service.py) -> models.Widget.check_size (models.py)   [field_validator]
+  model_hook         registered  service.make_gizmo (service.py) -> models.Widget.model_post_init (models.py)   [model_post_init]
+  model_hook         registered  service.make_gizmo (service.py) -> models.new_id (models.py)   [default_factory]
+  model_hook         registered  service.make_gizmo (service.py) -> models.new_tags (models.py)   [default_factory]
+  model_hook         registered  service.make_widget (service.py) -> models.Widget.check_all (models.py)   [root_validator]
+  model_hook         registered  service.make_widget (service.py) -> models.Widget.check_id (models.py)   [validator]
+  model_hook         registered  service.make_widget (service.py) -> models.Widget.check_size (models.py)   [field_validator]
+  model_hook         registered  service.make_widget (service.py) -> models.Widget.model_post_init (models.py)   [model_post_init]
+  model_hook         registered  service.make_widget (service.py) -> models.new_id (models.py)   [default_factory]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

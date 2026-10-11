@@ -52,7 +52,7 @@ permissions:
   contents: read
 
 env:
-  # bin/axiomcode and the parser need Node ≥ 22.5.
+  # bin/axiomcode and the parser need Node ≥ 22.13 (node:sqlite without a flag).
   NODE_VERSION: '22'
   SOUFFLE_VERSION: '2.5'
   SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
@@ -253,7 +253,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       # the engine is compiled for any x86-64 runner, so a cached one can be restored
       # on whichever runner this job lands (see the engine cache step below)
@@ -371,6 +371,16 @@ jobs:
         if: matrix.lang == 'csharp'
         run: dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
 
+      # `--library auto` decompiles a dependency that ships no sources jar; the Java query case for it needs Vineflower
+      - name: fetch the decompiler `--library auto` uses for Java class jars
+        if: matrix.lang == 'java'
+        run: mvn -q dependency:get -Dartifact=org.vineflower:vineflower:1.10.1
+
+      # `--library auto` compiles a NuGet package by decompiling it; the query case for it needs the decompiler
+      - name: install the decompiler `--library auto` uses for NuGet packages
+        if: matrix.lang == 'csharp'
+        run: dotnet tool install -g ilspycmd --version 8.2.0.7535
+
       - name: cache the Soufflé package
         uses: actions/cache@v4
         with:
@@ -447,6 +457,36 @@ jobs:
         # The cases run concurrently, up to one per CPU (graph/test/tools/case-pool.sh);
         # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+      # THE QUERY LAYER'S CASES (tests/run.py): what impact, path, context, changed and test-impact answer on small
+      # projects written for one behaviour each. Every case must pass, and a case marked pending that now passes fails
+      # the run until the mark is removed, so a fix for one shape cannot quietly break another's answer. The suite
+      # calls the verbs directly, so it checks their own answers, not the front-door rendering (tests/front_door.py).
+      - name: ${{ matrix.lang }} query cases
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/run.py --lang ${{ matrix.lang }} --jobs 4
+
+      # the small surface as users and agents get it: find / impact / path / tests through the installed command and
+      # the MCP server, answered as places with their code, and the direct calls and flags that keep the old answers
+      - name: the front door answers as places with their code
+        if: matrix.lang == 'python'
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/front_door.py
+
+      # The hooks answer impact from SQL (graph_sql.impact_shaped) and fall back to the rules (dl/impact.dl) only when
+      # it declines, so the two must list the same rows for the same edit: tests/fastpath.py indexes a small case, asks
+      # both on each target shape, and runs hooks/changes.py on one edit through each path. Same parser and engine
+      # cache as the suite above. Not typescript: its case needs the TypeScript engine; javascript has no case.
+      - name: the hooks' fast path agrees with the rules (${{ matrix.lang }})
+        if: matrix.lang == 'python' || matrix.lang == 'java' || matrix.lang == 'csharp'
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/fastpath.py --lang ${{ matrix.lang }}
 
       # Saved whether or not the suite passed. The binary does not depend on the verdict:
       # run-souffle.sh publishes it only whole and verified (a temp name, then a rename),

@@ -1,0 +1,76 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "an NUnit [SetUpFixture]'s [OneTimeSetUp] runs before every NUnit test in its namespace and the namespaces under it, which no call and no type scope carries (#1501)",
+   "run": [
+    "impact",
+    "WidgetPricer.Price",
+    "--tests"
+   ],
+   "want": [
+    "PricerTests::Price_Doubles",
+    "DeepTests::Nested",
+    "via GlobalSetup.Boot"
+   ],
+   "avoid": [
+    "OtherTests::Outside",
+    "XunitTests::RunByXunit",
+    "XunitInSameAssembly::NotNunit",
+    "OrderTests::Places",
+    "callable(s) in test code listed above reach it"
+   ]
+  },
+  {
+   "why": "control: a [SetUp] on the fixture itself is credited to that fixture's tests only, as before",
+   "run": [
+    "impact",
+    "WidgetPricer.Tax",
+    "--tests"
+   ],
+   "want": [
+    "tests: 1 of",
+    "PricerTests::Price_Doubles"
+   ],
+   "avoid": [
+    "DeepTests::Nested"
+   ]
+  },
+  {
+   "why": "MSTest's [GlobalTestInitialize] (3.10+) runs before every MSTest test of its assembly, in another class too, and not in another project (#1503)",
+   "run": [
+    "impact",
+    "WidgetPricer.Discount",
+    "--tests"
+   ],
+   "want": [
+    "OrderTests::Places",
+    "via Hooks.EveryTest"
+   ],
+   "avoid": [
+    "PricerTests::Price_Doubles",
+    "DeepTests::Nested"
+   ]
+  },
+  {
+   "why": "test-impact --why prints a fixture-selected test's whole route, the fixture included (#1424)",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--why",
+    "--old",
+    "{repo}/Price-old.cs",
+    "--new",
+    "{repo}/App/WidgetPricer.cs",
+    "--file",
+    "App/WidgetPricer.cs"
+   ],
+   "want": [
+    "DeepTests.Nested <- GlobalSetup.Boot -> WidgetPricer.Price"
+   ],
+   "avoid": [
+    "[fixture]  DeepTests.Nested\n"
+   ]
+  }
+ ]
+}

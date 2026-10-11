@@ -1,0 +1,3 @@
+known_edge	read	routes#<module-init>() -> routes#app
+known_edge	read	routes#<module-init>() -> routes#cache
+known_edge	read	routes#<module-init>() -> routes#headers

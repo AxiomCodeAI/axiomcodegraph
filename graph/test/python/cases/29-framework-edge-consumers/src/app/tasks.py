@@ -1,7 +1,7 @@
 """Two registered tasks (one with bind=True), an unregistered function, and a class
 whose method is also called `delay`."""
 
-from celery import shared_task
+from taskqueue import shared_task
 
 
 @shared_task

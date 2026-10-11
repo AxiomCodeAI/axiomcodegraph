@@ -1,0 +1,68 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a static field initializer runs when the type is initialized: a static method call and a constructor call do it (JLS 12.4.1), a call of an instance method on an instance someone else built does not",
+   "run": [
+    "impact",
+    "Seeds.load",
+    "--tests"
+   ],
+   "want": [
+    "CatalogTest::opens",
+    "RowTest::reads"
+   ],
+   "avoid": [
+    "HolderTest",
+    "0 of"
+   ]
+  },
+  {
+   "why": "an instance field initializer runs inside the type's constructors only: a static method that builds no instance never runs it",
+   "run": [
+    "impact",
+    "Names.fresh",
+    "--tests"
+   ],
+   "want": [
+    "CatalogTest::opens"
+   ],
+   "avoid": [
+    "RowTest",
+    "HolderTest",
+    "0 of"
+   ]
+  },
+  {
+   "why": "control: the instance method's own callers are unchanged",
+   "run": [
+    "impact",
+    "Catalog.name",
+    "--tests"
+   ],
+   "want": [
+    "CatalogTest::opens",
+    "HolderTest::readsTheFirstName"
+   ],
+   "avoid": [
+    "RowTest",
+    "0 of"
+   ]
+  },
+  {
+   "why": "a chain through an initializer is verified as the rules' own hop, not reported as an edge missing from the graph",
+   "run": [
+    "impact",
+    "Seeds.load",
+    "--tests"
+   ],
+   "want": [
+    "all present"
+   ],
+   "avoid": [
+    "not found: report this"
+   ]
+  }
+ ]
+}

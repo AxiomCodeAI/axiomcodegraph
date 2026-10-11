@@ -1,0 +1,4 @@
+# Accepted gap, the same as 02-anonymous-sam: an ANONYMOUS CLASS has no constructor entity for
+# `new Comparator<String>(){...}` to point at (JLS 15.9.5.1), while bytecode names one. The
+# control that uses it (sortAnonymous) is here for its `defines` hop, not for the constructor.
+app.Callbacks#sortAnonymous -> app.Callbacks$anon:Comparator#<init>

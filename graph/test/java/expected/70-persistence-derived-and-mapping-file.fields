@@ -1,0 +1,3 @@
+known_edge	read	testcases.derived.InvoiceDao#byNothing() -> testcases.derived.InvoiceDao#em
+known_edge	read	testcases.derived.InvoiceDao#byStatus(String) -> testcases.derived.InvoiceDao#em
+known_edge	read	testcases.derived.InvoiceDao#byTotal(long) -> testcases.derived.InvoiceDao#em

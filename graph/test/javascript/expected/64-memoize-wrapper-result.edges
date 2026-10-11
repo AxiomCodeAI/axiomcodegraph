@@ -1,6 +1,8 @@
 app.js:11:3 FUNCTION_CALL getAlpha  ->  known_edge  memoize.js:5:10 <arrow>
+app.js:11:3 FUNCTION_CALL getAlpha  ->  multi_inferred  app.js:7:26 <arrow>
 app.js:11:3 METHOD_CALL getAlpha().getHooks  ->  known_edge  alpha.js:2:3 getHooks
 app.js:12:3 FUNCTION_CALL getBeta  ->  known_edge  memoize.js:5:10 <arrow>
+app.js:12:3 FUNCTION_CALL getBeta  ->  multi_inferred  app.js:8:25 <arrow>
 app.js:12:3 METHOD_CALL getBeta().getHooks  ->  known_edge  beta.js:2:3 getHooks
 app.js:16:20 FUNCTION_CALL once  ->  callback_registered  app.js:16:25 <arrow>
 app.js:16:20 FUNCTION_CALL once  ->  known_edge  once.js:2:1 once
@@ -15,12 +17,16 @@ app.js:19:19 FUNCTION_CALL lazy  ->  callback_registered  app.js:19:24 <arrow>
 app.js:19:19 FUNCTION_CALL lazy  ->  known_edge  once.js:14:1 lazy
 app.js:19:30 CONSTRUCTOR_CALL AlphaPlugin  ->  implicit_constructor  -
 app.js:22:3 FUNCTION_CALL firstAlpha  ->  known_edge  once.js:5:10 <function-expression>
+app.js:22:3 FUNCTION_CALL firstAlpha  ->  multi_inferred  app.js:16:25 <arrow>
 app.js:22:3 METHOD_CALL firstAlpha().run  ->  known_edge  alpha.js:3:3 run
 app.js:23:3 FUNCTION_CALL makeBeta  ->  known_edge  once.js:15:10 <arrow>
+app.js:23:3 FUNCTION_CALL makeBeta  ->  multi_inferred  app.js:17:23 <arrow>
 app.js:23:3 METHOD_CALL makeBeta().run  ->  known_edge  beta.js:3:3 run
 app.js:24:3 FUNCTION_CALL firstBeta  ->  known_edge  once.js:5:10 <function-expression>
+app.js:24:3 FUNCTION_CALL firstBeta  ->  multi_inferred  app.js:18:24 <arrow>
 app.js:24:3 METHOD_CALL firstBeta().run  ->  known_edge  beta.js:3:3 run
 app.js:25:3 FUNCTION_CALL makeAlpha  ->  known_edge  once.js:15:10 <arrow>
+app.js:25:3 FUNCTION_CALL makeAlpha  ->  multi_inferred  app.js:19:24 <arrow>
 app.js:25:3 METHOD_CALL makeAlpha().run  ->  known_edge  alpha.js:3:3 run
 app.js:29:18 FUNCTION_CALL constant  ->  known_edge  once.js:18:1 constant
 app.js:29:27 CONSTRUCTOR_CALL BetaPlugin  ->  implicit_constructor  -
@@ -57,10 +63,14 @@ declared.js:27:16 FUNCTION_CALL pickShared  ->  callback_registered  declared.js
 declared.js:27:16 FUNCTION_CALL pickShared  ->  known_edge  declared.js:20:1 pickShared
 declared.js:27:33 CONSTRUCTOR_CALL BetaPlugin  ->  implicit_constructor  -
 declared.js:30:3 FUNCTION_CALL declAlpha  ->  known_edge  declared.js:9:3 inner
+declared.js:30:3 FUNCTION_CALL declAlpha  ->  multi_inferred  declared.js:22:28 <arrow>
 declared.js:30:3 METHOD_CALL declAlpha().run  ->  known_edge  alpha.js:3:3 run
 declared.js:31:3 FUNCTION_CALL declBeta  ->  known_edge  declared.js:9:3 inner
+declared.js:31:3 FUNCTION_CALL declBeta  ->  multi_inferred  declared.js:23:27 <arrow>
 declared.js:31:3 METHOD_CALL declBeta().run  ->  known_edge  beta.js:3:3 run
 declared.js:32:3 FUNCTION_CALL declOfGetter  ->  known_edge  declared.js:9:3 inner
+declared.js:32:3 FUNCTION_CALL declOfGetter  ->  multi_inferred  declared.js:24:26 <arrow>
+declared.js:32:3 FUNCTION_CALL declOfGetter  ->  multi_inferred  memoize.js:5:10 <arrow>
 declared.js:32:3 METHOD_CALL declOfGetter().run  ->  known_edge  alpha.js:3:3 run
 declared.js:33:3 FUNCTION_CALL tappedDecl  ->  known_edge  declared.js:15:3 inner
 declared.js:33:3 METHOD_CALL tappedDecl().markOnly  ->  known_edge  declared.js:13:14 markOnly
@@ -202,24 +212,33 @@ shapes.js:45:27 FUNCTION_CALL memoize  ->  callback_registered  shapes.js:45:35 
 shapes.js:45:27 FUNCTION_CALL memoize  ->  known_edge  memoize.js:2:17 <arrow>
 shapes.js:45:41 CONSTRUCTOR_CALL BetaPlugin  ->  implicit_constructor  -
 shapes.js:48:3 FUNCTION_CALL getFb  ->  known_edge  shapes.js:15:10 <arrow>
+shapes.js:48:3 FUNCTION_CALL getFb  ->  multi_inferred  shapes.js:36:28 <arrow>
 shapes.js:48:3 METHOD_CALL getFb().run  ->  known_edge  alpha.js:3:3 run
 shapes.js:49:3 FUNCTION_CALL getFb  ->  known_edge  shapes.js:15:10 <arrow>
+shapes.js:49:3 FUNCTION_CALL getFb  ->  multi_inferred  shapes.js:36:28 <arrow>
 shapes.js:49:3 METHOD_CALL getFb().fallbackOnly  ->  known_edge  shapes.js:8:18 fallbackOnly
 shapes.js:50:3 FUNCTION_CALL getOr  ->  known_edge  shapes.js:22:10 <arrow>
+shapes.js:50:3 FUNCTION_CALL getOr  ->  multi_inferred  shapes.js:38:22 <arrow>
 shapes.js:50:3 METHOD_CALL getOr().run  ->  ambient_terminal  -
 shapes.js:50:3 METHOD_CALL getOr().run  ->  multi_inferred  beta.js:3:3 run
 shapes.js:51:3 FUNCTION_CALL getOr  ->  known_edge  shapes.js:22:10 <arrow>
+shapes.js:51:3 FUNCTION_CALL getOr  ->  multi_inferred  shapes.js:38:22 <arrow>
 shapes.js:51:3 METHOD_CALL getOr().mockOnly  ->  ambient_terminal  -
 shapes.js:51:3 METHOD_CALL getOr().mockOnly  ->  multi_inferred  shapes.js:9:14 mockOnly
 shapes.js:52:3 FUNCTION_CALL getD  ->  known_edge  shapes.js:29:10 <arrow>
+shapes.js:52:3 FUNCTION_CALL getD  ->  multi_inferred  shapes.js:39:26 <arrow>
 shapes.js:52:3 METHOD_CALL getD().run  ->  known_edge  alpha.js:3:3 run
 shapes.js:53:3 FUNCTION_CALL getD  ->  known_edge  shapes.js:29:10 <arrow>
+shapes.js:53:3 FUNCTION_CALL getD  ->  multi_inferred  shapes.js:39:26 <arrow>
 shapes.js:53:3 METHOD_CALL getD().defaultsOnly  ->  known_edge  shapes.js:25:20 defaultsOnly
 shapes.js:54:3 FUNCTION_CALL getDefault  ->  known_edge  shapes.js:33:44 <arrow>
 shapes.js:54:3 METHOD_CALL getDefault().defaultOnly  ->  known_edge  shapes.js:10:19 defaultOnly
 shapes.js:55:3 FUNCTION_CALL getSpread  ->  known_edge  shapes.js:33:44 <arrow>
 shapes.js:55:3 METHOD_CALL getSpread().run  ->  ambiguous_unknown  -
 shapes.js:56:3 FUNCTION_CALL warm  ->  known_edge  shapes.js:34:32 <arrow>
+shapes.js:56:3 FUNCTION_CALL warm  ->  multi_inferred  shapes.js:43:20 <arrow>
 shapes.js:56:3 METHOD_CALL warm().run  ->  known_edge  alpha.js:3:3 run
 shapes.js:57:3 FUNCTION_CALL getNested  ->  known_edge  memoize.js:5:10 <arrow>
+shapes.js:57:3 FUNCTION_CALL getNested  ->  multi_inferred  memoize.js:5:10 <arrow>
+shapes.js:57:3 FUNCTION_CALL getNested  ->  multi_inferred  shapes.js:45:35 <arrow>
 shapes.js:57:3 METHOD_CALL getNested().run  ->  known_edge  beta.js:3:3 run

@@ -1,0 +1,7 @@
+boundary_lib	method	app.Rules#helper(String) -> external:String.length
+boundary_lib	method	app.Rules#valid(String) -> external:String.isEmpty
+boundary_lib	method	app.Verifier#check() -> dep.Checks#argThat(Matcher)
+callback_registered	callback	app.Verifier#check() -> app.Verifier.IsValid#matches(String)
+known_edge	method	app.Verifier.IsValid#matches(String) -> app.Rules#valid(String)
+known_edge	method	app.Verifier.IsValid#size(String) -> app.Rules#helper(String)
+known_edge	new	app.Verifier#check() -> app.Verifier.IsValid#<init>()

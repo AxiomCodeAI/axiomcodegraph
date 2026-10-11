@@ -278,6 +278,20 @@ builtin_elem_ref(parent, x) :- ref_is_readonly_operator(parent),
     builtin_elem_ref(child, x).
 builtin_elem_ref(ref, x) :- ref_via_alias(ref, rhs),
     builtin_elem_ref(rhs, x).
+// A tuple's elements are its members: `[Module, ...Module[]]`.
+builtin_elem_ref(ref, child) :- type_ref(rp, "TUPLE", _, _, _, _, _, ref),
+    type_ref_parent(rp, ref, _, child).
+// A TYPE VARIABLE constrained to a list holds that list's elements: `<Ms extends Module[]>(ms: Ms)`,
+// `<Ms extends [Module, ...Module[]]>(...modules: Ms)`, then `modules.map((m) => m.init())`. The
+// constraint is what every element is at least, as for a `<T extends HasId>` receiver. Both routes
+// ref_type_target takes: the exact link to the declaration, and the name in scope where it is absent.
+builtin_elem_ref(ref, x) :- type_ref_type_param(rp, tp, ref),
+    type_param_constraint(rp, cref, tp),
+    builtin_elem_ref(cref, x).
+builtin_elem_ref(ref, x) :- type_ref(_, "TYPE_VARIABLE", _, tn, _, owner, _, ref),
+    !type_ref_type_param(_, _, ref),
+    type_var_constraint_in_scope(owner, tn, cref),
+    builtin_elem_ref(cref, x).
 builtin_elem_ref(ref, a) :- ref_via_alias(ref, rhs),
     builtin_elem_ref(rhs, x),
     type_ref(_, "TYPE_VARIABLE", _, n, _, _, _, x),
@@ -339,6 +353,13 @@ lambda_param_ref(lp, c) :- call_site("client", _, "then", _, recv, ce, _),
     !param_type_ref(_, _, lp).
 lambda_param_type(lp, prov, t) :- lambda_param_ref(lp, c),
     ref_type_target(c, prov, t).
+// …and its SHAPE, where the element is an object type written as a type alias or a literal rather
+// than a class or an interface: `type Plugin = { init(): void }`, then `plugins.map((p) => p.init())`.
+// The element has no type declaration to dispatch on, only members, so the type clause above gave
+// the parameter nothing and every call on it was unresolved; an annotated parameter of the same type
+// resolved, through param_shape_target. The element reference is the same one, read as a shape.
+lambda_param_shape(lp, sh) :- lambda_param_ref(lp, c),
+    ref_shape_target(c, sh).
 // The parameter's reference is its declared reference, as an annotation's would be.
 expr_decl_ref(e, c) :- expr_referenced("client", "PARAMETER", p, e),
     lambda_param_ref(p, c).

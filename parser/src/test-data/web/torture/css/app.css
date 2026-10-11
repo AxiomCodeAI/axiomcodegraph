@@ -1,0 +1,237 @@
+@charset "utf-8";
+/* C01 import chain: app -> tokens -> theme; layered, conditional, missing, absolute, in a layer and with media */
+@import url("tokens.css") layer(tokens);
+@import "layers.css";
+@import url(nested.css) supports(selector(&)) screen and (min-width: 1px);
+@import "missing.css";
+@import url("https://fonts.example.com/inter.css");
+@import "strings.css" layer(vendor.strings);
+@import "fonts.css";
+@import 'selectors.css';
+@import url( "gaps.css" );
+@import "app.css";                      /* self import: a cycle for the recursive join */
+
+@layer tokens, base, components, utilities;
+@namespace svg url(http://www.w3.org/2000/svg);
+@namespace url(http://www.w3.org/1999/xhtml);
+
+/* C02 the class joins the HTML fixtures are built around */
+.card { color: var(--brand); }
+.card--wide { max-width: var(--wide, 60rem); }
+.is-active { outline: 1px solid var(--brand, var(--fallback-brand, red)); }
+.nav > a[href^="#"] { color: var(--anchor); }
+.upper { color: red }                   /* HTML has Upper: no join by case */
+.SHOUT { color: red }                   /* HTML has SHOUT via CLASS="SHOUT": joins */
+#loud { color: red }                    /* HTML has ID="LOUD": no join by case */
+#LOUD { color: red }
+#padded-id { color: red }               /* HTML id="  padded-id  ": trimmed on the element row */
+.dup { color: red }
+.a\&b { color: red }                    /* HTML class a&amp;b decodes to a&b */
+.tpl-class, .hbs-class, .ko-class, .srcdoc-class { color: red }   /* classes written only inside script/srcdoc text */
+.in-template, .in-template-style { color: red }
+.noscript-class, .ie-only, .commented-out, .in-jinja-comment { color: red }
+.js-ready, .open { color: red }         /* classes only a script adds */
+.never-used-anywhere { color: red }     /* dead CSS */
+.div-in-p, .li-one, .li-two, .cell, .after-self-closing-div, .unclosed-at-eof { color: red }
+.custom, .customized-builtin, .hidden-attr, .dup-attr { color: red }
+.static-class, .item, .wrapper, .ng-static, .vue-static, .alpine-static, .htmx-static { color: red }
+.xhtml-class, .cdata-class, .after-xml-self-closing { color: red }
+.in-foreign, .in-annotation, .math-class, .nested-rect, .svg-rect, .use-class, .symbol-class { color: red }
+.popover, .light-card, .shadow-only, .closed-only, .slotted-item, .default-slotted, .inert-class, .deep { color: red }
+
+/* C03 structural selectors: the HTML writes no tbody, no html, no head, no body */
+table > tbody > tr > td.cell { color: red }
+table tr td.cell { color: blue }
+html > body > div.card { color: red }
+body > .card { color: red }
+ul > li.li-two { color: red }
+p > div.div-in-p { color: red }
+div > span.after-self-closing-div { color: red }
+a a { color: red }
+
+/* C04 functional pseudo-classes: parts at depth > 0 */
+:is(.card, .nav) .item { color: red }
+:where(.card) .item { color: red }
+.card:not(.is-active, #section-one) { color: red }
+.card:has(> .item:hover, + .nav) { color: red }
+li:nth-child(2n + 1 of .li-one, .li-two) { color: red }
+:nth-last-child(-n+2) { color: red }
+:not(:is(.a, .b)) { color: red }
+.card:is(:hover, :focus-visible):not([disabled]) { color: red }
+a:not([href]) { color: red }
+:host(.featured) { color: red }
+:host-context(.dark) .card { color: red }
+::slotted(.slotted-item) { color: red }
+my-card::part(title) { color: red }
+input::placeholder, ::selection, ::backdrop, ::marker, ::file-selector-button, ::highlight(h), ::view-transition-group(root), ::cue(v[voice="a"]) { color: red }
+:lang(en), :dir(rtl), :state(checked), :focus-within, :target, :empty, :root, :scope, :defined, :popover-open, :modal, :user-invalid, :placeholder-shown, :indeterminate, :read-write, :autofill, :fullscreen, :picture-in-picture, :playing, :paused, :link, :any-link, :visited, :local-link, :target-within, :current, :past, :future, :active-view-transition { color: red }
+
+/* C05 attribute selectors: every matcher, flags, quoted/unquoted, namespaced */
+[data-page] { color: red }
+[data-page="index"] { color: red }
+[data-page=index] { color: red }
+[class~="card"] { color: red }
+[class*="card"] { color: red }
+[class^=card] { color: red }
+[class$="wide" i] { color: red }
+[class$="wide" s] { color: red }
+[id|="section"] { color: red }
+[href$=".pdf" i] { color: red }
+[xlink|href] { color: red }
+[*|href] { color: red }
+[|href] { color: red }
+a[target][href][rel] { color: red }
+[aria-labelledby~="section-one"] { color: red }
+[style*="var("] { color: red }
+input[type="IMAGE" i] { color: red }
+
+/* C06 combinators and universal/namespace selectors */
+* { box-sizing: border-box }
+*|* { color: red }
+svg|* { color: red }
+|rect { color: red }
+svg|rect.svg-rect { color: red }
+h2 + p ~ em > b { color: red }
+.a>.b+.c~.d { color: red }
+col || td { color: red }
+.a   .b	.c
+.d { color: red }
+.card/* comment in a selector */.is-active { color: red }
+.card, /* comment between selectors */ .nav, { color: red }
+.card,, .nav { color: red }
+.card .  broken { color: red }
+.123 { color: red }
+.-valid-dash { color: red }
+.--double-dash { color: red }
+._underscore { color: red }
+#1digit { color: red }
+.a.b.c.d.e.f.g.h.i.j.k { color: red }
+.a#b.c#d { color: red }
+div#b.c[x]:hover::before { color: red }
+DIV.Card:HOVER::BEFORE { color: red }
+.before:before, .after::after, ::before, :after, ::first-line, ::first-letter, :first-letter { color: red }
+
+/* C07 the cascade torture: same element, same property, many sources */
+#section-one { color: rgb(1, 1, 1) }                              /* (1,0,0) */
+.card.card--wide.is-active { color: rgb(2, 2, 2) }                /* (0,3,0) */
+section.card { color: rgb(3, 3, 3) !important }                   /* important beats everything unlayered */
+@layer base { .card { color: rgb(4, 4, 4) } section#section-one { color: rgb(5, 5, 5) !important } }
+@layer utilities { .card { color: rgb(6, 6, 6) } }
+@layer { .card { color: rgb(7, 7, 7) } }                          /* anonymous layer */
+.card { color: rgb(8, 8, 8) }
+.card { color: rgb(9, 9, 9) }                                     /* later in source order wins over the one above */
+:where(.card.card--wide.is-active#section-one) { color: rgb(10, 10, 10) }   /* (0,0,0) */
+:is(#section-one, .card) { color: rgb(11, 11, 11) }               /* (1,0,0) via :is */
+.card:not(#nope) { color: rgb(12, 12, 12) }                       /* (1,1,0) via :not */
+[id="section-one"] { color: rgb(13, 13, 13) }                     /* (0,1,0) attribute, not id */
+@media screen { .card { color: rgb(14, 14, 14) } }
+@media print { .card { color: rgb(15, 15, 15) } }
+@supports (color: red) { .card { color: rgb(16, 16, 16) } }
+@supports not (display: grid) { .card { color: rgb(17, 17, 17) } }
+@container sidebar (min-width: 1px) { .card { color: rgb(18, 18, 18) } }
+@scope (.card) to (.item) { :scope { color: rgb(19, 19, 19) } .is-active { color: rgb(20, 20, 20) } }
+@media (400px <= width <= 700px) { .card { color: rgb(21, 21, 21) } }
+@media only screen and (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) { .card { color: rgb(22, 22, 22) } }
+@media (prefers-color-scheme: dark) { :root { --brand: black } .card { color: var(--brand) } }
+@starting-style { .card { opacity: 0 } }
+@page :first { margin: 1in }
+@page { @top-center { content: "x" } }
+@font-feature-values Inter { @styleset { nice-style: 12 } }
+@counter-style thumbs { system: cyclic; symbols: "👍"; suffix: " " }
+@position-try --fallback { top: anchor(bottom) }
+@view-transition { navigation: auto }
+@-moz-document url-prefix() { .card { color: red } }
+@-webkit-keyframes vendor-spin { from { opacity: 0 } to { opacity: 1 } }
+@media screen { @supports (display: grid) { @layer components { .card .item { color: rgb(23, 23, 23) } } } }
+
+/* C08 properties: custom, vendor, hacks, important variants, duplicates, uppercase, empty */
+.props {
+  --Brand: red;                 /* custom properties are case-sensitive: --Brand is not --brand */
+  --brand: blue;
+  --empty:;
+  --with-brace: { a: b };
+  --json: [1, 2, 3];
+  --url: url(img/bg.png);
+  --nested: var(--brand, var(--Brand, var(--missing, red)));
+  color: var(--Brand);
+  background: var(--url);
+  -webkit-transition: all 1s;
+  -moz-transition: all 1s;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=50)";
+  filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#80000000', endColorstr='#80000000');
+  *zoom: 1;
+  _height: 1px;
+  color: red\9;
+  width: expression(document.body.clientWidth > 800 ? "800px" : "auto");
+  margin: 0 ! important;
+  padding: 0!important;
+  color: red !IMPORTANT;
+  color: red;;
+  color: ;
+  : red;
+  color red;
+  COLOR: RED;
+  Color: Red;
+  display: grid; display: -ms-grid;
+  grid-template-areas: "a b" "c d";
+  content: "a; } b { c: d }";          /* string with declaration-ending characters */
+  content: "var(--not-a-var) url(not-a-url.png)";   /* string that looks like functions */
+  background: url( "img/bg.png" );
+  background: url('img/bg.png?v=1#frag');
+  background: url(img/bg.png?v=1#frag);
+  background: url(  img/bg.png  );
+  background: url("img/space name.png");
+  background: url(img/space\ name.png);
+  background: url(data:image/png;base64,iVBORw0KGgo=);
+  background: url(//cdn.example.com/x.png);
+  background: url(/img/bg.png);
+  background: url(../img/bg.png);
+  background: url(#inline-ref);
+  background: url();
+  background: url(""), url(img/bg.png), url(img/missing.png);
+  background: image-set("img/hero.png" 1x, "img/hero@2x.png" 2x);
+  background: -webkit-image-set(url(img/hero.png) 1x);
+  background: src("img/bg.png");
+  mask: url(img/sprite.svg#mask);
+  cursor: url(img/cursor.cur) 2 2, url(img/cursor.cur), pointer;
+  list-style: url(img/bg.png);
+  border-image: url(img/bg.png) 30 round;
+  background: URL(img/bg.png);
+  color: color-mix(in srgb, var(--brand) 50%, var(--Brand));
+  width: calc(100% - var(--gap, 8px) * 2);
+  padding: env(safe-area-inset-top, var(--pad));
+  font: italic bold 12px/30px Inter, "Segoe UI", serif;      /* font SHORTHAND: family names at the end */
+  font: 12px system-ui;
+  font: menu;
+  font-family: Inter;
+  font-family: "Inter", 'Roboto Mono', Segoe UI, ui-sans-serif, sans-serif;
+  font-family: inherit;
+  font-family: var(--font);
+  animation: spin 1s linear infinite, fade 2s;
+  animation: 1s ease-in-out infinite reverse spin;
+  animation: 2s steps(4, end) slide;
+  animation: "quoted-name" 1s;
+  animation: none;
+  animation: linear 1s;                /* linear is a keyword, not a name */
+  animation: var(--anim) 1s;
+  animation-name: spin, fade, missing-keyframes, vendor-spin;
+  animation-name: none;
+  animation-name: ease;                /* a keyframes named like a keyword */
+  container: sidebar / inline-size;
+  container: a b / size;
+  container-name: sidebar other;
+  container-name: none;
+  container-type: inline-size;
+  transition: color var(--duration) var(--easing, ease);
+  will-change: transform;
+  content: counter(item) ". ";
+  grid-area: header;
+  position-try-fallbacks: --fallback;
+  anchor-name: --anchor;
+  position-anchor: --anchor;
+  view-transition-name: hero;
+  offset-path: url(#motion-path);
+  clip-path: url(img/sprite.svg#clip);
+  shape-outside: url(img/bg.png);
+  src: url(fonts/inter.woff2);         /* src outside @font-face */
+}

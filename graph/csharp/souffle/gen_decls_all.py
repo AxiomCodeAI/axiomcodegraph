@@ -69,6 +69,9 @@ TUNING_INPUTS = {
     # --dispatch-cap K: refuse a virtual-dispatch fan wider than K. Recall-risky, so
     # opt-in; empty means uncapped, which is the answer that cannot be wrong.
     "dispatch_cap": ("symbol",),
+    # --closed-world on: narrow the dispatch fan to constructed types (#473). Staged
+    # for every language by the shared executor; no C# rule reads it yet.
+    "dispatch_closed_world": ("symbol",),
     # --lib-depth: how far a client->lib chain is expanded. Empty means uncapped.
     "lib_max_depth": ("number",),
     # The shared executor ALWAYS stages these two, for every language, and emits one

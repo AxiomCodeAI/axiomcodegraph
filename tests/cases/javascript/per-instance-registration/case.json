@@ -1,0 +1,106 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a callback given to ONE bus's constructor is called by emit only on that bus: impact of it lists the caller that emits on the bus built with it, not the caller that emits on a bus built without it",
+   "run": [
+    "impact",
+    "check",
+    "--grep"
+   ],
+   "want": [
+    "src/bus.js:5:",
+    "src/a.js:6:",
+    "test/a.test.js"
+   ],
+   "avoid": [
+    "src/c.js:3:",
+    "test/c.test.js"
+   ]
+  },
+  {
+   "why": "a handler subscribed on one bus is reached from emit on that bus; a bus it was never subscribed on does not reach it",
+   "run": [
+    "impact",
+    "handleA",
+    "--grep"
+   ],
+   "want": [
+    "src/bus.js:5:",
+    "src/a.js:6:",
+    "test/a.test.js"
+   ],
+   "avoid": [
+    "src/c.js:3:",
+    "test/c.test.js"
+   ]
+  },
+  {
+   "why": "control: the registration still reaches callers whose bus is its own allocation through another object's field, through an argument, or whose allocation the graph does not know",
+   "run": [
+    "impact",
+    "handleA",
+    "--grep"
+   ],
+   "want": [
+    "src/d.js:11:",
+    "src/d.js:17:",
+    "src/d.js:18:",
+    "src/d.js:6:"
+   ]
+  },
+  {
+   "why": "control: a handler the class writes for itself is the same on every instance, so every caller reaches it",
+   "run": [
+    "impact",
+    "defaultHandler",
+    "--grep"
+   ],
+   "want": [
+    "src/d.js:22:",
+    "src/d.js:23:",
+    "test/r.test.js"
+   ]
+  },
+  {
+   "why": "a test that emits on a bus built without a callback does not run it",
+   "run": [
+    "impact",
+    "src/c.js:3",
+    "--tests-only"
+   ],
+   "want": [
+    "test/c.test.js"
+   ]
+  },
+  {
+   "why": "a dependency handed to one holder's constructor is called only for that holder: impact of it lists the caller of the holder built with it, not the callers of holders built with another",
+   "run": [
+    "impact",
+    "OtherDep.run",
+    "--grep"
+   ],
+   "want": [
+    "src/deps.js:6:",
+    "src/deps.js:13:"
+   ],
+   "avoid": [
+    "src/deps.js:11:",
+    "src/deps.js:12:"
+   ]
+  },
+  {
+   "why": "control: a dependency the class builds itself when given none serves every holder built without one: its callers are kept, not narrowed to the holder given it explicitly",
+   "run": [
+    "impact",
+    "DefaultDep.run",
+    "--grep"
+   ],
+   "want": [
+    "src/deps.js:11:",
+    "src/deps.js:12:"
+   ]
+  }
+ ]
+}

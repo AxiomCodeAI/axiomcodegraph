@@ -25,14 +25,31 @@ def field_names(ir, prefix='typescript'):
     out = {}
     types = {t['tsTypeUniqueHash']: (t.get('name') or t.get('qualifiedName') or '?')
              for t in rows(f'{ir}/all-{prefix}-types.csv')}
+    mods = {m['tsModuleUniqueHash']: m['qualifiedName'] or m['filePath']
+            for m in rows(f'{ir}/all-{prefix}-modules.csv')}
     for r in rows(f'{ir}/all-{prefix}-fields.csv'):
-        owner = types.get(r.get('tsTypeLinkHash')) or r.get('ownerTypeName') or '?'
+        owner = types.get(r.get('tsTypeLinkHash'))
+        # A key of a module-level `const X = { a: … }` is owned by the variable X (or by the
+        # key holding a nested literal), which is no type. The compiler side names the nearest
+        # enclosing named declaration and the module otherwise, so `X.a` is `module#a` there;
+        # naming it `X#a` here scored every correct read as one wrong plus one missing.
+        if owner is None and r.get('memberKind') == 'OBJECT_LITERAL_PROPERTY':
+            owner = mods.get(r.get('tsModuleLinkHash'))
+        owner = owner or r.get('ownerTypeName') or '?'
         # `static ` prefixes the NAME, as normalize_edges.Names does for a static method and
         # as the compiler side's labelOf does. Without it a static member is named one way on
         # each side and every access to it scores as both a miss and a false positive.
         name = ('static ' if r.get('isStatic') == 'true' else '') + r['name']
         out[r['tsFieldUniqueHash']] = (owner, name)
     return out
+
+
+def module_var_names(ir, prefix='typescript'):
+    """variable hash -> (module label, name), for a module-scope variable read by name: its owner is its
+    module, labelled by the file's stem as the module initializer is (`members#<module-init>()`)."""
+    return {r['tsVariableUniqueHash']: (os.path.splitext(os.path.basename(r.get('filePath') or '?'))[0], r['name'])
+            for r in rows(f'{ir}/all-{prefix}-variables.csv')
+            if r.get('scopeKind') in ('MODULE_SCOPE', 'GLOBAL_SCOPE', 'AMBIENT_SCOPE', 'NAMESPACE_SCOPE')}
 
 
 def type_names(ir, prefix='typescript'):
@@ -53,6 +70,9 @@ def main():
     ir, out = args[0], args[1]
     n = Names(ir, lib_ir)
     fields = field_names(ir)
+    # the compiler oracle scores member accesses only: a module variable's read is golden-checked, not oracle-paired
+    mvars = module_var_names(ir)
+    fields.update({k: v for k, v in mvars.items() if k not in fields})
     types = type_names(ir)
     if lib_ir and os.path.isdir(lib_ir):
         fields.update({k: v for k, v in field_names(lib_ir).items() if k not in fields})
@@ -72,7 +92,7 @@ def main():
                 f"{fields[field][0]}#{fields[field][1]}" if field in fields
                 else f"<unresolved:{field[:24]}>")
             if pairs:
-                if field == '-' or field not in fields:
+                if field == '-' or field not in fields or field in mvars:
                     continue
                 for d in (['READ'] if access == 'read' else ['WRITE'] if access == 'write'
                           else ['READ', 'WRITE']):

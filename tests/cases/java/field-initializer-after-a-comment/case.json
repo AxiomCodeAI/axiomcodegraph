@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a field initializer written after a comment is still read: the anonymous class it creates, and what its method calls, are in the graph",
+   "run": ["impact", "Shout.loud", "--tests"],
+   "want": ["RouterTest::routesUpper"],
+   "avoid": ["0 of"]},
+  {"why": "control: the same initializer with no comment, read before and after",
+   "run": ["impact", "Shout.soft", "--tests"],
+   "want": ["RouterTest::routesLower"],
+   "avoid": ["0 of"]}]}

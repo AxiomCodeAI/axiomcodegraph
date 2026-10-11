@@ -6,6 +6,7 @@ import_cause     app.jsx:3:10  thing-kit  not_staged
 import_cause     defmemo.jsx:1:10  react  not_staged
 import_cause     parts.jsx:1:10  react  not_staged
 import_cause     parts.jsx:1:16  react  not_staged
+library_receiver app.jsx:11:16  React.memo  react
 package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
 unresolved       app.jsx:10:18  FUNCTION_CALL observer  callee_untyped
 unresolved       app.jsx:11:16  METHOD_CALL memo  receiver_untyped

@@ -1,0 +1,12 @@
+known_edge	read	app#<arrow@12>(?) -> rate#RATE
+known_edge	read	app#<arrow@38>() -> rate#RATE
+known_edge	read	app#<arrow@48>(?) -> rate#RATE
+known_edge	read	app#boot() -> app#host
+known_edge	read	app#boot() -> plugin#plugin
+known_edge	read	app#bootBare() -> app#host
+known_edge	read	app#bootSettings() -> app#host
+known_edge	read	app#bootSettings() -> plugin#settings
+known_edge	read	app#record(number) -> app#seen
+known_edge	read	store#known() -> store#subs
+known_edge	read	store#store() -> store#handlers
+known_edge	read	store#store() -> store#subs

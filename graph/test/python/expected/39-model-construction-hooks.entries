@@ -1,0 +1,7 @@
+── entry_point (6) ──
+  orm_hook   models.Widget.check_all   models.py:30
+  orm_hook   models.Widget.check_id   models.py:26
+  orm_hook   models.Widget.check_size   models.py:22
+  orm_hook   models.Widget.dump   models.py:39
+  orm_hook   models.Widget.dump_size   models.py:34
+  orm_hook   models.Widget.model_post_init   models.py:42

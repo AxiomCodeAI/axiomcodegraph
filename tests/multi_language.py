@@ -33,6 +33,8 @@ import fcntl, json, os, shutil, signal, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
+# internal verbs (context, changed, test-impact) left the installed command's surface: ask the dispatcher
+DISP = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode')
 FRESH = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'ax_fresh.py')
 BUILD = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode-build')
 
@@ -50,7 +52,8 @@ FILES = {
     'lib/pytools/probe.py': 'def emit(x):\n    return [x]\n',
     'src/cli.ts': 'import { run } from \'./main\'\n\nexport function main(): number {\n  return run()\n}\n',
     'jslib/package.json': '{ "name": "jslib", "version": "1.0.0", "main": "index.js" }\n',
-    'jslib/index.js': 'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
+    'notes/steps.json': '{ "steps": ["total"] }\n',
+    'jslib/index.js':'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
 }
 
 # a Maven project whose build wrote javadoc: target/ beside the pom.xml, and a copy committed for a docs site
@@ -170,24 +173,24 @@ def main(argv):
         # a scope only another language's graph holds is honoured, not refused because the main graph lacks it. The
         # scope is a real directory and comes after the repository: the dispatcher once took it for the repository
         # and asked the main graph alone
-        s = sh(repo, AX, 'context', 'add up a total', '.', '--in', 'tools/pkg', env=quiet)
+        s = sh(repo, DISP, 'context', 'add up a total', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode == 0 and '══ python graph' in s.stdout and 'no indexed file' not in s.stdout,
               'scope: context --in a directory only the python graph holds answers from that graph', s.stdout + s.stderr)
         s = sh(repo, AX, 'impact', 'add', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode == 0 and 'total' in s.stdout, 'scope: impact --in it too', s.stdout + s.stderr)
         s = sh(repo, AX, 'path', 'total', 'add', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode == 0 and 'verified' in s.stdout, 'scope: and path --in it', s.stdout + s.stderr)
-        s = sh(repo, AX, 'context', 'compute the area of a shape', '.', '--in', 'src', env=quiet)
+        s = sh(repo, DISP, 'context', 'compute the area of a shape', '.', '--in', 'src', env=quiet)
         check(s.returncode == 0 and '══' not in s.stdout and 'src/' in s.stdout,
               'scope (control): --in the main graph\'s directory answers as the main graph alone', s.stdout + s.stderr)
-        s = sh(repo, AX, 'context', 'add up a total', '.', '--in', 'tools/nosuch', env=quiet)
+        s = sh(repo, DISP, 'context', 'add up a total', '.', '--in', 'tools/nosuch', env=quiet)
         # a directory no graph holds is a typo, not a question about nothing: answered at the root, said ONCE, never one
         # refusal menu per language (the scope another graph holds, above, is still answered from that graph)
         check(s.returncode == 0 and s.stdout.count("no indexed file in any graph has 'tools/nosuch'") == 1
               and 'answering at the repository root' in s.stdout and 'tools/pkg/calc.py' in s.stdout
               and 're-run with one of these' not in s.stdout,
               'scope: a directory no graph holds is answered at the repository root, and said once', s.stdout + s.stderr)
-        s = sh(repo, AX, 'context', 'compute the area of a shape', '.', '--in', 'tools/pkg', env=quiet)
+        s = sh(repo, DISP, 'context', 'compute the area of a shape', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode != 0 and 'none of these words appear under it' in s.stdout and 'no indexed file' not in s.stdout,
               'scope (control): a scope one graph holds, with nothing under it matching, is refused by that graph alone', s.stdout + s.stderr)
         # #1584: `main` is declared in the typescript graph (src/cli.ts) and twice in the python one. With a scope, only
@@ -209,26 +212,36 @@ def main(argv):
         s = sh(repo, AX, 'impact', 'emit', '.', '--in', 'pytools', env=quiet)
         check(s.returncode == 0 and 'lib/pytools/probe.py' in s.stdout and 'tools/gen/make.py' not in s.stdout,
               'scope (control): a scope that names no path of the repository still matches anywhere', s.stdout + s.stderr)
-        s = sh(repo, AX, 'context', 'emit a value', '.', '--in', 'tools', env=quiet)
+        s = sh(repo, DISP, 'context', 'emit a value', '.', '--in', 'tools', env=quiet)
         check(s.returncode == 0 and 'tools/gen/make.py' in s.stdout and 'lib/pytools' not in s.stdout,
               'scope: context --in tools keeps lib/pytools/ out too', s.stdout + s.stderr)
+        # a directory only the MAIN graph holds, asked from every graph: another language's graph once read it as text
+        # no graph holds, listed its source files as text rows and ended on a next step outside the scope
+        s = sh(repo, DISP, 'context', 'compute the area of a shape and add up a total', '.', '--in', 'src', env=quiet)
+        check(s.returncode == 0 and 'not indexed: src/' not in s.stdout and 'tools/' not in s.stdout and 'src/shape.ts' in s.stdout,
+              'scope: a directory the main graph holds is not text to the other graphs', s.stdout + s.stderr)
+        # a directory no graph holds, named by --in: its text files are listed once, and every next step stays in it
+        s = sh(repo, DISP, 'context', 'which steps add up a total', '.', '--in', 'notes', env=quiet)
+        nexts = [l for l in s.stdout.splitlines() if l.startswith('next:')]
+        check(s.returncode == 0 and s.stdout.count('notes/steps.json') == 1 and nexts and all('notes/' in l for l in nexts),
+              'scope: --in a text-only directory is listed by one graph, and no next step leaves it', s.stdout + s.stderr)
 
         # ── --from ────────────────────────────────────────────────────────────────────────────────────────────
         # `main` is declared in the typescript graph and twice in the python one: the flow starts where the task's
         # words land, and that language comes first
-        f = sh(repo, AX, 'context', 'how does the calc tool total its numbers', '.', '--from', 'main', env=quiet)
+        f = sh(repo, DISP, 'context', 'how does the calc tool total its numbers', '.', '--from', 'main', env=quiet)
         first = f.stdout.split('══')[1] if f.stdout.count('══') >= 2 else f.stdout
         check(f.returncode == 0 and first.strip().startswith('python graph') and 'tools/pkg/cli.py' in f.stdout
               and 'tools/gen/make.py' not in f.stdout and 'axiomcode-from-landing' not in f.stdout + f.stderr,
               '--from: a common name starts in the language and the file the task\'s words land in', f.stdout + f.stderr)
-        f = sh(repo, AX, 'context', 'how does the calc tool total its numbers', '.', '--in', 'tools/gen', '--from', 'main', env=quiet)
+        f = sh(repo, DISP, 'context', 'how does the calc tool total its numbers', '.', '--in', 'tools/gen', '--from', 'main', env=quiet)
         check(f.returncode == 0 and 'tools/gen/make.py' in f.stdout and 'tools/pkg/cli.py' not in f.stdout,
               '--from: a scope the caller gives picks the declaration under it', f.stdout + f.stderr)
-        f = sh(repo, AX, 'context', 'how does the shape area get run', '.', '--from', 'main', env=quiet)
+        f = sh(repo, DISP, 'context', 'how does the shape area get run', '.', '--from', 'main', env=quiet)
         first = f.stdout.split('══')[1] if f.stdout.count('══') >= 2 else f.stdout
         check(f.returncode == 0 and 'src/cli.ts' in f.stdout and not first.strip().startswith('python graph'),
               '--from (control): a task about the typescript code starts there', f.stdout + f.stderr)
-        f = sh(repo, AX, 'context', 'how does it work', '.', '--from', 'total', env=quiet)
+        f = sh(repo, DISP, 'context', 'how does it work', '.', '--from', 'total', env=quiet)
         check(f.returncode == 0 and 'tools/pkg/calc.py' in f.stdout and '--from total:' not in f.stdout,
               '--from (control): a name declared once starts there, with nothing narrowed', f.stdout + f.stderr)
 
@@ -242,24 +255,32 @@ def main(argv):
         except ValueError: d = {}
         check('direct' in d and 'other_languages' not in d and any('shape.ts' in (e.get('at') or '') for e in d.get('direct', [])),
               'compatible: --json from one graph is that graph\'s object, unchanged in shape', js.stdout[-800:] + js.stderr)
+        # no graph answers (no chain connects the two): --json is still ONE document, not the text answer's per-graph
+        # headers a machine reader cannot parse; the exit status still says no chain was found
+        nj = sh(repo, AX, 'path', 'onlyInTs', 'square', '.', '--json', env=quiet)
+        try: d = json.loads(nj.stdout)
+        except ValueError: d = None
+        check(isinstance(d, dict) and nj.returncode != 0 and d.get('language') == 'typescript' and '══' not in nj.stdout,
+              'compatible: --json when no graph answers is one document, keeping each graph\'s refusal and a failing status',
+              f"rc={nj.returncode}\n{nj.stdout[-800:]}{nj.stderr[-400:]}")
 
         # ── changed ───────────────────────────────────────────────────────────────────────────────────────────
         calc = os.path.join(repo, 'tools/pkg/calc.py'); util = os.path.join(repo, 'src/util.ts')
         open(calc, 'w').write(FILES['tools/pkg/calc.py'].replace('return a + b', 'return b + a'))
         open(util, 'w').write(FILES['src/util.ts'].replace('return x * x', 'return x * x * 1'))
-        c = sh(repo, AX, 'changed', '.', env=quiet)
+        c = sh(repo, DISP, 'changed', '.', env=quiet)
         check(c.returncode == 0 and c.stdout.count('add ') == 1 and c.stdout.count('square ') == 1 and 'no declarations known here' not in c.stdout
               and '══ javascript graph' not in c.stdout,
               'changed: a Python edit and a TypeScript edit are each reported once, by the graph of their language', c.stdout + c.stderr)
-        cj = sh(repo, AX, 'changed', '.', '--json', env=quiet)
+        cj = sh(repo, DISP, 'changed', '.', '--json', env=quiet)
         try: d = json.loads(cj.stdout)
         except ValueError: d = {}
         syms = sorted([e['symbol'] for e in d.get('changed', [])] + [e['symbol'] for o in d.get('other_languages', {}).values() for e in o.get('changed', [])])
         check(syms == ['add', 'square'], 'changed --json: both edits, the other language\'s under other_languages', cj.stdout[-800:])
-        t = sh(repo, AX, 'test-impact', '.', env=quiet)
+        t = sh(repo, DISP, 'test-impact', '.', env=quiet)
         check(t.returncode == 0 and 'add [body]' in t.stdout and 'square' in t.stdout, 'test-impact: starts from the edits in both languages', t.stdout + t.stderr)
         sh(repo, 'git', 'checkout', '-q', '--', '.')
-        c = sh(repo, AX, 'changed', '.', env=quiet)
+        c = sh(repo, DISP, 'changed', '.', env=quiet)
         check(c.returncode == 0 and c.stdout.count('no change to a declaration') == 1 and '══' not in c.stdout,
               'changed: a clean tree is one "no change", as in a repository of one language', c.stdout + c.stderr)
 

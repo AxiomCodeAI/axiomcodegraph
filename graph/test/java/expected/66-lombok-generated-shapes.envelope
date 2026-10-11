@@ -1,0 +1,2 @@
+nominal	probe.Store.child -> probe.MemStore.child
+nominal	probe.Store.put -> probe.MemStore.put

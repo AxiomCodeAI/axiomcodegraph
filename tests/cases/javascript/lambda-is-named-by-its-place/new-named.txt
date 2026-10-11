@@ -1,0 +1,18 @@
+export class Orders {
+  constructor() { this.items = []; }
+
+  totals(xs) {
+    const keep = xs.filter((x) => x > 0);
+    const twice = keep.map(function (y) { return y * 2; });
+    return twice;
+  }
+
+  names() { return this.items.map((i) => i.name); }
+}
+
+export function bump(x) { return x + 2; }
+register((xs) => xs.length);
+
+export function wire(list) { return list.map((x) => bump(x)); }
+
+function register(fn) { return fn; }

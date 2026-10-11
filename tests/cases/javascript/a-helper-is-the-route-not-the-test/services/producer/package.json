@@ -1,0 +1,1 @@
+{"name": "@demo/producer", "type": "module", "main": "src/service.js", "scripts": {"test": "node --test test/*.test.js"}}

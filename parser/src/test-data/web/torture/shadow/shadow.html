@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Torture: scoping boundaries</title>
+  <link rel="stylesheet" href="../css/app.css">
+  <style>
+    .light-card { color: black }          /* S01 light DOM rule: must NOT reach .light-card inside a shadow root */
+    my-card::part(title) { color: red }   /* S02 ::part crosses the boundary via part="title" */
+    my-card { display: block }
+    .slotted-item { color: green }        /* S03 light-DOM class on a slotted element: styled by the OUTER sheet */
+  </style>
+</head>
+<body>
+  <div class="light-card">outside any shadow root</div>
+
+  <my-card id="card-1">
+    <!-- S04 declarative shadow root: its <style> applies only inside -->
+    <template shadowrootmode="open">
+      <style>
+        .light-card { color: white }      /* same class name, different scope */
+        :host { display: grid }
+        :host(.featured) { border: 1px solid }
+        :host-context(.dark) { color: silver }
+        ::slotted(.slotted-item) { font-weight: bold }
+        ::slotted(*) { margin: 0 }
+        .shadow-only { color: blue }
+        #inner-id { color: purple }
+      </style>
+      <div class="light-card" part="title">inside the shadow</div>
+      <div class="shadow-only" id="inner-id"></div>
+      <slot name="body"></slot>
+      <slot></slot>
+    </template>
+    <span slot="body" class="slotted-item">slotted from the light DOM</span>
+    <span class="default-slotted">default slot</span>
+  </my-card>
+
+  <my-card id="card-2" class="featured">
+    <template shadowrootmode="closed">
+      <style>.closed-only { color: gray }</style>
+      <div class="closed-only light-card"></div>
+    </template>
+  </my-card>
+
+  <!-- S05 inert template: nothing in here is rendered or styled -->
+  <template id="row-template">
+    <tr class="light-card"><td class="inert-class"></td></tr>
+    <style>.inert-style-class { color: red }</style>
+  </template>
+
+  <!-- S06 nested shadow roots -->
+  <outer-el>
+    <template shadowrootmode="open">
+      <style>.deep { color: red }</style>
+      <inner-el>
+        <template shadowrootmode="open">
+          <style>.deep { color: blue }</style>
+          <div class="deep">two levels in</div>
+        </template>
+      </inner-el>
+      <div class="deep">one level in</div>
+    </template>
+  </outer-el>
+  <div class="deep">zero levels in: no rule reaches me</div>
+
+  <!-- S07 id uniqueness is per tree: #inner-id again in the light DOM is legal -->
+  <div id="inner-id"></div>
+  <style>#inner-id { color: orange }</style>
+</body>
+</html>

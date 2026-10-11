@@ -1,5 +1,5 @@
 Comp.vue:10:34 FUNCTION_CALL sfcHelper  ->  known_edge  Comp.vue:3:1 sfcHelper
-Comp.vue:10:6 FUNCTION_CALL Child  ->  known_edge  child.js:1:1 Child
-Comp.vue:11:6 FUNCTION_CALL MyBadge  ->  known_edge  child.js:5:1 MyBadge
+Comp.vue:10:6 JSX_ELEMENT Child(/*<tag>*/)  ->  known_edge  child.js:1:1 Child
+Comp.vue:11:6 JSX_ELEMENT MyBadge(/*<tag>*/)  ->  known_edge  child.js:5:1 MyBadge
 Comp.vue:12:21 FUNCTION_CALL onSave  ->  known_edge  Comp.vue:4:1 onSave
 Comp.vue:12:40 FUNCTION_CALL sfcHelper  ->  known_edge  Comp.vue:3:1 sfcHelper

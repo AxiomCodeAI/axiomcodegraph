@@ -12,7 +12,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                 + COMPUTED_CALL IIFE_CALL DYNAMIC_IMPORT_CALL DYNAMIC_CODE_CALL TAGGED_TEMPLATE_CALL
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
-                PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
+                PROPERTY_READ PROPERTY_WRITE METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
     csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
@@ -45,8 +45,13 @@ TIER_RANK = {
     'runtime_observed': 1,      # seen in a runtime trace; real, but no call site stands behind it
     'multi_inferred': 1,        # several declarations fit; each one is a real candidate
     'dispatch': 2,              # a base method to an override that is actually instantiated
+    'overload': 0,              # the overload signature a call selected runs its set's implementation: one body, certain
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
+    'asserted': 3,              # a link someone recorded (axiomcode link) where the engine resolved nothing: read, not derived
+    'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
+    'framework': 5,             # a framework runs the other end for this one (framework_edge). Both 5, the default
+                                # impact's route reader already gave them (P.TIER_RANK.get(t, 5)), so its routes do not move
     'defines': 4,               # NOT a call: the callee is written inside the caller's body
     'ambient_terminal': 6,      # into the platform or an ambient declaration: terminal
     'intrinsic_terminal': 6,    # a JSX intrinsic element or a dynamic import(): nothing the graph can name
@@ -64,8 +69,12 @@ TIER_NOTE = {
     'known_edge':           'resolved to one declaration',
     'multi_inferred':       'several declarations fit; each is a real candidate',
     'dispatch':             'a base method to an override the project instantiates',
+    'overload':             'the call selected an overload signature; this is the implementation that runs',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
+    'asserted':             'ASSERTED by a link (axiomcode-links.tsv): someone read the call and recorded its target; the engine did not resolve it',
+    'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
+    'framework':            'NOT a call site: a framework runs the other end for this one (mechanism and registration on the hop)',
     'defines':              'NOT a call — written inside that body, so it runs only after it',
     'library':              'into a dependency; the chain ends there',
     'boundary_lib':         'into a dependency; the chain ends there',
@@ -98,18 +107,29 @@ KIND = {
     'new': 'new', 'CONSTRUCTOR_CALL': 'new', 'anon_new': 'new', 'METACLASS_CREATION': 'new',
     # one constructor to another
     'ctor_delegate': 'ctor', 'SUPER_CALL': 'super',
+    # C#: a base constructor no syntax names: the implicit `base()` a constructor without an initializer runs
+    'implicit_base_ctor': 'ctor',
+    # C#: a call the language writes for a statement: `using` -> Dispose, `foreach` -> GetEnumerator, `{ a, b }` -> Add
+    'using_dispose': 'call', 'foreach_enumerator': 'call', 'collection_add': 'call',
     # the callable is named, not called at that line — it runs when whoever took it runs it
     'ref': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
     'DECORATOR_APPLICATION': 'decorator', 'DECORATOR_ATTRIBUTE': 'decorator',
     'DECORATOR_BARE': 'decorator', 'DECORATOR_CALL': 'decorator',
     # an accessor: written as a field, run as a method
-    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property',
+    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property', 'PROPERTY_WRITE': 'property',
     # the language runs it at a block boundary
     'CONTEXT_MANAGER': 'with',
     # run-time code loading
     'DYNAMIC_IMPORT_CALL': 'import', 'DYNAMIC_CODE_CALL': 'eval', 'DYNAMIC_CALL': 'dynamic',
 }
+
+# A HOP NO CALL SITE EXPRESSES, read from the engine's own relations rather than call_edges: a request to the handler that
+# serves it (ext_remote_edge) and a hand-over a framework makes (ext_framework_edge: a fixture a test names, a signal and
+# its receiver, a filter wrapping an endpoint). `impact` lists the far end as a [remote] / [framework] dependent; `path`
+# walks them as hops (#1469) and says on each one what it is. Only the path finder adds them: impact's closure keeps
+# them as direct rows, the contract #1509 set, so they are not written to edge.facts.
+OUTSIDE_CALL = ('remote', 'framework')
 
 NOT_A_CALL = {'defines'}           # a containment relation, not control reaching B. The engine's own name
                                    # for it, kept as the wire name: graph_sql.py and the rules both write it.
@@ -155,14 +175,16 @@ def legend(tiers):
 # as a value, and a capped fan-out exists precisely BECAUSE the candidate set was too large to
 # enumerate, so what is in the graph is a sample of it.
 DIRECT_CERT = {
-    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
+    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved', 'overload': 'resolved',
     'implicit_constructor': 'resolved', 'written': 'resolved',
     'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',
     'callback_registered': 'registered', 'event_dispatch': 'registered',
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
+    'asserted': 'asserted',         # a link someone recorded (ax_links.py): an edge, never `resolved`
     'stub': 'stubs it',             # a call inside a mock's stub or verification (stub_sites below): named, never run
+    'remote': 'remote', 'framework': 'framework',   # impact's own rung names for the same two hops (#1469)
 }
 DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and this table cannot name — never `resolved`
 
@@ -170,12 +192,13 @@ DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and
 DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
+    'asserted': 'calls it — asserted by a link (axiomcode-links.tsv), not resolved by the engine',
     'stubs it': 'stubs it on a mock: the real method does not run there, and the test breaks only if the name or parameters change',
 }
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
 # value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
 TIER_WHY = {
-    'event_dispatch': 'sends the request or event this handles — a framework runs it for what is sent here, no call site names it',
+    'event_dispatch': 'sends the request or event this handles, or builds the class mock whose proxy runs this constructor — a framework runs it for what is sent here, no call site names it',
 }
 
 
@@ -216,12 +239,15 @@ ENTRY = {
     'hub': ('a real-time hub method', 'outside'), 'cli': ('a command-line command', 'outside'),
     'queue': ('a message consumer', 'outside'), 'task': ('a background task a queue runs', 'outside'),
     'web_filter': ('a web request filter', 'outside'),
+    'web_servlet': ('a servlet the web container dispatches requests to', 'outside'),
     'package_export': ('an export of the package', 'outside'),
     'exported_from_entry_module': ('an export of the entry module', 'outside'),
     'unimported_module': ('a module run directly, which nothing imports', 'outside'),
     'framework_hook': ('a framework hook', 'callback'), 'orm_hook': ('a model hook the ORM or validation library runs', 'callback'),
     'lifecycle': ('a lifecycle callback', 'callback'), 'bean_ctor': ('a constructor the container runs to build a bean', 'callback'),
     'factory': ('a factory method the container calls', 'callback'), 'fixture': ('a test fixture', 'callback'),
+    'lifecycle_init': ('an init method the container calls on the bean it built', 'callback'),
+    'lifecycle_destroy': ('a destroy method the container calls on the bean it built', 'callback'),
     'service_loader': ('a provider a service loader instantiates', 'callback'),
     'spring_factories': ('an auto-configuration class the container loads', 'callback'),
     'di_provider': ('a dependency-injection provider', 'callback'), 'signal_receiver': ('a signal receiver', 'callback'),
@@ -245,12 +271,12 @@ def entry_outside(reason):
 # instead: the membership is exactly what it was before this table existed, so no row leaves any
 # set — only the label it is printed under changes. It matters most for the --delete verdict, where
 # dropping a hand-off would turn "something still holds this" into "safe to delete".
-EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set', 'stubs it'})
+EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it'})
 
 # most certain first. A caller with several call sites to the same callee can hold sites of different
 # tiers; a summary that names the caller once takes the best of them, which is the honest reading of
 # "at least one resolved call exists here".
-DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set', 'stubs it')
+DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it')
 
 
 # ── `defines`: a callable written inside another one's body ────────────────────────────────────────────────
@@ -478,6 +504,38 @@ def stub_sites(q):
                 out |= nearest([(i, sp) for i, sp in spans if _within(w, sp) and sp[:2] == w[:2]])
             if n in lang['recv']:
                 out |= outermost([(i, sp) for i, sp in spans if _within(sp, w) and sp[:2] == w[:2]])
+    return out
+
+
+# ── a LIBRARY RECEIVER: an unresolved call on a package's value is not a name match for a project method ───────────
+# `request(app).get('/x')`, `new Metadata().get(k)`: the engine traced the receiver to what a package no IR declares
+# returned or constructed (ext_library_receiver). The site stays unresolved, since what the package's `get` runs is
+# unknown, but a project `get` is not what it calls. Like a stub it keeps a row, apart from the untyped-receiver name
+# matches, and it seeds no closure: listed among them it filled the first page of `impact Repo.get`.
+LIBRARY_RECEIVER_KIND = 'library'
+LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back'
+
+
+def library_receiver_sites(q):
+    """the ids of the unresolved call sites whose receiver is a package's value, or that the engine knows enter a
+    library callable (Python ext_lib_callback_site: a member a client type inherits from its library base, whose
+    source declares it). q(sql, params) -> rows."""
+    out = set()
+    has = lambda t: bool(list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))))
+    if has('ext_library_receiver'):
+        out |= {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    if has('ext_lib_callback_site'):
+        # A site entering a summarised library callable is a library receiver only where the summary says what the
+        # library hands back from it (a lib_callback_edge from the same caller through the same callable). Where it
+        # says nothing -- the hand-back runs through a value the summary cannot follow, a method's return, a
+        # registry -- the site stays the untyped name match it was before the library was read: knowing a call
+        # ENTERS a library is no evidence that nothing in the project runs behind it, and dropping the match lost
+        # failing tests a library reaches that way.
+        edges = has('ext_lib_callback_edge') and has('call_sites')
+        sql = ("SELECT DISTINCT s.c0 FROM ext_lib_callback_site s JOIN call_sites cs ON cs.id = s.c0 "
+               "WHERE EXISTS (SELECT 1 FROM ext_lib_callback_edge e WHERE e.c0 = cs.caller_id AND e.c2 = s.c1)"
+               if edges else "SELECT DISTINCT c0 FROM ext_lib_callback_site")
+        out |= {r[0] for r in q(sql, ())}
     return out
 
 

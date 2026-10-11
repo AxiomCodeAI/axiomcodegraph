@@ -43,10 +43,13 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-ORACLE="$HERE/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
+# AXIOM_CS_ORACLE points at an oracle built elsewhere: the build output is gitignored, so a
+# fresh worktree (a landing gate's, say) has none of its own and would skip with 77.
+ORACLE="${AXIOM_CS_ORACLE:-$HERE/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle}"
 
-WORK="${1:-}"; ONLY=""; VERBOSE=0
-shift 2>/dev/null || true
+WORK=""; ONLY=""; VERBOSE=0
+# the work dir is an optional FIRST positional argument: `--only <case>` alone (the usage above) is not one
+case "${1:-}" in ""|-*) ;; *) WORK="$1"; shift;; esac
 while [ $# -gt 0 ]; do
   case "$1" in
     --only) ONLY="$2"; shift 2;;
@@ -68,7 +71,7 @@ mkdir -p "$AXIOM_CS_DEV_CACHE"
 command -v souffle >/dev/null || { echo "souffle is not installed (brew install souffle)" >&2; exit 77; }
 [ -f "$REPO/parser/dist/index.js" ] || { echo "the parser is not built (npm run build)" >&2; exit 77; }
 [ -x "$ORACLE" ] || {
-  echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle" >&2; exit 77; }
+  echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle (or set AXIOM_CS_ORACLE to a built one)" >&2; exit 77; }
 
 # AND THE ORACLE ITSELF IS SCORED BEFORE THE SCORER, because a shape it emits NO row
 # for is invisible to everything below: it cannot be scored as agreement and it is not

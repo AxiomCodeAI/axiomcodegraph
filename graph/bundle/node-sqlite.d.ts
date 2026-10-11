@@ -1,5 +1,5 @@
 /**
- * The slice of `node:sqlite` this package uses. Node ships the module from 22.5; the
+ * The slice of `node:sqlite` this package uses. Node ships the module unflagged from 22.13; the
  * installed @types/node predates it, so the four members used here are declared locally
  * rather than pulling a newer type package for one import.
  */

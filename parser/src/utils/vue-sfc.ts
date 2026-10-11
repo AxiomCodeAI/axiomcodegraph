@@ -167,16 +167,55 @@ export function scriptTextOf(
 }
 
 /**
- * The file a `.vue` specifier names, when it is relative. tsc resolves no `.vue`
- * import itself (its extensions are fixed), so without this every
- * `import Comp from './Comp.vue'` would read as unresolved.
+ * The file a `.vue` specifier names, when it is relative or goes through a path
+ * alias. tsc resolves no `.vue` import itself (its extensions are fixed), so
+ * without this every `import Comp from './Comp.vue'` would read as unresolved.
+ *
+ * `import Comp from '@/components/Comp.vue'` — the usual spelling in a Vite app —
+ * is mapped through `options.paths` the way tsc maps any other aliased import: the
+ * pattern with the longest prefix before its `*`, each substitution in order, the
+ * first that exists.
  */
-export function resolveVueSpecifier(specifier: string, fromFile: string): string | undefined {
-  if (!isVueFile(specifier) || !(specifier.startsWith('./') || specifier.startsWith('../'))) {
+export function resolveVueSpecifier(
+  specifier: string,
+  fromFile: string,
+  options?: ts.CompilerOptions
+): string | undefined {
+  if (!isVueFile(specifier)) {
     return undefined;
   }
-  const file = path.normalize(path.resolve(path.dirname(fromFile), specifier));
-  return fs.existsSync(file) ? file : undefined;
+  if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    const file = path.normalize(path.resolve(path.dirname(fromFile), specifier));
+    return fs.existsSync(file) ? file : undefined;
+  }
+  const base = (options?.pathsBasePath as string | undefined) ?? options?.baseUrl;
+  if (options?.paths === undefined || base === undefined) {
+    return undefined;
+  }
+  let best: { prefix: string; star: string; targets: readonly string[] } | undefined;
+  for (const [pattern, targets] of Object.entries(options.paths)) {
+    const star = pattern.indexOf('*');
+    if (star < 0) {
+      if (pattern === specifier) {
+        best = { prefix: pattern, star: '', targets };
+        break;
+      }
+      continue;
+    }
+    const prefix = pattern.slice(0, star);
+    const suffix = pattern.slice(star + 1);
+    if (specifier.length >= prefix.length + suffix.length && specifier.startsWith(prefix)
+      && specifier.endsWith(suffix) && (best === undefined || prefix.length > best.prefix.length)) {
+      best = { prefix, star: specifier.slice(prefix.length, specifier.length - suffix.length), targets };
+    }
+  }
+  for (const target of best?.targets ?? []) {
+    const file = path.normalize(path.resolve(base, target.replace('*', best!.star)));
+    if (isVueFile(file) && fs.existsSync(file)) {
+      return file;
+    }
+  }
+  return undefined;
 }
 
 // ── the file's top-level blocks ────────────────────────────────────────────

@@ -1,0 +1,1 @@
+{ "name": "@app/helpers", "main": "dist/index.js", "source": "src/index.ts" }

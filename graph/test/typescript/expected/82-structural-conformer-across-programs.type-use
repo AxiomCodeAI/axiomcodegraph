@@ -1,0 +1,9 @@
+known_edge	METHOD_RETURN	0	Pipeline [METHOD] -> Pipeline
+known_edge	METHOD_RETURN	0	app/pipeline [METHOD] -> Pipeline
+known_edge	METHOD_TYPE_ARGUMENT	0	fixture/use [EXPRESSION] -> Row
+known_edge	OBJECT_CREATION_TYPE	0	Pipeline [EXPRESSION] -> Pipeline
+known_edge	OBJECT_CREATION_TYPE	0	app/pipeline [EXPRESSION] -> Pipeline
+known_edge	OBJECT_CREATION_TYPE	0	fixture/use [EXPRESSION] -> Bag
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ELEMENT	1	fixture/use [METHOD_PARAM] -> Row

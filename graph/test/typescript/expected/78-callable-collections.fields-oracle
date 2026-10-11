@@ -1,10 +1,10 @@
 78-callable-collections [fields]
   precision 0.0000   (0 correct, 1 wrong)
   recall    0.0000   (0 of 2 the compiler resolved)
-  sites 2   resolved 1 (50.0%)
-  tiers ambiguous_unknown=1  known_edge=1
-  access read=2
-  not scored: 1 rows whose target is not a client declaration
+  sites 18   resolved 17 (94.4%)
+  tiers ambiguous_unknown=1  known_edge=17
+  access read=18
+  not scored: 17 rows whose target is not a client declaration
     WRONG   steps#measure(Node) READ { width: number }#width
     MISSING pipeline#runByName(Node) READ pipeline#shrink
     MISSING steps#measure(Node) READ steps#width

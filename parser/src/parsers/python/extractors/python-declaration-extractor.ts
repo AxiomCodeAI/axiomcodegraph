@@ -1662,8 +1662,11 @@ export class PythonDeclarationExtractor {
     // modifier — it never suppresses the field. Checked both ways on a class that declares
     // the getter and also writes the attribute: the field keeps its row and its origin, and
     // the row is identical to the one the `@property` spelling produces.
+    // pydantic's `@computed_field` wraps a bare def as a property, so over a plain def it
+    // is a getter too; over `@property` the test above already matches (#1534).
     if (decoratorNames.some(d => d === 'property' || d.endsWith('.property')
-        || d === 'cached_property' || d.endsWith('.cached_property'))) {
+        || d === 'cached_property' || d.endsWith('.cached_property')
+        || d === 'computed_field' || d.endsWith('.computed_field'))) {
       return PythonMethodKind.PROPERTY_GETTER;
     }
     if (decoratorNames.some(d => d.endsWith('.setter'))) {

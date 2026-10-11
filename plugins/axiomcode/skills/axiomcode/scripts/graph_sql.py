@@ -51,8 +51,9 @@ def certain(repo):
         return False
 
 
-def impact(repo, target, depth=DEPTH):
-    """{contract, reads, byname, reached, tests, overloads} for one declaration, or None when it is not in the graph."""
+def impact(repo, target, depth=DEPTH, file=None):
+    """{contract, reads, byname, reached, tests, overloads} for one declaration, or None when it is not in the graph.
+    `file`: the file the declaration is in, when the caller knows it (an edit does)"""
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     if not os.path.exists(db): return None
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
@@ -67,10 +68,25 @@ def impact(repo, target, depth=DEPTH):
         # is not a parameter of that method is a DIFFERENT question (a one-argument signature), and the rules
         # answer it with their own ~20 cases, so it still declines.
         param = None
+        # `file:line` — THE DECLARATION AT THAT LINE, the target `changed` hands a hook for every edited declaration.
+        # By name (`main`, `run`) the lookup below matched every declaration carrying it, and the hook's blast radius
+        # for an edit in one `plan` named the callers of another. The callable whose header is on the line; else the
+        # narrowest one spanning it; nothing on the line declines, as an unknown name does.
+        def at_line(t):
+            m_ = re.fullmatch(r'(.+?):(\d+)', t)
+            if not m_: return None
+            f_, l_ = m_.group(1), int(m_.group(2))
+            r_ = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND line=? AND method_id IS NOT NULL "
+                   "ORDER BY COALESCE(end_line, line) - line LIMIT 1", (f_, l_)).fetchall()      # a function on line 1, not its module
+            if not r_:
+                r_ = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND line<=? AND COALESCE(end_line, line)>=? AND method_id IS NOT NULL "
+                       "ORDER BY COALESCE(end_line, line) - line LIMIT 1", (f_, l_, l_)).fetchall()
+            return r_[:1]
         m_par = re.fullmatch(r'(.+?)\(\s*([A-Za-z_]\w*)\s*\)', target.strip())
         if m_par:
             base, pname = m_par.group(1).strip(), m_par.group(2)
-            brows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (base,)).fetchall()
+            brows = at_line(base)
+            if brows is None: brows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (base,)).fetchall()
             if not brows: return None
             if not _has(lambda sql, *p_: q(sql, p_).fetchall(), 'refs'): return None
             ok = False
@@ -82,6 +98,8 @@ def impact(repo, target, depth=DEPTH):
                      (srow[0], srow[1], srow[2] or srow[1], pname)).fetchone(): ok = True; break
             if not ok: return None
             target, param, rows = base, pname, brows
+        elif at_line(target.strip()) is not None:
+            rows = at_line(target.strip())
         else:
             rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
             if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
@@ -95,6 +113,13 @@ def impact(repo, target, depth=DEPTH):
                 rows = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND method_id IS NOT NULL", (target,)).fetchall()
             if not rows and '.' not in target and '/' not in target:
                 rows = q("SELECT id, kind, method_id FROM symbols WHERE name=? AND method_id IS NOT NULL", (target,)).fetchall()
+        # ONE DECLARATION, NOT EVERY ONE OF ITS NAME. A display is not unique: two modules both called `utils` each
+        # with a `helper`, two packages each with a `Config.load`. An edit knows its file, and without it the removal of
+        # one `helper` was answered with the callers and tests of the other as well
+        if file and len(rows) > 1:
+            ph_ = ','.join('?' * len(rows))
+            keep = {r_[0] for r_ in q(f"SELECT id FROM symbols WHERE id IN ({ph_}) AND file = ?", (*[r_[0] for r_ in rows], file))}
+            if keep: rows = [r_ for r_ in rows if r_[0] in keep]
         if not rows: return None
         # A FIELD is declined for the same reason a constructor is, and the failure it caused was worse. What
         # depends on a field is a READ or a WRITE — rows in `refs` and `field_access`, not in `call_edges` — so
@@ -146,6 +171,15 @@ def impact(repo, target, depth=DEPTH):
             ({r[0] for r in q(
             f"""SELECT DISTINCT s.display FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.base_method_id
                 WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id AND s.id NOT IN ({ph})
+                  AND dc.basis <> 'structural'
+                  AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                               OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""",
+            ids + ids)} if 'dispatch_candidates' in _tables(con) else set()) |
+            # …and, asked of the base, the implementations it dispatches to ("implements it")
+            ({r[0] for r in q(
+            f"""SELECT DISTINCT s.display FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.candidate_method_id
+                WHERE dc.base_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id AND s.id NOT IN ({ph})
+                  AND dc.basis NOT IN ('structural', 'value')
                   AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""",
             ids + ids)} if 'dispatch_candidates' in _tables(con) else set()))
@@ -162,26 +196,43 @@ def impact(repo, target, depth=DEPTH):
         stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
         con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
         con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
-        _reads = collections.defaultdict(set)
-        for d, tier, sid in q(f"""SELECT DISTINCT s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
+        # …and so is an unresolved call on a package's value (ax_edges.library_receiver_sites): it has no edge to walk,
+        # and it is no by-name reader of a project method, so the by-name count below leaves it out too
+        con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in ax_edges.library_receiver_sites(lambda s_, p_: q(s_, p_).fetchall())])
+        # A CALLER IS ITS ID, NOT ITS DISPLAY. Every unnamed function of a file carries one display (`<arrow>`,
+        # `<lambda>`), and so does every module body of one basename (`app.<module>`): keyed by display, the arrow in a
+        # test and the arrow in the source that really calls this were one row, located at whichever came first in the
+        # table ("called by <arrow> event-bus.js:52" for a caller in a test file)
+        _reads = collections.defaultdict(set); _disp = {}; _sites = collections.defaultdict(list)
+        for c, d, tier, sid in q(f"""SELECT DISTINCT s.id, s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
                              WHERE ce.callee_method_id IN ({ph})""", ids):
-            _reads[d].add(ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier))
+            cert = ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier)
+            _reads[c].add(cert); _disp[c] = d
+            if sid: _sites[c].append((cert, sid))
         # …and the end a FRAMEWORK hands it over from (#1509): a task's .delay() producer, a signal's sender, a route
         # table, a Depends() default. The rules list it as a `framework` dependent, so this does too, or the hook
         # line and `impact` name different dependents for the same declaration. A direct row only, as in the rules:
         # it does not enter the walk below.
         if 'ext_framework_edge' in _tables(con):
-            for (d,) in q(f"""SELECT DISTINCT s.display FROM ext_framework_edge f JOIN symbols s ON s.id=f.c0
+            for c, d in q(f"""SELECT DISTINCT s.id, s.display FROM ext_framework_edge f JOIN symbols s ON s.id=f.c0
                                 WHERE f.c1 IN ({ph}) AND f.c0 <> f.c1""", ids):
-                _reads[d].add('framework')
-        read_cert = {d: ax_edges.best_cert(cs) for d, cs in _reads.items()}
-        reads = sorted(_reads)
+                _reads[c].add('framework'); _disp[c] = d
+        read_cert = {c: ax_edges.best_cert(cs) for c, cs in _reads.items()}                 # by caller id
+        # where each caller is located: its call sites of its surest certainty, as the rules pick (lowest of those)
+        sites = {c: [s_ for ct, s_ in v if ct == read_cert[c]] for c, v in _sites.items()}
+        read_ids = sorted(_reads, key=lambda c: (_disp[c] or '', c))
+        reads = [_disp[c] for c in read_ids]
         # reads / uses it, by name: a site naming this method whose receiver the engine could not type. The parser
         # records callee_name and the bundle indexes it, so this is a lookup and not an inference.
         short = target.rsplit('.', 1)[-1]
-        byname = sorted({r[0] for r in q(
-            """SELECT DISTINCT s.display FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
-               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,))} - set(reads))
+        if at_line(target.strip()):                                  # file:line: the name its declaration carries
+            short = (q("SELECT name FROM symbols WHERE id=?", (ids[0],)).fetchone() or [short])[0]
+        _bn = {}
+        for c, d, sid in q("""SELECT DISTINCT s.id, s.display, cs.id FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
+               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,)):
+            if c in _reads: continue
+            _bn[c] = d; sites.setdefault(c, []).append(sid)
+        byname_ids = sorted(_bn, key=lambda c: (_bn[c] or '', c)); byname = [_bn[c] for c in byname_ids]
         # the two counts. Each edge table joins in its OWN recursive branch so SQLite drives them by index; building
         # one combined edge CTE first scans all 608k edges per call (1.89 s against 0.02 s for the same answer).
         # THE DISPATCH HOP IS NARROWED, the same way the RULES narrow it. `edge.facts` is written by
@@ -239,6 +290,7 @@ def impact(repo, target, depth=DEPTH):
         if dispatch:
             contract_ids |= {r[0] for r in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
                 WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                  AND dc.basis <> 'structural'
                   AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", ids)}
         seen_ids -= contract_ids
@@ -249,10 +301,12 @@ def impact(repo, target, depth=DEPTH):
         if param:
             # the rules put the declaring method in `direct` as "declares it" — it is the declaration the edit
             # is inside, so omitting it under-reports by the one row the caller is certain to care about
-            own = sorted({r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", ids) if r[0]})
-            reads = sorted(set(reads) | set(own))
-            byname = sorted(set(byname) - set(reads))
-        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_cert=read_cert, byname=byname,
+            own = {r[0]: r[1] for r in q(f"SELECT id, display FROM symbols WHERE id IN ({ph})", ids) if r[1]}
+            _disp.update(own)
+            read_ids = sorted(set(read_ids) | set(own), key=lambda c: (_disp[c] or '', c)); reads = [_disp[c] for c in read_ids]
+            byname_ids = [c for c in byname_ids if c not in own]; byname = [_bn[c] for c in byname_ids]
+        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_ids=read_ids, read_cert=read_cert,
+                    byname=byname, byname_ids=byname_ids, sites=sites,
                     reached=max(0, n - len(ids)), tests=t, test_names=test_names, test_ids=sorted(tset), depth=depth)
     finally:
         con.close()
@@ -266,11 +320,27 @@ def _at(q, ids):
     return out
 
 
-def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
+# THE ROWS A HOOK LISTS, WHICHEVER PATH ANSWERED. The hooks take `direct` from impact_shaped below when it answers and
+# from `axiomcode-impact --json` when it declines. The rules also put `alongside` rows in `direct` (a sibling of the
+# same type, a type declared in the same file): no call, no reference, only that a fix touching one often touches the
+# other. impact_shaped never makes them, so the same edit listed them among "reads / uses it" when the rules answered
+# and not when the fast path did: on a Java method with no caller, 1 row against 3. They are not uses, and a hook's
+# line is read as "what breaks", so neither path lists them there. `axiomcode impact` still prints them under their
+# own heading, and --json still carries them in `direct`.
+HOOK_HIDDEN = frozenset({'alongside'})
+
+
+def hook_direct(j):
+    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers, and
+    but a name match on a package's value (ax_edges.LIBRARY_BYNAME_WHY), which the fast path does not count either."""
+    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN and x.get('why') != ax_edges.LIBRARY_BYNAME_WHY]
+
+
+def impact_shaped(repo, target, depth=DEPTH, tests_shown=3, file=None):
     """the same dict shape `hooks/changes.py` already formats from `axiomcode impact --json`, so the hook's
     presentation is untouched by the swap. `reached` and `tests` are lists because the formatter takes len() of
     them; only the first few tests carry names, which is all it prints."""
-    r = impact(repo, target, depth)
+    r = impact(repo, target, depth, file=file)
     if r is None: return None
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
@@ -279,19 +349,31 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
         # only the rows that get PRINTED need a location: the formatter shows 4 per line. Resolving file:line for
         # every display cost 5.7 s against 1.7 s on a target with 739 callers, to fill in text nobody sees.
         SHOWN = 8
-        every = r['contract'][:SHOWN] + r['reads'][:SHOWN] + r['byname'][:SHOWN]
         at = {}
-        if every:
-            for i in range(0, len(every), 400):
-                chunk = every[i:i + 400]
-                for d, f, ln in q(f"SELECT display, file, line FROM symbols WHERE display IN ({','.join('?'*len(chunk))})", chunk):
-                    if d not in at and f: at[d] = f"{f}:{ln or 0}"
-        def mk(d, role, cert):
+        # a contract row is a display (an override has a name of its own); a caller is located by its id, since an
+        # unnamed function or a module body shares its display with every other one (impact above)
+        for d, f, ln in (q(f"SELECT display, file, line FROM symbols WHERE display IN ({','.join('?' * len(r['contract'][:SHOWN]))})",
+                           r['contract'][:SHOWN]) if r['contract'] else ()):
+            if d not in at and f: at[d] = f"{f}:{ln or 0}"
+        # …at its LOWEST CALL SITE, the line the rules print (axiomcode-impact: the first site, of the surest certainty),
+        # in the caller's own file (a site is written in its caller; Java stores the site's path absolute); a row with
+        # no site (a framework hand-off) at its declaration
+        ids_ = r['read_ids'][:SHOWN] + r['byname_ids'][:SHOWN]
+        decl = {i: (f, ln) for i, f, ln in (q(f"SELECT id, file, line FROM symbols WHERE id IN ({','.join('?' * len(ids_))})", ids_) if ids_ else ()) if f}
+        by_site = {s_: i for i in ids_ for s_ in r['sites'].get(i, ())}
+        low = {}
+        for j in range(0, len(by_site), 400):
+            chunk = list(by_site)[j:j + 400]
+            for sid, ln in q(f"SELECT id, start_line FROM call_sites WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+                if ln and int(ln) > 0: low[by_site[sid]] = min(int(ln), low.get(by_site[sid], int(ln)))
+        at_id = {i: f"{f}:{low.get(i) or ln or 0}" for i, (f, ln) in decl.items()}
+        def mk(d, i, role, cert):
             why = ('calls a method of this name (receiver not typed)' if cert == 'by name'
                    else ax_edges.DIRECT_WHY.get(cert, 'calls it'))
-            return dict(display=d, role=role, certainty=cert, at=at.get(d, ''), why=why)
+            return dict(display=d, role=role, certainty=cert, at=at_id.get(i, ''), why=why)
         rc = r.get('read_cert') or {}
-        direct = [mk(d, 'uses', rc.get(d, 'resolved')) for d in r['reads']] + [mk(d, 'uses', 'by name') for d in r['byname']]
+        direct = [mk(d, i, 'uses', rc.get(i, 'resolved')) for d, i in zip(r['reads'], r['read_ids'])] + \
+                 [mk(d, i, 'uses', 'by name') for d, i in zip(r['byname'], r['byname_ids'])]
         tests = [dict(display=d, owner=d.rsplit('.', 1)[0] if '.' in d else d, name=d.rsplit('.', 1)[-1])
                  for d in r.get('test_names', [])[:tests_shown]]
         tests += [dict(display='', owner='', name='')] * max(0, r['tests'] - len(tests))
@@ -462,11 +544,35 @@ def _tests(cur, depth, q):
 # client call (its tier), a call into a library (terminal — nothing is inferred past it), `defines` (a callable
 # declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
 
+def overload_impl_edges(q):
+    """[(call_site_id, caller_id, implementation_id, tier)]: a call that selected an OVERLOAD SIGNATURE runs the
+    implementation of that overload set. The compiler binds `pick(1)` to `function pick(x: number): number`, a declaration
+    with no body, and call_edges records exactly that — so the implementation, the one body that runs, had no caller at
+    all: an edit to it reached no test, `impact` called it local and `path` called the test and it independent. The
+    engine's own answer is ext_call_runs_edge (caller -> the implementation a call runs); this pairs it with the call
+    site that selected a same-named signature declared above the implementation (same file, same owner). A placeholder
+    name (`<arrow>`) names no overload set: two arrows of one file share it, and the engine's identity rows would pair
+    them."""
+    if not q("SELECT 1 FROM sqlite_master WHERE name='ext_call_runs_edge'"): return []
+    return [tuple(r) for r in q("""SELECT DISTINCT e.call_site_id, e.caller_id, r.c1, e.tier
+                                   FROM ext_call_runs_edge r
+                                   JOIN call_edges e ON e.caller_id = r.c0
+                                   JOIN methods s ON s.id = e.callee_method_id
+                                   JOIN methods i ON i.id = r.c1
+                                   WHERE r.c1 <> e.callee_method_id AND s.name = i.name AND s.file_path = i.file_path
+                                     AND COALESCE(s.owner_type_id, '') = COALESCE(i.owner_type_id, '')
+                                     AND s.name NOT LIKE '<%' AND s.end_line < i.start_line
+                                     AND s.provenance = 'client' AND i.provenance = 'client'
+                                     AND NOT EXISTS (SELECT 1 FROM call_edges x WHERE x.call_site_id = e.call_site_id
+                                                     AND x.callee_method_id = r.c1)""")]
+
+
 def _edges(q):
     # a call inside a mock's stub or verification is not an edge: the same set the path export drops (ax_edges.stub_sites)
     stubs = ax_edges.stub_sites(lambda s, p: q(s, *p))
     e = [(r[1], r[2], r[3]) for r in q("""SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges
                                           WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""") if r[0] not in stubs]
+    e += [(c, i, t) for s, c, i, t in overload_impl_edges(q) if s not in stubs]
     e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                                                 WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
     # defines: the innermost enclosing callable, from the line spans of the callables in each file
@@ -507,23 +613,55 @@ def _rev(edges):
     return r
 
 
-def reach_from(rev, seeds, byname=(), cap=40):
+def reach_from(rev, seeds, byname=(), cap=40, gate=None):
     """up/reach: everything that can reach a seed, at its SHORTEST hop count.
     `up(q,m,0) :- seed(q,m)` · `up(q,c,1) :- seed_byname(q,c)` · `up(q,a,d+1) :- up(q,b,d), edge(a,b,_), d<cap`
     Walked a level at a time: `reach` is the MINIMUM depth, and a recursive CTE unioning on (id, depth) keeps every
-    depth a node is reached at instead, which then needs a second pass to take the min."""
-    depth = {m: 0 for m in seeds}
-    frontier = list(depth); d = 0
+    depth a node is reached at instead, which then needs a second pass to take the min.
+    `gate` (state_gate() below) is dl/impact.dl's `upg`: an edge that reaches its callee only through what one
+    instance was given is walked as (node, T, callee) through T's own code, and leaves it only for a caller whose
+    receiver may be an allocation given that callee, or whose receiver's allocation is unknown."""
+    if not gate: gate = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    G, world, galloc, calloc, copen = gate['gate'], gate['world'], gate['alloc'], gate['calloc'], gate['copen']
+
+    def leaves(c, a, t, f):
+        if (c, a) in copen: return True
+        return (c, a) not in calloc or bool(calloc[(c, a)] & galloc.get((t, f), set()))
+
+    depth = {m: 0 for m in seeds}; seen = {(m, None) for m in seeds}
+    frontier = list(seen); d = 0
     while frontier and d < cap:
         nxt = []
-        for b in frontier:
+        def push(a, g):
+            if (a, g) in seen: return
+            seen.add((a, g)); nxt.append((a, g))
+            if a not in depth: depth[a] = d + 1
+        for b, g in frontier:
             for a, _t in rev.get(b, ()):
-                if a not in depth: depth[a] = d + 1; nxt.append(a)
+                if g is None:
+                    ts = G.get((a, b))
+                    if not ts: push(a, None)
+                    for t in ts or ():
+                        push(a, (t, b))
+                elif g[0] in world.get(a, ()): push(a, g)
+                elif leaves(a, b, *g): push(a, None)
         if d == 0:
-            for c in byname:
-                if c not in depth: depth[c] = 1; nxt.append(c)
+            for c in byname: push(c, None)
         frontier = nxt; d += 1
     return depth
+
+
+def state_gate(q):
+    """the instance-state facts the JavaScript engine exports (resolution/instance-state.dl), shaped for reach_from"""
+    has = lambda t: q("SELECT 1 FROM sqlite_master WHERE name=?", t)
+    out = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    if not has('ext_state_gate'): return out
+    for a, f, t in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate"): out['gate'].setdefault((a, f), set()).add(t)
+    for m, t in q("SELECT DISTINCT c0, c1 FROM ext_state_world_of_gated"): out['world'].setdefault(m, set()).add(t)
+    for t, f, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate_alloc"): out['alloc'].setdefault((t, f), set()).add(s)
+    for c, m, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_call_alloc"): out['calloc'].setdefault((c, m), set()).add(s)
+    out['copen'] = {(c, m) for c, m in q("SELECT DISTINCT c0, c1 FROM ext_state_call_open")}
+    return out
 
 
 def parent_up(edges, depth):
@@ -540,13 +678,172 @@ def parent_up(edges, depth):
 
 
 import re as _re
+# ONE TEST CLASSIFICATION, read by the exporter (axiomcode-impact) and by every SQL answer here, so the two cannot
+# disagree on what a test is.
 TEST_DECOR = _re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
-FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', _re.I)
-FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
+# A FIXTURE runs around the tests of its scope, and TEAR-DOWN is one as much as set-up: an exception in JUnit's
+# @AfterEach fails the test, one in @AfterAll fails the class, and MSTest's [TestCleanup] / [ClassCleanup] likewise.
+# Only the set-up half was listed, so a change reached from a teardown counted 0 tests (#1417). The runners' names,
+# as a language-neutral convention table: JUnit / TestNG @Before* / @After*, NUnit [SetUp] / [TearDown] /
+# [OneTimeSetUp] / [OneTimeTearDown], MSTest [TestInitialize] / [TestCleanup] / [ClassInitialize] / [ClassCleanup] /
+# [AssemblyInitialize] / [AssemblyCleanup] / [GlobalTestInitialize] / [GlobalTestCleanup], pytest @fixture.
+FIXTURE_DECOR = _re.compile(r'^(Before\w*|After\w*|fixture|setup\w*|teardown\w*|OneTime(SetUp|TearDown)'
+                            r'|(Global)?Test(Initialize|Cleanup)|(Class|Assembly)(Initialize|Cleanup))$', _re.I)
+FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll',
+                 'tearDown', 'tearDownClass', 'teardown', 'teardown_method', 'teardown_class', 'tearDownAfterClass', 'afterEach', 'afterAll'}
+# The `test*` NAMING convention carries the condition that the class is a test class -- JUnit 3 reads
+# it on a TestCase subclass, pytest only on a class matching python_classes (`Test*`). Read without
+# that condition it takes in a `@Bean` method of a nested @Configuration class and a method of a
+# Python class named anything at all, neither of which a runner ever invokes as a test (#1181).
+# Matched with search, not fullmatch: a mixin or base that only CONCRETE subclasses run --
+# `RFC2616PolicyTestMixin`, `StorageTestMixin`, `TestBase` -- declares real tests, collected
+# through a subclass named Test*. Anchoring the name dropped every one of them.
+TEST_OWNER = _re.compile(r'(Test|Spec|ITCase)')
+# a decoration that says the method is not a test the runner collects by its name:
+#  - a dependency the framework builds (`@Bean`, `@Provides`; a pytest `@fixture` whatever its name: `def test_image()`
+#    under it is built for the tests that request it, never collected, #1531);
+#  - an OVERRIDE (#1419): the method implements a supertype's, so whoever holds the supertype calls it -- a JUnit 5
+#    TestWatcher's `testSuccessful` / `testFailed`, a listener's `testStarted`. The naming convention finds a test
+#    by its DECLARATION on a test class; a callback of an extension interface is named by that interface.
+NON_TEST_DECOR = _re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration|fixture|Override)$')
+# a file the runner imports for its fixtures and hooks and never collects tests from
+NON_TEST_FILE = _re.compile(r'(^|/)conftest\.py$')
+_RET_TYPE = _re.compile(r'\)\s*:\s*(.+)$')
+# NO RUNNER OF THESE LANGUAGES COLLECTS A FUNCTION BY ITS NAME: node:test, jest, vitest and mocha run the callback handed
+# to test(…) / it(…), which the registrar rule finds on the declaration's own line. Read by name, a helper beside the
+# tests (`export function testApp()` in test/harness.js) was a test, counted as "1 test" in a file no runner collects.
+_JS_FILE = _re.compile(r'\.(?:[cm]?[jt]sx?)$')
+# a module-level Python function is collected only from a file the runner collects (pytest's python_files, unittest's
+# test*.py): a `def test_client()` in tests/helpers.py is a helper the tests import
+_PY_COLLECTED = _re.compile(r'(^|/)(test[^/]*|[^/]*_tests?)\.py$')
+
+
+def _module_level_helper(name, owner, file):
+    """a callable named like a test that no runner of its language collects by that name"""
+    f = file or ''
+    if _JS_FILE.search(f): return True
+    if f.endswith('.py') and not owner: return not _PY_COLLECTED.search(f) or not (name or '').startswith('test')
+    return False
+
+
+def _short_decoration(d):
+    return (d or '').split('.')[-1]
+
+
+def is_fixture_decoration(d):
+    return bool(FIXTURE_DECOR.match(_short_decoration(d)))
+
+
+def is_test_decoration(d):
+    """a decoration that marks its method as a test: @Test, [TestMethod], [Fact]. A set-up or tear-down attribute that
+    happens to contain the word (MSTest's [TestInitialize], [TestCleanup]) is a fixture, not a test (#1502)."""
+    return bool(TEST_DECOR.search(d or '')) and not is_fixture_decoration(d)
+
+
+def named_test(name, decs, owner, file, signature):
+    """the `test*` / `it*` naming convention, with the condition it actually carries: no owning type (a bare pytest
+    function, a module-level `function testX()`), or a type that is a test class; and no decoration that says the
+    method is something else (NON_TEST_DECOR)."""
+    if not (name or '').startswith(('test', 'it')): return False
+    if any(NON_TEST_DECOR.match(_short_decoration(d)) for d in decs or ()): return False
+    if NON_TEST_FILE.search(file or ''): return False
+    if _module_level_helper(name, owner, file): return False
+    own = (owner or '').split('.')[-1]
+    if own and not TEST_OWNER.search(own): return False
+    # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
+    # type and it is not void is a helper the tests call -- `private Method[] testFoo()`.
+    # Languages whose signatures declare no return type are unaffected by this.
+    r = _RET_TYPE.search(signature or '')
+    return not r or r.group(1).strip() in ('void', 'Unit', 'None')
+
+
+def is_test_callable(name, decs, owner, file, signature, derived=()):
+    """a test the runner collects: a test decoration (by its name, or a marker declared in the repository that carries
+    one: derived_test_markers), or the naming convention under its condition"""
+    return any(test_decoration(d, derived) for d in decs or ()) or named_test(name, decs, owner, file, signature)
+
+
+def is_fixture_callable(name, decs):
+    """a callable the runner runs before or after the tests of its scope, by its name or its decoration"""
+    return name in FIXTURE_NAMES or any(is_fixture_decoration(d) for d in decs or ())
+
+
+def _attr_stem(n):
+    """a C# attribute's name as written on a member: `[SlowFact]` for `SlowFactAttribute`"""
+    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+
+
+def derived_test_markers(q):
+    """the simple names of the decorations declared IN THIS REPOSITORY that mark a test although their own name does not
+    say so: a Java annotation type meta-annotated with a test marker (JUnit 5's composed `@interface IntegrationCase`
+    carrying `@Test`), and a C# attribute class derived from one (`SlowFactAttribute : FactAttribute`), transitively.
+    The runner reads the meta-annotation or the base, so a method under either runs as a test; read by name alone it
+    was a helper, and what it reached was credited to a sibling test (#1418, #1497).
+
+    Only declarations that ARE a decoration's type count: a Java type of the annotation category, a C# class named
+    *Attribute. A type that merely has Test in its own decorations or bases (a test class, a TestCase subclass) is
+    not a marker, and an annotation that carries no test marker (`@Audited`) stays what its name says."""
+    marks = {}                                              # declared marker name -> names it is built from
+    if _has(q, 'types') and _has(q, 'symbols') and _has(q, 'decorations'):
+        for n, d in q("""SELECT t.name, d.name FROM types t JOIN symbols s ON s.type_id = t.id AND s.method_id IS NULL
+                         JOIN decorations d ON d.owner_id = s.id WHERE t.category LIKE 'ANNOTATION%'"""):
+            if n and d: marks.setdefault(n, set()).add(d.split('.')[-1])
+    if _has(q, 'types') and _has(q, 'type_refs'):
+        spans = {}
+        for n, f, a, b in q("""SELECT name, file_path, start_line, end_line FROM types
+                               WHERE name LIKE '%Attribute' AND file_path IS NOT NULL AND start_line > 0"""):
+            spans.setdefault(f, []).append((a, b or a, n))
+        if spans:
+            for base, f, ln in q("SELECT name, file, line FROM type_refs WHERE context = 'BASE_LIST' AND file IS NOT NULL"):
+                # the base list is written in the header of the innermost type declared at or above its line
+                own = max(((a, n) for a, b, n in spans.get(f, ()) if a <= ln <= b), default=None)
+                if own and base: marks.setdefault(own[1], set()).add(base.split('.')[-1].split('<')[0])
+    if not marks: return set()
+    def is_marker(n, found):
+        # a set-up or tear-down marker that contains the word ([TestInitialize]) is a fixture, not a test (#1502)
+        return n in found or _attr_stem(n) in found or is_test_decoration(_attr_stem(n))
+    found, grew = set(), True
+    while grew:
+        grew = False
+        for n, via in marks.items():
+            if n not in found and any(is_marker(v, found) for v in via):
+                found.add(n); grew = True
+    return found | {_attr_stem(n) for n in found}
+
+
+def test_decoration(name, derived=()):
+    """whether a decoration, as written on a method, marks it as a test: by its name, or as a marker declared here"""
+    return is_test_decoration(name) or (name or '').split('.')[-1] in derived
 
 
 TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
 EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
+# a line that STARTS with a function value: the callable is an argument continued from a call opened above it
+ARG_LINE_CALLABLE = re.compile(r'^\s*(?:async\s+)?(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>)')
+
+
+def registrar_spans(rows, lines):
+    """{file: [(start, end)]} of the multi-line calls whose first line names a test registrar — `it(` / `test.each(rows)(`
+    with the name and the body on lines of their own, the shape a formatter gives a long test name. `rows` are
+    (file, start_line, end_line) of call sites, the file already relative."""
+    out = {}
+    for f, a, b in rows:
+        if not f or not a or not b or b <= a: continue
+        L = lines(f)
+        if a - 1 < len(L) and TEST_REGISTRAR.search(L[a - 1]): out.setdefault(f, []).append((a, b))
+    return out
+
+
+def continued_registrar_arg(f, ln, lines, spans, calls):
+    """whether the anonymous callable declared at `f`:`ln` is an argument of a test registrar call opened on an EARLIER
+    line: its own line starts with the function value, and the innermost call spanning that line, among those opened
+    above it, is a registrar call. Innermost, so a callback handed to `waitFor(` inside a test body stays a callback.
+    `calls` is {file: [(start, end)]} of every multi-line call site, `spans` the registrar subset."""
+    if f not in spans: return False
+    L = lines(f)
+    if not (ln - 1 < len(L) and ARG_LINE_CALLABLE.match(L[ln - 1])): return False
+    inner = min(((a, b) for a, b in calls.get(f, ()) if a < ln <= b), key=lambda s: s[1] - s[0], default=None)
+    return inner is not None and inner in spans[f]
 
 
 # A SCRIPT TEST: a file under the test tree that calls no test framework and is run as a program — `test/run.js`
@@ -605,7 +902,8 @@ def _test_sets(q, lines=None, rel=None):
     A helper in a test file (`_assertAsBigInteger`) is neither, so it is not a test: it is a CARRIER, and the tests
     it brings are the ones declared beside it. Counting every is_test callable as a test returned the helpers and
     lost the seven @Test methods they carry.
-    A FIXTURE is a test type, a constructor or module, a known setUp name, or a Before*/fixture/setup* decoration.
+    A FIXTURE is a test type, a constructor or module, a known setUp / tearDown name, or a set-up or tear-down
+    decoration (Before* / After* / fixture / setup* / TestInitialize ...: FIXTURE_DECOR).
 
     A jest / vitest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…), so the name test
     above it is the registrar's, not the callable's. Without that second leg the test layer of a JS or TS bundle
@@ -616,13 +914,15 @@ def _test_sets(q, lines=None, rel=None):
     for oid, name in q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []:
         dec.setdefault(oid, []).append(name or '')
     tm, fx = set(), set()
-    for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
+    derived = derived_test_markers(q) if dec else set()     # a composed / derived test marker declared here (#1418)
+    for sid, name, kind, mid, tid, owner, f, sig in q("SELECT id, name, kind, method_id, type_id, owner, file, signature FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
-        # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
-                and not any((x or '').split('.')[-1] == 'fixture' for x in d):
+        # the exporter's own rule (is_test_callable): a test decoration (by its name, or a composed / derived marker
+        # declared here), or the test* name under its condition. The name alone, read with no owner condition, counted
+        # a TestWatcher's testFailed callback as a test (#1419)
+        if mid and kind in ('method', 'function') and is_test_callable(name, d, owner, f, sig, derived):
             tm.add(sid)
-        if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
+        if (tid and not mid) or kind in ('constructor', 'module') or is_fixture_callable(name, d):
             fx.add(sid)
     # …and the anonymous ones, named as tests by the registrar written on their own declaration line
     if lines is not None:
@@ -635,12 +935,21 @@ def _test_sets(q, lines=None, rel=None):
                          if _has(q, 'call_sites') else []):
             f = rel(fp) if rel else fp; L = lines(f)
             if a - 1 < len(L) and EACH_TABLE.search(L[a - 1]): tables.append((f, a, b or a))
-        for sid, name, f, ln in q("""SELECT id, name, file, line FROM symbols
-                                     WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
-            if not (name or '').startswith('<'): continue
+        anon = [r for r in q("""SELECT id, name, file, line FROM symbols
+                                WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0""")
+                if (r[1] or '').startswith('<')]
+        calls = {}
+        tfiles = {r[2] for r in anon}
+        for fp, a, b in (q("""SELECT file_path, start_line, end_line FROM call_sites
+                              WHERE start_line > 0 AND end_line > start_line""") if _has(q, 'call_sites') else []):
+            f = rel(fp) if rel else fp
+            if f in tfiles: calls.setdefault(f, []).append((a, b))
+        spans = registrar_spans([(f, a, b) for f, s in calls.items() for a, b in s], lines)
+        for sid, name, f, ln in anon:
             L = lines(f)
             if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
             elif any(tf == f and a <= ln <= b for tf, a, b in tables): tm.add(sid)
+            elif continued_registrar_arg(f, ln, lines, spans, calls): tm.add(sid)
         rows = q("""SELECT id, kind, file FROM symbols WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL""")
         st = script_tests([tuple(r) for r in rows], lambda f: '\n'.join(lines(f)), tm)
         tm |= st; fx -= st
@@ -788,11 +1097,15 @@ def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
     carries no edge to b: that caller is a caller of b when the receiver it reads there is a field declared with b's
     type. Without it, `impact` on the interface method said nothing depended on it (#1542)."""
     if not (_has(q, 'call_edges') and _has(q, 'call_sites')): return [], set()
-    pairs = set()
+    pairs, shape_only = set(), set()
     if _has(q, 'overrides'):
         pairs |= {(b, o) for b, o in q("SELECT method_id, overriding_method_id FROM overrides")}
     if _has(q, 'dispatch_candidates'):
-        pairs |= {(b, o) for b, o in q("SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE basis <> 'value'")}
+        declared = set(pairs)
+        for b, o, basis in q("SELECT base_method_id, candidate_method_id, basis FROM dispatch_candidates WHERE basis <> 'value'"):
+            pairs.add((b, o))
+            (shape_only if basis == 'structural' else declared).add((b, o))
+        shape_only -= declared                  # a shape match nobody declared is never the one thing that runs
     down = collections.defaultdict(set)
     for b, o in pairs:
         if b and o and b != o: down[b].add(o)
@@ -858,7 +1171,8 @@ def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
             others = set(T) - {b}
             for m in subs[b]:
                 if others and m not in others: continue
-                rows.append((c, m, ax_edges.via_base_why(bk), 'resolved' if n == 1 else 'one of a set', f, l, m if m in T else b))
+                sole = n == 1 and (b, m) not in shape_only
+                rows.append((c, m, ax_edges.via_base_why(bk), 'resolved' if sole else 'one of a set', f, l, m if m in T else b))
                 sites.add((c, m, f, l))
         if typed_on or len(T) != 1: continue
         (o, t), = T.items()
@@ -970,6 +1284,42 @@ def _sym_row(q, i):
     return dict(zip(k, tuple(r[0])))
 
 
+def type_parts(q, sid):
+    """the symbol ids of every declaration of the type whose symbol is `sid`, that one first: the parts of a C#
+    `partial class` are separate type symbols with one qualified name, and a base written on one part is the base of
+    all of them. Two types that only share a display (an entity `Basket` and a view component `Basket` in another
+    namespace) have different qualified names and stay apart."""
+    r = q("SELECT qualified_name FROM symbols WHERE id = ?", sid)
+    qn = r[0][0] if r else None
+    if not qn: return [sid]
+    return [sid] + [x[0] for x in q("""SELECT id FROM symbols WHERE qualified_name = ? AND method_id IS NULL
+                                       AND type_id IS NOT NULL AND id <> ? ORDER BY id""", qn, sid)]
+
+
+def owner_type_ids(q, s):
+    """the symbol ids of the type that DECLARES member `s` (a symbols row as a dict), with its other partial parts,
+    never another type that only shares its display. Two classes of one simple name in different namespaces or
+    modules (an entity `Basket` and a view component `Basket`) have one display, so a join on the owner's display
+    gave the member every base and decoration of both. The owner comes from the member's own row: the method's
+    owner_type_id, else the type of that display whose span holds the member's line in the member's file. Only when
+    neither tells them apart is every type of that display returned, as before."""
+    own = s.get('owner') if s else None
+    if not own: return []
+    if s.get('method_id') and _has(q, 'methods'):
+        r = q("SELECT owner_type_id FROM methods WHERE id = ?", s['method_id'])
+        tid = r[0][0] if r else None
+        if tid:
+            ids = [x[0] for x in q("SELECT id FROM symbols WHERE type_id = ? AND method_id IS NULL ORDER BY id", tid)]
+            if ids: return list(dict.fromkeys(p for i in ids for p in type_parts(q, i)))
+    rows = [tuple(r) for r in q("""SELECT id, file, line, end_line FROM symbols
+                                   WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL ORDER BY id""", own)]
+    if len(rows) <= 1: return [r[0] for r in rows]
+    f, ln = s.get('file'), s.get('line')
+    inside = [(r[0], (r[3] or r[2]) - r[2]) for r in rows if f and ln and r[1] == f and r[2] and r[2] <= ln <= (r[3] or r[2])]
+    if inside: return type_parts(q, min(inside, key=lambda x: x[1])[0])     # the innermost span holding the member
+    return [r[0] for r in rows if f and r[1] == f] or [r[0] for r in rows]
+
+
 def no_caller_reasons(q, mids):
     """{method id: [(kind, label, evidence)]}: why nothing in the graph calls each of `mids`, strongest first, in the
     order of NO_CALLER_KINDS. `evidence` is `file:line` where there is a line to read, else ''.
@@ -988,7 +1338,7 @@ def no_caller_reasons(q, mids):
     A wrapper (INERT_DECORATIONS, or a decorator this repository declares) is never a reason and never hides the
     by-name count. The type-level reasons (base, type decoration) are skipped for a private, static or constructor
     member, which is never entered through its type. A method with no reason gets []."""
-    out = {}
+    out = {}; members = None
     has = {t: _has(q, t) for t in ('entry_points', 'decorations', 'methods', 'overrides', 'unresolved_sites', 'call_sites')}
     client_fn = {}
     def in_repo_decorator(name):
@@ -1012,7 +1362,8 @@ def no_caller_reasons(q, mids):
             if not sn or sn in INERT_DECORATIONS: continue
             shown = '@' + ((t or '').split('(')[0].strip().lstrip('@[') or (n or '')).rstrip(']')
             # the key a decoration registers it under, by the convention decoration_keys applies (none on a test)
-            keys = [] if s.get('is_test') else ax_registration.decoration_key_strings(t)
+            if not s.get('is_test') and members is None: members = ax_registration.member_names(q)
+            keys = [] if s.get('is_test') else ax_registration.decoration_key_strings(t, n, members)
             if keys: rs.append(('registered', f'{shown} "{keys[0]}"', loc(f, l)))
             elif not in_repo_decorator(sn): rs.append(('framework', shown, loc(f, l)))
         row = q("SELECT kind, visibility, owner_type_id FROM methods WHERE id = ?", mid) if has['methods'] else []
@@ -1029,16 +1380,18 @@ def no_caller_reasons(q, mids):
                     """SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
                        WHERE o.overriding_method_id = ? AND b.provenance = 'client' LIMIT 1""", mid)):
                 rs.append(('overrides', '', ''))
-            own = None
-            if s.get('owner'):
-                r = q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL LIMIT 1", s['owner'])
-                own = _sym_row(q, r[0][0]) if r else None
-            if own is None and owner_tid:
+            # the declaring type and its partial parts, not every type that shares the owner's display
+            parts = owner_type_ids(q, s) if s.get('owner') else []
+            if not parts and owner_tid:
                 r = q("SELECT id FROM symbols WHERE type_id = ? AND method_id IS NULL LIMIT 1", owner_tid)
-                own = _sym_row(q, r[0][0]) if r else None
-            if own:
-                if not any(k == 'overrides' for k, *_ in rs):
-                    for b in library_bases(q, own)[:2]: rs.append(('base', b, loc(own.get('file'), own.get('line'))))
+                parts = type_parts(q, r[0][0]) if r else []
+            owners = [o for o in (_sym_row(q, i) for i in parts) if o]
+            if owners and not any(k == 'overrides' for k, *_ in rs):
+                first = {}                                            # each base once, at the part that writes it
+                for o in owners:
+                    for b in library_bases(q, o): first.setdefault(b, o)
+                for b, o in list(first.items())[:2]: rs.append(('base', b, loc(o.get('file'), o.get('line'))))
+            for own in owners:
                 if has['decorations']:
                     for n, t, f, l in q("SELECT name, text, file, line FROM decorations WHERE owner_id = ? ORDER BY line", own['id']):
                         sn = decoration_name(n)
@@ -1048,8 +1401,10 @@ def no_caller_reasons(q, mids):
         if s.get('name') and has['unresolved_sites'] and has['call_sites']:
             # joined on the caller too: unresolved_sites is keyed (caller_id, call_site_id), and on the site alone the join
             # scanned the whole table for every method (3.5 s for 10 methods on a 200 MB graph)
+            # a call on a package's value is no by-name caller (ax_edges.library_receiver_sites)
+            lib = " AND cs.id NOT IN (SELECT c0 FROM ext_library_receiver)" if _has(q, 'ext_library_receiver') else ''
             n = q("""SELECT count(*) FROM call_sites cs JOIN unresolved_sites u ON u.caller_id = cs.caller_id AND u.call_site_id = cs.id
-                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""", s['name'])[0][0]
+                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""" + lib, s['name'])[0][0]
             if n: rs.append(('by name', str(n), ''))
         order = {k: i for i, k in enumerate(NO_CALLER_KINDS)}
         out[mid] = sorted(dict.fromkeys(rs), key=lambda r: order[r[0]])     # stable within a kind: source order
@@ -1081,7 +1436,8 @@ def no_caller_phrase(kind, label):
 
 def _bean_call(q, ids, sites):
     """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
-    never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.
+    never exercises — which is why a container-free JSON library (0 rows in ext_bean_def) was clean on it and a large
+    container-wired Java server (213) was not.
 
         bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred", t != "stub"
 
@@ -1196,12 +1552,14 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     rows += [(c, 'uses', why, cert, f, l) for c, m, why, cert, f, l, _e in via if m in idset and c not in idset]
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))           # the kind "library" in the rules
     for n in names:
         for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
-            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else ax_edges.LIBRARY_BYNAME_WHY if sid in libsites
+                         else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
     # the two backends cannot disagree about what a registration is.
@@ -1243,7 +1601,7 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     if fields:
         # every file a MEMBER of the owner is written in, not just the file of the owner's own type symbol.
         # `member(t,c,…)` resolves the owner display to one type id, so a type owns every method written with
-        # that display wherever it lives: keycloak has a jpa RealmAdapter and an infinispan one, and taking the
+        # that display wherever it lives: a large Java server has two storage adapters sharing one display, and taking the
         # first type symbol's file left 179 rows worded "a sibling of the same type" where the rules say
         # "…, using the same field cached".
         want_files = set()
@@ -1513,13 +1871,23 @@ def contract_for_method(q, ids):
     if not q("SELECT 1 FROM overrides LIMIT 1"): out += _name_match_contract(q, ids)
     # the dispatch base the engine records no override row for (#1011): read from dispatch_candidates UNFILTERED,
     # because whether a declaration implements an interface method is not a question about reachability — the rules
-    # read `implements_pair`, which is the same table without the closure's RTA filter.
+    # read `implements_pair`, which is the same table without the closure's RTA filter. A `structural` pair is a
+    # shape match nobody declared, so it is not a contract (axiomcode-impact excludes it from implements_pair too).
     if q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'"):
         for (b,) in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
                           WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                            AND dc.basis <> 'structural'
                             AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                          OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
             if b not in ids: out.append((b, 'it implements this — the engine records a dispatch candidate here and no override row'))
+        # …and asked of the BASE, the implementations it dispatches to: an interface method's own implementers had
+        # no row at all where the engine keeps no override table. `value` pairs are excluded as the rules exclude them.
+        for (m,) in q(f"""SELECT DISTINCT dc.candidate_method_id FROM dispatch_candidates dc
+                          WHERE dc.base_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                            AND dc.basis NOT IN ('structural', 'value')
+                            AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                                         OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
+            if m not in ids: out.append((m, 'implements it — the engine records a dispatch candidate here and no override row'))
     return sorted(set(out))                       # a set, for the same reason
 
 
@@ -1547,7 +1915,7 @@ def direct_for_param(q, ids):
         direct(q,m,"uses","declares it","resolved","",0)                        :- target(q,"param",m,_)
         direct(q,c,"uses","passes an argument for it","resolved",f,l)           :- calls(c,m,_,f,l)
         direct(q,c,"uses","calls a method of this name (receiver not typed) — its argument list must match",
-                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k)
+                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k), k != "library"
 
     Rule 284 takes EVERY call site with no tier test and no `!bean_call` guard: an argument list is a contract the
     container's proxy has nothing to do with, so the bean layer that splits `calls it` three ways is absent here.
@@ -1563,10 +1931,11 @@ def direct_for_param(q, ids):
                          ORDER BY s.start_line""", *ids):
         rows.append((c, 'uses', 'passes an argument for it', 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))
     for n in sorted(names):
-        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+        for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
-            if kind in CTOR_KINDS: continue
+            if kind in CTOR_KINDS or sid in libsites: continue           # !ctor_kind(k), k != "library"
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed) — its argument list must '
                                     'match', 'by name', f or '', l or 0))
     rows += [r for r in direct_for_method(q, ids) if r[3] == 'alongside']
@@ -1680,7 +2049,10 @@ def direct_for_string(q, vals, at, rel):
     """
     rows = []
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64"):
+        # strings only: the v8 index also carries numbers and booleans, and `True` is identifier-shaped
+        try: lit_rows = q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64 AND kind = 'string'")
+        except Exception: lit_rows = q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64")
+        for v, f, l in lit_rows:
             if v not in vals or not re.fullmatch(r'[A-Za-z_]\w*', v): continue
             c = at(f, l)
             if c: rows.append((c, 'uses', 'names it in a string literal', 'text', rel(f) if f else '', l or 0))
@@ -1706,7 +2078,7 @@ GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Set
              # TypedDict generates no callable, but its members are reached by STRING KEY (`d["zip_code"]`), so
              # naming it here is what makes the [text] layer's string hits legible as members rather than noise.
              'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'},
-             # discriminating names only. SQLAlchemy 2.0 states its base outright; 1.x builds one with
+             # discriminating names only. The ORM's 2.0 API states its base outright; 1.x builds one with
              # declarative_base(), which the base-alias rule in impact.dl resolves through. Django's
              # `models.Model` is NOT here: the parser keeps only the last segment, so the key would be
              # `Model` and would fire on any project's own class of that name.
@@ -2076,6 +2448,26 @@ def type_aliases(q):
     return spans, names
 
 
+def _constructs_other(q, t, n, by_tid, rel):
+    """{(caller, file, line)} where the caller constructs ANOTHER type named n and not t: a resolved constructor call, or an
+    implicit `new T()` the engine names (ext_ctor_implicit_type, #1473). impact.dl's typeref_other: the type_ref row there
+    keeps only the simple name, so `new App.Entities.Basket()` was also a by-name use of a view component `Basket`."""
+    same = {r[0] for r in q("SELECT id FROM symbols WHERE name = ? AND type_id IS NOT NULL AND method_id IS NULL", n)}
+    built = collections.defaultdict(set)                                   # (caller, file, line) -> the types built there
+    ctor = {m: t2 for t2 in same for (m, _n, k) in by_tid.get(t2, ()) if k == 'constructor'}
+    if ctor and _has(q, 'call_edges') and _has(q, 'call_sites'):
+        ph = ','.join('?' * len(ctor))
+        for c, m, f, l in q(f"""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line FROM call_edges e
+                                JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_method_id IN ({ph})""", *ctor):
+            built[(c, rel(f) if f else '', l or 0)].add(ctor[m])
+    if same and _has(q, 'ext_ctor_implicit_type') and _has(q, 'call_sites'):
+        ph = ','.join('?' * len(same))
+        for c, t2, f, l in q(f"""SELECT s.caller_id, x.c1, s.file_path, s.start_line FROM ext_ctor_implicit_type x
+                                 JOIN call_sites s ON s.id = x.c0 WHERE x.c1 IN ({ph})""", *same):
+            built[(c, rel(f) if f else '', l or 0)].add(t2)
+    return {k for k, ts in built.items() if t not in ts}
+
+
 def typeref_holder(at, spans, modules):
     """`typeref(c, …)`'s c for a type reference at (f, l): the innermost callable, except that a reference on a type
     alias's own lines, where the only callable spanning it is the module, belongs to the alias. An alias declared
@@ -2143,8 +2535,9 @@ def discriminants(q):
 
 def keyed_literals(q, code, at, values):
     """`keyed_literal(c, k, v, f, l)`: an object literal inside c writes the property `k: 'v'` — the discriminant of a
-    type it builds without naming it. Read from the literals table, which holds string EXPRESSIONS only (a literal
-    type `kind: 'X'` in an interface is not there), then confirmed on the line: `node.kind === 'X'` compares and
+    type it builds without naming it. Read from the literals table — only rows whose value is one of the known
+    discriminant strings can match, so the numbers a v8 index adds never join (a literal
+    type `kind: 'X'` in an interface is still not there), then confirmed on the line: `node.kind === 'X'` compares and
     builds nothing, so it is not a row."""
     rows = []
     if not values or not _has(q, 'literals'): return rows
@@ -2160,6 +2553,8 @@ def keyed_literals(q, code, at, values):
         rows.extend((c, k, v, f, l) for k, _q in keys)
     return sorted(set(rows))
 
+
+SIG_CTX_WORDS = {'METHOD_PARAM': 'a parameter', 'METHOD_RETURN': 'the return type'}
 
 def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     """`direct(q,c,role,why,cert,f,l)` for a TYPE target — who instantiates it, calls into it, names it.
@@ -2182,6 +2577,8 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                             if aspans else set())
     def trefs(n): return q("SELECT name, file, line, context FROM type_refs WHERE line > 0 AND name = ?", n)
     over, todo = set(), []                                  # alias_over(q, a), and the aliases still to expand
+    sig_resolved = set()                                    # callables whose signature type_use resolves to it (273b)
+    sig_at_line = set()                                     # (c, ctx) rule 273 names with a line: 273b adds no second row
 
     # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
@@ -2304,13 +2701,31 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                     rows.append((c, 'uses', 'references it', 'by name', f, l))
         # 273 — the name written in a type position: the context says which (a field type, a parameter, a cast)
         if _has(q, 'type_refs'):
+            other = _constructs_other(q, t, n, by_tid, rel)
             for nm, f, l, ctx in trefs(n):
                 c = holder(f, l)
-                if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
+                if (c, f, l) in other: continue                     # typeref_other: the name at that line builds another type of it
+                if c and c not in inside:
+                    rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l)); sig_at_line.add((c, ctx))
                 if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
+        # 273b — a signature the engine RESOLVED to this type (#1422): `type_use` holds each parameter, return and
+        # type-argument position with the type it names. Java writes no line into type_refs, so rule 273 matched none of
+        # them and 274 below grepped the same signature and called it `text`, "may be a same-named other thing".
+        #   direct(q,c,"uses",cat("names it in its signature (",ctx,")"),"resolved","",0)
+        #     :- target(q,"type",t,_), type_use(_,t,ctx,depth,_,_,c,_,_,_), sig_ctx(ctx), !inside_target(q,c)
+        if _has(q, 'type_use'):
+            for c, ctx, depth in q("""SELECT DISTINCT owner_method_id, context, depth FROM type_use
+                                      WHERE type_id = ? AND owner_method_id IS NOT NULL
+                                        AND context IN ('METHOD_PARAM', 'METHOD_RETURN')""", t):
+                if not c or c in inside: continue
+                sig_resolved.add(c)
+                if (c, ctx) in sig_at_line: continue        # rule 273 already names this signature at its line
+                what = SIG_CTX_WORDS.get(ctx, ctx.lower())
+                if depth and int(depth) > 0: what = f"a type argument of {what}"
+                rows.append((c, 'uses', f'names it in its signature ({what})', 'resolved', '', 0))
         # 274 — the name in the text of a file the parser gave no line for
         for c, nm, f, l in textuse:
-            if nm == n and c not in inside:
+            if nm == n and c not in inside and c not in sig_resolved:
                 rows.append((c, 'uses', 'names it (a signature or a declaration)', 'text', f, l))
     # the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such
     # alias, and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes
@@ -2460,8 +2875,8 @@ def _declares(q, t):
     """`declares(t,n)`: a member of t, a member of anything t extends, or a nested type of that name.
 
     Keyed on the type ID, because `member(t,_,n,_)` is. Falling back to `WHERE owner = <display>` merges every
-    class that shares a display: keycloak has two `ParTest` classes and only one of them extends the base that
-    declares REALM_NAME, so the display lookup shadowed 18 rows the rules report.
+    class that shares a display: one measured Java server has two test classes of one display and only one of them extends the base that
+    declares the constant, so the display lookup shadowed 18 rows the rules report.
     """
     up, _down, nest_in, nm, memo = _rel_index(q)
     if t in memo: return memo[t]
@@ -2474,6 +2889,12 @@ def _declares(q, t):
     memo[t] = out
     return out
 
+
+PERSIST_WORDS = {
+    'direct':     'its persistence query names the property: a rename breaks the query when it is parsed, not the compile',
+    'nested':     'its persistence query reads it through an association path',
+    'projection': 'its persistence query selects the whole entity, which loads this column',
+}
 
 def direct_for_field(q, fids, at, code, lines, inside, rel):
     """`direct` for a FIELD target — 33 rules, the largest kind. A field has no call edges of its own, so almost
@@ -2619,10 +3040,13 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
             ids_ = [a for (a, nm, _k) in by_tid.get(t, ()) if nm == an] if t else []
             if not ids_: continue
             aph = ','.join('?' * len(ids_))
-            for c, f_, l_ in q(f"""SELECT e.caller_id, s.file_path, s.start_line
+            # a generated builder / fluent setter is not a read door (gen_setter, impact.dl)
+            rids = [a for a in ids_ if not (role_ == 'read' and _gen_setter(a))]
+            rph = ','.join('?' * len(rids))
+            for c, f_, l_ in (q(f"""SELECT e.caller_id, s.file_path, s.start_line
                                    FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
-                                   WHERE e.callee_method_id IN ({aph}) AND e.callee_provenance='client'
-                                   ORDER BY s.start_line""", *ids_):
+                                   WHERE e.callee_method_id IN ({rph}) AND e.callee_provenance='client'
+                                   ORDER BY s.start_line""", *rids) if rids else ()):
                 verb = 'reads' if role_ == 'read' else 'writes'
                 rows.append((c, verb, f'{verb} it through {an}()', 'resolved', rel(f_) if f_ else '', l_ or 0))
             de += [(c, a) for c, a in q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
@@ -2733,6 +3157,7 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
         gen, _src = gen_of(q, owners, code) if owners else ({}, {})
         if gen:
             sites = named_sites(q)
+            by_tid_ = _members(q)[4]
             tnames = dict(q("SELECT id, name FROM symbols WHERE id IN ({})".format(','.join('?' * len(owners))),
                             *owners))
             for f_ in fids:
@@ -2750,10 +3175,27 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                             if k == 'new': continue
                             rows.append((c, role, why, 'by name', rel(sf) if sf else '', sl or 0))
                 if w & {'builder', 'fluent'}:
+                    # the setter the engine resolved (#1409), and whether it is modelled at all (gen_modelled)
+                    sids = [a for (a, nm, _k) in by_tid_.get(t_, ()) if nm == n_ and _gen_setter(a)]
+                    if sids:
+                        sph = ','.join('?' * len(sids))
+                        for c, f_, l_, ti in q(f"""SELECT e.caller_id, s.file_path, s.start_line, e.tier
+                                                  FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                                                  WHERE e.callee_method_id IN ({sph})
+                                                    AND e.callee_provenance='client'
+                                                  ORDER BY s.start_line""", *sids):
+                            rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
+                                         'one of a set' if ti == 'multi_inferred' else 'resolved',
+                                         rel(f_) if f_ else '', l_ or 0))
                     for c, k, sf, sl in sites.get(n_, ()):
                         if k == 'new': continue
-                        rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
-                                     'by name', rel(sf) if sf else '', sl or 0))
+                        if sids:
+                            rows.append((c, 'uses', f'calls a same-named {n_}() that the engine did not place on '
+                                                    f"this type's builder or accessors",
+                                         'by name', rel(sf) if sf else '', sl or 0))
+                        else:
+                            rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
+                                         'by name', rel(sf) if sf else '', sl or 0))
                 if 'fluent_read' in w:
                     for c, k, sf, sl in sites.get(n_, ()):
                         if k == 'new': continue
@@ -2763,6 +3205,16 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                     for c, k, sf, sl in sites.get(tnames.get(t_) or '', ()):
                         rows.append((c, 'writes', 'passes it to the generated constructor', 'by name',
                                      rel(sf) if sf else '', sl or 0))
+    # a persistence query that names the property (#1461, #1462): a repository method whose derived name or query
+    # text reads it, or a whole-entity select that loads it. Renaming the property breaks the query when it is parsed,
+    # not the compile, and no call or reference connects them.
+    #   direct(q,m,"reads",w,"resolved","",0) :- target(q,"field",fl,_), persist_field(m,fl,how), persist_words(how,w),
+    #     !inside_target(q,m)
+    if _has(q, 'ext_persistence_field'):
+        fph = ','.join('?' * len(fids))
+        for m, how in q(f"SELECT DISTINCT c0, c2 FROM ext_persistence_field WHERE c1 IN ({fph})", *fids):
+            if m in inside or how not in PERSIST_WORDS: continue
+            rows.append((m, 'reads', PERSIST_WORDS[how], 'resolved', '', 0))
     # a barrel that re-exports the field's name (rule 397)
     fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
     rows += reexport_rows(q, fnames, code, rel)
@@ -2832,11 +3284,21 @@ def _holds(q, t, tname, lines):
 
 def _accessors(n):
     """`accessor(fl,an,role)` — the names a convention would give this field, exactly as the exporter derives
-    them: the bean pair, the fluent name, and the same name without a leading underscore."""
+    them: the bean pair, the wither, the fluent name, the same name without a leading underscore, and for a
+    boolean named `isX` the setter and wither without the `is` (#1404)."""
     cap = n[:1].upper() + n[1:]
-    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), (n, 'read')]
+    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), ('with' + cap, 'write'), (n, 'read')]
     if n.startswith('_') and len(n) > 1: out.append((n.lstrip('_'), 'read'))
+    if _IS_PREFIXED.match(n): out += [('set' + n[2:], 'write'), ('with' + n[2:], 'write')]
     return out
+
+
+_IS_PREFIXED = re.compile(r'^is[A-Z]')
+
+
+def _gen_setter(a):
+    """`gen_setter(a)`: a GENERATED one-argument member: a builder or fluent setter when named like the field."""
+    return bool(a) and a.startswith('generated:') and a.endswith('/1')
 
 
 def _qualifiers(code, f, l, n):
@@ -2852,11 +3314,11 @@ def _same_file_members(q, own_tid, f):
     Keyed on the type SYMBOL ID, because that is what the rule joins on, and the exporter builds its two maps
     from different row sets: `tid_of` from anything carrying a type_id (a method row can), `type_in_file` from
     the type rows only (method_id IS NULL) plus the module nodes. Keying this on the display instead moved 179
-    rows off one keycloak target and pulled 168 others in.
+    rows off one target in a large Java server and pulled 168 others in.
 
     Iterating the symbols IN f is also not the same thing and loses rows: `member(t2,c)` resolves the owner
     display to ONE type id, first id wins, so a type in f owns every method written with that owner display —
-    including ones in another file entirely. keycloak has two `AbstractOrganizationTest` classes in different
+    including ones in another file entirely. One large Java server has two abstract test classes of one display in different
     modules, and 24 of the members the rules report for the one in f are written in the other.
     """
     _memb, _od, _tf, _tid, by_tid = _members(q)
@@ -3152,10 +3614,14 @@ def _has_framework_hops(q, at=None, site_file=None):
     try:
         import ax_registration
         if at is not None and ax_registration.key_edges(q, at, site_file): return True
+        if ax_registration.filter_links(q): return True     # fw_edge "filter": a servlet filter a test's context holds
     except Exception:
         return True                               # cannot tell: decline, because answering smaller is the failure
     try:
         if _has(q, 'ext_decorated_name_target') and q("SELECT 1 FROM ext_decorated_name_target WHERE c0 <> c1 LIMIT 1"):
+            return True
+        # fw_edge "library callback": a library summarised to call a client member back (library-callbacks.dl)
+        if _has(q, 'ext_lib_callback_edge') and q("SELECT 1 FROM ext_lib_callback_edge WHERE c0 <> c1 LIMIT 1"):
             return True
         if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
             return True
@@ -3165,6 +3631,32 @@ def _has_framework_hops(q, at=None, site_file=None):
             return True
     except Exception:
         return True
+    return False
+
+def _java_protocol(q, mids):
+    """True when one of these Java methods is a member a library runs on the object (dl/impact.dl protocol_member)"""
+    if not mids or not _has(q, 'symbols'): return False
+    ph = ','.join('?' * len(mids))
+    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND file LIKE '%.java' AND name IN ('equals', 'hashCode', 'toString') LIMIT 1", *mids):
+        return True
+    return bool(_has(q, 'overrides') and q(f"""SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
+                                             JOIN symbols s ON s.id = o.overriding_method_id
+                                             WHERE o.overriding_method_id IN ({ph}) AND b.provenance = 'lib'
+                                               AND s.file LIKE '%.java' LIMIT 1""", *mids))
+
+def _reaches_init(q, depth):
+    """True when the closure holds a Java initializer the rules hop on from (load_hop): a type reached as a caller, or a
+    <clinit> / <init_block> callable"""
+    if not depth or not _has(q, 'symbols'): return False
+    ids = [m for m, d in depth.items() if d > 0 and m.startswith('TYPE_')]
+    if ids and q("SELECT 1 FROM call_edges WHERE caller_id IN ({}) LIMIT 1".format(','.join('?' * len(ids))), *ids):
+        return True
+    ids = list(depth)
+    for i in range(0, len(ids), 900):
+        part = ids[i:i + 900]
+        if q("SELECT 1 FROM symbols WHERE id IN ({}) AND name IN ('<clinit>', '<init_block>') AND file LIKE '%.java' LIMIT 1"
+             .format(','.join('?' * len(part))), *part):
+            return True
     return False
 
 def _spawn_edges(q, lines, at):
@@ -3177,7 +3669,7 @@ def _spawn_edges(q, lines, at):
     return sorted({(c, m, 'spawns') for c, m, _f, _l in ax_spawn.links(tf, mod_of, lines, at) if c != m})
 
 def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=None,
-                       inside=(), textuse=(), importuse=(), lines=None):
+                       inside=(), textuse=(), importuse=(), lines=None, field_rows=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
 
     T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
@@ -3221,7 +3713,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); gate = state_gate(q); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -3231,6 +3723,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # `target(q,k,s,x)`: a STRING target is written (q,"string","",value) — no symbol at all — so the ids and
         # the extras are kept apart rather than one standing in for the other.
         ids = sorted({s_ for _k, s_, _x in mine if s_})
+        # a Java member a library runs (dl/impact.dl protocol_member: Object's equals / hashCode / toString, an
+        # override of a library method) is reached through whoever constructs its type: not ported, so decline
+        if _java_protocol(q, sorted({s_ for k_, s_, _x in mine if s_ and k_ == 'method'})): return None
         by_kind, extra = {}, {}
         for k, s_, x in mine:
             if s_: by_kind.setdefault(k, set()).add(s_)
@@ -3260,7 +3755,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             # direct_edge(q,c,e) :- target(q,"method",m,_), via_base(c,m,_,_,_,_,e), !is_target_decl(q,c)
             de += sorted({(c, e) for c, m, _w, _c, _f, _l, e in via[0] if m in set(mids) and c not in set(mids)})
             byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)
-                             and _w != STUB_BYNAME_WHY} - seeds)
+                             and _w != STUB_BYNAME_WHY and _w != ax_edges.LIBRARY_BYNAME_WHY} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])
@@ -3292,6 +3787,8 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         if 'field' in by_kind:
             fids = sorted(by_kind['field'])
             d, fde = direct_for_field(q, fids, at, code, lines, ins, rel)
+            # mapper_param / bean_copy (dl/impact.dl): the caller read them from the text and hands the rows over
+            d += list((field_rows or {}).get(qq, ()))
             # alongside, through target_owner(q,t) :- target(q,"field",fl,_), field(fl,t,_,_,_)
             ftypes = set()
             for f_ in fids:
@@ -3461,7 +3958,10 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             _sde.add((c, m)); _de.append((c, m))
         out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
-        depth = reach_from(rev, seeds, byname)
+        depth = reach_from(rev, seeds, byname, gate=gate)
+        # the `at load` hop (dl/impact.dl load_hop) is not ported: a closure that arrives at a Java type as a caller
+        # (a field initializer) or at a <clinit> / <init_block> goes on to the type's users there, so decline
+        if _reaches_init(q, depth): return None
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
         # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
         # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those
@@ -3648,6 +4148,10 @@ def solve_path(rows, queries, every=False, opt=False, cap=MAX_HOP):
         cur.execute("CREATE TABLE edge_opt(a TEXT, b TEXT, t TEXT)")
         cur.execute("INSERT INTO edge_opt SELECT a, b, t FROM edge")
         cur.execute("INSERT INTO edge_opt SELECT DISTINCT b.c, n.m, 'by-name' FROM byname b JOIN named n ON n.n = b.n")
+        rej = list(rows.get('rejected_edge', ()))                 # leads an asserted-links rejection takes out (ax_links.py)
+        if rej:
+            cur.execute("CREATE TEMP TABLE rejected_edge(c TEXT, m TEXT)"); cur.executemany("INSERT INTO rejected_edge VALUES(?,?)", rej)
+            cur.execute("DELETE FROM edge_opt WHERE t = 'by-name' AND EXISTS (SELECT 1 FROM rejected_edge r WHERE r.c = edge_opt.a AND r.m = edge_opt.b)")
         cur.execute("CREATE INDEX eo_a ON edge_opt(a)"); cur.execute("CREATE INDEX eo_b ON edge_opt(b)")
     out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
     for q, (s, d) in queries.items():

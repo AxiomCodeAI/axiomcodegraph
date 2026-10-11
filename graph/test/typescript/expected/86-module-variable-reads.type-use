@@ -1,0 +1,5 @@
+ambiguous_unknown	AS_TARGET	0	a/src/cfg [EXPRESSION] -> -
+ambiguous_unknown	AS_TARGET	0	b/src/settings [EXPRESSION] -> -
+ambiguous_unknown	DECORATOR_TYPE	0	Handler [DECORATOR] -> -
+ambiguous_unknown	METHOD_RETURN	0	a/test/t [METHOD] -> -
+known_edge	OBJECT_CREATION_TYPE	0	Handler [EXPRESSION] -> Pipe

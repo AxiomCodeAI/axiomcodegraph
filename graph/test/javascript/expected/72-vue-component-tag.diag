@@ -1,0 +1,12 @@
+import_cause     components/Defined.vue:2:10  vue  not_staged
+import_cause     views/Parent.vue:8:10  vue  not_staged
+import_cause     views/Shell.vue:3:1  @/Gone.vue  not_staged
+import_cause     vite.config.js:1:10  node:url  builtin
+import_cause     vite.config.js:1:25  node:url  builtin
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       components/Defined.vue:3:16  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       components/MyWidget.vue:2:1  FUNCTION_CALL defineProps  callee_untyped
+unresolved       views/Parent.vue:11:26  FUNCTION_CALL String  no_target
+unresolved       views/Parent.vue:9:15  FUNCTION_CALL defineComponent  callee_untyped
+unresolved       vite.config.js:3:28  FUNCTION_CALL fileURLToPath  no_target
+unresolved       vite.config.js:3:42  CONSTRUCTOR_CALL URL  no_target

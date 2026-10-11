@@ -36,12 +36,19 @@ iter_pair(p, tgt, src) :-
 for_statement_roots("FOR_TARGET", "FOR_ITERABLE").
 for_statement_roots("ASYNC_FOR_TARGET", "ASYNC_FOR_ITERABLE").
 
+// ── root_expr_at(Prov, RootContext, Scope, Line, Expr) — the pairing key, ONCE ──
+// Both statement pairings below match a target root against a source root by scope and
+// line; written inline, each pairing enumerated every root of one context and probed
+// scope/span per candidate (22s between them for ~6K rows). Materialized with the key
+// in the columns, each pairing is one indexed join.
+root_expr_at(p, rc, s, line, e) :-
+    expr_root_context(p, rc, e), !expr_has_parent(p, e),
+    expr_scope(p, s, _, e), expr_span(p, line, _, e).
+
 iter_pair(p, tgt, src) :-
     for_statement_roots(trc, irc),
-    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, irc, src), !expr_has_parent(p, src),
-    expr_scope(p, s, _, tgt), expr_scope(p, s, _, src),
-    expr_span(p, line, _, tgt), expr_span(p, line, _, src).
+    root_expr_at(p, trc, s, line, tgt),
+    root_expr_at(p, irc, s, line, src).
 
 // ── with_pair(Prov, TargetExprHash, ContextExprHash) — `with X() as y` (#128) ──
 // The SAME shape as a for statement, and it lives here for that reason: the parser emits
@@ -52,10 +59,8 @@ with_statement_roots("ASYNC_WITH_TARGET", "ASYNC_WITH_CONTEXT").
 
 with_pair(p, tgt, cm) :-
     with_statement_roots(trc, crc),
-    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, crc, cm), !expr_has_parent(p, cm),
-    expr_scope(p, s, _, tgt), expr_scope(p, s, _, cm),
-    expr_span(p, line, _, tgt), expr_span(p, line, _, cm).
+    root_expr_at(p, trc, s, line, tgt),
+    root_expr_at(p, crc, s, line, cm).
 
 // The two names this needs, stated as facts rather than written into a rule body: one is a
 // dunder the language defines, the other the typing spelling for "the enclosing class".
@@ -93,6 +98,18 @@ with_target_declared(p, tgt, ct) :-
     method_decl(p, _, _, _, ret, m),
     self_return_name(ret).
 
+// The same, WRITTEN rather than declared: an __enter__ with no return annotation whose
+// return value is `self` (`def __enter__(self): return self`). The protocol hands the
+// target what __enter__ returned, and that is the context manager itself.
+with_target_declared(p, tgt, ct) :-
+    with_pair(p, tgt, cm),
+    expr_root_context(p, crc, cm), context_manager_enter_of(crc, en),
+    expr_type(p, cm, ct),
+    mro_lookup(p, ct, en, m),
+    !method_declared_return_type(p, m, _),
+    method_return_value_expr(p, m, e),
+    expr_node(p, "SELF_REFERENCE", _, _, e).
+
 // AN __enter__ RETURN IS A DECLARED TYPE, not an exact one, so it goes out through
 // declared_dispatch and is registered with call_recv_declared in dispatch.dl. A declared
 // type escaping that gate has produced a confident-wrong answer four times in this engine.
@@ -125,14 +142,12 @@ element_type_of(p, src, t) :-
 // self-only, here the ELEMENT type of a container held on an attribute is. The self
 // clauses stay as the special case; nothing about what an element type means changes.
 element_type_of(p, src, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
-    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, src, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_declared_element(p, f, t).
 element_type_of(p, src, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
-    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, src, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_element_from_param(p, f, t).
@@ -277,6 +292,79 @@ binding_element_type(p, b, t) :-
     iter_pair(p, tgt, src),
     expr_binding(p, b, _, tgt),
     element_type_of(p, src, t).
+
+// ── A MAPPING'S VIEWS: `.values()`, `.keys()`, `.items()` ─────────────────────
+//     self.dump_fields: dict[str, Field] = {}
+//     for name, field_obj in self.dump_fields.items(): field_obj.serialize(...)
+// Every clause above types the container itself; a view is a CALL on it, and none of them
+// looked through one, so the commonest way to walk a mapping typed nothing -- and an
+// `items()` loop binds a TUPLE target, which no clause bound at all. A mapping annotation
+// names its key at generic position 0 and its value at position 1, so the slots are
+// read positionally rather than through type_ref_element (which merges both, the safe
+// direction for iterating the mapping itself, and wrong for a view that yields one side).
+// view_slot names which side each view yields; `items()` yields (key, value) pairs.
+// dict_view_slot / dict_items_view are CPython names, catalogued in resolution/builtins.dl.
+
+// the annotation a mapping-valued expression carries: a field (through self or through
+// any typed object), a parameter, or a callee's declared return
+mapping_annotation_of(src, r) :-
+    expr_attr_of_self("client", src, n, owner),
+    type_attr_field("client", owner, n, f),
+    type_ref_owner("client", f, "FIELD", r),
+    type_ref("client", k, "FIELD_TYPE", _, _, r), annotation_container_kind(k).
+mapping_annotation_of(src, r) :-
+    attr_access("client", src, n, obj),
+    expr_type("client", obj, ot),
+    type_attr_field("client", ot, n, f),
+    type_ref_owner("client", f, "FIELD", r),
+    type_ref("client", k, "FIELD_TYPE", _, _, r), annotation_container_kind(k).
+mapping_annotation_of(src, r) :-
+    expr_names_param("client", src, ph),
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", k, "METHOD_PARAM", _, _, r), annotation_container_kind(k).
+mapping_annotation_of(src, r) :-
+    call_of_expr(src, site), expr_call_candidate(site, m),
+    type_ref_owner("client", m, "METHOD", r),
+    type_ref("client", k, "METHOD_RETURN", _, _, r), annotation_container_kind(k).
+// a single-write local holding one of those
+mapping_annotation_of(src, r) :-
+    expr_binding("client", b, ctx, src), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_rebinding("client", "1", _, _, b2),
+    expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    mapping_annotation_of(val, r).
+
+// the type at one generic position of an annotation (resolved, or by name in its module)
+type_ref_slot(r, pos, t) :-
+    type_ref_nesting("client", r, pos, "1", child),
+    type_ref("client", _, "GENERIC_ARGUMENT", _, _, child),
+    type_ref_resolved("client", t, child).
+type_ref_slot(r, pos, t) :-
+    type_ref_nesting("client", r, pos, "1", child),
+    type_ref("client", _, "GENERIC_ARGUMENT", tn, _, child), tn != "",
+    type_ref_owner("client", owner, ok, r),
+    annotation_owner_module("client", owner, ok, mod),
+    type_name_in_module("client", mod, tn, t).
+
+// `m.keys()` / `m.values()` / `m.items()` written with no argument
+dict_view_call(src, recv, view) :-
+    call_of_expr(src, site), call_name(site, view), dict_view_name(view),
+    call_receiver_object(site, recv), !call_arg(site, _, _).
+// the element a `keys()` / `values()` view yields
+element_type_of("client", src, t) :-
+    dict_view_call(src, recv, view), dict_view_slot(view, pos),
+    mapping_annotation_of(recv, r), r != "", type_ref_slot(r, pos, t).
+// an `items()` pair's two slots, and the names a TUPLE loop target binds to them
+dict_item_slot_type(src, pos, t) :-
+    dict_items_view(view), dict_view_call(src, recv, view), dict_view_slot(_, pos),
+    mapping_annotation_of(recv, r), type_ref_slot(r, pos, t).
+binding_element_type("client", b, t) :-
+    iter_pair("client", tgt, src),
+    expr_node("client", "TUPLE", _, _, tgt),
+    expr_parent("client", tgt, "ELEMENT", pos, el),
+    expr_binding("client", b, _, el),
+    dict_item_slot_type(src, pos, t).
 
 // ── iteration_untyped(Prov, TargetExprHash, IterableExprHash) ────────────────
 // A loop whose container the engine could not type. Emitted so the cost is countable

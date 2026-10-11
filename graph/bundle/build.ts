@@ -529,6 +529,28 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       }
     }
   }
+  // a field access whose site is no expression: a module variable read in a type (`typeof X`)
+  if (A.ir.fieldSites && fieldSites.size > 0) {
+    const L = A.ir.fieldSites;
+    const src = await clientSource(inp.clientIrDir, L.file);
+    if (src) {
+      const h = src.header;
+      const ci = h.col(L.id), cl = h.col(L.startLine), cel = h.col(L.endLine);
+      for await (const r of rowsOf(src)) {
+        const fa = fieldSites.get(r[ci] ?? '');
+        if (!fa) continue;
+        const file = fileOf(L.fileVia, h, r);
+        for (const fr of fa) { fill(fr, 6, file); fill(fr, 7, int(r[cl])); fill(fr, 9, int(r[cel])); }
+      }
+    }
+  }
+  // a site the IR writes no name for, where the engine derived the accessor it calls (#1441)
+  if (A.raw.siteNames) {
+    for (const [site, name] of await readSource(rawDir, A.raw.siteNames)) {
+      const row = sites.get(site as string);
+      if (row) fill(row, 3, nul(name as string));
+    }
+  }
   // a site keyed on a type (Python METACLASS_CREATION) is positioned at the class declaration
   for (const row of sites.values()) {
     if (row[5] !== null) continue;

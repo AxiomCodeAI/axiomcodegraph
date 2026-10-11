@@ -1,0 +1,15 @@
+{
+  "name": "wiring-sample",
+  "version": "1.0.0",
+  "description": "Sample app: turns debug (verbose) output on from config",
+  "scripts": {
+    "trace": "debug",
+    "debug": "node src/a/app.js"
+  },
+  "dependencies": {
+    "debug": "^4.1.0"
+  },
+  "optionalDependencies": {
+    "optional": "^0.1.4"
+  }
+}

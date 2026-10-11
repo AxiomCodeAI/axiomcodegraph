@@ -1,0 +1,9 @@
+known_edge	read	app#<arrow@13>() -> parts#Child
+known_edge	read	app#<arrow@13>() -> parts#FnForm
+known_edge	read	app#<arrow@13>() -> parts#NuxtCard
+known_edge	read	app#<arrow@13>() -> parts#Panel
+known_edge	read	app#<arrow@13>() -> parts#Store
+known_edge	read	app#<arrow@13>() -> reg#Button
+known_edge	read	app#<arrow@13>() -> reg#Local
+known_edge	read	card#render() -> parts#Child
+known_edge	read	reg#<module-init>() -> reg#_Local

@@ -29,3 +29,7 @@
 *.jpg       binary
 *.pdf       binary
 *.sqlite    binary
+
+# A torture fixture whose CRLF line endings ARE the trap it sets (a BOM and CRLF in one
+# page); normalising it would remove the case the suite asserts.
+parser/src/test-data/web/torture/quirks.html -text

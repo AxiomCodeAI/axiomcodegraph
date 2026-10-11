@@ -54,9 +54,9 @@ with tempfile.TemporaryDirectory() as tmp:
             open(log, 'w').close()
 
     # the command npm links: bash's python3 is the placeholder until the launcher puts its own first
-    r = subprocess.run(['node', AXJS, 'help', 'context'], env=placeholder, capture_output=True, text=True, timeout=60)
-    check('`axiomcode help context` answers when python3 is the Store placeholder',
-          r.returncode == 0 and 'context' in r.stdout and 'Python was not found' not in r.stderr,
+    r = subprocess.run(['node', AXJS, 'help', 'impact'], env=placeholder, capture_output=True, text=True, timeout=60)
+    check('`axiomcode help impact` answers when python3 is the Store placeholder',
+          r.returncode == 0 and 'impact' in r.stdout and 'Python was not found' not in r.stderr,
           f'rc={r.returncode} err={r.stderr[-300:]}')
     c = calls()
     check('...and the Python bash ran is the one `python` named, not the placeholder',
@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # a hook: stdin reaches it, and its exit status comes back unchanged (exit 2 is how a hook blocks)
     ev = json.dumps({'tool_name': 'Grep', 'tool_input': {'pattern': 'f'}, 'cwd': tmp, 'session_id': 's1'})
-    r = subprocess.run(['node', RUNJS, 'direct.py'], input=ev, env=placeholder, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(['node', RUNJS, 'changes.py'], input=ev, env=placeholder, capture_output=True, text=True, timeout=60)
     check('a hook runs under `python` when python3 is the placeholder', r.returncode == 0 and 'import sys' in calls(),
           f'rc={r.returncode} err={r.stderr[-300:]}')
     r = subprocess.run(['node', RUNJS, 'no-such-hook.py'], input='{}', env=placeholder, capture_output=True, text=True, timeout=60)
@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # AXIOMCODE_PYTHON comes first, as it does for the MCP server
     chosen = os.path.join(tmp, 'mine')
     script(chosen, f'#!/bin/sh\necho "mine $*" >> "{log}"\nexec "{sys.executable}" "$@"\n')
-    r = subprocess.run(['node', AXJS, 'help', 'context'], env=dict(placeholder, AXIOMCODE_PYTHON=chosen),
+    r = subprocess.run(['node', AXJS, 'help', 'impact'], env=dict(placeholder, AXIOMCODE_PYTHON=chosen),
                        capture_output=True, text=True, timeout=60)
     check('AXIOMCODE_PYTHON is the Python bash runs', r.returncode == 0 and 'mine' in calls(), f'rc={r.returncode}')
 
@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as tmp:
     only_node = os.path.join(tmp, 'only-node'); os.makedirs(only_node)
     os.symlink(shutil.which('node'), os.path.join(only_node, 'node'))
     nopy = dict(placeholder, PATH=only_node)
-    r = subprocess.run([shutil.which('node'), RUNJS, 'direct.py'], input='{}', env=nopy, capture_output=True, text=True, timeout=60)
+    r = subprocess.run([shutil.which('node'), RUNJS, 'changes.py'], input='{}', env=nopy, capture_output=True, text=True, timeout=60)
     check('with no Python, a hook exits 0 and says why on stderr', r.returncode == 0 and 'Python' in r.stderr,
           f'rc={r.returncode} err={r.stderr[-300:]}')
 

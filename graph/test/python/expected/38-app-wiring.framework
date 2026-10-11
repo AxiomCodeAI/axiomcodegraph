@@ -1,0 +1,10 @@
+── framework_edge (5) ──
+  command_dispatch   registered  shop.jobs.nightly (shop/jobs.py) -> shop.management.commands.close_orders.Command.handle (shop/management/commands/close_orders.py)   [close_orders]
+  url_dispatch       registered  main.<module> (main.py) -> main.Widgets.get (main.py)   [/widgets]
+  url_dispatch       registered  main.<module> (main.py) -> main.Widgets.post (main.py)   [/widgets]
+  url_dispatch       registered  main.<module> (main.py) -> main.feed (main.py)   [/feed]
+  url_dispatch       registered  main.<module> (main.py) -> main.health (main.py)   [/health]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

@@ -1,0 +1,26 @@
+ambiguous_unknown	read	Bus#count(string) -> -
+known_edge	read	Bus#count(string) -> Bus#handlers
+known_edge	read	Bus#dispatch(string,unknown) -> Bus#handlers
+known_edge	read	Bus#dispatch(string,unknown) -> bus#ANY
+known_edge	read	Bus#subscribe(string,Handler) -> Bus#handlers
+known_edge	read	Indexer#start() -> Indexer#b
+known_edge	read	Indexer#start() -> topics#TOPIC
+known_edge	read	Indexer#start() -> topics#created
+known_edge	read	Indexer#start() -> topics#removed
+known_edge	read	MiniBus#fire(string,unknown) -> MiniBus#h
+known_edge	read	MiniBus#on(string,(p: unknown) =) -> MiniBus#h
+known_edge	read	app#<module-init>() -> app#bus
+known_edge	read	app#<module-init>() -> app#mini
+known_edge	read	app#<module-init>() -> bus#ANY
+known_edge	read	app#<module-init>() -> topics#TOPIC
+known_edge	read	app#<module-init>() -> topics#created
+known_edge	read	app#create() -> app#bus
+known_edge	read	app#create() -> topics#TOPIC
+known_edge	read	app#create() -> topics#created
+known_edge	read	app#go() -> app#mini
+known_edge	read	app#relay({ type: string }) -> app#bus
+known_edge	read	app#relay({ type: string }) -> { type: string }#type
+known_edge	read	app#remove() -> app#bus
+known_edge	read	app#size() -> app#bus
+known_edge	read	app#size() -> topics#TOPIC
+known_edge	read	app#size() -> topics#created

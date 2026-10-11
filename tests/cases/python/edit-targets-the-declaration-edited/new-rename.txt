@@ -1,0 +1,14 @@
+def helper_a(x):
+    return x + 1
+
+
+def entry():
+    return helper_a(1)
+
+
+def unique_alpha():
+    return 3
+
+
+def go_a():
+    return entry() + unique_alpha()

@@ -299,6 +299,41 @@ arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call
 arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, arg),
     expr_ultimate_type("client", arg, encl),
     java_field(name, vt, _, _, _, _, _, _, encl, _, _, _, _, _), value_type_name(vt).
+// An ARITHMETIC or COMPARISON expression argument: `new Elements(elements.size() - 1)`, `remove(--i)`, `put(k, a == b)`.
+// Its operands may be untyped (a call into an unstaged library), but the operator fixes what kind of value it is:
+// `-` `*` `/` `%` and the shifts make a number, a comparison or `&&` / `||` / `!` a boolean. `+` is left out (a String
+// concatenation is a `+` too), and so are `&` `|` `^` (numeric or boolean by operand). "numeric" is a value type of its
+// own because the width is not known: it is compatible with every numeric primitive and wrapper, never with String,
+// boolean or a reference type. Without it the call kept `Elements(Element...)` beside `Elements(int)`, and every
+// caller of the one was a caller of the other.
+// java_expression (25): 1 kind 2 edgeRole 7 parentExpressionHash 8 position 14 operatorString
+.decl numeric_op(o:symbol)
+.decl numeric_unary_op(o:symbol)
+.decl boolean_op(o:symbol)
+.decl numeric_prim(p:symbol)
+.decl prim_value(v:symbol)
+numeric_op("-"). numeric_op("*"). numeric_op("/"). numeric_op("%"). numeric_op("<<"). numeric_op(">>"). numeric_op(">>>").
+numeric_unary_op("-"). numeric_unary_op("+"). numeric_unary_op("++"). numeric_unary_op("--"). numeric_unary_op("~").
+boolean_op("=="). boolean_op("!="). boolean_op("<"). boolean_op(">"). boolean_op("<="). boolean_op(">="). boolean_op("&&"). boolean_op("||").
+arg_value_type(call, pos, "numeric") :- java_expression("BINARY_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _),
+    numeric_op(op).
+arg_value_type(call, pos, "numeric") :- java_expression("UNARY_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _),
+    numeric_unary_op(op).
+arg_value_type(call, pos, "boolean") :- java_expression("BINARY_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _),
+    boolean_op(op).
+arg_value_type(call, pos, "boolean") :- java_expression("UNARY_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, "!", _, _, _, _, _, _, _, _, _, _, _).
+numeric_prim("int"). numeric_prim("long"). numeric_prim("float"). numeric_prim("double").
+numeric_prim("short"). numeric_prim("byte"). numeric_prim("char").
+value_compatible("numeric", b) :- value_prim(b, p), numeric_prim(p).
+// A primitive value (a literal, a primitive variable, an arithmetic or comparison expression) never reaches a
+// parameter typed as a CLIENT type: boxing makes a java.lang wrapper, which no project type is.
+prim_value(v) :- value_prim(v, v), v != "String", v != "null".
+prim_value("numeric").
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_value_type(call, pos, at), prim_value(at),
+    param_type_hash(callee, pos, pt), type_prov(pt, "client"),
+    !arg_is_target_typed(call, pos).
+
 // Parameter value-type (parameterTypeName col 4 is the simple name: int / String / ...).
 param_value_type(callee, pos, vt) :- java_method_parameter(_, pos, callee, _, vt, _, _, _, _, _, _, _, _), value_type_name(vt).
 param_value_type(callee, pos, vt) :- lib_method_parameter(_, pos, callee, _, vt, _, _, _, _, _, _, _, _), value_type_name(vt).

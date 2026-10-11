@@ -1,0 +1,4 @@
+{
+  "imports": { "debug": "npm:debug@4.1.0" },
+  "tasks": { "trace": "debug" }
+}

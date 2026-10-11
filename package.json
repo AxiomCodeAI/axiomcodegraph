@@ -1,6 +1,6 @@
 {
   "name": "@axiomcode/code-graph",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "AxiomCode Graph: a resolved call graph of your codebase grounded in formal methods, so you and your coding agents can see who calls what, what a change breaks, and which tests it reaches.",
   "repository": {
     "type": "git",
@@ -13,12 +13,13 @@
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
     "build": "npm --prefix parser run build && tsc && tsc-alias",
+    "postbuild": "node bin/axiomcode.js prepare --background || echo \"engines not prepared; the first index compiles them\"",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.13.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -30,11 +31,11 @@
   ],
   "license": "FSL-1.1-Apache-2.0",
   "optionalDependencies": {
-    "@axiomcode/engine-darwin-arm64": "0.1.8",
-    "@axiomcode/engine-darwin-x64": "0.1.8",
-    "@axiomcode/engine-linux-x64": "0.1.8",
-    "@axiomcode/engine-linux-arm64": "0.1.8",
-    "@axiomcode/engine-win32-x64": "0.1.8"
+    "@axiomcode/engine-darwin-arm64": "0.1.9",
+    "@axiomcode/engine-darwin-x64": "0.1.9",
+    "@axiomcode/engine-linux-x64": "0.1.9",
+    "@axiomcode/engine-linux-arm64": "0.1.9",
+    "@axiomcode/engine-win32-x64": "0.1.9"
   },
   "bin": {
     "axiomcode": "bin/axiomcode.js"
@@ -54,10 +55,13 @@
     "LICENSE.md"
   ],
   "dependencies": {
+    "entities": "^6.0.0",
     "sax": "^1.4.4",
     "tree-sitter": "^0.21.1",
     "tree-sitter-c-sharp": "0.23.1",
+    "tree-sitter-css": "0.23.0",
     "tree-sitter-groovy": "^0.1.2",
+    "tree-sitter-html": "0.23.2",
     "tree-sitter-java": "0.23.4",
     "tree-sitter-python": "^0.21.0",
     "typescript": "^5.3.3",

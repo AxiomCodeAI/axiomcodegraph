@@ -131,7 +131,7 @@
    ]
   },
   {
-   "why": "changed hands impact the full dotted name of the edited declaration, so a hook answers for it alone, and still prints the short one",
+   "why": "changed hands impact the edited declaration by file:line, so a hook answers for it alone, and keeps its full dotted name beside it for reading",
    "run": [
     "changed",
     "{repo}",
@@ -145,8 +145,8 @@
    ],
    "stdout_json": true,
    "want": [
-    "\"target\": \"lib.util.square\"",
-    "\"shown_target\": \"square\""
+    "\"target\": \"src/lib/util.ts:1\"",
+    "\"shown_target\": \"lib.util.square\""
    ]
   }
  ]

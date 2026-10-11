@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  signal_receiver handlers.audit   handlers.py:14
+  signal_receiver handlers.on_closed   handlers.py:30
+  signal_receiver handlers.on_paid   handlers.py:20
+  signal_receiver handlers.on_placed   handlers.py:9
+  signal_receiver handlers.on_shipped_attr   handlers.py:25

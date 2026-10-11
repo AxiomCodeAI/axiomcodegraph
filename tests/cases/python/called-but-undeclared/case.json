@@ -1,0 +1,16 @@
+{"lang": "python", "src": "src",
+ "checks": [
+  {"why": "a function the code calls and nobody has written yet: impact lists every call site, where the new function is used",
+   "run": ["impact", "apply_discount"],
+   "want": ["[by name] total", "pricing.py:6", "[by name] invoice", "pricing.py:10", "calls it (no declaration of this name)"],
+   "avoid": ["directly touches it: nothing the graph can see", "the change is local"]},
+  {"why": "the same answer from a task that names the missing function, even when it is the task's only word the graph lacks",
+   "run": ["context", "implement apply_discount"], "expect_error": true,
+   "want": ["called but declared nowhere", "apply_discount  — 2 call site(s)", "pricing.py:6: return apply_discount(net) * (1 + vat_rate())   [in total]"]},
+  {"why": "control: a declared function is never listed as called-but-undeclared",
+   "run": ["context", "how is vat_rate used in total"],
+   "avoid": ["called but declared nowhere"]},
+  {"why": "control: a declared function's impact answers from the graph, not by name",
+   "run": ["impact", "vat_rate"],
+   "want": ["[resolved] total"],
+   "avoid": ["no declaration of this name"]}]}

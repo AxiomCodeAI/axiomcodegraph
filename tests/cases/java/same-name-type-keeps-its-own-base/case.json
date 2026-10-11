@@ -1,0 +1,23 @@
+{
+ "lang": "java",
+ "checks": [
+  {
+   "why": "a method of app.model.Basket is not on a subtype of HttpServlet because app.web.Basket shares its simple name",
+   "run": ["impact", "src/main/java/app/model/Basket.java:5", "--delete"],
+   "want": ["the change is local"],
+   "avoid": ["HttpServlet", "NOT CHECKED"]
+  },
+  {
+   "why": "control: the servlet Basket's method keeps its base and its NOT CHECKED reason",
+   "run": ["impact", "src/main/java/app/web/Basket.java:6", "--delete"],
+   "want": ["NOT CHECKED: Basket extends HttpServlet"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "control: the only class of its name still shows its base",
+   "run": ["impact", "src/main/java/app/web/Header.java:6", "--delete"],
+   "want": ["NOT CHECKED: Header extends HttpServlet"],
+   "avoid": ["the change is local"]
+  }
+ ]
+}

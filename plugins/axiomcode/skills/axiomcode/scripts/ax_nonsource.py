@@ -65,16 +65,151 @@ def _classify(fp):
 #   callable: called (`note(`), quoted as a value (`"note"`, `'note'`), or qualified with `#`, `::` or `->`
 #   (`Owner#note`; a CSS `#note` selector is not one). A dotted `Owner.note` is matched as the qualified name itself and never reaches this rule. The
 #   rest are PROSE: counted and grep-able, not listed as places a rename breaks.
-OUT_OF_SCOPE_EXT = {'.sh', '.bash', '.zsh', '.ksh', '.dl'}
+#
+#   LOCKFILES AND MANIFEST LISTS. A lockfile is written by a package manager, never by hand, and every word in it is a
+#   package name, a version or a flag: `"optional": true`, `"debug": "^4.1.0"`. A manifest's metadata (name,
+#   description, keywords) and its dependency lists are the same: they name packages, not callables. A method named
+#   `debug`, `optional` or `string` matched there is a package or a word, never a binding, and in a JavaScript
+#   repository it outnumbered every real one (a context question's next step became a line of package-lock.json).
+#   The rest of a manifest (scripts, tasks, tool configuration) is kept: that is where a name can be referred to. A
+#   JSON manifest's KEYS are not: `"start":` names an npm script and `"testEnvironment":` an option, so only the values
+#   are searched. What is skipped is decided by where the word sits in the file's structure (the entry, table, block or
+#   element that holds it), not by the line alone: a one-line manifest holds its scripts and its dependencies together.
+OUT_OF_SCOPE_EXT = {'.sh', '.bash', '.zsh', '.ksh', '.dl', '.lock', '.lockfile'}
 SHELL_SHEBANG = re.compile(r'#!\s*\S*(?:/|\s)(?:env\s+)?(?:ba|z|k|da)?sh\b')
+LOCKFILES = {'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'deno.lock',
+             'packages.lock.json', 'project.assets.json', 'paket.lock', 'gradle.lockfile', 'poetry.lock', 'uv.lock',
+             'pipfile.lock', 'pdm.lock', 'conda-lock.yml', 'composer.lock', 'gemfile.lock', 'cargo.lock', 'go.sum'}
+# JSON manifests: the top-level keys that describe the package or list other packages
+_JSON_META = r'name|version|description|keywords|authors?|contributors|maintainers|license|homepage|repository|bugs|funding|private'
+JSON_LIST_KEY = {
+    'package.json': re.compile(r'(?i)^(' + _JSON_META + r'|type|engines|os|cpu|publishConfig|workspaces|packageManager|'
+                               r'overrides|resolutions|pnpm|\w*dependencies(Meta)?)$'),
+    'bower.json': re.compile(r'(?i)^(' + _JSON_META + r'|ignore|resolutions|\w*dependencies)$'),
+    'deno.json': re.compile(r'^(name|version|imports|scopes|importMap|lock|nodeModulesDir|vendor|workspace|patch|links)$'),
+    'composer.json': re.compile(r'(?i)^(' + _JSON_META + r'|type|support|require(-dev)?|conflict|replace|provide|suggest|'
+                                r'repositories|minimum-stability|prefer-stable)$')}
+JSON_LIST_KEY['deno.jsonc'] = JSON_LIST_KEY['deno.json']
+# YAML manifests: the top-level blocks that list packages (a conda environment, a pnpm workspace and its catalog)
+YAML_LIST_KEY = {
+    'environment.yml': re.compile(r'^(name|channels|dependencies|prefix)$'),
+    'pnpm-workspace.yaml': re.compile(r'^(packages|catalogs?|overrides|patchedDependencies|\w*BuiltDependencies|'
+                                      r'peerDependencyRules|allowedDeprecatedVersions|packageExtensions)$')}
+YAML_LIST_KEY['environment.yaml'] = YAML_LIST_KEY['environment.yml']
+# TOML manifests: the tables and keys that list packages
+PY_DEP_TABLE = re.compile(r'^\[\s*(dependency-groups|project\.optional-dependencies|tool\.poetry(\.group\.[^\]]+)?\.(dev-)?dependencies|'
+                          r'tool\.pdm\.dev-dependencies|tool\.uv)\s*\]')
+PIPFILE_TABLE = re.compile(r'^\[\s*(packages|dev-packages|requires|source|[\w-]+-packages)\s*\]')
+PY_DEP_KEY = re.compile(r'^\s*(dependencies|requires|dev-dependencies|optional-dependencies)\s*=')
+# a file that is nothing but a list of packages
+REQUIREMENTS = re.compile(r'^(requirements|constraints)[\w.-]*\.(txt|in)$')
+# XML manifests: the elements that name a package (MSBuild, packages.config, .nuspec) and a POM's dependency blocks
+XML_PKG_LINE = re.compile(r'<\s*(PackageReference|PackageVersion|package|dependency)\b[^>]*\b(Include|Update|id)\s*=')
+POM_BLOCK = re.compile(r'<(/?)(dependencies|dependencyManagement|parent|exclusions)>')
+POM_COORD = re.compile(r'^\s*<(groupId|artifactId|version|packaging|name|description|url|scope|type|classifier|optional|'
+                       r'modelVersion|id|tags|authors|owners)>[^<]*</\1>\s*$')
+
+
+def is_lockfile(rel):
+    """a file a package manager writes: every word in it is a package, a version or a flag"""
+    return os.path.basename(rel).lower() in LOCKFILES
+
+
+def _json_spans(text, list_key):
+    """{line: [(start col, end col)]} of the strings a word is not matched in: each string under a top-level key that
+    `list_key` matches, and each key at any depth. A string-aware scan, so a minified manifest is split by entry too."""
+    out, depth, want_key, listed, line, bol, i, n = {}, 0, False, False, 1, 0, 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"': j += 2 if text[j] == '\\' else 1
+            k = j + 1
+            while k < n and text[k] in ' \t\r\n': k += 1
+            if depth == 1 and want_key: want_key, listed = False, bool(list_key.match(text[i + 1:j]))
+            if (k < n and text[k] == ":") or (depth >= 1 and listed):
+                out.setdefault(line, []).append((i - bol, j + 1 - bol))
+            nl = text.count('\n', i, j)
+            if nl: line += nl; bol = text.rindex('\n', i, j) + 1
+            i = j + 1
+            continue
+        if text.startswith('//', i):                    # a JSONC comment (deno.jsonc)
+            j = text.find('\n', i); i = n if j < 0 else j
+            continue
+        if c in '{[':
+            depth += 1
+            if depth == 1: want_key = c == '{'
+        elif c in '}]': depth -= 1
+        elif c == ',' and depth == 1: want_key = True
+        elif c == '\n': line += 1; bol = i + 1
+        i += 1
+    return out
+
+
+def _unquoted(s):
+    """a TOML line without its strings and its comment: what is left are the brackets that open and close a list"""
+    return re.sub(r'"(?:\\.|[^"\\])*"|\'[^\']*\'', '""', s).split('#', 1)[0]
+
+
+def _toml_lines(text, table, key=None):
+    """the lines inside a table `table` matches, and those of a `key = [ ... ]` list outside one"""
+    out, in_table, open_brackets = set(), False, 0
+    for i, ln in enumerate(text.split('\n'), 1):
+        if open_brackets > 0:                          # inside a `dependencies = [ ... ]` spread over lines
+            out.add(i); s = _unquoted(ln); open_brackets += s.count('[') - s.count(']'); continue
+        if ln.lstrip().startswith('['): in_table = bool(table.match(ln.strip())); continue
+        if in_table: out.add(i); continue
+        if key and key.match(ln):
+            out.add(i); s = _unquoted(ln); open_brackets = s.count('[') - s.count(']')
+    return out
+
+
+def _yaml_lines(text, block):
+    """the lines of the top-level YAML blocks `block` matches: the key's line and every indented or list line under it"""
+    out, inside = set(), False
+    for i, ln in enumerate(text.split('\n'), 1):
+        m = re.match(r'([\w.-]+)\s*:', ln)
+        if m: inside = bool(block.match(m.group(1)))
+        elif ln[:1] not in ('', ' ', '\t', '-', '#'): inside = False
+        if inside: out.add(i)
+    return out
+
+
+def _xml_lines(base, text):
+    """the lines of an XML manifest that name a package: a POM's dependency blocks and coordinates, a NuGet element"""
+    lines, out, depth = text.split('\n'), set(), 0
+    for i, ln in enumerate(lines, 1):
+        if base == 'pom.xml':
+            opened = depth > 0
+            for m in POM_BLOCK.finditer(ln): depth += -1 if m.group(1) else 1
+            if opened or depth > 0 or POM_COORD.match(ln): out.add(i)
+        elif XML_PKG_LINE.search(ln) or (base.endswith('.nuspec') and POM_COORD.match(ln)): out.add(i)
+    return out
+
+
+def manifest_skip(rel, text):
+    """-> skip(line, col): True where a word written there sits in a lockfile, a manifest's metadata or one of its
+    dependency lists (see LOCKFILES AND MANIFEST LISTS); None for any other file"""
+    base = os.path.basename(rel).lower()
+    if is_lockfile(rel) or REQUIREMENTS.match(base): return lambda _l, _c: True
+    if base in JSON_LIST_KEY:
+        spans = _json_spans(text, JSON_LIST_KEY[base])
+        return lambda l, c: any(a <= c < b for a, b in spans.get(l, ()))
+    if base in YAML_LIST_KEY: lines = _yaml_lines(text, YAML_LIST_KEY[base])
+    elif base == 'pyproject.toml': lines = _toml_lines(text, PY_DEP_TABLE, PY_DEP_KEY)
+    elif base == 'pipfile': lines = _toml_lines(text, PIPFILE_TABLE)
+    elif base in ('pom.xml', 'packages.config') or base.endswith(('.csproj', '.fsproj', '.vbproj', '.props', '.targets', '.nuspec')):
+        lines = _xml_lines(base, text)
+    else: return None
+    return lambda l, _c: l in lines
 COMMON = re.compile(r'[a-z]+')
 _QUOTES = '"\'`'
 QUALIFIER = re.compile(r'[\w$)\]>](?:#|::|->)$')      # `Owner#note`, `Owner::note`, `$obj->note`; not a CSS `#note` selector
 
 
 def out_of_scope(rel, text):
-    """a shell script or a Datalog file: a name matched there is never a binding (owner's rule)"""
-    if os.path.splitext(rel)[1].lower() in OUT_OF_SCOPE_EXT: return True
+    """a shell script, a Datalog file or a lockfile: a name matched there is never a binding (owner's rule)"""
+    if os.path.splitext(rel)[1].lower() in OUT_OF_SCOPE_EXT or is_lockfile(rel): return True
     return not os.path.splitext(rel)[1] and bool(SHELL_SHEBANG.match(text[:120]))
 
 
@@ -89,6 +224,164 @@ def code_shaped(line, start, end):
     if after.lstrip().startswith('('): return True
     if before[-1:] and before[-1] in _QUOTES and after[:1] == before[-1]: return True
     return bool(QUALIFIER.search(before))
+
+
+MAPPER_NS = re.compile(r'<mapper\b[^>]*?\bnamespace\s*=\s*["\']([^"\']+)["\']', re.S)
+
+
+def mapper_namespace(repo, rel):
+    """the `<mapper namespace="...">` of a MyBatis mapper XML, or None for any other file. A statement id written in
+    it is resolved inside that namespace, so it binds only the methods of the type the namespace names (#1381)."""
+    if not rel.lower().endswith('.xml'): return None
+    try:
+        with open(os.path.join(repo, rel), errors='replace') as fh: head = fh.read(8192)
+    except OSError: return None
+    m = MAPPER_NS.search(head)
+    return m.group(1).strip() if m else None
+
+
+# ── the elements of a MyBatis mapper XML, by id ──────────────────────────────────────────────────────────────
+# A statement (`<select|insert|update|delete id="m">`) under `<mapper namespace="a.b.Mapper">` IS the body of
+# a.b.Mapper.m: MyBatis binds the two by namespace plus id, and an edit to the SQL changes what the method does as
+# surely as an edit to a Java body. A `<sql id>` fragment is part of every statement that `<include refid>`s it, and a
+# `<resultMap id>` of every statement that names it in `resultMap=`, so an edit there is an edit to those statements.
+STATEMENT_TAGS = ('select', 'insert', 'update', 'delete')
+_ELEM_OPEN = re.compile(r'<(select|insert|update|delete|sql|resultMap)\b([^>]*?)(/?)>', re.S)
+_ELEM_ID = re.compile(r'(?<![\w-])id\s*=\s*["\']([^"\']+)["\']')
+_INCLUDE = re.compile(r'<include\b[^>]*?\brefid\s*=\s*["\']([^"\']+)["\']', re.S)
+_RESULT_MAP = re.compile(r'(?<![\w-])resultMap\s*=\s*["\']([^"\']+)["\']')
+
+
+def mapper_namespace_of(text):
+    """the namespace a mapper XML's own text declares, or None"""
+    m = MAPPER_NS.search(text or '')
+    return m.group(1).strip() if m else None
+
+
+def mapper_elements(text):
+    """[(tag, id, first_line, last_line, open_tag_text, body_text)] for every statement, <sql> fragment and <resultMap>
+    of a mapper XML's text, lines 1-based. An element with no id, or with no closing tag, is left out."""
+    out = []
+    for m in _ELEM_OPEN.finditer(text or ''):
+        idm = _ELEM_ID.search(m.group(2))
+        if not idm: continue
+        tag = m.group(1)
+        if m.group(3): end = m.end()
+        else:
+            close = text.find(f'</{tag}>', m.end())
+            if close < 0: continue
+            end = close + len(tag) + 3
+        first = text.count('\n', 0, m.start()) + 1
+        last = text.count('\n', 0, end) + 1
+        out.append((tag, idm.group(1), first, last, m.group(0), text[m.end():end]))
+    return out
+
+
+def _local_id(ref, ns):
+    """a refid / resultMap written as `ns.id` or as `id` inside namespace ns, as the id in that namespace; None for another namespace's"""
+    if ns and ref.startswith(ns + '.'): return ref[len(ns) + 1:]
+    return None if '.' in ref else ref
+
+
+def mapper_statement_ids(elems, ns, ids):
+    """the STATEMENT ids that `ids` (any element ids: statements, fragments, result maps) are part of, each with the
+    element it came through: {statement id: via id or None}"""
+    stmts = [e for e in elems if e[0] in STATEMENT_TAGS]
+    out = {i: None for i in ids if any(s[1] == i for s in stmts)}
+    frags = {i for i in ids if any(e[1] == i and e[0] == 'sql' for e in elems)}
+    # a fragment can include another fragment: whatever includes it includes the one it includes
+    grew = True
+    while grew:
+        grew = False
+        for e in elems:
+            if e[0] == 'sql' and e[1] not in frags and any(_local_id(r, ns) in frags for r in _INCLUDE.findall(e[5])):
+                frags.add(e[1]); grew = True
+    maps = {i for i in ids if any(e[1] == i and e[0] == 'resultMap' for e in elems)}
+    for s in stmts:
+        if s[1] in out: continue
+        inc = [x for x in (_local_id(r, ns) for r in _INCLUDE.findall(s[5])) if x in frags]
+        rm = [x for x in (_local_id(r, ns) for r in _RESULT_MAP.findall(s[4])) if x in maps]
+        if inc or rm: out[s[1]] = (inc or rm)[0]
+    return out
+
+
+def mapper_edits(old, new):
+    """what an edit of a mapper XML's text changed: (namespace, {statement id: (line, how, via)}, unplaced) where line is
+    the statement's first line in the new text (the old one for a statement the edit removed), how is 'changed',
+    'added' or 'removed', via the fragment or result map the edit was in (None for the statement itself), and unplaced
+    the number of edited lines that fall in no element with an id (the header, the namespace, a comment between
+    elements). (None, {}, 0) for a text that is not a mapper."""
+    import difflib
+    ns = mapper_namespace_of(new) or mapper_namespace_of(old)
+    if not ns: return None, {}, 0
+    ol, nl = (old or '').split('\n'), (new or '').split('\n')
+    oe, ne = mapper_elements(old or ''), mapper_elements(new or '')
+    touched_o, touched_n = set(), set()
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ol, nl, autojunk=False).get_opcodes():
+        if op == 'equal': continue
+        touched_o.update(range(i1 + 1, i2 + 1)); touched_n.update(range(j1 + 1, j2 + 1))
+    def hit(elems, lines):
+        ids, placed = set(), set()
+        for e in elems:
+            inside = {x for x in lines if e[2] <= x <= e[3]}
+            if inside: ids.add(e[1]); placed |= inside
+        return ids, placed
+    ids_o, placed_o = hit(oe, touched_o); ids_n, placed_n = hit(ne, touched_n)
+    unplaced = len(touched_n - placed_n) + len(touched_o - placed_o) if new.strip() else 0
+    out = {}
+    first_n = {e[1]: e[2] for e in ne if e[0] in STATEMENT_TAGS}
+    first_o = {e[1]: e[2] for e in oe if e[0] in STATEMENT_TAGS}
+    for sid, via in mapper_statement_ids(ne, ns, ids_n).items():
+        out[sid] = (first_n[sid], 'changed' if sid in first_o else 'added', via)
+    for sid, via in mapper_statement_ids(oe, ns, ids_o).items():
+        if sid in out: continue
+        out[sid] = (first_n[sid], 'changed', via) if sid in first_n else (first_o[sid], 'removed', via)
+    return ns, out, unplaced
+
+
+def mapper_methods(q, ns, sid):
+    """the method ids a statement `sid` under `<mapper namespace="ns">` is the SQL of: the type the namespace names
+    declares one of that name, or inherits it from a base mapper; a type the graph does not hold binds nothing.
+    `q(sql, *params)` answers from graph.sqlite."""
+    tids = [r[0] for r in q("SELECT id FROM types WHERE REPLACE(qualified_name, '$', '.') = ?", ns.replace('$', '.'))]
+    if not tids: return []
+    ph = ','.join('?' * len(tids))
+    own = q(f"SELECT id FROM methods WHERE name = ? AND owner_type_id IN ({ph})", sid, *tids)
+    if not own:
+        anc = [r[0] for r in q(f"SELECT ancestor_type_id FROM type_ancestors WHERE type_id IN ({ph})", *tids)]
+        own = q(f"SELECT id FROM methods WHERE name = ? AND owner_type_id IN ({','.join('?' * len(anc))})", sid, *anc) if anc else []
+    return sorted({r[0] for r in own})
+
+
+# a parameter marker in a statement's SQL: `#{it.quantity}`, `${orderBy}`, `#{item.id,jdbcType=VARCHAR}`
+PARAM_MARKER = re.compile(r'[#$]\{\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)')
+_FOREACH = re.compile(r'<foreach\b([^>]*)>', re.S)
+_ATTR = lambda name: re.compile(r'(?<![\w-])' + name + r'\s*=\s*["\']([^"\']+)["\']')
+_COLLECTION, _ITEM, _PARAM_TYPE = _ATTR('collection'), _ATTR('item'), _ATTR('parameterType')
+
+
+def statement_markers(elem):
+    """[(expr, line, foreach item -> collection)] for every parameter marker inside a statement element (mapper_elements)"""
+    tag, sid, first, last, open_tag, body = elem
+    items = {}
+    for m in _FOREACH.finditer(body):
+        c, i = _COLLECTION.search(m.group(1)), _ITEM.search(m.group(1))
+        if c and i: items[i.group(1)] = c.group(1)
+    base = first + open_tag.count('\n')
+    return [(m.group(1), base + body.count('\n', 0, m.start()), items) for m in PARAM_MARKER.finditer(body)]
+
+
+def statement_param_type(elem):
+    """the `parameterType` a statement declares, or None"""
+    m = _PARAM_TYPE.search(elem[4])
+    return m.group(1) if m else None
+
+
+def statement_at(text, line):
+    """(tag, id) of the statement element whose opening tag is written on `line` of a mapper XML's text, or None"""
+    for e in mapper_elements(text):
+        if e[0] in STATEMENT_TAGS and e[2] <= line <= e[2] + e[4].count('\n'): return e[0], e[1]
+    return None
 
 
 class NonSource:
@@ -197,9 +490,11 @@ class NonSource:
             try: text = open(os.path.join(self.repo, rel), errors='replace').read()
             except OSError: continue
             if not any(n in text for n in names) or out_of_scope(rel, text): continue
+            skip = manifest_skip(rel, text)
             for i, line in enumerate(text.split('\n'), 1):
                 shaped = {}
                 for m in pat.finditer(line):
+                    if skip and skip(i, m.start(1)): continue
                     n = m.group(1); hits.append((n, rel, i))
                     shaped[n] = shaped.get(n, False) or not is_common(n) or code_shaped(line, m.start(1), m.end(1))
                 self.prose.update((n, rel, i) for n, ok in shaped.items() if not ok)

@@ -1,0 +1,67 @@
+// ============================================================================
+// CALL-EDGE GEN · CALLS THE LANGUAGE WRITES FOR YOU
+//
+// Three statements run a method nobody names at the site:
+//
+//   using (var r = new Res()) { }   using var r = ...;   using (r) { }
+//       -> r.Dispose() when the block ends
+//   foreach (var x in bag) { }
+//       -> bag.GetEnumerator()
+//   new Bag { 1, { 2, 3 } }
+//       -> Bag.Add(1), Bag.Add(2, 3)
+//
+// None of them has an INVOCATION in the IR, so no call site carried the edge and the
+// method's body was unreachable from the code that depends on it: on one subject the
+// Dispose of a reader that every test opens in a `using` had no caller at all.
+//
+// The method is the one member lookup finds on the STATIC type of the resource, the
+// collection or the created object, by the name the language uses and the number of
+// arguments it passes, then the ordinary dispatch fan. Only a member found in the
+// project counts: a lookup that lands on a library interface (IDisposable.Dispose
+// through an interface-typed resource) would fan to every implementor in view, which
+// is the wide set this rule must not invent.
+// ============================================================================
+
+// ── THE THREE SHAPES, AS (site expression, receiver type, name, argument count) ──
+// The site is the expression the call happens for: the resource, the iterated
+// collection, the element of the initializer. It sits inside the method that runs the
+// call, which is what call_from_expr reads.
+implicit_call_shape(e, gk, "Dispose", "0", "using_dispose") :-
+    var_decl("client", _, "USING", _, v), var_initializer("client", v, e), expr_type("client", e, gk).
+implicit_call_shape(e, gk, "Dispose", "0", "using_dispose") :-
+    expr_root_context("client", e, "USING_RESOURCE"), expr_role("client", e, "ROOT"),
+    !expr_parent("client", e, _, _, _), !using_var_initializer(e), expr_type("client", e, gk).
+using_var_initializer(e) :- var_decl("client", _, "USING", _, v), var_initializer("client", v, e).
+implicit_call_shape(e, gk, "GetEnumerator", "0", "foreach_enumerator") :-
+    var_iterated_initializer("client", _, e), expr_type("client", e, gk).
+// A collection initializer: the INITIALIZER under an object creation whose elements
+// are not member assignments. A nested `{ a, b }` element is one Add of two arguments.
+implicit_call_shape(el, gk, "Add", "1", "collection_add") :-
+    collection_initializer(i, gk), expr_parent("client", el, i, _, _),
+    !expr_kind("client", el, "ASSIGNMENT"), !expr_kind("client", el, "INITIALIZER").
+implicit_call_shape(el, gk, "Add", n, "collection_add") :-
+    collection_initializer(i, gk), expr_parent("client", el, i, _, _),
+    expr_kind("client", el, "INITIALIZER"),
+    c = count : { expr_parent("client", _, el, _, _) }, n = to_string(c).
+collection_initializer(i, gk) :-
+    expr_kind("client", oc, "OBJECT_CREATION"), expr_type("client", oc, gk),
+    expr_child("client", oc, "INITIALIZER_VALUE", _, i), expr_kind("client", i, "INITIALIZER"),
+    !initializer_has_assignment(i).
+initializer_has_assignment(i) :-
+    expr_kind("client", i, "INITIALIZER"), expr_parent("client", el, i, _, _), expr_kind("client", el, "ASSIGNMENT").
+
+// ── THE TARGETS ─────────────────────────────────────────────────────────────
+implicit_call_target(e, t, kind) :-
+    implicit_call_shape(e, gk, n, pc, kind),
+    member_method("client", gk, n, m), method_decl("client", _, _, _, m),
+    method_paramc("client", m, pc),
+    dispatch_concrete_target("client", m, t), method_decl("client", _, _, _, t).
+implicit_call_count(e, kind, c) :-
+    implicit_call_target(e, _, kind), c = count : { implicit_call_target(e, _, kind) }.
+
+call_chain_edge(e, caller, "-", t, "client", "known_edge", kind) :-
+    implicit_call_target(e, t, kind), implicit_call_count(e, kind, 1),
+    call_from_expr("client", e, caller).
+call_chain_edge(e, caller, "-", t, "client", "multi_inferred", kind) :-
+    implicit_call_target(e, t, kind), implicit_call_count(e, kind, c), c >= 2,
+    call_from_expr("client", e, caller).

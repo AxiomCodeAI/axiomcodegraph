@@ -11,6 +11,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
+# This test counts compiles and asserts cache-entry names, and the parallel flavor is a per-machine
+# question answered by probing c++ — under the stub c++ the probe and a later real-c++ run can answer
+# differently, so prepare and the run after it would disagree on the -par cache name. The flavor is
+# pinned serial: what is under test is packaging and caching, not the solve.
+export AXIOM_SOLVE_PARALLEL=0
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 [ -x "$ROOT/node_modules/.bin/tsx" ] || { echo "engine-package: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
@@ -61,4 +66,106 @@ if run; then bad "a run with no engine package and no souffle succeeded"; else
   grep -q "npm install" "$W/log" || bad "the no-package error does not point at npm install"
 fi
 
-if [ "$fail" -eq 0 ]; then echo "engine-package: ok (packaged engine by id, stale package refused, absence explained)"; else echo "engine-package: $fail failure(s)"; exit 1; fi
+# 4-7. `--prepare` (what `axiomcode prepare` runs at build time) puts the binary where a run looks for it, so the first
+# index reuses it instead of compiling. A stub souffle and c++ stand in for the real ones: c++ "compiles" the fake
+# engine above and counts its calls. Control: a background prepare under CI compiles nothing.
+fake="$W/fake-engine"
+{ echo '#!/usr/bin/env bash'
+  echo 'while [ $# -gt 0 ]; do case "$1" in -D) D="$2"; shift 2;; -F) shift 2;; *) shift;; esac; done'
+  cut -f2 "$ROOT/graph/$lang/souffle/export_manifest.tsv" | sed 's|^|: > "$D/|; s|$|"|'; } > "$fake"
+mkdir -p "$W/stub" "$W/inc/souffle/utility" "$W/inc/souffle/datastructure"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
+# the stub include dir must carry what souffle_overlay patches (the seqlock fix seds these
+# write-entry RMWs, the publication fix anchors on BTree.h's two link stores, and the overlay
+# refuses an include dir without either), as a real install's headers do
+printf '%s\n' 'version.fetch_or(0x1, std::memory_order_acquire);' \
+              'version.fetch_or(0x1, std::memory_order_acquire);' \
+              'version.fetch_or(0x1, std::memory_order_acquire);' > "$W/inc/souffle/utility/ParallelUtil.h"
+cat > "$W/inc/souffle/datastructure/BTree.h" <<'BTREE_STUB'
+            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;
+                // link this and the sibling node to new root
+                this->parent = new_root;
+                // switch root node
+                *root = new_root;
+            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();
+BTREE_STUB
+cat > "$W/inc/souffle/datastructure/BTreeDelete.h" <<'BTDEL_STUB'
+                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();
+BTDEL_STUB
+mkdir -p "$W/inc/souffle/utility"
+printf '%s\n' '#if _WIN64' '#define __builtin_popcountll __popcnt64' '#else' '#define __builtin_popcountll __popcnt' '#endif' >> "$W/inc/souffle/utility/MiscUtil.h"
+printf '%s\n' '#ifdef _WIN32' '#include <intrin.h>' > "$W/inc/souffle/datastructure/PiggyList.h"
+cat > "$W/inc/souffle/datastructure/ConcurrentFlyweight.h" <<'FLY_STUB'
+    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        assert(Idx < SlotCount.load(std::memory_order_relaxed));
+        return Slots[Idx]->first;
+    }
+FLY_STUB
+cat > "$W/inc/souffle/datastructure/RecordTableImpl.h" <<'REC_STUB'
+    const RamDomain* unpack(RamDomain Index) const override {
+        return fetch(Index).data();
+    }
+REC_STUB
+{ echo '#!/usr/bin/env bash'
+  echo "[ \"\$1\" = --version ] && { echo 'Version: $SOUFFLE_VERSION'; exit 0; }"
+  echo 'while [ $# -gt 0 ]; do case "$1" in -g) : > "$2"; echo "// c++" > "$2"; shift 2;; *) shift;; esac; done'; } > "$W/stub/souffle"
+{ echo '#!/usr/bin/env bash'
+  echo "echo x >> '$W/cc-calls'"
+  echo 'while [ $# -gt 0 ]; do case "$1" in -o) o="$2"; shift 2;; *) shift;; esac; done'
+  echo "cp '$fake' \"\$o\"; chmod +x \"\$o\""; } > "$W/stub/c++"
+chmod +x "$W/stub/souffle" "$W/stub/c++"
+prep(){ PATH="$W/stub:$SANDBOX_PATH" AXIOM_SOUFFLE_INCLUDE="$W/inc" AXIOM_SOUFFLE_CACHE="$W/cache" bash "$RUN" --language $lang --prepare > "$W/log" 2>&1; }
+calls(){ wc -l < "$W/cc-calls" | tr -d ' '; }
+if prep; then
+  [ -x "$W/cache/souffle-engine-$lang-$id" ] || bad "prepare left no binary under the run's cache name (souffle-engine-$lang-${id:0:12}…)"
+  [ "$(calls)" = 1 ] || bad "prepare compiled $(calls) time(s), expected 1"
+  grep -q "engine ready" "$W/log" || bad "prepare did not report the engine ready"
+  h="$W/cache/include-seqlock-fix-4/souffle/utility/ParallelUtil.h"
+  grep -q 'memory_order_seq_cst' "$h" 2>/dev/null && ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" \
+    || bad "prepare did not leave the patched overlay header (seqlock fix) in the cache"
+  b="$W/cache/include-seqlock-fix-4/souffle/datastructure/BTree.h"
+  [ "$(grep -c 'seqlock-fix-3' "$b" 2>/dev/null)" = "4" ] \
+    || bad "prepare did not leave the four publication fences (seqlock-fix-3) in the overlay BTree.h"
+  f="$W/cache/include-seqlock-fix-4/souffle/datastructure/ConcurrentFlyweight.h"
+  [ "$(grep -c 'seqlock-fix-4' "$f" 2>/dev/null)" = "1" ] \
+    || bad "prepare did not leave the speculative-fetch guard (seqlock-fix-4) in the overlay flyweight"
+else bad "prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
+prep || bad "a second prepare failed"
+grep -q "reusing cached binary" "$W/log" && [ "$(calls)" = 1 ] || bad "a second prepare compiled again ($(calls) compiles)"
+# the run that follows: no souffle, no package, only the prepared binary — and it is used, not recompiled
+rm -rf "$W/out"
+if run; then grep -q "reusing cached binary" "$W/log" || bad "the run after prepare did not reuse the prepared binary"
+else bad "the run after prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
+# control: the build's background prepare is skipped under CI, so nothing is compiled
+rm -rf "$W/cache"
+out="$(PATH="$W/stub:$SANDBOX_PATH" CI=1 AXIOM_SOUFFLE_CACHE="$W/cache" bash "$ROOT/bin/axiomcode" prepare --language $lang --background 2>&1)"
+sleep 1
+case "$out" in *"not prepared"*) ;; *) bad "background prepare under CI did not say it was skipped: $out";; esac
+[ "$(calls)" = 1 ] && [ ! -e "$W/cache/souffle-engine-$lang-$id" ] || bad "background prepare under CI compiled anyway"
+
+if [ "$fail" -eq 0 ]; then echo "engine-package: ok (packaged engine by id, stale package refused, absence explained, prepared binary reused)"; else echo "engine-package: $fail failure(s)"; exit 1; fi

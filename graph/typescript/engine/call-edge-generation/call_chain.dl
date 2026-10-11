@@ -134,6 +134,14 @@ call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :-
     caller != m,
     invocation_site(ce, kind).
 
+// …and a function written inside a JSX `{…}` (resolution/value-flow.dl, jsx_handed_value). The `{…}` is
+// the site: an intrinsic tag has no call site of its own, and the expression positions the edge.
+call_chain_edge(r, caller, "-", m, "client", "callback_registered", "JSX_COMPONENT_CALL") :-
+    jsx_handed_value(r, m),
+    method_prov(m, "client"),
+    jsx_root_caller(r, caller),
+    caller != m.
+
 // ── call_runs_edge(FromMethod, ToMethod, Prov) ──────────────────────────────
 // The chain a consumer should WALK: overload signatures re-pointed to the body that
 // actually executes (resolution/overload-sets.dl). Kept separate from

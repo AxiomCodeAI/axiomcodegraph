@@ -1,7 +1,7 @@
 03-structural-satisfaction [fields]
-  precision 0.0000   (0 correct, 0 wrong)
-  recall    0.0000   (0 of 0 the compiler resolved)
-  sites 0   resolved 0 
-  tiers 
-  access 
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 1   resolved 1 (100.0%)
+  tiers known_edge=1
+  access read=1
   not scored: 0 rows whose target is not a client declaration

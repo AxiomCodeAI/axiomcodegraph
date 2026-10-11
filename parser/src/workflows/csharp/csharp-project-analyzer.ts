@@ -1,39 +1,23 @@
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
-import { CsAttributeArgumentRegistry } from '@/analysis-types/csharp/CsAttributeArgumentRegistry';
-import { CsAttributeRegistry } from '@/analysis-types/csharp/CsAttributeRegistry';
-import { CsBlockRegistry } from '@/analysis-types/csharp/CsBlockRegistry';
-import { CsCommentRegistry } from '@/analysis-types/csharp/CsCommentRegistry';
-import { CsPreprocRegionRegistry } from '@/analysis-types/csharp/CsPreprocRegionRegistry';
-import { CsCallSiteRegistry } from '@/analysis-types/csharp/CsCallSiteRegistry';
-import { CsEnumMemberRegistry } from '@/analysis-types/csharp/CsEnumMemberRegistry';
-import { CsExpressionRegistry } from '@/analysis-types/csharp/CsExpressionRegistry';
-import { CsQueryClauseRegistry } from '@/analysis-types/csharp/CsQueryClauseRegistry';
-import { CsFieldRegistry } from '@/analysis-types/csharp/CsFieldRegistry';
-import { CsModuleRegistry } from '@/analysis-types/csharp/CsModuleRegistry';
-import { CsParseGapRegistry } from '@/analysis-types/csharp/CsParseGapRegistry';
-import { CsUsingRegistry } from '@/analysis-types/csharp/CsUsingRegistry';
-import { CsEventRegistry } from '@/analysis-types/csharp/CsEventRegistry';
-import { CsMethodParameterRegistry } from '@/analysis-types/csharp/CsMethodParameterRegistry';
-import { CsMethodRegistry } from '@/analysis-types/csharp/CsMethodRegistry';
-import { CsPropertyRegistry } from '@/analysis-types/csharp/CsPropertyRegistry';
-import { CsTypeHeritageRegistry } from '@/analysis-types/csharp/CsTypeHeritageRegistry';
-import { CsTypeParameterRegistry } from '@/analysis-types/csharp/CsTypeParameterRegistry';
-import { CsTypeReferenceRegistry } from '@/analysis-types/csharp/CsTypeReferenceRegistry';
-import { CsVariableRegistry } from '@/analysis-types/csharp/CsVariableRegistry';
-import { CsTypeRegistry } from '@/analysis-types/csharp/CsTypeRegistry';
 import {
   CSHARP_DEFAULT_TARGET_FRAMEWORK,
 } from '@/constants/csharp-constants';
 import { CsNullableContext } from '@/enums/csharp/modules';
 import { CSharpParser } from '@/parsers/csharp/csharp-parser';
-import { CsFactExtractor } from '@/parsers/csharp/extractors/cs-fact-extractor';
+import { CsFactExtractor, CsFileFacts } from '@/parsers/csharp/extractors/cs-fact-extractor';
 import { CsModuleContext } from '@/parsers/csharp/extractors/cs-module-extractor';
 import { implicitFrameworkSymbols } from '@/parsers/csharp/extractors/preproc-context';
 import { EntityUtils } from '@/utils/entity-utils';
 import { CsRelationWriter } from '@/workflows/csharp/cs-relation-writer';
 import { governingProject, readProjectConfig } from '@/workflows/csharp/cs-project-config';
+import {
+  CsEmissionInputs,
+  CsParseOutcome,
+  parseCsFilesInPool,
+  parsePoolJobs,
+} from '@/workflows/csharp/cs-parse-pool';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
@@ -225,6 +209,14 @@ export class CSharpProjectAnalyzer {
     let extractionErrors = 0;
 
     try {
+      // EVERY PER-FILE INPUT IS RESOLVED HERE, on the main thread, before any
+      // file is read — for the pooled path and the serial one alike. The
+      // governing project comes from cs-project-config's process-wide caches,
+      // and resolving it once on one thread keeps one cache and one walk,
+      // however many workers parse. What remains per file — read, blank,
+      // parse, extract — is independent between files and is what the pool
+      // distributes.
+      const prepared: PreparedCsFile[] = [];
       for (const absoluteFilePath of files) {
         if (context.seen.has(absoluteFilePath)) {
           // Reached from another root this run; its rows are already written.
@@ -232,13 +224,6 @@ export class CSharpProjectAnalyzer {
         }
         context.seen.add(absoluteFilePath);
         const relativePath = path.relative(options.baseMservPath, absoluteFilePath);
-        let sourceText: string;
-        try {
-          sourceText = await fsp.readFile(absoluteFilePath, 'utf-8');
-        } catch {
-          filesRejected += 1;
-          continue;
-        }
 
         // THE GOVERNING PROJECT decides the framework and the symbols, unless the
         // caller fixed them. See cs-project-config.ts for why this is read at all.
@@ -250,7 +235,7 @@ export class CSharpProjectAnalyzer {
         const fileDefines = project !== undefined ? project.defineConstants : defineConstants;
         const implicitFrameworkDefines = project === undefined || project.implicitFrameworkDefines;
 
-        for (const targetFramework of fileFrameworks) {
+        const emissions = fileFrameworks.map((targetFramework): CsEmissionInputs => {
           // The RESOLVED set, per framework: what the caller supplied plus what
           // the SDK injects. Two frameworks therefore differ in the key even
           // when the .csproj lists the same constants for both, which is what
@@ -260,7 +245,7 @@ export class CSharpProjectAnalyzer {
             ...fileDefines,
             ...(implicitFrameworkDefines ? implicitFrameworkSymbols(targetFramework) : []),
           ];
-          const context: CsModuleContext = {
+          const moduleContext: CsModuleContext = {
             targetFramework,
             defineConstantsKey: defineConstantsKeyOf(activeSymbols),
             langVersion: options.langVersion ?? project?.langVersion ?? '',
@@ -276,81 +261,125 @@ export class CSharpProjectAnalyzer {
             assemblyName: '',
             implicitUsingsEnabled: project?.implicitUsings ?? false,
           };
+          return {
+            context: moduleContext,
+            defineConstants: fileDefines,
+            implicitUsings: options.implicitUsings ?? project?.usings,
+            implicitFrameworkDefines,
+          };
+        });
+        prepared.push({ absoluteFilePath, relativePath, emissions });
+      }
 
-          try {
-            const facts = this.extractor.extractFile({
-              absoluteFilePath,
-              filePath: relativePath,
-              baseMservPath: options.baseMservPath,
-              sourceText,
-              serviceVersionLinkHash,
-              context,
-              defineConstants: fileDefines,
-              implicitUsings: options.implicitUsings ?? project?.usings,
-              implicitFrameworkDefines,
-            });
-            await writers.modules.append(facts.modules as readonly CsModuleRegistry[]);
-            await writers.types.append(facts.types as readonly CsTypeRegistry[]);
-            await writers.heritages.append(
-              facts.heritages as readonly CsTypeHeritageRegistry[]
-            );
-            await writers.typeParameters.append(
-              facts.typeParameters as readonly CsTypeParameterRegistry[]
-            );
-            await writers.methods.append(facts.methods as readonly CsMethodRegistry[]);
-            await writers.methodParameters.append(
-              facts.methodParameters as readonly CsMethodParameterRegistry[]
-            );
-            await writers.properties.append(
-              facts.properties as readonly CsPropertyRegistry[]
-            );
-            await writers.events.append(facts.events as readonly CsEventRegistry[]);
-            await writers.typeReferences.append(
-              facts.typeReferences as readonly CsTypeReferenceRegistry[]
-            );
-            await writers.usings.append(facts.usings as readonly CsUsingRegistry[]);
-            await writers.parseGaps.append(
-              facts.parseGaps as readonly CsParseGapRegistry[]
-            );
-            await writers.fields.append(facts.fields as readonly CsFieldRegistry[]);
-            await writers.enumMembers.append(
-              facts.enumMembers as readonly CsEnumMemberRegistry[]
-            );
-            await writers.expressions.append(
-              facts.expressions as readonly CsExpressionRegistry[]
-            );
-            await writers.callSites.append(
-              facts.callSites as readonly CsCallSiteRegistry[]
-            );
-            await writers.queryClauses.append(
-              facts.queryClauses as readonly CsQueryClauseRegistry[]
-            );
-            await writers.blocks.append(facts.blocks as readonly CsBlockRegistry[]);
-            await writers.variables.append(
-              facts.variables as readonly CsVariableRegistry[]
-            );
-            await writers.attributes.append(
-              facts.attributes as readonly CsAttributeRegistry[]
-            );
-            await writers.attributeArguments.append(
-              facts.attributeArguments as readonly CsAttributeArgumentRegistry[]
-            );
-            await writers.comments.append(facts.comments as readonly CsCommentRegistry[]);
-            await writers.preprocRegions.append(
-              facts.preprocRegions as readonly CsPreprocRegionRegistry[]
-            );
-          } catch (error) {
+      // One file's outcome, consumed the same way whichever thread produced
+      // it. The pool calls this in file order as results arrive and the
+      // serial loop calls it inline, so the writers receive every relation's
+      // rows in the same order on both paths — which is what makes the two
+      // paths byte-identical.
+      const consumeOutcome = async (
+        file: PreparedCsFile,
+        outcome: CsParseOutcome
+      ): Promise<void> => {
+        if (outcome.readError !== undefined) {
+          filesRejected += 1;
+          return;
+        }
+        const emissionOutcomes = outcome.emissions ?? [];
+        for (let e = 0; e < file.emissions.length; e++) {
+          const emission = emissionOutcomes[e];
+          if (emission?.facts !== undefined) {
+            await appendFileFacts(writers, emission.facts);
+          } else {
             // An extraction error is always a defect, and it is counted rather
             // than swallowed. A caller that cannot tell a clean run from a
             // parser that threw on every file cannot tell anything.
             extractionErrors += 1;
             console.error(
-              `[CSharpProjectAnalyzer] ${relativePath} (${targetFramework}): ` +
-                `${(error as Error).message}`
+              `[CSharpProjectAnalyzer] ${file.relativePath} ` +
+                `(${file.emissions[e]!.context.targetFramework}): ` +
+                `${emission?.extractError}`
             );
           }
         }
         filesAnalysed += 1;
+      };
+
+      // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files
+      // (cs-parse-pool.ts): each worker runs the same extractor this loop
+      // runs, and every outcome is consumed in sorted file order through
+      // `consumeOutcome` above. AXIOMCODE_PARSE_JOBS=1 restores the strict
+      // serial path; the pool declining (no compiled worker beside this
+      // file) falls back to it too.
+      const jobs = parsePoolJobs(prepared.length);
+      let pooled = false;
+      if (jobs > 1) {
+        // The pool's consume callback is synchronous and the writers are not,
+        // so appends are CHAINED: each file's writes start only when the
+        // previous file's have finished, preserving the serial row order. The
+        // chain never rejects — the first failure is kept and rethrown after
+        // the chain drains, because a rejection parked on `chainTail` with no
+        // handler attached yet would take the process down from under the
+        // pool.
+        let consumeError: unknown;
+        let chainTail = Promise.resolve();
+        try {
+          pooled = await parseCsFilesInPool(
+            prepared.map((file, i) => ({
+              i,
+              absoluteFilePath: file.absoluteFilePath,
+              filePath: file.relativePath,
+              baseMservPath: options.baseMservPath,
+              serviceVersionLinkHash,
+              emissions: file.emissions,
+            })),
+            jobs,
+            (i, outcome) => {
+              chainTail = chainTail.then(async () => {
+                if (consumeError !== undefined) return;
+                try {
+                  await consumeOutcome(prepared[i]!, outcome);
+                } catch (error) {
+                  consumeError = error;
+                }
+              });
+            }
+          );
+        } finally {
+          await chainTail;
+        }
+        if (consumeError !== undefined) throw consumeError;
+      }
+      if (!pooled) {
+        for (const file of prepared) {
+          let outcome: CsParseOutcome;
+          try {
+            const sourceText = await fsp.readFile(file.absoluteFilePath, 'utf-8');
+            outcome = {
+              emissions: file.emissions.map((emission) => {
+                try {
+                  return {
+                    facts: this.extractor.extractFile({
+                      absoluteFilePath: file.absoluteFilePath,
+                      filePath: file.relativePath,
+                      baseMservPath: options.baseMservPath,
+                      sourceText,
+                      serviceVersionLinkHash,
+                      context: emission.context,
+                      defineConstants: emission.defineConstants,
+                      implicitUsings: emission.implicitUsings,
+                      implicitFrameworkDefines: emission.implicitFrameworkDefines,
+                    }),
+                  };
+                } catch (error) {
+                  return { extractError: `${(error as Error).message}` };
+                }
+              }),
+            };
+          } catch (error) {
+            outcome = { readError: String(error) };
+          }
+          await consumeOutcome(file, outcome);
+        }
       }
 
       if (shared === undefined) {
@@ -375,6 +404,47 @@ export class CSharpProjectAnalyzer {
       counts: countsOf(writers),
     };
   }
+}
+
+/**
+ * One file, every input its extraction needs already resolved: the recorded
+ * path, and one {@link CsEmissionInputs} per target framework. Built on the
+ * main thread for both paths, so the governing-project caches are read from
+ * one thread and the pooled and serial runs extract from identical inputs.
+ */
+interface PreparedCsFile {
+  readonly absoluteFilePath: string;
+  readonly relativePath: string;
+  readonly emissions: readonly CsEmissionInputs[];
+}
+
+/** One emission's rows to the writers, in the serial loop's relation order. */
+async function appendFileFacts(
+  writers: Record<keyof typeof RELATION_FILES, CsRelationWriter>,
+  facts: CsFileFacts
+): Promise<void> {
+  await writers.modules.append(facts.modules);
+  await writers.types.append(facts.types);
+  await writers.heritages.append(facts.heritages);
+  await writers.typeParameters.append(facts.typeParameters);
+  await writers.methods.append(facts.methods);
+  await writers.methodParameters.append(facts.methodParameters);
+  await writers.properties.append(facts.properties);
+  await writers.events.append(facts.events);
+  await writers.typeReferences.append(facts.typeReferences);
+  await writers.usings.append(facts.usings);
+  await writers.parseGaps.append(facts.parseGaps);
+  await writers.fields.append(facts.fields);
+  await writers.enumMembers.append(facts.enumMembers);
+  await writers.expressions.append(facts.expressions);
+  await writers.callSites.append(facts.callSites);
+  await writers.queryClauses.append(facts.queryClauses);
+  await writers.blocks.append(facts.blocks);
+  await writers.variables.append(facts.variables);
+  await writers.attributes.append(facts.attributes);
+  await writers.attributeArguments.append(facts.attributeArguments);
+  await writers.comments.append(facts.comments);
+  await writers.preprocRegions.append(facts.preprocRegions);
 }
 
 function countsOf(writers: Record<keyof typeof RELATION_FILES, CsRelationWriter>): Record<string, number> {

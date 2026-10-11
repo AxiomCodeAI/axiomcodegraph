@@ -1,0 +1,532 @@
+{
+ "$comment": "FROZEN web (HTML + CSS) fact schema — relation column order is the contract; new columns append only. Enum domains where a column holds one; commaSets names the columns that hold a comma-separated SET of values from a domain. Generated from the row classes by the first freeze; edit here and keep the classes in step (web-tests.ts checks).",
+ "relations": {
+  "html_document": {
+   "columns": [
+    "name",
+    "fileName",
+    "filePath",
+    "baseMservPath",
+    "relativePath",
+    "documentKind",
+    "doctype",
+    "lang",
+    "title",
+    "templateDialects",
+    "sourceProvenance",
+    "elementCount",
+    "scriptCount",
+    "inlineScriptCount",
+    "stylesheetReferenceCount",
+    "inlineStyleCount",
+    "parseGapCount",
+    "startLine",
+    "endLine",
+    "serviceVersionLinkHash",
+    "htmlDocumentUniqueHash"
+   ],
+   "domains": {
+    "documentKind": [
+     "DOCUMENT",
+     "FRAGMENT"
+    ],
+    "sourceProvenance": [
+     "MINIFIED",
+     "PROJECT"
+    ],
+    "templateDialects": [
+     "ALPINE",
+     "ANGULAR",
+     "DOLLAR_BRACE",
+     "ERB",
+     "HANDLEBARS",
+     "HTMX",
+     "JINJA",
+     "MUSTACHE",
+     "PHP",
+     "RAZOR",
+     "THYMELEAF",
+     "VUE"
+    ]
+   },
+   "commaSets": [
+    "templateDialects"
+   ]
+  },
+  "html_element": {
+   "columns": [
+    "tagName",
+    "namespace",
+    "path",
+    "depth",
+    "id",
+    "classNames",
+    "textContent",
+    "isVoid",
+    "childElementCount",
+    "attributeCount",
+    "position",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "parentElementLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlElementUniqueHash"
+   ],
+   "domains": {
+    "namespace": [
+     "HTML",
+     "MATHML",
+     "SVG"
+    ]
+   }
+  },
+  "html_attribute": {
+   "columns": [
+    "name",
+    "prefix",
+    "value",
+    "attributeKind",
+    "hasValue",
+    "startLine",
+    "startColumn",
+    "ownerElementLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlAttributeUniqueHash"
+   ],
+   "domains": {
+    "attributeKind": [
+     "ARIA",
+     "CLASS",
+     "DATA",
+     "EVENT_HANDLER",
+     "FOR",
+     "ID",
+     "ID_REFERENCE",
+     "NAME",
+     "NAMESPACE",
+     "OTHER",
+     "REL",
+     "SRCSET",
+     "STYLE",
+     "TEMPLATE_DIRECTIVE",
+     "TYPE",
+     "URL"
+    ]
+   }
+  },
+  "html_class_reference": {
+   "columns": [
+    "className",
+    "position",
+    "startLine",
+    "ownerElementLinkHash",
+    "attributeLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlClassReferenceUniqueHash"
+   ]
+  },
+  "html_reference": {
+   "columns": [
+    "referenceKind",
+    "urlAsWritten",
+    "urlKind",
+    "path",
+    "query",
+    "fragment",
+    "resolvedFilePath",
+    "isResolved",
+    "position",
+    "attributeName",
+    "startLine",
+    "startColumn",
+    "ownerElementLinkHash",
+    "attributeLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlReferenceUniqueHash"
+   ],
+   "domains": {
+    "referenceKind": [
+     "ANCHOR",
+     "BASE",
+     "FORM_ACTION",
+     "FRAME",
+     "IMAGE",
+     "LINK_RESOURCE",
+     "MEDIA",
+     "META_REFRESH",
+     "OTHER",
+     "REQUEST",
+     "SCRIPT",
+     "STYLESHEET"
+    ],
+    "urlKind": [
+     "ABSOLUTE",
+     "DATA_URI",
+     "EMPTY",
+     "FRAGMENT",
+     "JAVASCRIPT_URI",
+     "OTHER_SCHEME",
+     "PROTOCOL_RELATIVE",
+     "RELATIVE",
+     "ROOT_RELATIVE",
+     "TEMPLATE_EXPRESSION"
+    ]
+   }
+  },
+  "html_script": {
+   "columns": [
+    "scriptKind",
+    "scriptType",
+    "typeAsWritten",
+    "src",
+    "resolvedFilePath",
+    "isAsync",
+    "isDefer",
+    "isNoModule",
+    "bodyStartLine",
+    "bodyStartColumn",
+    "bodyEndLine",
+    "bodyEndColumn",
+    "bodyLength",
+    "ownerElementLinkHash",
+    "referenceLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlScriptUniqueHash"
+   ],
+   "domains": {
+    "scriptKind": [
+     "EXTERNAL",
+     "INLINE"
+    ],
+    "scriptType": [
+     "CLASSIC",
+     "DATA_BLOCK",
+     "IMPORTMAP",
+     "JSON",
+     "MODULE",
+     "SPECULATION_RULES",
+     "TEMPLATE",
+     "TRANSPILED"
+    ]
+   }
+  },
+  "html_handler_call": {
+   "columns": [
+    "handlerSource",
+    "eventName",
+    "calleeName",
+    "receiverText",
+    "calleeText",
+    "argumentCount",
+    "isNew",
+    "position",
+    "startLine",
+    "startColumn",
+    "ownerElementLinkHash",
+    "attributeLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlHandlerCallUniqueHash"
+   ],
+   "domains": {
+    "handlerSource": [
+     "EVENT_ATTRIBUTE",
+     "JAVASCRIPT_URL",
+     "TEMPLATE_EVENT"
+    ]
+   }
+  },
+  "html_template_expression": {
+   "columns": [
+    "dialect",
+    "expressionKind",
+    "directive",
+    "argument",
+    "modifiers",
+    "expressionText",
+    "calleeNames",
+    "identifiers",
+    "declares",
+    "position",
+    "startLine",
+    "startColumn",
+    "ownerElementLinkHash",
+    "attributeLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlTemplateExpressionUniqueHash"
+   ],
+   "domains": {
+    "dialect": [
+     "ALPINE",
+     "ANGULAR",
+     "DOLLAR_BRACE",
+     "ERB",
+     "HANDLEBARS",
+     "HTMX",
+     "JINJA",
+     "MUSTACHE",
+     "PHP",
+     "RAZOR",
+     "THYMELEAF",
+     "VUE"
+    ],
+    "expressionKind": [
+     "BINDING",
+     "CONDITION",
+     "DIRECTIVE",
+     "EVENT_HANDLER",
+     "INTERPOLATION",
+     "LOOP",
+     "MODEL",
+     "REFERENCE",
+     "REQUEST",
+     "SLOT"
+    ]
+   }
+  },
+  "html_parse_gap": {
+   "columns": [
+    "gapKind",
+    "detail",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "relatedElementLinkHash",
+    "documentLinkHash",
+    "serviceVersionLinkHash",
+    "htmlParseGapUniqueHash"
+   ],
+   "domains": {
+    "gapKind": [
+     "GAP_LIMIT_REACHED",
+     "HANDLER_SYNTAX",
+     "PARSE_ERROR",
+     "STYLE_ATTRIBUTE_SYNTAX"
+    ]
+   }
+  },
+  "css_stylesheet": {
+   "columns": [
+    "name",
+    "fileName",
+    "filePath",
+    "baseMservPath",
+    "relativePath",
+    "sourceKind",
+    "sourceProvenance",
+    "ownerHtmlElementLinkHash",
+    "htmlDocumentLinkHash",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "ruleCount",
+    "declarationCount",
+    "parseGapCount",
+    "serviceVersionLinkHash",
+    "cssStylesheetUniqueHash"
+   ],
+   "domains": {
+    "sourceKind": [
+     "FILE",
+     "HTML_STYLE_ELEMENT"
+    ],
+    "sourceProvenance": [
+     "MINIFIED",
+     "PROJECT"
+    ]
+   }
+  },
+  "css_rule": {
+   "columns": [
+    "ruleKind",
+    "atRuleName",
+    "name",
+    "preludeText",
+    "selectorCount",
+    "declarationCount",
+    "childRuleCount",
+    "nestingDepth",
+    "position",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "parentRuleLinkHash",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssRuleUniqueHash"
+   ],
+   "domains": {
+    "ruleKind": [
+     "AT_RULE",
+     "STYLE_RULE"
+    ]
+   }
+  },
+  "css_selector": {
+   "columns": [
+    "selectorText",
+    "position",
+    "specificityA",
+    "specificityB",
+    "specificityC",
+    "compoundCount",
+    "hasNesting",
+    "hasPseudoElement",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "ruleLinkHash",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssSelectorUniqueHash"
+   ]
+  },
+  "css_selector_part": {
+   "columns": [
+    "partKind",
+    "name",
+    "value",
+    "attributeMatcher",
+    "attributeFlags",
+    "combinatorBefore",
+    "compoundIndex",
+    "position",
+    "depth",
+    "argumentIndex",
+    "startLine",
+    "startColumn",
+    "parentPartLinkHash",
+    "selectorLinkHash",
+    "ruleLinkHash",
+    "serviceVersionLinkHash",
+    "cssSelectorPartUniqueHash"
+   ],
+   "domains": {
+    "partKind": [
+     "ATTRIBUTE",
+     "CLASS",
+     "ID",
+     "NESTING",
+     "PSEUDO_CLASS",
+     "PSEUDO_ELEMENT",
+     "RAW",
+     "TYPE",
+     "UNIVERSAL"
+    ],
+    "combinatorBefore": [
+     "CHILD",
+     "COLUMN",
+     "DESCENDANT",
+     "NEXT_SIBLING",
+     "NONE",
+     "SUBSEQUENT_SIBLING"
+    ]
+   }
+  },
+  "css_declaration": {
+   "columns": [
+    "property",
+    "valueText",
+    "isImportant",
+    "isCustomProperty",
+    "vendorPrefix",
+    "position",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "ruleLinkHash",
+    "htmlAttributeLinkHash",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssDeclarationUniqueHash"
+   ]
+  },
+  "css_value_reference": {
+   "columns": [
+    "referenceKind",
+    "name",
+    "fallbackText",
+    "urlKind",
+    "resolvedFilePath",
+    "isResolved",
+    "position",
+    "startLine",
+    "startColumn",
+    "ownerDeclarationLinkHash",
+    "ownerRuleLinkHash",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssValueReferenceUniqueHash"
+   ],
+   "domains": {
+    "referenceKind": [
+     "CONTAINER",
+     "FONT_FAMILY",
+     "IMPORT",
+     "KEYFRAMES",
+     "LAYER",
+     "URL",
+     "VARIABLE"
+    ],
+    "urlKind": [
+     "ABSOLUTE",
+     "DATA_URI",
+     "EMPTY",
+     "FRAGMENT",
+     "JAVASCRIPT_URI",
+     "OTHER_SCHEME",
+     "PROTOCOL_RELATIVE",
+     "RELATIVE",
+     "ROOT_RELATIVE",
+     "TEMPLATE_EXPRESSION"
+    ]
+   }
+  },
+  "css_comment": {
+   "columns": [
+    "text",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssCommentUniqueHash"
+   ]
+  },
+  "css_parse_gap": {
+   "columns": [
+    "gapKind",
+    "detail",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "relatedRuleLinkHash",
+    "stylesheetLinkHash",
+    "serviceVersionLinkHash",
+    "cssParseGapUniqueHash"
+   ],
+   "domains": {
+    "gapKind": [
+     "GAP_LIMIT_REACHED",
+     "PARSE_ERROR",
+     "PREPROCESSOR_SYNTAX",
+     "UNPARSED_FRAGMENT"
+    ]
+   }
+  }
+ }
+}

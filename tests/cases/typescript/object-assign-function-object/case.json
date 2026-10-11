@@ -1,0 +1,54 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "Object.assign(fn, members) evaluates to fn: a call of the merged function object, imported and typed by a callable interface, runs fn, here through a re-exported alias of Object.assign",
+   "run": [
+    "impact",
+    "track",
+    "--tests-only"
+   ],
+   "want": [
+    "src/factory.test.ts ("
+   ],
+   "avoid": []
+  },
+  {
+   "why": "the same with Object.assign written out and an inline function as the target",
+   "run": [
+    "impact",
+    "trackDirect",
+    "--tests-only"
+   ],
+   "want": [
+    "src/factory.test.ts ("
+   ],
+   "avoid": []
+  },
+  {
+   "why": "control: Object.assign evaluates to its first argument only; a function passed as a later source is not what a call of the result runs",
+   "run": [
+    "impact",
+    "sourceOnly",
+    "--tests-only"
+   ],
+   "want": [],
+   "avoid": [
+    "src/external.test.ts ("
+   ]
+  },
+  {
+   "why": "…while the target it was merged into is",
+   "run": [
+    "impact",
+    "target",
+    "--tests-only"
+   ],
+   "want": [
+    "src/external.test.ts ("
+   ],
+   "avoid": []
+  }
+ ]
+}

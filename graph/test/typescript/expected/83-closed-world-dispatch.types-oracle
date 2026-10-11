@@ -1,0 +1,7 @@
+83-closed-world-dispatch [types]
+  precision 1.0000   (16 correct, 0 wrong)
+  recall    1.0000   (16 of 16 the compiler resolved)
+  sites 18   resolved 17 (94.4%)
+  tiers ambiguous_unknown=1  known_edge=17
+  contexts IMPLEMENTS_INTERFACE=6  METHOD_PARAM=2  METHOD_RETURN=1  OBJECT_CREATION_TYPE=3  SUPER_TYPE=2  TYPE_ELEMENT=4
+  not scored: 1 rows whose target is not a client declaration

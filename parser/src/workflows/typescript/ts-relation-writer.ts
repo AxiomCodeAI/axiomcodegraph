@@ -43,7 +43,9 @@ export class TsRelationWriter {
   private readonly outputPath: string;
   private buffer: string[] = [];
   private header = '';
+  private width = 0;
   private rows = 0;
+  private bytesWritten = 0;
   private closed = false;
 
   constructor(outputDir: string, filename: string, uniqueSuffix: string) {
@@ -71,10 +73,49 @@ export class TsRelationWriter {
     if (this.handle === undefined) {
       this.handle = await fsp.open(this.temporaryPath, 'w');
       this.header = rows[0]!.getCsvHeader();
+      this.width = countTabs(this.header) + 1;
       this.buffer.push(this.header + '\n');
     }
     for (const row of rows) {
-      this.buffer.push(row.toCsv() + '\n');
+      const line = row.toCsv();
+      // The row is checked HERE, on the string that is about to be written,
+      // instead of decoding the finished file a second time: same width rule,
+      // same line-break alphabet, no re-read. What this no longer re-checks —
+      // that the bytes reached the disk whole — publish() covers by comparing
+      // the byte count it wrote against what the file system reports.
+      verifyRow(line, this.width, this.outputPath, this.rows + 2);
+      this.buffer.push(line + '\n');
+      this.rows += 1;
+    }
+    if (this.buffer.length >= TS_CSV_CHUNK_SIZE) {
+      await this.flush();
+    }
+  }
+
+  /**
+   * Appends one file's rows ALREADY RENDERED — a parse worker runs `toCsv`
+   * beside the extraction so the main thread writes strings instead of
+   * re-walking rows. Every line passes the same `verifyRow` the object path
+   * runs, on the same string that is written; the header must be the one the
+   * rows' class renders, and the first appender's header wins exactly as the
+   * object path's first row does.
+   */
+  async appendRendered(header: string, lines: readonly string[]): Promise<void> {
+    if (this.closed) {
+      throw new Error(`${path.basename(this.outputPath)}: appended after the file was published`);
+    }
+    if (lines.length === 0) {
+      return;
+    }
+    if (this.handle === undefined) {
+      this.handle = await fsp.open(this.temporaryPath, 'w');
+      this.header = header;
+      this.width = countTabs(this.header) + 1;
+      this.buffer.push(this.header + '\n');
+    }
+    for (const line of lines) {
+      verifyRow(line, this.width, this.outputPath, this.rows + 2);
+      this.buffer.push(line + '\n');
       this.rows += 1;
     }
     if (this.buffer.length >= TS_CSV_CHUNK_SIZE) {
@@ -90,7 +131,8 @@ export class TsRelationWriter {
     // streaming cost the same as the whole-file writer did.
     const text = this.buffer.join('');
     this.buffer = [];
-    await this.handle.write(text, null, 'utf-8');
+    const { bytesWritten } = await this.handle.write(text, null, 'utf-8');
+    this.bytesWritten += bytesWritten;
   }
 
   /** Flushes, verifies, and renames into place. */
@@ -107,9 +149,17 @@ export class TsRelationWriter {
     }
     await this.flush();
     await this.handle.sync();
+    // Every row was verified as it was appended (verifyRow); what remains to
+    // prove is that the bytes all arrived. The file's size must equal the sum
+    // of what write() reported — a mismatch is a torn write, the exact defect
+    // the old whole-file read-back existed to catch.
+    const onDisk = (await this.handle.stat()).size;
     await this.handle.close();
     this.handle = undefined;
-    verifyRelationFileStreaming(this.temporaryPath, this.outputPath, this.header);
+    if (onDisk !== this.bytesWritten) {
+      throw new Error(`${path.basename(this.outputPath)}: wrote ${this.bytesWritten} byte(s) but the `
+        + `file holds ${onDisk} — the write is torn`);
+    }
     await fsp.rename(this.temporaryPath, this.outputPath);
   }
 
@@ -138,6 +188,43 @@ export class TsRelationWriter {
  * its consumer.
  */
 const CONSUMER_LINE_BREAKS = /[\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029]/;
+
+function countTabs(line: string): number {
+  let tabs = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (line.charCodeAt(i) === 0x09) {
+      tabs += 1;
+    }
+  }
+  return tabs;
+}
+
+/**
+ * One row holds exactly the header's field count and no code point a consumer
+ * would break a line on \u2014 the same rules {@link verifyRelationFileStreaming}
+ * applies, checked on the in-memory string in one allocation-free pass.
+ */
+function verifyRow(line: string, width: number, outputPath: string, lineNumber: number): void {
+  if (line === '') {
+    // the streamed read-back skipped blank lines rather than calling them torn
+    return;
+  }
+  let tabs = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line.charCodeAt(i);
+    if (c === 0x09) {
+      tabs += 1;
+    } else if ((c >= 0x0a && c <= 0x0d) || (c >= 0x1c && c <= 0x1e) || c === 0x85
+        || c === 0x2028 || c === 0x2029) {
+      throw new Error(`${path.basename(outputPath)}: line ${lineNumber} carries a line-break code `
+        + `point inside a value \u2014 the row would read torn: ${JSON.stringify(line.slice(0, 60))}`);
+    }
+  }
+  if (tabs + 1 !== width) {
+    throw new Error(`${path.basename(outputPath)}: line ${lineNumber} has ${tabs + 1} field(s) where `
+      + `the header has ${width} \u2014 the row is torn: ${JSON.stringify(line.slice(0, 60))}`);
+  }
+}
 
 /**
  * Every row has exactly the header's field count, checked without holding the

@@ -1,0 +1,11 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a reflective invoke linked to its target; the cast already types what follows, so nothing is derived twice",
+   "run": ["link", "src/pkg/Route.java:13", "Views.makeResponse"],
+   "want": ["linked src/pkg/Route.java:13:47 `invoke` → Views.makeResponse [asserted]; returns Response (declared); no call on its result here"]},
+  {"why": "CONTROL: the engine's own edge on the cast result is kept, no asserted duplicate",
+   "run": ["impact", "Response.render"],
+   "want": ["[resolved] Route.handleLocal"], "avoid": ["[asserted] Route.handleLocal"]},
+  {"why": "a chained call after a cast resolved by the engine: no duplicate derived edge",
+   "run": ["link", "src/pkg/Route.java:9", "Views.makeResponse"],
+   "want": ["no call on its result here"]}]}

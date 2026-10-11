@@ -1,0 +1,17 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a test parameter the runner fills from a yield fixture is typed by what the fixture yields, so a method called on it resolves and the test reaches the change",
+   "run": ["impact", "Session.begin", "--tests"],
+   "want": ["test_tx.py"],
+   "avoid": ["test_ledger.py"]},
+  {"why": "the type carries through a local derived from the parameter (`tx = session.begin(); tx.commit()`), two calls below the fixture",
+   "run": ["impact", "validate", "--tests"],
+   "want": ["test_tx.py"],
+   "avoid": ["test_ledger.py"]},
+  {"why": "a return fixture types its parameter the same way",
+   "run": ["impact", "Ledger.post", "--tests"],
+   "want": ["test_ledger.py"],
+   "avoid": ["test_tx.py"]},
+  {"why": "CONTROL: a method no test calls on a fixture value reaches no test file through it",
+   "run": ["impact", "Session.close", "--tests"],
+   "avoid": ["test_ledger.py"]}]}

@@ -1,0 +1,10 @@
+{
+  "name": "@x/lib",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./sub": { "types": "./dist/sub/index.d.ts", "default": "./dist/sub/index.js" },
+    "./feature/*": { "types": "./dist/feature/*.d.ts", "default": "./dist/feature/*.js" }
+  }
+}

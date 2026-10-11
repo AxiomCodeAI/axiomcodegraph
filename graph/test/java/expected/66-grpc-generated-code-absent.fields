@@ -1,0 +1,12 @@
+known_edge	read	app.inventory.InventoryClient#reserve(String) -> app.inventory.InventoryClient#stub
+known_edge	read	app.legacy.LegacyClient#place(String) -> app.legacy.LegacyClient#stub
+known_edge	read	app.orders.NestedImportClient#place(String) -> app.orders.NestedImportClient#stub
+known_edge	read	app.orders.OrderClient#configure() -> app.orders.OrderClient#blockingStub
+known_edge	read	app.orders.OrderClient#decoyNoHolder(String) -> app.orders.OrderClient#requestStub
+known_edge	read	app.orders.OrderClient#decoyWrongHolder(String) -> app.orders.OrderClient#mismatchedStub
+known_edge	read	app.orders.OrderClient#placeAsync(String,StreamObserver) -> app.orders.OrderClient#asyncStub
+known_edge	read	app.orders.OrderClient#placeBlocking(String) -> app.orders.OrderClient#blockingStub
+known_edge	read	app.orders.OrderClient#placeFuture(String) -> app.orders.OrderClient#futureStub
+known_edge	read	app.orders.OrderClient#placeV2(String) -> app.orders.OrderClient#v2Stub
+known_edge	read	app.orders.OrderClient#stream(StreamObserver) -> app.orders.OrderClient#asyncStub
+known_edge	read	app.widgets.WidgetClient#build(String) -> app.widgets.WidgetClient#stub

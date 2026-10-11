@@ -9,7 +9,8 @@ so tier 1 cannot tell them apart and only the live object can.
   partial     functools.partial exposes `.func`, so CPython can name the target
   lambda      stored in a dict, reached by subscript: no name at the call site
   attribute   a plain function assigned to an instance attribute, which does NOT
-              go through the descriptor protocol and so is not a bound method
+              go through the descriptor protocol and so is not a bound method;
+              a partial stored there calls its target the same way
 """
 import functools
 
@@ -31,9 +32,15 @@ class Holder:
     def __init__(self):
         # A function on an INSTANCE attribute. Not a method: no `self` is bound.
         self.op = add
+        self.bump = functools.partial(add, 1)
+        # control: a partial over a builtin stays the platform's
+        self.biggest = functools.partial(max, 0)
 
     def use(self):
         return self.op(1, 2)
+
+    def use_partial(self):
+        return self.bump(2) + self.biggest(3)
 
 
 TABLE = {
@@ -52,6 +59,7 @@ def main():
 
     print(TABLE["double"](21))
     print(Holder().use())
+    print(Holder().use_partial())
 
 
 if __name__ == "__main__":

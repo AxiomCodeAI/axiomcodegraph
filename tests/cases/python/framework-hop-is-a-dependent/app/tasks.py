@@ -1,4 +1,4 @@
-from celery import shared_task
+from taskqueue import shared_task
 
 
 @shared_task

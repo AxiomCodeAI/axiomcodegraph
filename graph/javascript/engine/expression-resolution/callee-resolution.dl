@@ -27,7 +27,7 @@
 
 // ── callee_value(CallExpr, K, I) — the value being invoked ─────────────────
 callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
-    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i), k != "libwrap".   # what a package wrapper returns runs nothing known (callbacks.dl)
 // `f.call(o)`: f runs. But the parser classifies by NAME, so `selector.apply(node)`
 // on an object with its own `apply` method is here too — and for that reading the
 // CALLEE child (the object) is the receiver and its member is the target. Both
@@ -133,7 +133,10 @@ call_target_is_implicit_ctor(ce) :- call_site(_, "SUPER_CALL", _, _, _, em, ce, 
 // Splits the unresolved population into "the receiver is untyped" (a staging gap
 // or a genuinely dynamic value) and "the receiver is known and has no such
 // member" (an engine or parser defect — the rows worth reading first).
+// A value a package model builds (frameworks.dl, package_model_kind) carries only the
+// members the project wrote onto it; the rest are the uninstalled package's, so a
+// site that finds nothing on it is as untyped as it was before the model existed.
 receiver_value_known(ce) :- call_site(_, _, _, "SYNTACTIC", _, _, ce, _, _),
-    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, _, _).
-callee_value_known(ce) :- callee_value(ce, _, _).
-callee_value_known(ce) :- new_callee_value(ce, _, _).
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, _), !package_model_kind(k).
+callee_value_known(ce) :- callee_value(ce, k, _), !package_model_kind(k).
+callee_value_known(ce) :- new_callee_value(ce, k, _), !package_model_kind(k).

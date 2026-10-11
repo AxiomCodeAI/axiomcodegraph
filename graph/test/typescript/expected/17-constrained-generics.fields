@@ -1,3 +1,7 @@
 ambiguous_unknown	read	consumer#ownConstraint(T) -> -
 ambiguous_unknown	read	consumer#ownConstraintNamed(T) -> -
 ambiguous_unknown	read	curried-local#widest(unknown) -> -
+known_edge	read	consumer#dataFirst() -> consumer#rows
+known_edge	read	consumer#localDataFirst() -> consumer#rows
+known_edge	read	consumer#localWidest() -> consumer#rows
+known_edge	read	consumer#widestFirst() -> consumer#rows

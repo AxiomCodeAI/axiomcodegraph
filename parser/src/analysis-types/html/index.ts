@@ -1,0 +1,9 @@
+export { HtmlAttribute } from '@/analysis-types/html/HtmlAttribute';
+export { HtmlClassReference } from '@/analysis-types/html/HtmlClassReference';
+export { HtmlDocument } from '@/analysis-types/html/HtmlDocument';
+export { HtmlElement } from '@/analysis-types/html/HtmlElement';
+export { HtmlHandlerCall } from '@/analysis-types/html/HtmlHandlerCall';
+export { HtmlParseGap } from '@/analysis-types/html/HtmlParseGap';
+export { HtmlReference } from '@/analysis-types/html/HtmlReference';
+export { HtmlScript } from '@/analysis-types/html/HtmlScript';
+export { HtmlTemplateExpression } from '@/analysis-types/html/HtmlTemplateExpression';

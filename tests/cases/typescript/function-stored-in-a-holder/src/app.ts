@@ -54,3 +54,17 @@ export function price(registry: Registry, n: number): string {
 export function checkout(registry: Registry): string {
   return price(registry, 3)
 }
+
+import { promisify } from 'util'
+
+export class Store {
+  find(e: string): string { return e }
+}
+
+// A field of a function type holding what a library returned for a bound method: the call resolves to the
+// field's signature, which has no body; the wrapped method is what runs.
+export class Svc {
+  private find: (e: string) => Promise<string>
+  constructor(s: Store) { this.find = promisify(s.find.bind(s)) as any }
+  login(e: string) { return this.find(e) }
+}

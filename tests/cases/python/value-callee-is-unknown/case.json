@@ -67,7 +67,7 @@
    ]
   },
   {
-   "why": "fire calls a local holding getattr(self, f'on_{event}'): the site is named, and the target is not called independent",
+   "why": "fire calls a local holding getattr(self, event): no part of the name is written, so the site is named and the target is not called independent (an f-string or `+` prefix resolves; see getattr-fstring-prefix-dispatch)",
    "run": [
     "path",
     "Machine.fire",
@@ -205,6 +205,53 @@
    ],
    "avoid": [
     "connection is UNKNOWN, not absent"
+   ]
+  },
+  {
+   "why": "a client whose request goes out through a helper, and a function reached from a route mounted at the router's prefix (@router.post(\"\")): the hop is HTTP, so path names the send and the route and does not say independent",
+   "run": [
+    "path",
+    "OrdersClient.create",
+    "record_order"
+   ],
+   "expect_error": true,
+   "want": [
+    "NOT shown to be independent",
+    "`request()` in OrdersClient._call at src/over_http.py:25",
+    "is served over HTTP: create_order src/over_http.py:16"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: a client method that sends nothing stays independent of the routed function",
+   "run": [
+    "path",
+    "OrdersClient.headers",
+    "record_order"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "sends a request"
+   ]
+  },
+  {
+   "why": "control: a function no route reaches stays independent of a client that sends a request",
+   "run": [
+    "path",
+    "OrdersClient.create",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "sends a request"
    ]
   }
  ]

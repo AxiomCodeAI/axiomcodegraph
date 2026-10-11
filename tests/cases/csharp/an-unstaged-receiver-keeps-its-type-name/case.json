@@ -1,0 +1,14 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a local initialised with `new ServiceCollection()` keeps that name, so a this-IServiceCollection extension is a candidate on it, one of a set (#1472's rung)",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "want": ["[one of a set] Program.FromNew"]},
+  {"why": "a lambda parameter typed by Action<IServiceCollection> is an IServiceCollection: the extension written for it matches by name",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "want": ["[resolved] Program.<lambda>   src/Program.cs:16"]},
+  {"why": "control: an unstaged receiver never matches an extension on an in-source type",
+   "run": ["impact", "WidgetExtensions.AddGadgets"],
+   "avoid": ["Program.Control"]},
+  {"why": "control: a lambda typed Action<Gizmo> is not resolved to the IServiceCollection extension",
+   "run": ["impact", "WidgetExtensions.AddWidgetRules"],
+   "avoid": ["[resolved] Program.<lambda>   src/Program.cs:26"]}]}

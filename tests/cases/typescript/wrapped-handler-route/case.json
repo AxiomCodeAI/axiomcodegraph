@@ -24,7 +24,7 @@
    "avoid": ["registered as a"]},
   {"why": "a router mounted with `app.use('/api', api)` is a mount, and the app is the receiver: neither is registered as a route",
    "run": ["impact", "src/app.ts:4"],
-   "want": ["[by name] server.<module>   src/server.ts:3   — reads it"],
+   "want": ["[resolved] server.<module>   src/server.ts:3   — reads it"],
    "avoid": ["registered as a"]},
   {"why": "…nor the app",
    "run": ["impact", "src/app.ts:3"],

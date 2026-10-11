@@ -1,0 +1,9 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a route handler a client in the graph reaches still serves its route: the handler moves from remote_unsent to remote_edge once a send links, and context must read it there too",
+   "run": ["context", "GET /api/orders"],
+   "want": ["OrderListEndpoint.<lambda>                      src/App/Orders.cs:8                 serves the route /api/orders\n"]},
+  {"why": "control: the client that sends to the route does not serve it",
+   "run": ["context", "GET /api/orders"],
+   "avoid": ["OrderChecks.ListFirst                           src/App/Orders.cs:24                serves the route"],
+   "want": ["OrderListEndpoint.AddRoute"]}]}

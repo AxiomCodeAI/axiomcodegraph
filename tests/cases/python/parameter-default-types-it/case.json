@@ -1,0 +1,13 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a closure's `field_obj=field_obj` default pins a loop variable: field_obj is a Field, so field_obj.deserialize() resolves and a test of load() covers it",
+   "run": ["impact", "deserialized", "--tests"],
+   "want": ["test_load.py"],
+   "avoid": ["test_emit.py"]},
+  {"why": "a callable default (`handler=default_handler`) is what handler() runs when the caller passes none",
+   "run": ["impact", "handled", "--tests"],
+   "want": ["test_emit.py"]},
+  {"why": "CONTROL: an argument passed at a call site still reaches the parameter alongside the default",
+   "run": ["impact", "other_handled", "--tests"],
+   "want": ["test_other.py"],
+   "avoid": ["test_load.py"]}]}

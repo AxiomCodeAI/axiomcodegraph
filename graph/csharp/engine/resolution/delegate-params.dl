@@ -1,0 +1,113 @@
+// ============================================================================
+// RESOLUTION · A DELEGATE HANDED TO A PARAMETER
+//
+// delegates.dl follows a function stored in a field or property and stops at the
+// two shapes it names as NOT HANDLED: a delegate that reaches the member FROM A
+// PARAMETER (`_fn = fn`, `this.a = a`, a primary constructor's `fn` read in a field
+// initializer), and a parameter of delegate type INVOKED DIRECTLY (`act(1)`,
+// `handler.Invoke(call)`, `validatorProvider(x)` inside a lambda that captured it).
+// Both are the ordinary way C# hands behaviour to a library -- a strategy object's
+// constructor, a builder's `Add(v => ...)`, a callback argument -- and in both the
+// function that runs is a lambda or method group written at the CALL SITE, which no
+// member lookup can see.
+//
+// THE SAME ENVELOPE delegates.dl uses, keyed on the parameter rather than the member:
+//
+//   delegate_param_holds(P, F)     F may be the function parameter P holds: a lambda,
+//                                  an anonymous method or a method group passed as the
+//                                  argument at P's ordinal to a call the engine
+//                                  resolved to P's method (a constructor too); or a
+//                                  parameter of the caller passed on, or a member that
+//                                  holds functions passed on.
+//   delegate_member_holds(M, F)    gains: F reaches member M through a parameter that
+//                                  is stored in it.
+//   a call through P               an edge to ONE node per parameter,
+//                                    generated:<owner>#<method>.<param>.Invoke
+//                                  and method_dispatch_candidate(node, F, "value") for
+//                                  each F it holds -- what impact and path already walk
+//                                  for a member (F -> node -> whoever calls through P).
+//
+// Value flow is not context-sensitive here, exactly as for a member: every function
+// passed to P at any call is a candidate at every call through P. The resolved site
+// target is untouched (Roslyn binds `act(1)` to Invoke), so the per-site score cannot
+// move.
+// ============================================================================
+
+// ── THE ARGUMENT AT AN ORDINAL ──────────────────────────────────────────────
+// Among a call's ARGUMENT children, with no named argument at the site (a named one
+// may bind anywhere). A call the engine resolved to a method, or a `new`.
+delegate_arg_at(e, k, a) :-
+    expr_argument("client", e, pos, a), !call_has_named_args("client", e),
+    p = to_number(pos),
+    k = count : { expr_argument("client", e, q, _), to_number(q) < p }.
+delegate_site_callee(e, m, 0) :-
+    expr_resolves_to_method("client", e, m), !method_is_extension("client", m).
+// An extension method called on a receiver takes the receiver as parameter 0.
+delegate_site_callee(e, m, 1) :-
+    expr_resolves_to_method("client", e, m), method_is_extension("client", m),
+    call_receiver_expr("client", e, _).
+delegate_site_callee(e, m, 0) :-
+    expr_resolves_to_method("client", e, m), method_is_extension("client", m),
+    !call_receiver_expr("client", e, _).
+delegate_site_callee(e, ctor, 0) :- call_ctor_target("client", e, ctor).
+
+delegate_param_at(m, k, p) :-
+    param_decl("client", m, pos, _, p), k = to_number(pos), !param_is_params("client", p).
+
+// delegate_param_receives(P, Arg): Arg is passed to parameter P, and the branches
+// inside it (`?:`, `??`, a cast, parentheses).
+delegate_param_receives(p, a) :-
+    delegate_arg_at(e, k, a), delegate_site_callee(e, m, off), delegate_param_at(m, k + off, p).
+delegate_param_receives(p, c) :- delegate_param_receives(p, a), delegate_value_branch("client", a, c).
+
+// ── A REFERENCE TO A PARAMETER ──────────────────────────────────────────────
+delegate_param_ref(e, p) :- ref_denotes("client", e, "PARAMETER", p).
+// A primary constructor's parameter read in a FIELD or PROPERTY INITIALIZER:
+// `private readonly Func<T> _fn = fn ?? Default;`. local-binding.dl binds a name
+// inside a member; an initializer belongs to no method, so the name stays unbound.
+delegate_param_ref(e, p) :-
+    delegate_initializer_name(e, n, t),
+    type_group("client", t, gk), type_ctor("client", gk, ctor),
+    method_kind("client", ctor, "PRIMARY_CONSTRUCTOR"),
+    param_decl("client", ctor, _, n, p).
+delegate_initializer_name(e, n, t) :-
+    delegate_store("client", f, e), field_decl("client", _, t, f),
+    expr_kind("client", e, "NAME_REFERENCE"), expr_ref_unknown("client", e), expr_written_name("client", e, n).
+delegate_initializer_name(e, n, t) :-
+    delegate_store("client", pr, e), property_decl("client", _, t, pr),
+    expr_kind("client", e, "NAME_REFERENCE"), expr_ref_unknown("client", e), expr_written_name("client", e, n).
+
+// ── WHAT A PARAMETER HOLDS ──────────────────────────────────────────────────
+delegate_param_holds(p, f) :-
+    delegate_param_receives(p, a), expr_anon_decl("client", a, f), method_decl("client", _, _, _, f).
+delegate_param_holds(p, f) :-
+    delegate_param_receives(p, a), delegate_group_method("client", a, f), method_decl("client", _, _, _, f).
+delegate_param_holds(p, f) :-
+    delegate_param_receives(p, a), delegate_param_ref(a, q), q != p, delegate_param_holds(q, f).
+delegate_param_holds(p, f) :-
+    delegate_param_receives(p, a), delegate_member_ref("client", a, mem), delegate_member_holds("client", mem, f).
+delegate_param_holds_any(p) :- delegate_param_holds(p, _).
+
+// A parameter STORED in a member: `_a = a`, `_fn = fn ?? Zero`.
+delegate_member_holds("client", mem, f) :-
+    delegate_store("client", mem, e), delegate_param_ref(e, p), delegate_param_holds(p, f).
+
+// ── A CALL THROUGH THE PARAMETER ────────────────────────────────────────────
+// `act(1)`, `handler(x)`, and the explicit `handler.Invoke(x)` / `a?.Invoke()`.
+delegate_param_call(e, p) :-
+    csite("client", e), call_receiver_kind("client", e, "NONE"),
+    expr_method_name_child("client", e, x), delegate_param_ref(x, p),
+    delegate_param_holds_any(p).
+delegate_param_call(e, p) :-
+    call_callee_name("client", e, "Invoke"),
+    call_receiver_expr("client", e, r), delegate_param_ref(r, p),
+    delegate_param_holds_any(p).
+
+delegate_param_node(p, id) :-
+    delegate_param_call(_, p),
+    param_decl("client", m, _, pn, p), method_decl("client", mn, _, _, m),
+    method_owner("client", t, m), type_decl("client", _, qn, _, _, t),
+    id = cat("generated:", cat(qn, cat("#", cat(mn, cat(".", cat(pn, ".Invoke")))))).
+
+method_dispatch_candidate(base, f, "value") :-
+    delegate_param_node(p, base), delegate_param_holds(p, f).

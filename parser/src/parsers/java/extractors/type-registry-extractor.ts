@@ -203,7 +203,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
       }
       
       const tree = this.javaParser.parse(fileContent);
-      const rootNode = this.javaParser.getRootNode(tree);
+      const rootNode = this.javaParser.getRootNode(tree, fileContent);
 
       const basePath = this.extractBasePath(filePath);
       const fileName = path.basename(filePath);

@@ -1,0 +1,5 @@
+$primary: red;
+@mixin m { color: $primary }
+.sassy { @include m; &__elem { color: red } }
+// line comment
+.x { .y { color: red } }

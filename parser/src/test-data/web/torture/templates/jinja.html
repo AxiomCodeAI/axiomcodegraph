@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="stylesheet" href="{{ STATIC_URL }}css/base.css">
+  <script src="{% static 'js/app.js' %}"></script>
+{% endblock %}
+{% block body %}
+<div class="card {% if active %}is-active{% endif %} {{ extra_class }}" id="card-{{ item.id }}">
+  {% for item in items %}
+  <a href="{{ item.url }}" class="item" onclick="select({{ item.id }})">{{ item.name }}</a>
+  {% endfor %}
+  <span class="{{ 'a' if x else 'b' }}">conditional class</span>
+  <img src="{{ item.image }}" srcset="{{ item.image }} 1x, {{ item.image2x }} 2x">
+  <p style="color: {{ color }}; margin: 0">style with template value</p>
+  <p style="--brand: {{ brand }}">custom property from the template</p>
+  {# a jinja comment with <div class="in-jinja-comment"></div> #}
+  <!-- {{ not_rendered }} -->
+</div>
+<style>
+  .card-{{ item.id }} { color: red }
+  .item { color: {{ color }} }
+  {% if dark %}.card { background: black }{% endif %}
+</style>
+{% endblock %}

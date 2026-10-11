@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """tests/mcp_docs.py: every MCP argument the skill documents is one the tool it names accepts.
 
-SKILL.md and reference/*.md tell an agent which MCP arguments to pass (`full=True`, `limit=N`, `page="all"`,
-`range='a..b'`, `files=[…]`). An argument the tool's schema does not take is refused, and the agent that followed the
-docs is left with an error and no answer. The docs name the arguments in prose, so this reads them the way an agent
-does: in each paragraph, list item or table row that speaks of MCP, every `name=value` belongs to the nearest tool named
-before it (`axiomcode_impact`, MCP `impact`, `changed --range …`; a run like "`impact`, `path` and `context`" is one
-group, and every tool in it must take the argument). The schemas are the server's own tools/list, from the SDK-free
+SKILL.md (and reference/*.md, when there is one) tells an agent which MCP arguments to pass (`impact(name="…")`,
+`path(start="…", end="…")`). An argument the tool's schema does not take is refused, and the agent
+that followed the docs is left with an error and no answer. The docs name the arguments in prose, so this reads them the
+way an agent does: in each paragraph, list item or table row that speaks of a tool, every `name=value` belongs to the
+nearest tool named before it (`impact(`, MCP `impact`, `mcp__plugin_axiomcode_axiomcode__impact`; a run like "`impact`
+and `path`" is one group, and every tool in it must take the argument). The schemas are the server's own tools/list, from the SDK-free
 fallback, so what is checked is what a client is offered.
 
 Both skill copies are read (plugins/axiomcode/skills/axiomcode and the root skills/axiomcode), and
-plugins/axiomcode/AGENTS.md and rules/axiomcode.mdc, which name the same tools. An argument a schema
+plugins/axiomcode/AGENTS.md and rules/axiomcode.mdc, which name the same tools, and the block `axiomcode install` writes. An argument a schema
 takes and the docs never mention is fine. A documented argument with no tool named before it is a failure too: the
 agent cannot tell which tool takes it.
 
@@ -26,10 +26,11 @@ DOCS = sorted(p for d in (os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', '
        [os.path.join(ROOT, 'plugins', 'axiomcode', 'AGENTS.md')] + \
        sorted(glob.glob(os.path.join(ROOT, 'plugins', 'axiomcode', 'rules', '*.mdc')))
 
-VERB = r'(index|context|impact|path|changed|test[-_]impact|graph)'
-# a tool named: `axiomcode_impact`, bare axiomcode_impact, MCP `impact`, or a command in backticks (`changed --range x`);
-# `path:line: …` is an answer's shape, not the tool
-MENTION = re.compile(r'`(?:axiomcode[ _])?' + VERB + r'(?:[ \t][^`\n]*)?`|\baxiomcode_' + VERB + r'\b')
+VERB = r'(find|impact|path|tests)'
+# a tool named: a call `impact(`, the Claude Code name mcp__plugin_axiomcode_axiomcode__impact, MCP `impact`, or a command
+# in backticks (`axiomcode impact x`); `path:line: …` is an answer's shape, not the tool
+MENTION = re.compile(r'`(?:axiomcode )?' + VERB + r'(?:[ \t][^`\n]*)?`|\bmcp__plugin_axiomcode_axiomcode__' + VERB + r'\b'
+                     r'|(?<![\w./-])' + VERB + r'\(')
 # between two tools of one group: commas, "and", "or", a middle dot, a slash
 JOIN = re.compile(r'^(?:[\s,·/]|\band\b|\bor\b)*$')
 ARG = re.compile(r'(?<![\w.$\-])([a-z_][a-z0-9_]*)=(?!=)("[^"]*"|\'[^\']*\'|\[[^\]]*\]|[^\s`),;]*)')
@@ -52,11 +53,11 @@ def documented(text):
     """(tool names or None, argument, value, the unit) for every argument documented for an MCP tool"""
     rows = []
     for u in units(text):
-        if 'MCP' not in u and 'axiomcode_' not in u:
+        if 'MCP' not in u and 'mcp__plugin_axiomcode' not in u and not re.search(r'(?<![\w./-])' + VERB + r'\(', u):
             continue
         groups = []                                         # [(start, end, {tools})]
         for m in MENTION.finditer(u):
-            tool = 'axiomcode_' + (m.group(1) or m.group(2)).replace('-', '_')
+            tool = m.group(1) or m.group(2) or m.group(3)
             if groups and JOIN.match(u[groups[-1][1]:m.start()]):
                 groups[-1] = (groups[-1][0], m.end(), groups[-1][2] | {tool})
             else:
@@ -115,21 +116,21 @@ def schemas():
 def controls(tools):
     """the reader itself: a wrong argument is caught, a right one is not, and a group binds every tool in it"""
     bad = []
-    fake = {'axiomcode_impact': {'targets': {}, 'limit': {}}, 'axiomcode_path': {'limit': {}, 'full': {'type': 'boolean'}},
-            'axiomcode_context': {'task': {}}}
+    fake = {'impact': {'name': {}}, 'path': {'start': {}, 'end': {}}, 'tests': {}}
     cases = [('MCP `impact` with `full=True`.', 1),                           # the argument the tool lacks
-             ('MCP `impact` with `limit=5`.', 0),                             # the near miss: it has it
-             ('The MCP `impact` and `path` answer; `limit=N` lists more.', 0),
-             ('The MCP `path`, `impact` and `context`: `limit=N` lists more.', 1),   # context lacks it
-             ('`axiomcode_context` with source=True, `axiomcode_path` for A to B.', 1),
+             ('MCP `impact` with `name=X`.', 0),                              # the near miss: it has it
+             ('`path(start="a", end="b")` answers.', 0),
+             ('The MCP `impact` and `path` answer; `start=a`.', 1),           # impact lacks it
+             ('`impact(name="x", limit=5)` lists more.', 1),
+             ('mcp__plugin_axiomcode_axiomcode__tests with why=True.', 1),
              ('ask with `--fresh` (MCP `fresh=true`).', 1),                  # no tool named
-             ('`path:line: code` then MCP `limit=3`.', 1),                    # an answer's shape is not the tool
+             ('`path:line: code` then MCP `name=3`.', 1),                     # an answer's shape is not the tool
              ('A paragraph without the protocol: `timeout=14`.', 0)]           # not about MCP at all
     for text, want in cases:
         got = len(mismatches(documented(text), fake, 'control'))
         if got != want:
             bad.append(f"control {text!r}: {got} mismatch(es), want {want}")
-    if not {'axiomcode_impact', 'axiomcode_context', 'axiomcode_path'} <= set(tools):
+    if set(tools) != {'impact', 'path', 'tests'}:
         bad.append(f"the server listed {sorted(tools)}; the MCP tools were not read")
     return bad
 
@@ -138,14 +139,13 @@ def main():
     tools = schemas()
     bad = controls(tools)
     seen = set()
-    for path in DOCS:
-        rel = os.path.relpath(path, ROOT)
-        rows = documented(open(path, encoding='utf-8').read())
+    for path, text in [(p, open(p, encoding='utf-8').read()) for p in DOCS]:
+        rel = os.path.relpath(path, ROOT) if os.path.isabs(path) else path
+        rows = documented(text)
         seen |= {(t, a) for ts, a, _v, _u in rows if ts for t in ts}
         bad += mismatches(rows, tools, rel)
     # not a vacuous pass: the arguments the docs are known to teach were found and checked
-    for want in (('axiomcode_impact', 'full'), ('axiomcode_context', 'source'), ('axiomcode_context', 'limit'),
-                 ('axiomcode_impact', 'page'), ('axiomcode_changed', 'range'), ('axiomcode_test_impact', 'files')):
+    for want in (('impact', 'name'), ('path', 'start'), ('path', 'end')):
         if want not in seen:
             bad.append(f"the docs' {want[0]} {want[1]}= was not found, so the reader missed it")
     print(f"{len(DOCS)} doc(s), {len(seen)} documented (tool, argument) pair(s) checked against {len(tools)} tool schema(s)")

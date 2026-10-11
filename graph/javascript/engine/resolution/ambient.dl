@@ -73,6 +73,26 @@ modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_
     expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "Object", recv).
 modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "_extend", _, _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, recv), expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "util", recv).
+// `promisify(f)` is f behind a transparent wrapper (value-flow.dl): its value is what f holds.
+modelled_platform_call(ce) :- promisify_call(ce).
+// promisify_call(Call): the core `util` module's `promisify`, as a name imported from it
+// (`const { promisify } = require('util')`, `import { promisify } from 'node:util'`) or as
+// a member of it (`util.promisify(f)` with `util` bound to the module, `require('util').promisify(f)`).
+// Recognised on the import rows and the binder, never by the name alone: a project's own
+// `promisify` is an ordinary function and resolves as one.
+promisify_call(ce) :- call_site(_, "FUNCTION_CALL", "promisify", _, _, _, ce, _, _),
+    expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c), var_import(_, imp, v),
+    import_decl(_, spec, _, _, "promisify", _, "RESOLVED_BUILTIN", _, imp), util_module(spec).
+promisify_call(ce) :- call_site(_, "METHOD_CALL", "promisify", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r), var_import(_, imp, v),
+    import_decl(_, spec, _, bf, _, _, "RESOLVED_BUILTIN", _, imp), import_binds_whole_module(bf), util_module(spec).
+promisify_call(ce) :- call_site(_, "METHOD_CALL", "promisify", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "MODULE_EDGE_CALL", _, r), expr_module_edge(_, imp, r),
+    import_decl(_, spec, _, _, _, _, "RESOLVED_BUILTIN", _, imp), util_module(spec).
+import_binds_whole_module("DEFAULT").
+import_binds_whole_module("NAMESPACE").
+util_module("util").
+util_module("node:util").
 // The Object statics whose result frameworks.dl gives a value of its own.
 modelled_object_method("assign").
 modelled_object_method("create").

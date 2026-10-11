@@ -15,7 +15,7 @@ the compile it replaces cost 45 s and more on the first question. `axiomcode ind
 starts, in parallel with the engine, so normally they are done before the graph is published.
 
 What this buys is the COMPILE STEP, not query speed: on a 5 MB fact set the binary ran the same program in 1.3 s
-against the interpreter's 2.5 s, but on apache/rocketmq (2,265 files, 184k edges) a query took 22.5 s compiled and
+against the interpreter's 2.5 s, but on a large Java message broker (184k edges) a query took 22.5 s compiled and
 19.4 s interpreted — there, loading the facts dominates and the binary wins nothing. Do not quote a speed-up
 without saying which graph it was measured on.
 

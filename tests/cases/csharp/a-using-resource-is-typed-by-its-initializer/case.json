@@ -1,0 +1,11 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a using statement's resource is typed by its initializer: `using (var w = new Writer())` then w.Write",
+   "run": ["impact", "Writer.Write"],
+   "want": ["[resolved] Jobs.Statement"]},
+  {"why": "a using declaration likewise: `using var w = new Writer();`",
+   "run": ["impact", "Writer.Write"],
+   "want": ["[resolved] Jobs.Declaration"]},
+  {"why": "control: a foreach variable is not typed as the collection it iterates",
+   "run": ["impact", "Shelf.Read"],
+   "avoid": ["[resolved] Jobs.Loop"]}]}

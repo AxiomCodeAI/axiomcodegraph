@@ -1,0 +1,15 @@
+ambiguous_unknown	method	app.init.AppInit#onStartup(Set,ServletContext) -> -
+ambiguous_unknown	new	app.init.BootConfig#bootServlet() -> -
+boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addFilter
+boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addListener
+boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addServlet
+boundary_lib	method	app.rs.Size#valueOf(String) -> external:java.lang.Integer.parseInt
+callback_registered	callback	app.init.AppInit#onStartup(Set,ServletContext) -> app.init.InitFilter#doFilter(ServletRequest,ServletResponse,FilterChain)
+known_edge	method	app.init.AppInit#wire(EventBus) -> app.init.EventBus#addListener(Class)
+known_edge	new	app.beans.AppConfig#plain() -> app.beans.Plain#<init>()
+known_edge	new	app.beans.AppConfig#pool() -> app.beans.Pool#<init>()
+known_edge	new	app.init.AppInit#onStartup(Set,ServletContext) -> app.init.InitFilter#<init>()
+known_edge	new	app.init.BootConfig#bootServlet() -> app.init.BootServlet#<init>()
+known_edge	new	app.jpa.PriceConverter#convertToEntityAttribute(Long) -> app.jpa.Price#<init>(long)
+known_edge	new	app.rs.Size#valueOf(String) -> app.rs.Size#<init>(int)
+known_edge	new	app.rs.Weight#valueOf(String) -> app.rs.Weight#<init>()

@@ -1,0 +1,9 @@
+86-keyed-callback-registry [fields]
+  precision 0.9167   (11 correct, 1 wrong)
+  recall    0.9167   (11 of 12 the compiler resolved)
+  sites 36   resolved 35 (97.2%)
+  tiers ambiguous_unknown=1  known_edge=35
+  access read=36
+  not scored: 20 rows whose target is not a client declaration
+    WRONG   app#relay({ type: string }) READ { type: string }#type
+    MISSING app#relay({ type: string }) READ app#type

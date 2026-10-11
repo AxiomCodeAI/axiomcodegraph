@@ -1,0 +1,22 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "JavaScript: an untyped parameter is the decider of a name-match; a field assigned in the constructor decides nothing that is resolved",
+   "run": [
+    "impact",
+    "js/store.js:2",
+    "--evidence",
+    "--grep"
+   ],
+   "want": [
+    "decided  L11: cached(res) {  [param]",
+    "decided  L16: export function remote(api) {  [param]"
+   ],
+   "avoid": [
+    "this.shelf = new Shelf()"
+   ]
+  }
+ ]
+}

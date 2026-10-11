@@ -12,12 +12,55 @@ main.js:12:86 METHOD_CALL https.request(o).on('error', () => {}).destroy  ->  am
 main.js:13:29 CONSTRUCTOR_CALL Transform  ->  ambient_terminal  -
 main.js:13:29 CONSTRUCTOR_CALL Transform  ->  callback_registered  main.js:8:1 transform
 main.js:14:32 FUNCTION_CALL localWalk  ->  known_edge  main.js:9:1 localWalk
-main.js:15:19 FUNCTION_CALL direct  ->  known_edge  main.js:10:1 direct
-main.js:15:29 FUNCTION_CALL viaVar  ->  known_edge  main.js:11:1 viaVar
-main.js:15:39 FUNCTION_CALL viaPlatform  ->  known_edge  main.js:12:1 viaPlatform
-main.js:15:54 FUNCTION_CALL viaCtor  ->  known_edge  main.js:13:1 viaCtor
-main.js:15:65 FUNCTION_CALL viaProject  ->  known_edge  main.js:14:1 viaProject
-main.js:16:1 FUNCTION_CALL main  ->  known_edge  main.js:15:1 main
+main.js:18:15 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:19:14 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:20:65 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:20:95 METHOD_CALL schema[k].default  ->  ambiguous_unknown  -
+main.js:22:13 FUNCTION_CALL defineConfig  ->  known_edge  main.js:20:1 defineConfig
+main.js:23:31 METHOD_CALL cache.get  ->  ambient_terminal  -
+main.js:24:32 METHOD_CALL subs.has  ->  ambient_terminal  -
+main.js:25:74 METHOD_CALL subs.add  ->  ambient_terminal  -
+main.js:25:89 METHOD_CALL cache.set  ->  ambient_terminal  -
+main.js:27:25 METHOD_CALL assert.equal  ->  ambient_terminal  -
+main.js:27:60 FUNCTION_CALL lookup  ->  known_edge  main.js:23:1 lookup
+main.js:27:74 FUNCTION_CALL known  ->  known_edge  main.js:24:1 known
+main.js:27:95 FUNCTION_CALL walk  ->  boundary_lib  lib:index.js:2:1 walk
+main.js:28:23 FUNCTION_CALL setTimeout  ->  ambient_terminal  -
+main.js:28:23 FUNCTION_CALL setTimeout  ->  callback_registered  main.js:28:34 <arrow>
+main.js:28:40 FUNCTION_CALL keep  ->  known_edge  main.js:5:1 keep
+main.js:28:50 METHOD_CALL [1].forEach  ->  ambient_terminal  -
+main.js:28:50 METHOD_CALL [1].forEach  ->  callback_registered  main.js:6:1 visit
+main.js:32:19 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:33:29 METHOD_CALL byPattern.get  ->  ambient_terminal  -
+main.js:33:61 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:33:72 METHOD_CALL byPattern.set  ->  ambient_terminal  -
+main.js:33:95 METHOD_CALL s.add  ->  ambient_terminal  -
+main.js:35:122 METHOD_CALL bus.emit  ->  ambient_terminal  -
+main.js:35:179 FUNCTION_CALL h  ->  ambient_terminal  -
+main.js:35:179 FUNCTION_CALL h  ->  multi_inferred  main.js:26:1 onUpdated
+main.js:35:84 FUNCTION_CALL matchesKey  ->  known_edge  main.js:34:1 matchesKey
+main.js:36:20 FUNCTION_CALL on  ->  callback_registered  main.js:26:1 onUpdated
+main.js:36:20 FUNCTION_CALL on  ->  known_edge  main.js:33:1 on
+main.js:36:40 FUNCTION_CALL deliver  ->  known_edge  main.js:35:1 deliver
+main.js:37:115 FUNCTION_CALL viaTimer  ->  known_edge  main.js:28:1 viaTimer
+main.js:37:127 FUNCTION_CALL bus  ->  known_edge  main.js:36:1 bus
+main.js:37:131 CONSTRUCTOR_CALL (require('events'))  ->  ambient_terminal  -
+main.js:37:19 FUNCTION_CALL direct  ->  known_edge  main.js:10:1 direct
+main.js:37:29 FUNCTION_CALL viaVar  ->  known_edge  main.js:11:1 viaVar
+main.js:37:39 FUNCTION_CALL viaPlatform  ->  known_edge  main.js:12:1 viaPlatform
+main.js:37:54 FUNCTION_CALL viaCtor  ->  known_edge  main.js:13:1 viaCtor
+main.js:37:65 FUNCTION_CALL viaProject  ->  known_edge  main.js:14:1 viaProject
+main.js:37:79 FUNCTION_CALL check  ->  known_edge  main.js:27:1 check
+main.js:37:85 FUNCTION_CALL subscribe  ->  callback_registered  main.js:26:1 onUpdated
+main.js:37:85 FUNCTION_CALL subscribe  ->  known_edge  main.js:25:1 subscribe
+main.js:38:1 FUNCTION_CALL main  ->  known_edge  main.js:37:1 main
+main.js:41:16 FUNCTION_CALL walk  ->  boundary_lib  lib:index.js:2:1 walk
+main.js:41:16 FUNCTION_CALL walk  ->  callback_registered  main.js:41:21 <arrow>
+main.js:41:33 FUNCTION_CALL migrate  ->  known_edge  main.js:40:1 migrate
+main.js:42:18 FUNCTION_CALL walk  ->  boundary_lib  lib:index.js:2:1 walk
+main.js:43:25 METHOD_CALL walk.register  ->  ambiguous_unknown  -
+main.js:43:25 METHOD_CALL walk.register  ->  callback_registered  main.js:41:21 <arrow>
+main.js:43:48 METHOD_CALL walk.register  ->  ambiguous_unknown  -
 main.js:8:38 FUNCTION_CALL cb  ->  ambiguous_unknown  -
 main.js:9:42 METHOD_CALL items.map  ->  ambient_terminal  -
 main.js:9:42 METHOD_CALL items.map  ->  callback_registered  main.js:9:52 <arrow>

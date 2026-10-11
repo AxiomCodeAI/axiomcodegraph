@@ -1,0 +1,12 @@
+── framework_edge (6) ──
+  signal_dispatch    registered  orders.close (orders.py) -> handlers.on_closed (handlers.py)   [signal]
+  signal_dispatch    registered  orders.pay (orders.py) -> handlers.on_paid (handlers.py)   [signal]
+  signal_dispatch    registered  orders.place (orders.py) -> handlers.audit (handlers.py)   [signal]
+  signal_dispatch    registered  orders.place (orders.py) -> handlers.on_placed (handlers.py)   [signal]
+  signal_dispatch    registered  orders.ship (orders.py) -> handlers.audit (handlers.py)   [signal]
+  signal_dispatch    registered  orders.ship (orders.py) -> handlers.on_shipped_attr (handlers.py)   [signal]
+── framework_unjoined (2) ──
+     2  signal_dispatch    no_receiver
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

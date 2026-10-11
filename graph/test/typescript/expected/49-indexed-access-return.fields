@@ -1,2 +1,5 @@
 known_edge	read	main#getDog() -> Zoo#dog
+known_edge	read	main#getDog() -> main#zoo
 known_edge	read	main#getDogPlain() -> Zoo#dog
+known_edge	read	main#getDogPlain() -> main#zoo
+known_edge	read	main#pick(T) -> main#zoo

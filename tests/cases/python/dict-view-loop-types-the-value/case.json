@@ -1,0 +1,17 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "`for k, v in self.dump_fields.items()` with `dump_fields: dict[str, Field]`: v is a Field (the VALUE of each item), so v.serialize() resolves",
+   "run": ["impact", "serialize_field", "--tests"],
+   "want": ["test_dump.py"],
+   "avoid": ["test_load.py", "test_keys.py"]},
+  {"why": "`for f in self.load_fields.values()`: f is a Field",
+   "run": ["impact", "deserialize_field", "--tests"],
+   "want": ["test_load.py"],
+   "avoid": ["test_dump.py"]},
+  {"why": "`.keys()` yields the KEY type: k.upper() on a dict[Name, int] is Name.upper",
+   "run": ["impact", "key_upper", "--tests"],
+   "want": ["test_keys.py"]},
+  {"why": "CONTROL: an item's first slot is the key, never the value: in `for name, count in names.items()` nothing calls Field",
+   "run": ["impact", "describe_field", "--tests"],
+   "want": ["tests: 0 of"],
+   "avoid": ["test_keys.py", "test_dump.py"]}]}
