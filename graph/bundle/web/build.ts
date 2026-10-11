@@ -205,6 +205,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     return abs.split(path.sep).join('/');
   };
   const isDir = (abs: string): boolean => { try { return fs.statSync(abs).isDirectory(); } catch { return false; } };
+  /** an unresolved local URL whose file IS on disk was not read by the walk (a skipped directory): not_indexed */
+  const onDiskReason = (reason: string, fromAbs: string, urlPath: string, urlKind: string): string => {
+    if (reason !== 'unresolved_url' || !urlPath || !fromAbs || (urlKind !== 'RELATIVE' && urlKind !== 'ROOT_RELATIVE')) return reason;
+    const p0 = urlPath.split(/[?#]/)[0]!;
+    const cand = urlKind === 'ROOT_RELATIVE' ? path.join(root, p0) : path.join(path.dirname(fromAbs), p0);
+    return onDisk(cand) ? 'not_indexed' : reason;
+  };
   const onDisk = (abs: string): boolean => { try { return abs !== '' && fs.statSync(abs).isFile(); } catch { return false; } };
   const unknownRow = (kind: string, node: string | null, page: string | null, reason: string, detail: string | null, file: string | null, line: number | null) =>
     out('web_unknown').push({ kind, node_uid: node, page_uid: page, reason, detail, file, line });
@@ -561,7 +568,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const parts = importParts(n.prelude);
     const vid = vr ? g(T.vref, vr, 'cssValueReferenceUniqueHash') : '';
     n.import = { to: importTo.get(vid) ?? null, vref: vid, media: parts.media, supports: parts.supports, layer: parts.layer,
-      url: vr ? g(T.vref, vr, 'name') : n.prelude, reason: importTo.has(vid) ? null : (importUnknown.get(vid) ?? 'unresolved_url') };
+      url: vr ? g(T.vref, vr, 'name') : n.prelude, reason: importTo.has(vid) ? null : onDiskReason(importUnknown.get(vid) ?? 'unresolved_url', s.abs, vr ? g(T.vref, vr, 'name') : '', vr ? g(T.vref, vr, 'urlKind') : '') };
     out('web_imports').push({ from_stylesheet_uid: s.id, to_stylesheet_uid: n.import.to, value_ref_uid: nz(vid), url_as_written: n.import.url,
       status: n.import.to ? 'match' : 'unknown', reason: n.import.to ? null : n.import.reason });
   }
@@ -608,7 +615,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const sid = sheetOfRef.get(refId);
         if (sid) pushSheet(sid, 'link', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, disabled, new Set([sid]));
         else rows.push({ page_uid: page.id, stylesheet_uid: null, url_as_written: g(T.ref, r, 'urlAsWritten'), via: 'link', via_uid: e.id, load_order: null, import_depth: 0,
-          media: nz(e.attrs.get('media')?.value ?? ''), layer: null, status: 'unknown', reason: linkUnknownOf.get(refId) ?? 'unresolved_url' });
+          media: nz(e.attrs.get('media')?.value ?? ''), layer: null, status: 'unknown', reason: onDiskReason(linkUnknownOf.get(refId) ?? 'unresolved_url', page.abs, g(T.ref, r, 'path'), g(T.ref, r, 'urlKind')) });
       }
     }
     for (const row of rows) {
