@@ -983,7 +983,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       element_uid: attrId ? attrOwner.get(attrId) ?? null : null, stylesheet_uid: nz(sheetId), page_uid: page, file: attrId ? (page ? fileOfPage(page) : null) : sheetFile(sheetId),
       line: num(g(T.decl, r, 'startLine')), col: num(g(T.decl, r, 'startColumn')), end_line: num(g(T.decl, r, 'endLine')), end_col: num(g(T.decl, r, 'endColumn')),
       property: g(T.decl, r, 'property'), value_text: nz(unesc(g(T.decl, r, 'valueText')).replace(/\/\*[\s\S]*?\*\//g, '').trim()), is_important: bool(g(T.decl, r, 'isImportant')),
-      is_custom: bool(g(T.decl, r, 'isCustomProperty')), vendor_prefix: nz(g(T.decl, r, 'vendorPrefix')), position: num(g(T.decl, r, 'position')) });
+      is_custom: bool(g(T.decl, r, 'isCustomProperty')), vendor_prefix: nz(g(T.decl, r, 'vendorPrefix')), position: num(g(T.decl, r, 'position')),
+      value_bytes: num(g(T.decl, r, 'valueBytes')), value_truncated: bool(g(T.decl, r, 'valueTruncated')) });
+    // V2-12: a value over 64 KiB is cut, a listed LIMIT
+    if (g(T.decl, r, 'valueTruncated') === 'true') unknownRow('limit', g(T.decl, r, 'cssDeclarationUniqueHash'), page || null, 'value_truncated',
+      `${g(T.decl, r, 'property')}: ${g(T.decl, r, 'valueBytes')} bytes`, attrId ? (page ? fileOfPage(page) : null) : sheetFile(sheetId), num(g(T.decl, r, 'startLine')));
   }
 
   // value references; the vendor system-font aliases name no font (V1-21 ruling): no value_ref, no font_use
@@ -1112,7 +1116,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     out('web_rules').push({ uid: n.id, stylesheet_uid: n.sheet, parent_uid: nz(n.parent), file: sheetFile(n.sheet), line: n.line, col: n.col,
       end_line: num(g(T.rule, r, 'endLine')), end_col: num(g(T.rule, r, 'endColumn')), rule_kind: n.kind, at_rule_name: nz(n.at), name: nz(n.name), prelude_text: nz(n.prelude),
       nesting_depth: num(g(T.rule, r, 'nestingDepth')), position: num(g(T.rule, r, 'position')), rule_order: n.order, layer: nz(n.layer),
-      conditions: n.conditions.length ? n.conditions.join(' && ') : null, in_keyframes: n.matchable ? 0 : 1, important_count: n.important });
+      conditions: n.conditions.length ? n.conditions.join(' && ') : null, in_keyframes: n.matchable ? 0 : 1, important_count: n.important,
+      prelude_bytes: num(g(T.rule, r, 'preludeBytes')), prelude_truncated: bool(g(T.rule, r, 'preludeTruncated')) });
+    if (g(T.rule, r, 'preludeTruncated') === 'true') unknownRow('limit', n.id, null, 'prelude_truncated', `${g(T.rule, r, 'preludeBytes')} bytes`, sheetFile(n.sheet), n.line);
   }
   const partsOf = new Map<string, PartRow[]>();
   const partRaw = new Map<PartRow, string[]>();
@@ -1296,7 +1302,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           if (wi < 0) status = ks.some((k) => k.st === 1) ? 'conditional_only' : 'unknown';
           const w = wi >= 0 ? ks[wi]! : null;
           const above = wi >= 0 ? ks.slice(0, wi) : ks;
-          const condOver = above.filter((k) => k.st === 1).length;
+          // V2-13 ruling: contenders = every declaration of the property that applies (any condition, the winner
+          // included); conditional_overrides = the conditional ones among them
+          const condOver = ks.filter((k) => k.st === 1).length;
           if (status === 'match' && above.some((k) => k.st === 2)) status = 'unknown';
           let override: K | null = null;
           if (w) for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;

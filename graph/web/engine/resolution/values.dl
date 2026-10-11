@@ -7,7 +7,7 @@
 
 // A declaration defines custom property `name` (`--x: …`). (declaration, name)
 web_defines_var(decl, name) :-
-  css_declaration(name, _, _, "true", _, _, _, _, _, _, _, _, _, _, decl).
+  css_declaration(name, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, decl).
 
 // A var(--x) use. (value reference, name, owning declaration)
 web_uses_var(vref, name, decl) :-

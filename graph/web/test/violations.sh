@@ -310,5 +310,34 @@ H
     "$(sqlite3 "$db" "SELECT count(*) >= 2 AND sum(usage = 'not_loaded') = count(*) FROM web_selectors")" "1"
 fi
 
+if want V2-12; then
+  # no 1,024-character cap: a long selector list and a multi-line value are kept in full, whitespace as written, with
+  # their sizes; only past 64 KiB is a value cut, and that is a listed LIMIT row
+  mkdir -p "$T/v212/src"
+  echo '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><p class="s1">x</p></body></html>' > "$T/v212/src/index.html"
+  python3 - "$T/v212/src/s.css" <<'PY'
+import sys
+sels = ', '.join(f'.s{i}' for i in range(1, 400))
+big = 'a' * 70000
+open(sys.argv[1], 'w').write(sels + ' { color: red }\n.f { filter: progid:X.Y(\n\t M11=1, M12=0) }\n.b { background-image: url("data:,' + big + '") }\n')
+PY
+  db=$(build v212) && {
+    eq "V2-12 the prelude is kept in full (> 1,024 characters)" "$(sqlite3 "$db" "SELECT length(prelude_text) = prelude_bytes AND prelude_bytes > 2000 AND prelude_truncated = 0 FROM web_rules WHERE prelude_text LIKE '.s1,%'")" "1"
+    eq "V2-12 a multi-line value keeps its line break" "$(sqlite3 "$db" "SELECT instr(value_text, char(10)) > 0 FROM web_declarations WHERE property = 'filter'")" "1"
+    eq "V2-12 a value over 64 KiB is cut and listed" "$(sqlite3 "$db" "SELECT d.value_truncated || ':' || (d.value_bytes > 65536) || ':' || count(u.node_uid) FROM web_declarations d LEFT JOIN web_unknown u ON u.node_uid = d.uid AND u.kind = 'limit' AND u.reason = 'value_truncated' WHERE d.property = 'background-image'")" "1:1:1"
+  }
+fi
+
+if want V2-13; then
+  # contenders = every applying DECLARATION of the property, the winner included (one declaration reached through two
+  # selectors counts once); conditional_overrides = the conditional ones among them, also those ranked BELOW the winner
+  put "$T/v213/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><button id="b" class="ui-button">b</button></body></html>
+H
+  printf '.ui-button:focus { background: #aaa }\n.ui-state-hover, .ui-button:hover, .ui-button { background: #ccc }\n#b.ui-button { background: #ddd }\n' > "$T/v213/src/s.css"
+  db=$(build v213) && eq "V2-13 background: 3 declarations, 1 conditional (below the winner)" \
+    "$(sqlite3 "$db" "SELECT contenders || '/' || conditional_overrides || '/' || value_text FROM web_computed WHERE property = 'background'")" "3/1/#ddd"
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

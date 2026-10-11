@@ -92,7 +92,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
     name: 'web_rules',
     description: 'One rule: a style rule or an at-rule. `rule_order` is its 1-based pre-order position in its sheet; `layer` the dotted cascade layer it sits in (empty: unlayered); `conditions` `usage` the best of its selectors\' usage (matched > conditional_only > unknown_only > unmatched_static > not_loaded; NULL without element selectors); the enclosing @media/@supports/@container/@scope/@starting-style/@document preludes, outermost first, joined by \' && \'; `in_keyframes` = 1 for a block inside @keyframes/@font-face/@page… (its selectors style no element).',
     columns: [id('uid'), id('stylesheet_uid'), id('parent_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'), t('rule_kind'), t('at_rule_name'), id('name'),
-      t('prelude_text'), i('nesting_depth'), i('position'), i('rule_order'), t('layer'), t('conditions'), i('in_keyframes'), i('important_count'), t('usage')],
+      t('prelude_text'), i('nesting_depth'), i('position'), i('rule_order'), t('layer'), t('conditions'), i('in_keyframes'), i('important_count'), t('usage'), i('prelude_bytes', 'the prelude\'s UTF-8 size'), i('prelude_truncated', '1 when the prelude is over 64 KiB and was cut (V2-12)')],
   },
   {
     name: 'web_selectors',
@@ -115,7 +115,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
     name: 'web_declarations',
     description: 'One declaration, in a rule (`rule_uid`) or a style="" attribute (`attribute_uid`, `element_uid`).',
     columns: [id('uid'), id('rule_uid'), id('attribute_uid'), id('element_uid'), ref('stylesheet_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'),
-      id('property'), t('value_text'), i('is_important'), i('is_custom'), t('vendor_prefix'), i('position')],
+      id('property'), t('value_text'), i('is_important'), i('is_custom'), t('vendor_prefix'), i('position'), i('value_bytes', 'the value\'s UTF-8 size'), i('value_truncated', '1 when the value is over 64 KiB and was cut (a listed LIMIT, V2-12); value_text otherwise holds it in full, whitespace as written')],
   },
   {
     name: 'web_value_refs',
