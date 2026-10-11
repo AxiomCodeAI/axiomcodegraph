@@ -69,7 +69,8 @@ const VOID_ELEMENTS = new Set([
 ]);
 
 /** Elements whose content is text with character references and no markup (RCDATA). */
-const RCDATA_ELEMENTS = new Set(['title', 'textarea']);
+// `xmp` and `plaintext` hold raw text as `textarea` does: what looks like markup inside them is shown, not built (C-02)
+const RCDATA_ELEMENTS = new Set(['title', 'textarea', 'xmp', 'plaintext']);
 
 const URL_ATTRIBUTES = new Set([
   'src', 'href', 'action', 'formaction', 'poster', 'cite', 'manifest', 'ping', 'background', 'longdesc',
@@ -218,7 +219,11 @@ export class HtmlParser {
  * the grammar only, and names are read from the original text at the node's offsets.
  */
 function sanitiseForGrammar(text: string): string {
-  return text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase());
+  // A `<` THAT OPENS NOTHING (C-01, #1909): in HTML a `<` is a tag only before a letter, `/`, `!` or `?`; anywhere else
+  // (`v < list.length` in a code sample shown as text) it is text. `<%` is left alone: a template tag the walk reads. The grammar took `< cur` for a start tag, which then
+  // swallowed the next real tag's attributes and lost it (79 elements on one documentation page). Such a `<` becomes
+  // U+2039 for the grammar only, one code unit as `<` is; text is read from the source.
+  return text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase()).replace(/<(?![A-Za-z/!?%])/g, '\u2039');
 }
 
 /** One attribute as written: its name, its decoded value, and where it sits. */
@@ -385,7 +390,7 @@ class Walk {
     const lifted = childNamespace === HtmlNamespace.HTML
       ? this.withoutIgnoredStartTags(children.filter((c) => ELEMENT_TYPES.has(c.type)), openTags)
       : { elements: children.filter((c) => ELEMENT_TYPES.has(c.type)), ignored: [] };
-    const elementChildren = lifted.elements;
+    const elementChildren = this.treeConstructionRepairs(node, lower, ownNamespace, lifted.elements);
     const start = this.lines.positionOf(node.startIndex);
     const end = this.lines.positionOf(isVoid ? tagNode.endIndex : node.endIndex);
     const attributes = readAttributes(node, this.content, this.flavour);
@@ -447,6 +452,53 @@ class Walk {
       this.style(node, row, attributes, tagNode);
     }
     return { row, children: elementChildren, childNamespace, childOpen };
+  }
+
+  /** An `<a>`'s element children are cut at this many (C-03): the rest were moved out to follow it. Keyed by start offset. */
+  private readonly anchorCut = new Map<number, number>();
+  /** Elements written after `</body>` that a browser puts at the end of the body (C-03). Keyed by the body's start offset. */
+  private readonly bodyTail = new Map<number, SyntaxNode[]>();
+
+  /**
+   * BROWSER TREE CONSTRUCTION, THE REPAIRS THAT MATTER FOR MATCHING (C-03, G4, #1909). tree-sitter-html builds the tree
+   * as written; a browser does not, and a selector is matched against the browser's tree.
+   * - An `<a>` start tag while an `<a>` is open closes the open one: `<a><a class="in">x</a></a>` is two sibling
+   *   anchors. When a child `<a>` holds a direct child `<a>`, the outer one keeps the children before it, and the inner
+   *   one with everything after it follows the outer one in the same parent.
+   * - What is written after `</body>` (a late `<script>`) is put at the end of the body.
+   * The repairs the walk does not make (implied `tbody`, `<p>` closed by a block, misnested formatting elements) stay
+   * declared as G4.
+   */
+  private treeConstructionRepairs(node: SyntaxNode, lower: string, namespace: HtmlNamespace, children: SyntaxNode[]): SyntaxNode[] {
+    if (namespace !== HtmlNamespace.HTML) return children;
+    let out = children;
+    const cut = this.anchorCut.get(node.startIndex);
+    if (cut !== undefined) out = out.slice(0, cut);
+    const tail = this.bodyTail.get(node.startIndex);
+    if (tail !== undefined) out = [...out, ...tail];
+    if (lower === 'html') {
+      const b = out.findIndex((c) => tagNameOf(c, this.content)?.toLowerCase() === 'body');
+      if (b >= 0 && b < out.length - 1) {
+        const after = out.slice(b + 1).filter((c) => tagNameOf(c, this.content)?.toLowerCase() !== 'head');
+        if (after.length > 0) {
+          this.bodyTail.set(out[b]!.startIndex, [...(this.bodyTail.get(out[b]!.startIndex) ?? []), ...after]);
+          out = out.filter((c) => !after.includes(c));
+        }
+      }
+    }
+    const result: SyntaxNode[] = [];
+    for (const c of out) {
+      result.push(c);
+      if (tagNameOf(c, this.content)?.toLowerCase() !== 'a') continue;
+      const tagNode = openingTagOf(c); if (tagNode === undefined) continue;
+      const tagEnd = startTagEnd(this.content, tagNode);
+      const kids = contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= tagEnd && ELEMENT_TYPES.has(x.type));
+      const k = kids.findIndex((x) => tagNameOf(x, this.content)?.toLowerCase() === 'a');
+      if (k < 0) continue;
+      this.anchorCut.set(c.startIndex, k);
+      result.push(...kids.slice(k));
+    }
+    return result;
   }
 
   /**
