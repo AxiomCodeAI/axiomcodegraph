@@ -168,5 +168,67 @@ H
   }
 fi
 
+if want C-01; then
+  # a `<` that opens no tag is text: code shown in a page must not become an element that swallows the next real tag
+  put "$T/c01/src/index.html" <<'H'
+<!doctype html>
+<html><head><link rel="stylesheet" href="s.css"></head><body>
+<p>Example:</p>
+{% highlight js %}
+for (var v = 0; v < cur.length; v++) {
+  data.push({ id: cur[v] });
+}
+$("#s").select2({ x: 1 });
+{% endhighlight %}
+<p class="a">one</p>
+<p class="b">two</p>
+</body></html>
+H
+  printf '.a{color:red}\n' > "$T/c01/src/s.css"
+  db=$(build c01) && {
+    eq "C-01 elements are the written ones only" "$(sqlite3 "$db" "SELECT group_concat(tag_name, ',') FROM (SELECT tag_name FROM web_elements ORDER BY line, col)")" "html,head,link,body,p,p,p"
+    eq "C-01 .a styles the real p.a" "$(sqlite3 "$db" "SELECT group_concat(e.tag_name || ':' || e.line) FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid")" "p:10"
+  }
+fi
+
+if want C-02; then
+  # markup inside <xmp> and <textarea> is shown, not built; inside <pre> a second <html>/<head>/<body> is ignored
+  put "$T/c02/src/index.html" <<'H'
+<!doctype html>
+<html><head><link rel="stylesheet" href="s.css"></head><body>
+<xmp><div class="x">shown</div></xmp>
+<textarea><div class="x">shown</div></textarea>
+<pre><!DOCTYPE html><html><head></head><body><div class="x">built</div></body></html></pre>
+</body></html>
+H
+  printf '.x{color:red}\n' > "$T/c02/src/s.css"
+  db=$(build c02) && {
+    eq "C-02 only the div inside <pre> is an element (.x styles one)" "$(sqlite3 "$db" "SELECT count(*) || ':' || group_concat(p.tag_name) FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid JOIN web_elements p ON p.uid = e.parent_uid")" "1:pre"
+    eq "C-02 one html, one head, one body" "$(sqlite3 "$db" "SELECT group_concat(tag_name || '=' || n) FROM (SELECT tag_name, count(*) n FROM web_elements WHERE tag_name IN ('html', 'head', 'body') GROUP BY 1 ORDER BY 1)")" "body=1,head=1,html=1"
+  }
+fi
+
+if want C-03; then
+  # nested <a> are two siblings; an element written after </body> ends the body
+  put "$T/c03/src/index.html" <<'H'
+<!doctype html>
+<html><head><link rel="stylesheet" href="s.css"></head><body>
+<a href="#a" class="out"><a href="#b" class="in">x</a></a>
+<div class="card">c</div>
+</body>
+<script>late();</script>
+</html>
+H
+  printf 'a a{color:red}\n.out + .in{color:blue}\nbody > script{display:none}\n' > "$T/c03/src/s.css"
+  db=$(build c03) && {
+    eq "C-03 a.in follows a.out; the script is the body's last child" \
+      "$(sqlite3 "$db" "SELECT group_concat(e.display || '<' || p.tag_name || '@' || e.position, ' ') FROM web_elements e JOIN web_elements p ON p.uid = e.parent_uid WHERE p.tag_name = 'body' ORDER BY e.position")" \
+      "a.out<body@0 a.in<body@1 div.card<body@2 script<body@3"
+    eq "C-03 styles: .out + .in and body > script match, a a does not" \
+      "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT s.selector_text || '=' || count(w.element_uid) x FROM web_selectors s LEFT JOIN web_styles w ON w.selector_uid = s.uid AND w.status = 'match' GROUP BY s.uid ORDER BY 1)")" \
+      ".out + .in=1 a a=0 body > script=1"
+  }
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]
