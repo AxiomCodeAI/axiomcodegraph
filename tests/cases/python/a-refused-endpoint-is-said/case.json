@@ -1,0 +1,45 @@
+{
+ "lang": "python",
+ "src": "src",
+ "checks": [
+  {
+   "why": "path with an endpoint nothing declares says so; the refusal reached the caller as nothing at all once the front door asked for --json",
+   "run": [
+    "path",
+    "main",
+    "NoSuchName"
+   ],
+   "expect_error": true,
+   "want": [
+    "nothing named 'NoSuchName'"
+   ],
+   "env": {
+    "AXIOMCODE_FRONT": "1"
+   }
+  },
+  {
+   "why": "the same refusal from the raw verb",
+   "run": [
+    "path",
+    "main",
+    "NoSuchName"
+   ],
+   "expect_error": true,
+   "want": [
+    "nothing named 'NoSuchName'"
+   ]
+  },
+  {
+   "why": "control: a path between two declared functions still answers",
+   "run": [
+    "path",
+    "main",
+    "helper"
+   ],
+   "want": [
+    "main \u2192 helper",
+    "\u2192 [known_edge"
+   ]
+  }
+ ]
+}

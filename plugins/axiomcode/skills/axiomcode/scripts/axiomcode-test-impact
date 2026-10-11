@@ -2386,4 +2386,17 @@ def _guess_lang(files):
 
 if __name__ == '__main__':
     import ax_pages; ax_pages.install('test-impact')  # pages and a next step (#1202)
+    if '--json' in sys.argv[1:]:
+        # an answer that selects nothing (no changed declaration the graph can name, no graph) is printed as prose;
+        # in --json mode it is a document too, with the prose kept, so stdout always parses
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try: code = main(sys.argv[1:])
+            except SystemExit as e: code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        text = buf.getvalue()
+        try: json.loads(text); sys.stdout.write(text)
+        except ValueError:
+            print(json.dumps({'changed': [], 'tests': [], 'prose': text.rstrip('\n').split('\n') if text.strip() else []}, indent=2))
+        sys.exit(code)
     sys.exit(main(sys.argv[1:]))

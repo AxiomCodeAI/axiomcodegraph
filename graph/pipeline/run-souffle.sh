@@ -392,14 +392,20 @@ esac
 # OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
 # 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
 # flavors; the bundle loads rows into sqlite, which keeps no order).
-# GATED PER PLATFORM. darwin-arm64's nondeterministic parallel segfaults — a different
-# rule each crash, g++/libgomp and apple-clang/libomp alike — were two weak-ordering
-# holes, both closed by the header overlay below: the write-entry RMW (seqlock-fix-1)
-# and the unfenced publication of freshly split btree nodes (seqlock-fix-2), which is
-# why the crashes needed memory pressure (a recycled page holds garbage where a fresh
-# one holds zeros). darwin-arm64 now runs parallel by default, like linux-x64; Linux
-# enables OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
-# anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
+# EVERY PLATFORM RUNS PARALLEL. darwin-arm64's nondeterministic parallel segfaults — a
+# different rule each crash, g++/libgomp and apple-clang/libomp alike — were weak-ordering
+# holes, all closed by the header overlay below: the write-entry RMW, the unfenced
+# publication of freshly split btree nodes (seqlock-fix-3) and a null child read by the
+# optimistic descent (seqlock-fix-4); the crashes needed memory pressure (a recycled page
+# holds garbage where a fresh one holds zeros). A LOCAL compile enables OpenMP when the
+# toolchain has it (probe_openmp). The PACKAGED engines (build-engines.yml) are parallel on
+# all five platforms, each linked so a stock machine runs it: linux libgomp.a by path,
+# darwin a libomp.a built for macOS 12 by path, win32 /openmp with vcomp140.dll (and any VC
+# runtime DLL it imports) shipped beside each engine (Windows loads a DLL from the exe's folder
+# first; the redistributable licence allows app-local copies). A .parallel marker beside
+# the binary says which flavor it is, and a packaged parallel engine always solves at -j 8,
+# with no switch. For a LOCAL compile only, AXIOM_SOLVE_PARALLEL=0 builds without OpenMP and
+# =1 forces the attempt (still needs a toolchain with OpenMP).
 # The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
 # answer with different row orders, and a cache hit must reproduce the flavor that ran
 # yesterday, not whichever compiled first.
@@ -624,10 +630,6 @@ probe_openmp(){
   esac
   return 1
 }
-# Default: Linux x86_64 only. The seqlock entry fix above repairs the diagnosed
-# ordering hole (quiet-machine runs went clean), but a residual crash mode remains on
-# arm64 under memory pressure, so weakly-ordered CPUs stay serial by default until it
-# is found; AXIOM_SOLVE_PARALLEL=1 opts any machine in for experiments.
 case "${AXIOM_SOLVE_PARALLEL:-}" in
   0) ;;
   1) if _OMP="$(probe_openmp)"; then
@@ -635,12 +637,12 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
      fi ;;
   "") # Parallel by default on every platform with evidence behind it. The two arm64
       # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
-      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
+      # the seqlock-fix-3/4 overlay, validated under load: darwin-arm64 10/10, linux-arm64
       # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
       # where neither hole is observable. Windows local compiles probe like the rest
-      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
-      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
-      # rollback to serial anywhere, no rebuild.
+      # (MSYS g++); packaged win32 engines carry MSVC /openmp from build-engines.yml,
+      # validated relation-identical to a serial build on a stock Windows.
+      # AXIOM_SOLVE_PARALLEL=0 keeps a LOCAL compile serial; a packaged engine has no switch.
       if _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
@@ -1040,11 +1042,17 @@ while [ "$iter" -lt 50 ]; do
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
-    # -j is passed ALWAYS (a serial binary ignores it silently — verified); more than one
-    # thread only for a binary of the parallel flavor: one this run compiled with OpenMP,
-    # or a packaged/cached one whose builder left a .parallel marker beside it.
+    # -j is passed ALWAYS (a serial binary ignores it); more than one thread only for a
+    # binary of the parallel flavor: one this run compiled with OpenMP, or a packaged/cached
+    # one whose builder left a .parallel marker beside it.
+    # A PACKAGED engine is the parallel flavor on every published platform and always runs
+    # with a fixed -j 8: no environment variable changes it, so every user's solve is the
+    # configuration the release validated (relation-identical to a serial build). Only a
+    # LOCAL compile keeps the probe, AXIOM_SOLVE_PARALLEL and AXIOMCODE_SOLVE_THREADS.
     SOLVE_J=1
-    if [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
+    if [ -n "$PACKAGED" ]; then
+      [ -f "$BIN.parallel" ] && SOLVE_J=8
+    elif [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
       cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
       SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
     fi

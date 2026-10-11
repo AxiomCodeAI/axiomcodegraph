@@ -4551,6 +4551,20 @@ def main(argv):
 if __name__ == '__main__':
     if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
     import ax_pages; ax_pages.install('impact')       # --page / --budget, and the answer printed in pages (#1198)
+    if '--json' in sys.argv[1:]:
+        # a refusal (a name nothing declares, a scope no file is in) leaves main() through die() as plain text: in
+        # --json mode it is answered as a document too, with the refusal as its prose, so stdout always parses
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try: code = main(sys.argv[1:])
+            except SystemExit as e: code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        text = buf.getvalue()
+        try: json.loads(text); sys.stdout.write(text)
+        except ValueError:
+            prose = text.rstrip('\n').split('\n') if text.strip() else []
+            print(json.dumps({'targets': [], 'refusal': prose[0] if prose else '', 'prose': prose}, indent=2))
+        sys.exit(code)
     code = main(sys.argv[1:])
     for repo, a, scope, why in STRING_TEXT: sys.stdout.flush(); ax_text.emit(repo, [a], scope, why=why)
     sys.exit(code)
