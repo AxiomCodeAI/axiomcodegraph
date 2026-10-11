@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<button @click.prevent="save">a</button>
+<input v-on:keyup.enter="submit()">
+<div v-on:[evt]="handle">c</div>
+<button (click)="go($event)">d</button>
+<input (keyup.enter)="find()">
+<button on-click="go2()">f</button>
+<button ng-click="vm.open()">g</button>
+<input ng-model="vm.q" ng-if="vm.on">
+<a data-ng-dblclick="vm.zoom()">z</a>
+<button on:click|preventDefault|once={toggle}>i</button>
+<button hx-on:click="alert(1)">j</button>
+<button hx-on-mouseenter="peek()">j2</button>
+<form hx-on::after-request="this.reset()">k</form>
+<div data-controller="menu" data-action="click->menu#toggle keydown.esc@window->menu#close menu#open">l</div>
+</body>
+</html>

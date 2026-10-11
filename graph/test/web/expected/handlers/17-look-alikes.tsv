@@ -1,0 +1,4 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/17-look-alikes   kinds: handler
+# shape: attributes that only look like handlers on a page with no Vue/Alpine dialect: data-on*, onboarding/once, on-<not an event>, a stray @ attribute, ng-if, a data-action without a # descriptor, handler text inside another attribute; exactly one real handler beside them
+handler	index.html:9:1	onclick	click	-	on_attribute	6	|real()

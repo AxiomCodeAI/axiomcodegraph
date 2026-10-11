@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/01-on-attribute-forms   kinds: handler
+# shape: legacy admin markup: on* attributes in every letter case, code verbatim (braces, entities, multiple lines), and attributes that only look like handlers
+handler	index.html:10:1	onMouseOver	mouseover	-	on_attribute	19	|hover(1);\n  track()
+handler	index.html:17:1	onkeyup	keyup	-	on_attribute	0	|
+handler	index.html:7:1	onclick	click	-	on_attribute	10	|if(x){y()}
+handler	index.html:8:1	onClick	click	-	on_attribute	1	|x
+handler	index.html:9:1	ONCLICK	click	-	on_attribute	9	|save("a")

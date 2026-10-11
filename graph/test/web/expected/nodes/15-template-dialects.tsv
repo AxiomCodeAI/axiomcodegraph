@@ -1,9 +1,9 @@
-# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
-# case: nodes/15-template-dialects   kinds: template_expr,event_handler
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: nodes/15-template-dialects   kinds: template_expr,handler
 # shape: Tailwind + Alpine dashboards: x-data, @click, :class, x-show; a Vue-style v-if; mustache text interpolation
-event_handler	index.html:4:3	@click	TEMPLATE_EVENT	click	open = !open; track('menu')
-event_handler	index.html:5:3	x-on:keydown.escape	TEMPLATE_EVENT	keydown	close
-event_handler	index.html:7:3	onclick	EVENT_ATTRIBUTE	click	toggle(); return false
+handler	index.html:4:3	@click	click	-	alpine	27	|open = !open; track('menu')
+handler	index.html:5:3	x-on:keydown.escape	keydown	escape	alpine	5	|close
+handler	index.html:7:3	onclick	click	-	on_attribute	22	|toggle(); return false
 template_expr	index.html:3:1	x-data	{ open: false }
 template_expr	index.html:4:3	:class	open ? 'on' : ''
 template_expr	index.html:4:3	@click	open = !open; track('menu')

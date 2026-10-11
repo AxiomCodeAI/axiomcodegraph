@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/04-alpine   kinds: handler
+# shape: Tailwind + Alpine dashboards: x-on with modifiers and the @ shorthand, which on an Alpine page is Alpine, not Vue
+handler	index.html:8:1	x-on:click.outside	click	outside	alpine	12	|open = false
+handler	index.html:9:1	@click	click	-	alpine	12	|open = !open

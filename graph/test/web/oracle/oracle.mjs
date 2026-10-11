@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
+import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
 
@@ -88,6 +89,8 @@ for (const page of pages) {
   const docHtml = page.elements.find((e) => e.tag === 'html' && e.parentKey === null);
   page.docLang = docHtml ? docHtml.node.attribs?.lang : undefined;
   const idCount = new Map();
+  let scriptOrder = 0;
+  const dialects = pageDialects(page);
   for (const el of page.elements) {
     const cls = (el.node.attribs?.class ?? '').split(/[\t\n\f\r ]+/).filter(Boolean);
     const id = el.node.attribs?.id ?? '';
@@ -109,16 +112,9 @@ for (const page of pages) {
         const m = /url\s*=\s*['"]?([^'"]+)/i.exec(a.value); if (m) emitRef(page, el, 'content', m[1].trim());
       }
       if ((el.tag === 'use' || el.tag === 'image') && el.ns === 'svg' && (lname === 'href' || lname === 'xlink:href')) emitRef(page, el, lname, a.value);
-      // event handlers as HTML: the event and the attribute's raw text (no JavaScript is parsed)
-      if (/^on[a-z]/.test(lname)) emit('event_handler', el.key, a.name, 'EVENT_ATTRIBUTE', lname.slice(2), a.value);
-      if (/^\s*javascript:/i.test(a.value) && (lname === 'href' || lname === 'src' || lname === 'action' || lname === 'formaction')) {
-        emit('event_handler', el.key, a.name, 'JAVASCRIPT_URL', '-', a.value.trim());
-      }
       // template dialect directives and interpolations in attribute values
       if (DIRECTIVE_RE.test(a.name)) {
         emit('template_expr', el.key, a.name, a.value.trim());
-        const ev = /^(?:@|x-on:|v-on:|on:)([^.]+)|^\(([^)]+)\)$/.exec(a.name);
-        if (ev) emit('event_handler', el.key, a.name, 'TEMPLATE_EVENT', (ev[1] ?? ev[2]).toLowerCase(), a.value.trim());
       } else if (TEMPLATE_IN_VALUE.test(a.value)) {
         for (const m of a.value.matchAll(/\{\{([\s\S]*?)\}\}|\{%([\s\S]*?)%\}|<%=?([\s\S]*?)%>|\$\{([^}]*)\}/g)) emit('template_expr', el.key, a.name, (m[1] ?? m[2] ?? m[3] ?? m[4]).trim());
       }
@@ -128,30 +124,61 @@ for (const page of pages) {
         for (const idv of ids) if (idv) page.idRefs = [...(page.idRefs ?? []), { el, attr: a.name, id: idv }];
       }
     }
+    // event handlers as HTML (lib/handlers.mjs), read from the start tag as written: name as written, event,
+    // modifiers, dialect, known_event, code verbatim. An .xhtml page is XML: names keep their case and onclick /
+    // onClick are two attributes. An HTML page keeps the FIRST of a case-duplicate (the tokenizer drops the rest)
+    // and records a duplicate-attribute parse gap for each dropped one.
+    {
+      const scanned = startTagAttrs(page, el);
+      const seen = new Set();
+      for (const at of scanned) {
+        const k = page.xml ? at.name : at.name.toLowerCase();
+        if (seen.has(k)) { if (!page.xml) emit('html_gap', el.key, 'PARSE_ERROR', 'duplicate-attribute'); continue; }
+        seen.add(k);
+        for (const h of handlersOf(page, el, at.name, at.raw, dialects)) {
+          emit('handler', el.key, h.written, h.event, h.modifiers, h.kind, Buffer.byteLength(h.code, 'utf8'), `|${h.code}`);
+        }
+      }
+    }
     // text interpolations (direct text children)
     for (const c of el.node.children ?? []) {
       if (c.type === 'text' && TEMPLATE_IN_VALUE.test(c.data) && el.tag !== 'script' && el.tag !== 'style') {
         for (const m of c.data.matchAll(/\{\{([\s\S]*?)\}\}|\{%([\s\S]*?)%\}|<%=?([\s\S]*?)%>/g)) emit('template_expr', el.key, '#text', (m[1] ?? m[2] ?? m[3]).trim());
       }
     }
-    // scripts
-    if (el.tag === 'script' && el.ns === 'html') {
-      const src = el.node.attribs?.src;
-      const type = JS_TYPES(el.node.attribs?.type);
+    // scripts (HTML and SVG), SPEC §10: ordinal on the page, type as written, every attribute as written (JSON),
+    // src resolution, and the inline body as the exact source text between the tags
+    if (el.tag === 'script' && (el.ns === 'html' || el.ns === 'svg')) {
+      scriptOrder += 1;
+      const at = el.node.attribs ?? {};
+      const attrsJson = JSON.stringify(Object.fromEntries(startTagAttrs(page, el).map((x) => [x.name, x.raw]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))));
+      const src = el.ns === 'svg' ? (at.href ?? at['xlink:href'] ?? at.src) : at.src;
+      const type = JS_TYPES(at.type);
       if (src !== undefined) {
         const r = resolveUrl(src, page.rel, page.baseHref);
-        emit('script', el.key, 'EXTERNAL', type, r.kind === 'local' && r.target && onDisk(r.target) ? r.target : '-');
+        emit('script', el.key, scriptOrder, 'external', type, at.type, attrsJson, r.kind === 'local' && r.target && onDisk(r.target) ? r.target : '-', '-');
       } else {
-        // the body's range as written: first char after the start tag .. the `<` of `</script>` (exclusive)
+        // body range: first char after the start tag .. the `<` of `</script>` (exclusive)
         const b = bodyOf(page, el);
         const e = page.lines.pos(b.startOffset + b.text.length);
-        const range = `${b.line}:${b.col}-${e.line}:${e.col}`;
-        emit('script', el.key, 'INLINE', type, range);
+        emit('script', el.key, scriptOrder, 'inline', type, at.type, attrsJson, '-', `${b.line}:${b.col}-${e.line}:${e.col}`);
+        // body_lines: line breaks (CRLF, LF or CR) + 1, 0 for an empty body
+        const lines = b.text === '' ? 0 : b.text.split(/\r\n|\r|\n/).length;
+        emit('script_body', el.key, Buffer.byteLength(b.text, 'utf8'), lines, `|${b.text}`);
       }
     }
   }
   for (const [id, els] of idCount) emit('id', page.rel, id, els.length);
   page.idCount = idCount;
+}
+
+/** Attributes of an element's start tag as written: [{name, raw}] in source order, duplicates included. */
+function startTagAttrs(page, el) {
+  const t = el.loc.startTag;
+  const src = page.text.slice(t.startOffset, t.endOffset).replace(/^<[^\s/>]+/, '').replace(/\/?>$/, '');
+  const out = [];
+  for (const m of src.matchAll(/([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) out.push({ name: m[1], raw: m[2] ?? m[3] ?? m[4] ?? '' });
+  return out;
 }
 
 function emitRef(page, el, attr, url) {

@@ -1,0 +1,14 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: scripts/04-order-types-flags-src   kinds: script
+# shape: admin pages loading a dozen scripts: async/defer/nomodule, type as written in any case (Module, text/javascript), JSON-LD, client-side templates, an import map, speculation rules, and src forms (../, query string, CDN, missing)
+script	pages/index.html:10:1	7	inline	JSON	application/ld+json	{"type":"application/ld+json"}	-	10:36-10:51
+script	pages/index.html:11:1	8	inline	TEMPLATE	text/template	{"type":"text/template"}	-	11:30-11:45
+script	pages/index.html:12:1	9	inline	IMPORTMAP	importmap	{"type":"importmap"}	-	12:26-12:40
+script	pages/index.html:13:1	10	inline	SPECULATION_RULES	speculationrules	{"type":"speculationrules"}	-	13:33-13:49
+script	pages/index.html:14:1	11	inline	DATA_BLOCK	text/x-custom	{"type":"text/x-custom"}	-	14:30-14:33
+script	pages/index.html:4:1	1	external	CLASSIC	-	{"defer":"","src":"../js/vendor.js?v=3"}	js/vendor.js	-
+script	pages/index.html:5:1	2	external	MODULE	Module	{"async":"","src":"../js/app.mjs","type":"Module"}	js/app.mjs	-
+script	pages/index.html:6:1	3	external	CLASSIC	-	{"nomodule":"","src":"../js/legacy.js"}	js/legacy.js	-
+script	pages/index.html:7:1	4	external	CLASSIC	-	{"src":"https://cdn.example.org/lib.js"}	-	-
+script	pages/index.html:8:1	5	external	CLASSIC	-	{"src":"../js/missing.js"}	-	-
+script	pages/index.html:9:1	6	inline	CLASSIC	text/javascript	{"type":"text/javascript"}	-	9:32-9:38

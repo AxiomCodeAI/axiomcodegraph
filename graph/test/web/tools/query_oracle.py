@@ -119,7 +119,8 @@ def derive(R, fn, arg):
         return sorted({(at_of(r[0]),) for r in R.by['value_ref'] if r[1] == 'FONT_FAMILY' and r[2].lower() == a[0].lower()}), False
     if fn == 'handlers':
         page, src = a
-        return sorted({(at_of(r[0]), r[3]) for r in R.by['event_handler'] if R.page_of(r[0]) == page and r[2] == src}), False
+        kinds = {'EVENT_ATTRIBUTE': {'on_attribute'}, 'TEMPLATE_EVENT': {'vue', 'alpine', 'angular', 'angularjs', 'svelte', 'htmx', 'stimulus'}}.get(src, {src})
+        return sorted({(at_of(r[0]), r[2]) for r in R.by['handler'] if R.page_of(r[0]) == page and r[4] in kinds}), False
     if fn == 'linked_from':
         return sorted({(at_of(r[0]),) for r in R.by['links_to'] if r[2] == a[0] and r[4] != 'unknown'}), False
     if fn == 'chain_links':
@@ -139,7 +140,7 @@ def derive(R, fn, arg):
             if r[0] == page and r[5] == 'unknown' and r[1] in refs:
                 out.add((at_of(refs[r[1]][0]), r[6]))
         for r in R.by['script']:
-            if R.page_of(r[0]) == page and r[1] == 'EXTERNAL' and r[3] == '-':
+            if R.page_of(r[0]) == page and r[2] == 'external' and r[6] == '-':
                 ref = next((x for x in R.by['reference'] if x[0] == r[0] and x[1] == 'src'), None)
                 if ref:
                     out.add((at_of(r[0]), 'external_url' if ref[3] == 'external' else 'unresolved_url'))

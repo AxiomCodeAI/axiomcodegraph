@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# reviewed: yes 2026-10-10 iter2 — script row format (ordinal, kind, attributes JSON) re-read
 # case: nodes/05-conditional-comments-cdata   kinds: element,script,reference
 # shape: jQuery-era admin pages loading html5shiv/respond.js inside <!--[if lt IE 9]> blocks; an SVG with a CDATA style block
 element	index.html:10:1	body	-	-
@@ -9,4 +9,4 @@ element	index.html:2:1	html	-	-
 element	index.html:3:1	head	-	-
 element	index.html:8:3	script	-	-
 reference	index.html:8:3	src	js/app.js	local	js/app.js
-script	index.html:8:3	EXTERNAL	CLASSIC	js/app.js
+script	index.html:8:3	1	external	CLASSIC	-	{"src":"js/app.js"}	js/app.js	-

@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/06-form-events   kinds: handler
+# shape: admin forms validated inline
+handler	index.html:7:1	onformdata	formdata	-	on_attribute	10	|add(event)
+handler	index.html:7:1	onreset	reset	-	on_attribute	7	|clear()
+handler	index.html:7:1	onsubmit	submit	-	on_attribute	18	|return check(this)
+handler	index.html:8:1	onbeforeinput	beforeinput	-	on_attribute	12	|guard(event)
+handler	index.html:8:1	onchange	change	-	on_attribute	10	|save(this)
+handler	index.html:8:1	oninput	input	-	on_attribute	10	|live(this)
+handler	index.html:8:1	oninvalid	invalid	-	on_attribute	10	|mark(this)

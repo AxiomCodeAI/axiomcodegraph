@@ -19,12 +19,14 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_attributes(uid, element_uid, name, value)
   web_class_tokens(uid, element_uid, position, class_name)
   web_references(uid, element_uid, attribute_name, url_as_written, url_kind, resolved_file)    url_kind = parser WebUrlKind
-  web_scripts(uid, element_uid, script_kind, script_type, resolved_file, body_start_line, body_start_col,
-              body_end_line, body_end_col)   an INLINE body's range: first char after the start tag .. the `<` of
-              `</script>` (exclusive); EXTERNAL rows compare resolved_file
-  web_event_handlers(uid, element_uid, attribute_name, handler_source, event_name, raw_text)
-              handler_source EVENT_ATTRIBUTE (on*; event = name without `on`, lowercased) | JAVASCRIPT_URL (event NULL)
-              | TEMPLATE_EVENT (@x / x-on:x / v-on:x / on:x / (x); event = x without modifiers); raw_text as written
+  web_script(uid, page_uid, element_uid, file, ordinal, type_as_written, script_type, kind, attributes, src,
+             resolved_file, body_line, body_col, body_end_line, body_end_col, body, body_bytes, body_lines)  [SPEC 10]
+             kind external|inline; attributes = JSON object of every attribute as written (compared with sorted
+             keys); body = the exact source text between the tags, byte for byte; body_lines = line breaks + 1
+             (0 for an empty body); body range = first char after the start tag .. the `<` of `</script>`
+  web_handler(uid, page_uid, element_uid, file, line, col, attr_as_written, event, modifiers, source_kind, code,
+              code_bytes)  [SPEC 10] one row per handler attribute (one per `#` descriptor for data-action)
+  web_gaps(uid, element_uid, gap_kind, detail)     compared only where a case asks for `html_gap`
   web_template_exprs(uid, element_uid, attribute_uid, expression_text)                         attribute_uid NULL = element text
   web_stylesheets(uid, file, source_kind, owner_element_uid)                                    source_kind FILE | HTML_STYLE_ELEMENT
   web_rules(uid, stylesheet_uid, parent_uid, file, line, col, rule_kind, at_rule_name, prelude_text)
@@ -55,6 +57,7 @@ Row keys (identical to the oracle's): page = file; element = file:line:col; shee
 sheet, style@<element key> for a <style>; rule = file:line:col; selector = <rule key>/<position>;
 declaration = file:line:col; value_ref owner = its declaration key or (at-rule refs) its rule key.
 """
+import json
 import os
 import sqlite3
 import sys
@@ -135,11 +138,26 @@ def main():
             if e in iframe_text:
                 continue
             emit('reference', key.get(e), a, url, URL_KIND.get(uk, uk), res)
-        for _u, e, sk, st, res, bsl, bsc, bel, bec in g.rows('web_scripts', ['uid', 'element_uid', 'script_kind', 'script_type', 'resolved_file',
-                                                                     'body_start_line', 'body_start_col', 'body_end_line', 'body_end_col']):
-            emit('script', key.get(e), sk, st, f'{bsl}:{bsc}-{bel}:{bec}' if sk == 'INLINE' else res)
-        for _u, e, an, src, ev, raw in g.rows('web_event_handlers', ['uid', 'element_uid', 'attribute_name', 'handler_source', 'event_name', 'raw_text']):
-            emit('event_handler', key.get(e), an, src, ev, (raw or '').strip() if src != 'EVENT_ATTRIBUTE' else raw)
+        if want('script') or want('script_body'):
+            for (_u, e, ordinal, tw, st, kind, attrs, res, bl, bc, bel, bec, body, nbytes, nlines) in g.rows('web_script', [
+                    'uid', 'element_uid', 'ordinal', 'type_as_written', 'script_type', 'kind', 'attributes', 'resolved_file',
+                    'body_line', 'body_col', 'body_end_line', 'body_end_col', 'body', 'body_bytes', 'body_lines']):
+                try:
+                    attrs_c = json.dumps(json.loads(attrs or '{}'), sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+                except ValueError:
+                    attrs_c = f'<not JSON: {attrs}>'
+                emit('script', key.get(e), ordinal, kind, st, tw, attrs_c, res if kind == 'external' else None,
+                     f'{bl}:{bc}-{bel}:{bec}' if kind == 'inline' else None)
+                if kind == 'inline':
+                    emit('script_body', key.get(e), nbytes, nlines, '|' + (body if body is not None else '<NULL>'))
+        if want('handler'):
+            for _u, e, an, ev, mods, sk, code, cb in g.rows('web_handler', ['uid', 'element_uid', 'attr_as_written', 'event',
+                                                                            'modifiers', 'source_kind', 'code', 'code_bytes']):
+                emit('handler', key.get(e), an, ev, mods, sk, cb, '|' + (code or ''))
+        if want('html_gap'):
+            for _u, e, gk, det in g.rows('web_gaps', ['uid', 'element_uid', 'gap_kind', 'detail']):
+                if e:
+                    emit('html_gap', key.get(e), gk, det)
         for _u, e, a, t in g.rows('web_template_exprs', ['uid', 'element_uid', 'attribute_uid', 'expression_text']):
             emit('template_expr', key.get(e), attr_name.get(a) if a else '#text', (t or '').strip())
         sheets = g.rows('web_stylesheets', ['uid', 'file', 'source_kind', 'owner_element_uid'])

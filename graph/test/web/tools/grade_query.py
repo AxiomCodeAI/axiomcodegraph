@@ -12,7 +12,7 @@ An expected `at` without a line compares the answer's file part only.
 import json
 import sys
 
-ALIASES = {'event': ['event', 'event_name'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
+ALIASES = {'event': ['event', 'event_name'], 'code': ['code', 'body'], 'source_kind': ['source_kind', 'source'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
            'action': ['action'], 'names': ['names', 'inputs']}
 
 

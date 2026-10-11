@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: scripts/03-svg-and-template   kinds: script,script_body
+# shape: icon sprites carrying an SVG <script> (inline, with `<` in the code, and external via href), and row templates whose <template> holds a script
+script	index.html:7:45	2	external	CLASSIC	-	{"href":"js/svg.js"}	js/svg.js	-
+script	index.html:7:6	1	inline	CLASSIC	-	{}	-	7:14-7:36
+script	index.html:8:20	3	inline	CLASSIC	-	{}	-	8:28-8:38
+script_body	index.html:7:6	22	1	|if (a < b) { draw(); }
+script_body	index.html:8:20	10	1	|bindRow();

@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/12-clipboard-events   kinds: handler
+# shape: editors intercepting copy, cut and paste
+handler	index.html:7:1	oncopy	copy	-	on_attribute	9	|cp(event)
+handler	index.html:7:1	oncut	cut	-	on_attribute	9	|ct(event)
+handler	index.html:7:1	onpaste	paste	-	on_attribute	9	|ps(event)

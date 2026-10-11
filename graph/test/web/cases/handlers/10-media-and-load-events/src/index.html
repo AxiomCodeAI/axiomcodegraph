@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head>
+<script src="a.js" onload="ok()" onerror="fail()"></script>
+<link rel="stylesheet" href="a.css" onload="cssOk()" onerror="cssFail()">
+</head>
+<body>
+<img src="a.png" onload="shown(this)" onerror="this.src='fallback.png'">
+<iframe src="f.html" onload="framed()"></iframe>
+<video src="v.mp4" onplay="p()" onpause="pa()" ontimeupdate="tu(this)" onended="en()" onerror="ve()"></video>
+</body>
+</html>

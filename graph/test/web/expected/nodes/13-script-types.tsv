@@ -1,12 +1,19 @@
-# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
-# case: nodes/13-script-types   kinds: script
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: nodes/13-script-types   kinds: script,script_body
 # shape: demo pages with classic, module, JSON-LD, importmap, client-side template and transpiled script blocks
-script	index.html:10:3	INLINE	TRANSPILED	10:29-10:52
-script	index.html:11:3	INLINE	CLASSIC	11:34-11:47
-script	index.html:12:3	EXTERNAL	CLASSIC	-
-script	index.html:4:3	EXTERNAL	CLASSIC	lib.js
-script	index.html:5:3	INLINE	CLASSIC	5:11-5:27
-script	index.html:6:3	INLINE	MODULE	6:25-6:48
-script	index.html:7:3	INLINE	JSON	7:38-7:56
-script	index.html:8:3	INLINE	IMPORTMAP	8:28-8:43
-script	index.html:9:3	INLINE	TEMPLATE	9:41-9:71
+script	index.html:10:3	7	inline	TRANSPILED	text/babel	{"type":"text/babel"}	-	10:29-10:52
+script	index.html:11:3	8	inline	CLASSIC	text/javascript	{"type":"text/javascript"}	-	11:34-11:47
+script	index.html:12:3	9	external	CLASSIC	-	{"src":"missing.js"}	-	-
+script	index.html:4:3	1	external	CLASSIC	-	{"src":"lib.js"}	lib.js	-
+script	index.html:5:3	2	inline	CLASSIC	-	{}	-	5:11-5:27
+script	index.html:6:3	3	inline	MODULE	module	{"type":"module"}	-	6:25-6:48
+script	index.html:7:3	4	inline	JSON	application/ld+json	{"type":"application/ld+json"}	-	7:38-7:56
+script	index.html:8:3	5	inline	IMPORTMAP	importmap	{"type":"importmap"}	-	8:28-8:43
+script	index.html:9:3	6	inline	TEMPLATE	text/template	{"id":"tpl","type":"text/template"}	-	9:41-9:71
+script_body	index.html:10:3	23	1	|const A = () => <div/>;
+script_body	index.html:11:3	13	1	|var also = 2;
+script_body	index.html:5:3	16	1	|var classic = 1;
+script_body	index.html:6:3	23	1	|import x from './m.js';
+script_body	index.html:7:3	18	1	|{"@type": "Thing"}
+script_body	index.html:8:3	15	1	|{"imports": {}}
+script_body	index.html:9:3	30	1	|<div class="<%= cls %>"></div>

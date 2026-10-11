@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<div x-data="{ open: false }">
+<button x-on:click.outside="open = false">a</button>
+<button @click="open = !open">b</button>
+</div>
+</body>
+</html>

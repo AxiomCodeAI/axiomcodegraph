@@ -1,0 +1,15 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/05-window-body-events   kinds: handler
+# shape: single-page dashboards wiring page life-cycle handlers on <body>
+handler	index.html:3:1	onafterprint	afterprint	-	on_attribute	7	|after()
+handler	index.html:3:1	onbeforeprint	beforeprint	-	on_attribute	8	|before()
+handler	index.html:3:1	onbeforeunload	beforeunload	-	on_attribute	13	|return warn()
+handler	index.html:3:1	onhashchange	hashchange	-	on_attribute	7	|route()
+handler	index.html:3:1	onload	load	-	on_attribute	6	|boot()
+handler	index.html:3:1	onmessage	message	-	on_attribute	11	|recv(event)
+handler	index.html:3:1	onoffline	offline	-	on_attribute	5	|off()
+handler	index.html:3:1	ononline	online	-	on_attribute	4	|on()
+handler	index.html:3:1	onpagehide	pagehide	-	on_attribute	6	|hide()
+handler	index.html:3:1	onpageshow	pageshow	-	on_attribute	6	|show()
+handler	index.html:3:1	onpopstate	popstate	-	on_attribute	11	|back(event)
+handler	index.html:3:1	onstorage	storage	-	on_attribute	6	|sync()

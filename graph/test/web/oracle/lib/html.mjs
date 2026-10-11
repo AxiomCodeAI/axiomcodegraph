@@ -123,7 +123,7 @@ export function parsePage(rel, rawText) {
   visit(written, null, 0, null);
   // FRAGMENT = neither a doctype nor a written <html> start tag (the parser's rule, from the source).
   const isFragment = !hasDoctype && !hasHtmlTag;
-  return { rel, text, lines, quirks, isFragment, hasHtmlTag, elements, byKey, writtenRoot: written, browserRoot: browser, baseHref, dynamicKeys, dynamicAttrKeys };
+  return { rel, xml: /\.xht(ml)?$/i.test(rel), text, lines, quirks, isFragment, hasHtmlTag, elements, byKey, writtenRoot: written, browserRoot: browser, baseHref, dynamicKeys, dynamicAttrKeys };
 }
 
 /** Raw source text between an element's start and end tag (style/script bodies), with its start position. */

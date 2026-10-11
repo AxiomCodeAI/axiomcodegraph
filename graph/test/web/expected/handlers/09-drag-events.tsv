@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter2 §10 — read against the source: script bodies byte-equal (CRLF, CDATA, early </script>, empty), bytes and lines counted by hand, handler forms/look-alikes per the SPEC §10 table
+# case: handlers/09-drag-events   kinds: handler
+# shape: kanban boards with native drag and drop
+handler	index.html:7:1	ondrag	drag	-	on_attribute	3	|d()
+handler	index.html:7:1	ondragend	dragend	-	on_attribute	4	|de()
+handler	index.html:7:1	ondragstart	dragstart	-	on_attribute	9	|ds(event)
+handler	index.html:8:1	ondragenter	dragenter	-	on_attribute	5	|den()
+handler	index.html:8:1	ondragleave	dragleave	-	on_attribute	4	|dl()
+handler	index.html:8:1	ondragover	dragover	-	on_attribute	10	|dov(event)
+handler	index.html:8:1	ondrop	drop	-	on_attribute	11	|drop(event)
