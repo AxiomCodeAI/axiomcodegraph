@@ -13,7 +13,8 @@
  */
 
 /** Extensions read as HTML. `.xhtml` is XML by serialisation and HTML by vocabulary; the HTML grammar reads it. */
-export const HTML_EXTENSIONS = ['.html', '.htm', '.xhtml'] as const;
+/** `.shtml`/`.shtm` are server-side-include pages: HTML to the browser once included (G21; the include directives are iteration 3). */
+export const HTML_EXTENSIONS = ['.html', '.htm', '.xhtml', '.shtml', '.shtm'] as const;
 
 /**
  * Extensions read as CSS. Preprocessor dialects (`.scss`, `.sass`, `.less`, `.styl`) are

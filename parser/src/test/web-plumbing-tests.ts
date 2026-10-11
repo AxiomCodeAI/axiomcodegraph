@@ -16,6 +16,7 @@
  *   odd-custom-value  `:root{--x:.}` (a custom property's value need not be an ordinary value) keeps every later
  *                     rule top-level (V1-04, #1909).
  *   unclosed-eof      a block still open at the end of a sheet closes there and nests what follows; a gap counts it (V1-03).
+ *   ssi-pages         .shtml / .shtm pages are HTML (G21, #1909).
  *   climb-out         `../shared.css` from a page in a sub-project folder resolves inside the repository (V1-05).
  */
 import * as fs from 'fs';
@@ -194,8 +195,19 @@ async function unclosedAtEof(): Promise<void> {
   else ok('unclosed-eof: blocks open at EOF close there; later rules nest in them; one gap row counts them');
 }
 
+async function ssiPages(): Promise<void> {
+  // G21: server-side-include pages (.shtml, .shtm) are HTML pages
+  const root = tree({ 'a.shtml': '<!doctype html><html><body><!--#include virtual="/h.html" --><p class="x">a</p></body></html>\n',
+    'b.shtm': '<!doctype html><p>b</p>\n', 'c.html': '<!doctype html><p>c</p>\n' });
+  const ir = await parse(root);
+  const docs = readCsv(path.join(ir, 'web', 'all-html-documents.csv')).map((d) => path.basename(d.filePath ?? '')).sort();
+  ran++;
+  if (JSON.stringify(docs) !== JSON.stringify(['a.shtml', 'b.shtm', 'c.html'])) fail(`ssi-pages: documents ${JSON.stringify(docs)}`);
+  else ok('ssi-pages: .shtml and .shtm are read as HTML pages');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof, ssiPages]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }

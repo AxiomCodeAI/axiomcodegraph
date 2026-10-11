@@ -56,7 +56,7 @@ H = os.path.dirname(os.path.abspath(__file__))
 # languages a repository has, so a component alone does not add a language.
 COMPONENT_EXT = ('.vue', '.svelte', '.astro')
 # PAGES AND STYLESHEETS (#1908): HTML and CSS are the `web` language, with a graph of their own.
-WEB_EXT = ('.html', '.htm', '.xhtml', '.css')
+WEB_EXT = ('.html', '.htm', '.xhtml', '.shtml', '.shtm', '.css')
 EXT = {
     'java': ('.java', '.properties', '.xml', '.yml', '.yaml', '.gradle', '.kts', '.toml'),
     'typescript': ('.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT,
