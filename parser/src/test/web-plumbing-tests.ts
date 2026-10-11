@@ -13,6 +13,8 @@
  *   brace-comment     a comment holding braces inside a declaration value keeps every declaration and invents
  *                     no selector (#1909).
  *   keyframe-lists    a minified keyframe selector list is one block; a quoted @keyframes name is an @keyframes.
+ *   odd-custom-value  `:root{--x:.}` (a custom property's value need not be an ordinary value) keeps every later
+ *                     rule top-level (V1-04, #1909).
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -140,8 +142,24 @@ async function eventAttributes(): Promise<void> {
   else ok('event-attributes: on* with a value in any case is a handler, a bare `once` is not, and an XHTML page keeps onclick and onClick apart');
 }
 
+async function oddCustomValue(): Promise<void> {
+  // V1-04: a minified custom property whose value is not a valid ordinary value (`.`) must not swallow the rest of the sheet
+  const root = tree({ 'm.css': ':root{--x:.}.a{b:c}.d{e:f}\n:root{--y:;--z:{}}.g{h:i}\n' });
+  const ir = await parse(root);
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const decls = readCsv(path.join(ir, 'web', 'all-css-declarations.csv'));
+  const style = rules.filter((r) => r.ruleKind === 'STYLE_RULE');
+  const top = style.filter((r) => !r.parentRuleLinkHash).map((r) => r.preludeText ?? '').sort();
+  const x = decls.find((d) => d.property === '--x');
+  ran++;
+  if (style.length === 0) fail('odd-custom-value: no style rules at all');
+  else if (JSON.stringify(top) !== JSON.stringify([':root', ':root', '.a', '.d', '.g'].sort())) fail(`odd-custom-value: top-level rules ${JSON.stringify(top)} (want :root x2, .a, .d, .g)`);
+  else if (!x || (x.valueText ?? x.value ?? '').trim() !== '.') fail(`odd-custom-value: --x is ${x ? JSON.stringify(x) : 'absent'}, want value '.'`);
+  else ok('odd-custom-value: `--x:.` keeps its value and the rules after it stay top-level');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }

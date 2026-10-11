@@ -139,7 +139,37 @@ function sanitiseForGrammar(text: string): string {
   out = out.replace(/'([^'"\n\\]*)'/g, (_m, inner: string) => `"${inner}"`);
   // `!IMPORTANT` is important (CSS keywords are case-insensitive); the grammar knows the lowercase spelling only.
   out = out.replace(/!\s*important\b/gi, (m) => m.toLowerCase());
-  return out;
+  return blankOddCustomValues(out);
+}
+
+/**
+ * A CUSTOM PROPERTY'S VALUE IS ALMOST ANY TOKEN RUN (V1-04, #1909): a minified framework sheet writes `:root{--x:.}`,
+ * and the grammar, which reads a value as an ordinary one, took `.}` for the start of a selector and parented every
+ * later rule to `:root` (985 rules per file). A `--name:` value right after `{` or `;` that holds braces, or holds no
+ * letter, digit, quote or parenthesis (`.`, `,`, `{}`), is turned into underscores of the same length for the grammar;
+ * the declaration reads its value from the source text, so it keeps `.` as written.
+ */
+function blankOddCustomValues(text: string): string {
+  const re = /([{;]\s*)(--[\w-]+\s*:)/g;
+  let out = ''; let last = 0; let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const start = m.index + m[0].length;
+    let i = start; let depth = 0; let quote = '';
+    for (; i < text.length; i++) {
+      const c = text[i]!;
+      if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+      if (c === '"' || c === "'") quote = c;
+      else if (c === '(' || c === '[' || c === '{') depth++;
+      else if ((c === ')' || c === ']' || c === '}') && depth > 0) depth--;
+      else if ((c === ';' || c === '}') && depth === 0) break;
+    }
+    const value = text.slice(start, i);
+    if (value.trim() !== '' && (/[{}]/.test(value) || !/[\w"'()]/.test(value))) {
+      out += text.slice(last, start) + value.replace(/\S/g, '_'); last = i;
+    }
+    re.lastIndex = Math.max(i, re.lastIndex);
+  }
+  return out + text.slice(last);
 }
 
 /** The text with every comment's inside blanked, same length, for scans that must not read comments. */
