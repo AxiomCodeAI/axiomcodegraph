@@ -1,3 +1,4 @@
+import * as fsSync from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -82,12 +83,13 @@ export class WebProjectAnalyzer {
   private readonly css: CssParser;
   private readonly outputDir: string;
 
-  private readonly rows: Record<keyof typeof WEB_CSV_FILES, WebRow[]> = {
-    HTML_DOCUMENTS: [], HTML_ELEMENTS: [], HTML_ATTRIBUTES: [], HTML_CLASS_REFERENCES: [], HTML_REFERENCES: [],
-    HTML_SCRIPTS: [], HTML_HANDLER_CALLS: [], HTML_TEMPLATE_EXPRESSIONS: [], HTML_PARSE_GAPS: [], CSS_STYLESHEETS: [], CSS_RULES: [],
-    CSS_SELECTORS: [], CSS_SELECTOR_PARTS: [], CSS_DECLARATIONS: [], CSS_VALUE_REFERENCES: [], CSS_COMMENTS: [],
-    CSS_PARSE_GAPS: [], SKIPPED_HTML_FILES: [], SKIPPED_CSS_FILES: [],
-  };
+  /**
+   * STREAMED, NOT HELD (V1-23): every relation is written to its `.partial` file as each source file is committed, so
+   * the parser holds one file's rows at a time instead of the whole repository's (6.6 GB on a 79-page admin template
+   * with 384 sheets). The files are renamed into place at the end, as before.
+   */
+  private readonly rows: Record<keyof typeof WEB_CSV_FILES, RelationWriter> = Object.fromEntries(
+    (Object.keys(WEB_CSV_FILES) as (keyof typeof WEB_CSV_FILES)[]).map((k) => [k, new RelationWriter()])) as Record<keyof typeof WEB_CSV_FILES, RelationWriter>;
   private readonly skippedHtml: SkippedFile[] = [];
   private readonly skippedCss: SkippedFile[] = [];
   private htmlSeen = 0;
@@ -168,17 +170,11 @@ export class WebProjectAnalyzer {
         // passes every row as an argument and overflows the stack past ~100k of them, which on
         // a generated page threw AFTER half the relations were already extended — rows of a
         // file then recorded as skipped. A loop cannot throw, so the commit is all or nothing.
-        this.rows.HTML_DOCUMENTS.push(x.document);
-        append(this.rows.HTML_ELEMENTS, x.elements);
-        append(this.rows.HTML_ATTRIBUTES, x.attributes);
-        append(this.rows.HTML_CLASS_REFERENCES, x.classReferences);
-        append(this.rows.HTML_REFERENCES, x.references);
-        append(this.rows.HTML_SCRIPTS, x.scripts);
-        append(this.rows.HTML_HANDLER_CALLS, x.handlerCalls);
-        append(this.rows.HTML_TEMPLATE_EXPRESSIONS, x.templateExpressions);
-        append(this.rows.HTML_PARSE_GAPS, x.parseGaps);
-        append(this.rows.CSS_STYLESHEETS, x.stylesheets);
-        this.collectCss(x.css);
+        // every row is serialised before any is written, so a throw leaves the relations untouched
+        this.commit([['HTML_DOCUMENTS', [x.document]], ['HTML_ELEMENTS', x.elements], ['HTML_ATTRIBUTES', x.attributes],
+          ['HTML_CLASS_REFERENCES', x.classReferences], ['HTML_REFERENCES', x.references], ['HTML_SCRIPTS', x.scripts],
+          ['HTML_HANDLER_CALLS', x.handlerCalls], ['HTML_TEMPLATE_EXPRESSIONS', x.templateExpressions], ['HTML_PARSE_GAPS', x.parseGaps],
+          ['CSS_STYLESHEETS', x.stylesheets], ...this.cssParts(x.css)]);
         this.analysed += 1;
       } catch (error) {
         this.recordExtractionError(filePath, project, serviceVersionHash, this.skippedHtml, error);
@@ -213,8 +209,7 @@ export class WebProjectAnalyzer {
           stylesheet: sheet, line: 1, column: 1, filePath, projectRoot: project.path, repoRoot: this.repoRoot || project.path,
           serviceVersionLinkHash: serviceVersionHash,
         });
-        this.rows.CSS_STYLESHEETS.push(sheet);
-        this.collectCss(x);
+        this.commit([['CSS_STYLESHEETS', [sheet]], ...this.cssParts(x)]);
         this.analysed += 1;
       } catch (error) {
         this.recordExtractionError(filePath, project, serviceVersionHash, this.skippedCss, error);
@@ -222,14 +217,15 @@ export class WebProjectAnalyzer {
     }
   }
 
-  private collectCss(x: CssExtraction): void {
-    append(this.rows.CSS_RULES, x.rules);
-    append(this.rows.CSS_SELECTORS, x.selectors);
-    append(this.rows.CSS_SELECTOR_PARTS, x.selectorParts);
-    append(this.rows.CSS_DECLARATIONS, x.declarations);
-    append(this.rows.CSS_VALUE_REFERENCES, x.valueReferences);
-    append(this.rows.CSS_COMMENTS, x.comments);
-    append(this.rows.CSS_PARSE_GAPS, x.parseGaps);
+  private cssParts(x: CssExtraction): [keyof typeof WEB_CSV_FILES, readonly WebRow[]][] {
+    return [['CSS_RULES', x.rules], ['CSS_SELECTORS', x.selectors], ['CSS_SELECTOR_PARTS', x.selectorParts], ['CSS_DECLARATIONS', x.declarations],
+      ['CSS_VALUE_REFERENCES', x.valueReferences], ['CSS_COMMENTS', x.comments], ['CSS_PARSE_GAPS', x.parseGaps]];
+  }
+
+  /** One source file's rows, all or nothing: serialised first, then appended to each relation's stream. */
+  private commit(parts: [keyof typeof WEB_CSV_FILES, readonly WebRow[]][]): void {
+    const text = parts.map(([k, rows]) => [k, rows.length ? rows[0]!.getCsvHeader() : '', rows.map((r) => r.toCsv())] as const);
+    for (const [k, header, lines] of text) if (lines.length) this.rows[k].write(this.outputDir, WEB_CSV_FILES[k], header, lines);
   }
 
   /**
@@ -318,28 +314,11 @@ export class WebProjectAnalyzer {
       if (key === 'SKIPPED_HTML_FILES' || key === 'SKIPPED_CSS_FILES') {
         continue;
       }
-      await this.exportRows(this.rows[key], filename);
+      const outputPath = await this.rows[key].finish(path.join(this.outputDir, filename));
+      if (outputPath) console.log(`💾 ${filename} exported to: ${outputPath}`);
     }
     await this.exportSkipped(this.skippedHtml, WEB_CSV_FILES.SKIPPED_HTML_FILES);
     await this.exportSkipped(this.skippedCss, WEB_CSV_FILES.SKIPPED_CSS_FILES);
-  }
-
-  /**
-   * One relation, in chunks. A relation with no rows is NOT written: the other file-type
-   * analyzers (XML, YAML) leave an empty relation absent, and the engine stages an absent
-   * mapped file as an empty one, so presence carries no information here.
-   */
-  private async exportRows(rows: readonly WebRow[], filename: string): Promise<void> {
-    if (rows.length === 0) {
-      return;
-    }
-    const outputPath = await this.writeAtomically(filename, async (handle) => {
-      await handle.write(rows[0]!.getCsvHeader() + '\n', null, 'utf-8');
-      for (let i = 0; i < rows.length; i += WEB_CSV_CHUNK_SIZE) {
-        await handle.write(rows.slice(i, i + WEB_CSV_CHUNK_SIZE).map((row) => row.toCsv()).join('\n') + '\n', null, 'utf-8');
-      }
-    });
-    console.log(`💾 ${filename} exported to: ${outputPath}`);
   }
 
   private async exportSkipped(skipped: readonly SkippedFile[], filename: string): Promise<void> {
@@ -375,10 +354,42 @@ export class WebProjectAnalyzer {
   }
 }
 
-/** `target.push(...rows)` without the argument-count ceiling a spread has. */
-function append<T>(target: T[], rows: readonly T[]): void {
-  for (const row of rows) {
-    target.push(row);
+/**
+ * One relation streamed to a uniquely named `.partial` file: opened on its first row (a relation with no rows is NOT
+ * written: the engine stages an absent mapped file as an empty one), buffered up to WEB_CSV_CHUNK_SIZE lines, synced
+ * and renamed into place by finish(), so a crash never leaves half a relation under the name a consumer reads.
+ */
+class RelationWriter {
+  length = 0;
+  private fd: number | null = null;
+  private temporaryPath = '';
+  private buffer: string[] = [];
+
+  write(dir: string, filename: string, header: string, lines: readonly string[]): void {
+    if (this.fd === null) {
+      this.temporaryPath = `${path.join(dir, filename)}.${process.pid}-${Date.now()}.partial`;
+      this.fd = fsSync.openSync(this.temporaryPath, 'w');
+      fsSync.writeSync(this.fd, header + '\n');
+    }
+    for (const l of lines) this.buffer.push(l);
+    this.length += lines.length;
+    if (this.buffer.length >= WEB_CSV_CHUNK_SIZE) this.flush();
+  }
+
+  private flush(): void {
+    if (this.fd === null || this.buffer.length === 0) return;
+    fsSync.writeSync(this.fd, this.buffer.join('\n') + '\n');
+    this.buffer = [];
+  }
+
+  async finish(outputPath: string): Promise<string | null> {
+    if (this.fd === null) return null;
+    this.flush();
+    fsSync.fsyncSync(this.fd);
+    fsSync.closeSync(this.fd);
+    this.fd = null;
+    await fs.rename(this.temporaryPath, outputPath);
+    return outputPath;
   }
 }
 
