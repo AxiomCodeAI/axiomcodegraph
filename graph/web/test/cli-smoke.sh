@@ -51,5 +51,20 @@ check impact-before-link 'elements it styles: 0' "$AX" impact '.slot > .card' --
 check link-include '[asserted]' "$AX" link parts/card.html:1 host.html:4
 check impact-asserted 'parts/card.html:1: p.card [match] (included in host.html) [asserted]' "$AX" impact '.slot > .card' --in host.html
 check link-list 'parts/card.html → host.html:4  taken yes' "$AX" link
+# V3-04: a class token / id written with a template expression is found by its written name; V3-06: an on* attribute
+# whose code names no call is still a `handler` row
+mkdir -p "$T/tpl"
+cat > "$T/tpl/index.html" <<'H'
+<!doctype html>
+<html><body><div class="{% if a %}py-0.5{% else %}gap-2.5{% endif %}" id="id_{{ f.name }}_div">x</div>
+<button onclick="navigator.clipboard.writeText(`${location.origin}?t=1`)">copy</button></body></html>
+H
+if (cd "$T/tpl" && "$AX" index "$T/tpl" --lang web >"$T/index2.log" 2>&1); then
+  T0="$T"; T="$T0/tpl-run"; mkdir -p "$T"; ln -s "$T0/tpl" "$T/site"
+  check V3-04-dynamic-class 'elements carrying .{% if a %}py-0.5{% else %}gap-2.5{% endif %}: 1' "$AX" impact '.{% if a %}py-0.5{% else %}gap-2.5{% endif %}'
+  check V3-04-dynamic-id 'elements with id id_{{ f.name }}_div' "$AX" impact '#id_{{ f.name }}_div'
+  check V3-06-handler-no-call '"role": "handler"' "$AX" impact index.html --json
+  T="$T0"
+else fail=$((fail+1)); echo "FAIL index (template site)"; tail -5 "$T/index2.log"; fi
 echo "web cli smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

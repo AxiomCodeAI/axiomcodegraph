@@ -211,8 +211,11 @@ class Web:
         # element carries that token, though it reads like a selector with a pseudo-class
         if a[:1] in '.#' and len(a) > 1:
             name = re.sub(r'\\(.)', r'\1', a[1:])
-            if a[0] == '.' and not re.search(r'\s', name) and self.q1("SELECT 1 FROM web_class_tokens WHERE class_name = ? LIMIT 1", name): return ('class', name)
-            if a[0] == '#' and not re.search(r'\s', name) and self.q1("SELECT 1 FROM web_elements WHERE html_id = ? LIMIT 1", name): return ('id', name)
+            # V3-04: a token written with a template expression (`py-0.5{% else %}gap-2.5{% endif %}`, `id_{{ f.name }}`) holds
+            # spaces and is still one class token / id, found by its written name
+            one = not re.search(r'\s', name) or re.search(r'\{\{|\{%|<%|\$\{', name)
+            if a[0] == '.' and one and self.q1("SELECT 1 FROM web_class_tokens WHERE class_name = ? LIMIT 1", name): return ('class', name)
+            if a[0] == '#' and one and self.q1("SELECT 1 FROM web_elements WHERE html_id = ? LIMIT 1", name): return ('id', name)
         if self.q1("SELECT 1 FROM web_selectors WHERE selector_text = ? LIMIT 1", a) and (' ' in a or not re.match(r'^[.#][\w-]+$', a)): return ('selector', a)
         if re.match(r'^\.[^\s.#\[:>+~]+$', a): return ('class', a[1:])
         if re.match(r'^#[^\s.#\[:>+~]+$', a): return ('id', a[1:])
@@ -681,6 +684,18 @@ class Web:
             role = 'handler' if h['handler_source'] in ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL') else 'template_expr'
             rows.append(self.row(at_of(h['file'], h['line']), 'handler_call', role, calleeName=h['callee_name'], callee_text=h['callee_text'], event=h['event'],
                                  source=h['handler_source'], display=h['display']))
+        # V3-06: an on* attribute or javascript: URL whose code names no call (a template literal, an assignment) is still
+        # a `handler` row, at its element with its event, the code as written beside it
+        have_h = {(r['at'], r.get('event')) for r in rows if r['role'] == 'handler'}
+        for h in self.q("""SELECT h.event, h.code, h.source_kind, h.attr_as_written, e.file, e.line, e.display FROM web_handlers h
+                           LEFT JOIN web_elements e ON e.uid = h.element_uid WHERE h.page_uid = ? AND h.source_kind IN ('on_attribute', 'javascript_url')
+                           ORDER BY h.handler_index""", pid):
+            ev = h['event'] if h['source_kind'] == 'on_attribute' else None
+            k = (at_of(h['file'], h['line']), ev)
+            if k in have_h: continue
+            have_h.add(k)
+            rows.append(self.row(k[0], 'handler_call', 'handler', calleeName=None, event=ev, attr=h['attr_as_written'], code=h['code'],
+                                 source='EVENT_ATTRIBUTE' if h['source_kind'] == 'on_attribute' else 'JAVASCRIPT_URL', display=h['display']))
         tpl = self.q("""SELECT t.dialect, t.directive, t.expression_text, t.callee_names, e.file, e.line FROM web_template_exprs t
                         LEFT JOIN web_elements e ON e.uid = t.element_uid WHERE t.page_uid = ? ORDER BY e.line""", pid)
         have_tpl = {(r['at'], r.get('calleeName')) for r in rows if r['role'] == 'template_expr'}
@@ -746,7 +761,7 @@ class Web:
         self.section(prose, "pages linking to it", R('linked_from'), lambda r: f"{r['at']}: {r['display']} [{r['attribute']}]")
         self.section(prose, "stylesheets it loads, in cascade order", R('loads'), lambda r: f"{r['rank']}. {r['display']}  [{r['via']}{', import depth ' + str(r['import_depth']) if r.get('import_depth') else ''}{', ' + r['media'] if r.get('media') else ''}{', ' + r['reason'] if r['reason'] else ''}]")
         self.code_prose(prose, R('scripts'), R('handlers'))
-        if R('handler'): self.section(prose, "names the handlers call (as written)", R('handler'), lambda r: f"{r['at']}: on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName')}")
+        if R('handler'): self.section(prose, "names the handlers call (as written)", R('handler'), lambda r: f"{r['at']}: on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName') or '(no call by name) ' + (r.get('code') or '')}")
         if R('template_expr'): self.section(prose, "template directives and the names they call", R('template_expr'), lambda r: f"{r['at']}: {r.get('directive') or r.get('source') or ''} → {r.get('calleeName')}")
         if tpl: prose.append(f"template expressions: {len(tpl)} ({', '.join(sorted({t['dialect'] for t in tpl}))})")
         if R('inline_style'): self.section(prose, "inline styles", R('inline_style'), lambda r: f"{r['at']}: {r['display']} {{ {r['property']}: {r.get('value')} }}")
