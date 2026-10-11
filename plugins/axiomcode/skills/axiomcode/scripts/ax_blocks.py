@@ -270,9 +270,33 @@ def edits(repo):
     return 0
 
 
+def edits_json(repo, flags):
+    """impact --json with no name: the impact document for the declarations the working tree's edits changed, with
+    the edits themselves under "edits" — the machine form of edits(), so --json never answers less than the text"""
+    r, doc = verb_json(['python3', os.path.join(H, 'axiomcode-changed'), repo])
+    if not isinstance(doc, dict):
+        sys.stdout.write(r.stdout); return r.returncode
+    ch = doc.get('changed') or []
+    targets = list(dict.fromkeys(c['target'] for c in ch if c.get('target')))
+    head = ["your edits: " + (', '.join(f"{c.get('kind')} {c.get('shown_target') or c.get('symbol')}" for c in ch[:8]) or 'none')
+            + (f" (+{len(ch) - 8} more)" if len(ch) > 8 else '')]
+    if not targets:
+        print(json.dumps({'edits': ch, 'answers': [], 'prose': head + ["nothing edited is a declaration other code depends on" if ch else
+                                                                      "no edits against the commit the graph was built from"]}, indent=2))
+        return 0
+    r, out = verb_json(['python3', os.path.join(H, 'axiomcode-impact')] + targets + [repo] + [f for f in flags if f != '--json'])
+    if not isinstance(out, dict):
+        sys.stdout.write(r.stdout); return r.returncode
+    out['edits'] = ch
+    out['prose'] = head + list(out.get('prose') or [])
+    print(json.dumps(out, indent=2))
+    return r.returncode
+
+
 def main(argv):
     verb, repo = argv[0], argv[1]
     if verb == 'edits': return edits(repo)
+    if verb == 'edits-json': return edits_json(repo, argv[3:] if argv[2:3] == ['--'] else argv[2:])
     cmd = argv[3:] if len(argv) > 2 and argv[2] == '--' else argv[2:]
     r, doc = verb_json(cmd)
     if not isinstance(doc, dict):
@@ -288,5 +312,5 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3 or (sys.argv[1] != 'edits' and len(sys.argv) < 4): sys.exit(__doc__)
+    if len(sys.argv) < 3 or (sys.argv[1] not in ('edits', 'edits-json') and len(sys.argv) < 4): sys.exit(__doc__)
     sys.exit(main(sys.argv[1:]))
