@@ -163,7 +163,7 @@ if [ ! -f "$ROOT/parser/dist/index.js" ]; then
   echo "FAIL: parser not built at $ROOT/parser/dist/index.js (npm install && npm run build)"; exit 1
 fi
 ensure_oracle
-pass=0; fail=0; failed=()
+pass=0; fail=0; skipped=0; failed=()
 for rel in "${CASES[@]}"; do
   d="$HERE/cases/$rel"; exp="$HERE/expected/$rel.tsv"; known="$HERE/expected/$rel.known-missing"
   w="$WORK/$(echo "$rel" | tr / _)"; rm -rf "$w"; mkdir -p "$w"
@@ -171,6 +171,12 @@ for rel in "${CASES[@]}"; do
   kinds=$(conf "$d" kinds); mode=$(conf "$d" mode); check=$(conf "$d" check)
   src="$d/src"
   if [ "$mode" = "scale" ]; then
+    # SPEC 11.3: a cost run is scored only when it starts at a 1-minute load average < 8 (the machine is shared); a
+    # higher load is a stated skip, never a pass
+    load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'); load=${load:-$(uptime | sed 's/.*averages*: *//; s/[, ].*//')}
+    if awk -v l="$load" 'BEGIN { exit !(l >= 8) }'; then
+      echo "skip (load $load >= 8 at start: SPEC 11.3 scores cost runs only at load < 8)"; skipped=$((skipped+1)); continue
+    fi
     src="$w/src"
     python3 "$HERE/tools/gen_scale.py" "$src" $(conf "$d" gen) >"$w/gen.log" 2>&1 || { echo "FAIL (generator — see $w/gen.log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
   fi
@@ -234,6 +240,7 @@ for rel in "${CASES[@]}"; do
       budget_s=$(conf "$d" budget_s 270); budget_rss=$(conf "$d" budget_rss_mb 4096)
       if [ "$secs" -gt "$budget_s" ]; then echo "FAIL (time ${secs}s > ${budget_s}s)"; ok=0; fi
       if [ "$rss_mb" -gt "$budget_rss" ]; then echo "FAIL (rss ${rss_mb}MB > ${budget_rss}MB)"; ok=0; fi
+      echo "    cost: ${secs}s <= ${budget_s}s, peak rss ${rss_mb} MiB <= ${budget_rss} MiB, load at start $load, after $(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')" >> "$w/gate.txt"
     fi
   else
     python3 "$HERE/tools/normalize.py" "$w/out" --kinds="$kinds" > "$w/actual.tsv" 2>"$w/norm.log" || { echo "FAIL (normalize — $(cat "$w/norm.log"))"; ok=0; }
@@ -254,12 +261,18 @@ for rel in "${CASES[@]}"; do
   if [ $ok = 1 ] && [[ ",$check," == *",unknown_budget,"* ]]; then
     python3 "$HERE/tools/unknown_budget.py" "$w/out" > "$w/unknown_budget.txt" || { echo "FAIL (unknown-row grain)"; sed 's/^/  /' "$w/unknown_budget.txt"; ok=0; }
   fi
+  if [ $ok = 1 ] && [[ ",$check," == *",cost_budget,"* ]]; then
+    python3 "$HERE/tools/cost_budget.py" "$w/out" > "$w/cost_budget.txt" || { echo "FAIL (storage budget)"; sed 's/^/  /' "$w/cost_budget.txt"; ok=0; }
+    [ $ok = 1 ] && cat "$w/cost_budget.txt" >> "$w/gate.txt"
+  fi
   if [ $ok = 1 ] && [[ ",$check," == *",var_budget,"* ]]; then
     python3 "$HERE/tools/var_budget.py" "$w/out" > "$w/var_budget.txt" || { echo "FAIL (var row caps)"; sed 's/^/  /' "$w/var_budget.txt"; ok=0; }
   fi
-  if [ $ok = 1 ]; then echo "ok ($(tail -1 "$w/gate.txt" | sed 's/^ *//'); ${secs}s)"; pass=$((pass+1)); else fail=$((fail+1)); failed+=("$rel"); fi
+  if [ $ok = 1 ]; then
+    if [ "$mode" = "scale" ]; then echo "ok"; sed 's/^/  /' "$w/gate.txt" | tail -5; else echo "ok ($(tail -1 "$w/gate.txt" | sed 's/^ *//'); ${secs}s)"; fi
+    pass=$((pass+1)); else fail=$((fail+1)); failed+=("$rel"); fi
   [ "$KEEP" = "1" ] || rm -rf "$w"
 done
-echo; echo "passed: $pass  failed: $fail"
+echo; echo "passed: $pass  failed: $fail$([ $skipped -gt 0 ] && echo "  skipped (load): $skipped")"
 if [ $fail -ne 0 ]; then printf '  %s\n' "${failed[@]}"; exit 1; fi
 [ $pass -ge 1 ] || { echo "FAIL: 0 cases passed"; exit 1; }
