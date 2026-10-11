@@ -370,7 +370,8 @@ export function iconClasses(sheets, pages, emit, selectorParser) {
     const m = /^\s*(["'])(.*)\1\s*$/s.exec(content.value);
     if (!m) continue;
     const inner = m[2];
-    if (!([...inner].length <= 2 || /^\\[0-9a-fA-F]{1,6}\s?$/.test(inner))) continue;
+    // ruling (iter2): empty content is a clearfix/spacer, not an icon
+    if (inner === '' || !([...inner].length <= 2 || /^\\[0-9a-fA-F]{1,6}\s?$/.test(inner))) continue;
     const font = (r.node.nodes ?? []).find((d) => d.type === 'decl' && d.prop.toLowerCase() === 'font-family');
     for (const sel of r.selectors) {
       let cls = null; let ok = true; let pseudo = false;

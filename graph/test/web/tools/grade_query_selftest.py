@@ -46,9 +46,27 @@ def main():
     swapped = [ROWS[2], ROWS[1], ROWS[0], ROWS[3], ROWS[4]]
     if grade(swapped, 'Q1') == 0:
         bad.append('Q1: wrong cascade order still passed')
+    # ORDER keeps repeats: three outline rows on one line, and a missing or extra repeat fails
+    outline = [dict(at=a, status='match') for a in ('shop.html:8', 'shop.html:8', 'shop.html:8', 'shop.html:9')]
+    def grade_role(rows, q, role):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump({'r': [dict(r, role=role, rank=i + 1) for i, r in enumerate(rows)]}, f)
+        with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as e:
+            e.write(f'# reviewed: yes\n# grade=ORDER section=web role={role} fields=at filter=-\n')
+            e.write(''.join(f'{x}\n' for x in q))
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'grade_query.py'), f.name, e.name], capture_output=True, text=True).returncode
+        os.unlink(f.name); os.unlink(e.name)
+        return rc
+    exp_outline = ['shop.html:8', 'shop.html:8', 'shop.html:8', 'shop.html:9']
+    if grade_role(outline, exp_outline, 'outline') != 0:
+        bad.append('ORDER: a sequence with repeated rows was graded wrong')
+    if grade_role(outline[1:], exp_outline, 'outline') == 0:
+        bad.append('ORDER: a missing repeat still passed')
+    if grade_role(outline + [outline[0]], exp_outline, 'outline') == 0:
+        bad.append('ORDER: an extra repeat still passed')
     for b in bad:
         print(f'  {b}')
-    print(f'grade_query self-test: {9 - len(bad)}/9 checks')
+    print(f'grade_query self-test: {12 - len(bad)}/12 checks')
     return 1 if bad else 0
 
 

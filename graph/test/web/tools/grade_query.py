@@ -179,10 +179,8 @@ def main():
         extra_match = {t for t, st in got if t not in exp_set and st == 'match'}
         ok = exp_set <= got_set and not extra_match
     elif grade == 'ORDER':
-        seq = []
-        for t, _ in got:
-            if t not in seq:
-                seq.append(t)
+        # the full sequence, repeats included (an outline lists several rows on one line)
+        seq = [t for t, _ in got]
         ok = seq == exp
     else:
         print(f'  unknown grade {grade}')

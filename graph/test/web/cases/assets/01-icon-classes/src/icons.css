@@ -7,3 +7,5 @@ i.ok::after { content: "✓"; }
 .label::before { content: "Read more"; }
 .fa.fa-x::before { content: "\f00d"; }
 .no-pseudo { content: "x"; }
+.clearfix::after { content: ""; }
+.spacer::before { content: ; }
