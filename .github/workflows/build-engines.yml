@@ -296,7 +296,8 @@ jobs:
         run: |
           set -e
           for lang in $LANGUAGES; do
-            bin="$(ls engines/$lang/axiomcode-engine-$lang* )"; chmod +x "$bin" 2>/dev/null || true
+            # the binary itself, not the .parallel marker (or a DLL) beside it
+            bin="engines/$lang/axiomcode-engine-$lang"; [ -f "$bin.exe" ] && bin="$bin.exe"; chmod +x "$bin" 2>/dev/null || true
             mkdir -p "facts-$lang" "out-$lang"
             sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
             "./$bin" -F "facts-$lang" -D "out-$lang"
