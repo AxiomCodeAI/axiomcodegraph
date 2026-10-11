@@ -24,7 +24,7 @@ import json, os, re, sqlite3, sys
 from collections import deque
 
 ROWS = 25
-CODE_LINES = 40          # lines of a script body an answer shows; the rest is cut and the row says so (`cut`)
+CODE_LINES = 60          # lines of a script body an answer shows; the rest is cut and the row says so (`cut`)
 INLINE = 'style=""'
 STATUS_CERT = {'match': 'resolved', 'conditional': 'in scope', 'unknown': 'unknown', 'ambiguous': 'in scope'}
 
@@ -204,23 +204,25 @@ class Web:
     def script_rows(self, where, *a, full=False):
         out = []
         for s in self.q(f"""SELECT s.file, s.line, s.order_on_page, s.script_kind, s.script_type, s.type_as_written, s.src, s.resolved_file, s.is_module,
-                                 s.is_async, s.is_defer, s.is_nomodule, s.body_line, s.body_lines, s.body_bytes, s.body, s.inline_index
+                                 s.is_async, s.is_defer, s.is_nomodule, s.body_start_line AS body_line, s.body_lines, s.body_bytes, s.body, s.inline_index, s.attributes
                           FROM web_scripts s WHERE {where} ORDER BY s.file, s.order_on_page""", *a):
             body = s['body']; cut = 0
-            if body is not None and not full and self.limit < 10 ** 9:
+            cap = CODE_LINES if self.limit == ROWS else self.limit
+            if body is not None and not full and cap < 10 ** 9:
                 lines = body.split('\n')
-                if len(lines) > CODE_LINES: body = '\n'.join(lines[:CODE_LINES]); cut = len(lines) - CODE_LINES
+                if len(lines) > cap: body = '\n'.join(lines[:cap]); cut = len(lines) - cap
             name = f"{s['file']}#script-{s['inline_index']}" if s['inline_index'] else None
             out.append(self.row(at_of(s['file'], s['line']), 'script', 'scripts', order=s['order_on_page'], name=name, script_kind=s['script_kind'],
                                 script_type=s['script_type'], type=s['type_as_written'], src=s['src'], resolved_file=s['resolved_file'], module=bool(s['is_module']),
                                 async_=bool(s['is_async']), defer=bool(s['is_defer']), nomodule=bool(s['is_nomodule']), body_line=s['body_line'],
-                                body_lines=s['body_lines'], body_bytes=s['body_bytes'], body=body, cut_lines=cut))
+                                body_lines=s['body_lines'], body_bytes=s['body_bytes'], body=body, cut=bool(cut), cut_lines=cut,
+                                attributes=json.loads(s['attributes']) if s['attributes'] else None))
         return out
 
     def handler_rows(self, where, *a):
-        return [self.row(at_of(h['file'], h['line']), 'handler', 'handlers', tag=h['tag'], attr=h['attr_as_written'], event=h['event'], modifiers=h['modifiers'],
-                         source_kind=h['source_kind'], code=h['code'], known_event=h['known_event'], order=h['handler_index'])
-                for h in self.q(f"""SELECT file, line, tag, attr_as_written, event, modifiers, source_kind, code, known_event, handler_index FROM web_handlers h
+        return [self.row(at_of(h['file'], h['line']), 'handler', 'handlers', tag=h['tag'], attr=h['attr_as_written'], event=h['event'], modifiers=h['modifiers'] or None,
+                         source_kind=h['source_kind'], code=h['code'], code_bytes=h['code_bytes'], order=h['handler_index'])
+                for h in self.q(f"""SELECT file, line, tag, attr_as_written, event, modifiers, source_kind, code, code_bytes, handler_index FROM web_handlers h
                                    WHERE {where} ORDER BY file, handler_index""", *a)]
 
     def code_prose(self, prose, scripts, handlers):
@@ -237,7 +239,7 @@ class Web:
         if handlers:
             prose.append(f"event handlers, in page order: {len(handlers)}")
             for r in handlers[:self.limit]:
-                prose.append(f"  {r['at']}: <{r['tag']} {r['attr']}=\"{r['code']}\">  [{r['source_kind']}{', event ' + r['event'] if r.get('event') else ''}{', ' + r['modifiers'] if r.get('modifiers') else ''}{', not a known event' if r.get('known_event') == 0 else ''}]")
+                prose.append(f"  {r['at']}: <{r['tag']} {r['attr']}=\"{r['code']}\">  [{r['source_kind']}{', event ' + r['event'] if r.get('event') else ''}{', ' + r['modifiers'] if r.get('modifiers') else ''}]")
 
     # ── rows and prose ──
     @staticmethod
@@ -365,7 +367,7 @@ class Web:
             inline = self.q("SELECT property, value_text, is_important, line FROM web_declarations WHERE element_uid = ? ORDER BY position", e['uid'])
             rows += [dict(r, element=at_of(e['file'], e['line'])) for r in cas]
             rows += [self.row(at_of(e['file'], d['line']), 'declaration', 'inline_style', property=d['property'], value=d['value_text'], important=d['is_important']) for d in inline]
-            el_scripts = self.script_rows('s.element_uid = ?', e['uid'])
+            el_scripts = self.script_rows('s.element_uid = ?', e['uid'], full=True)   # a script element: its whole body
             el_handlers = self.handler_rows('h.element_uid = ?', e['uid'])
             rows += el_scripts + el_handlers
             prose.append(f"web: element {e['display']} at {e['file']}:{e['line']}" + (f" (inert: {e['inert']})" if e['inert'] else ''))

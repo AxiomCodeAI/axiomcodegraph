@@ -432,73 +432,103 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         if (kind === 'INLINE' && sl !== null && sc !== null && el !== null && ec !== null && sl > 0) {
           const pt = textOfPage(d);
           if (pt) body = pt.text.slice(offsetOf(pt, sl, sc), offsetOf(pt, el, ec));
+          // the file changed since it was parsed: the range no longer holds the body
+          const want = num(g(T.script, r, 'bodyLength'));
+          if (body !== null && want !== null && body.length !== want) { unknownRow('stale_source', id, d, 'stale_source', 'the page changed since it was parsed', fileOfPage(d), sl); body = null; }
         }
         const inlineIndex = kind === 'INLINE' ? ++inlineN : null;
         out('web_scripts').push({ uid: id, element_uid: owner, page_uid: d, file: fileOfPage(d), line: startOf(owner)[0] || null, col: startOf(owner)[1] || null,
           order_on_page: i + 1, script_kind: kind, script_type: g(T.script, r, 'scriptType'), type_as_written: nz(g(T.script, r, 'typeAsWritten')),
           src: nz(g(T.script, r, 'src')), resolved_file: resolved,
           is_module: g(T.script, r, 'scriptType') === 'MODULE' ? 1 : 0, is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')),
-          is_nomodule: bool(g(T.script, r, 'isNoModule')), body_line: sl, body_col: sc, body_end_line: el, body_end_col: ec,
+          is_nomodule: bool(g(T.script, r, 'isNoModule')), body_start_line: sl, body_start_col: sc, body_end_line: el, body_end_col: ec,
+          attributes: JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? v.value : true]))),
           body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body.split('\n').length,
           body_bytes: body === null ? null : Buffer.byteLength(body, 'utf8'), body, inline_index: inlineIndex });
       });
     }
   }
-  // handlers: every event-handler form written on a tag, one row each, the code verbatim (no JavaScript is parsed):
-  // on* in any case, javascript: URLs, Vue @x / v-on:x, Alpine x-on:x / @x, Angular (x) / on-x, AngularJS ng-x,
-  // Svelte on:x, htmx hx-on:x / hx-on::x, and a Stimulus-style data-action stored as written
+  // handlers (SPEC §10): one row per handler-bearing attribute or javascript: URL on an HTML tag, the code as the
+  // attribute value reads (entities decoded, nothing else); no JavaScript is parsed. The decision rules and the
+  // look-alikes that are NOT handlers (data-on*, onboarding/once, @ on a page with no Vue/Alpine, ng-if, data-action
+  // without a # descriptor) are the SPEC's table, applied to the attribute name as written, case-insensitively.
   {
-    const ANGULARJS_EVENTS = /^ng-(click|dblclick|submit|change|blur|focus|keyup|keydown|keypress|mousedown|mouseup|mouseenter|mouseleave|mousemove|mouseover|copy|cut|paste)$/i;
+    const ANGULARJS = /^(?:data-)?ng-(click|dblclick|submit|change|blur|focus|keydown|keyup|keypress|mousedown|mouseup|mouseenter|mouseleave|mouseover|mousemove|copy|cut|paste)$/i;
+    const STIMULUS_DEFAULT: Record<string, string> = { a: 'click', button: 'click', details: 'toggle', form: 'submit', input: 'input', select: 'change', textarea: 'input' };
+    const dialectsOf = new Map<string, Set<string>>();
+    for (const r of T.doc.rows) dialectsOf.set(g(T.doc, r, 'htmlDocumentUniqueHash'), new Set(g(T.doc, r, 'templateDialects').split(',').filter(Boolean)));
     const alpineScope = (e: El | undefined): boolean => { for (let a = e ?? null; a; a = a.parent) if (a.attrs.has('x-data')) return true; return false; };
-    const handlersByPage = new Map<string, Record<string, string | number | null>[]>();
-    const rawValue = (pageId: string, line: number, col: number): string | null => {
-      const pt = textOfPage(pageId); if (!pt) return null;
-      const at = offsetOf(pt, line, col);
-      const m = /^[^\s=>]+\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/.exec(pt.text.slice(at, at + 200000));
-      return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
-    };
-    const handlerOf = (name: string, e: El | undefined): { kind: string; event: string; modifiers: string } | null => {
+    const mods = (s: string, sep: string): string => s.split(sep).filter(Boolean).join(',');
+    interface H { kind: string; event: string; modifiers: string; code?: string }
+    const classify = (name: string, value: string, e: El | undefined, page: string): H[] => {
+      const n = name.toLowerCase();
       let m: RegExpExecArray | null;
-      if ((m = /^on([a-z][\w-]*)$/i.exec(name)) && !/^on[-:]/i.test(name)) return { kind: 'on_attr', event: m[1]!.toLowerCase(), modifiers: '' };
-      if ((m = /^(?:v-on:|@)([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/i.exec(name))) {
-        const alpine = name.startsWith('@') ? alpineScope(e) : false;
-        return { kind: alpine ? 'alpine' : 'vue', event: m[1]!.toLowerCase(), modifiers: m[2]! };
+      const dial = dialectsOf.get(page) ?? new Set<string>();
+      if ((m = /^on([a-z][a-z0-9]*)$/.exec(n))) return KNOWN_EVENTS.has(m[1]!) ? [{ kind: 'on_attribute', event: m[1]!, modifiers: '' }] : [];
+      if ((m = /^v-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) return [{ kind: 'vue', event: m[1]!, modifiers: mods(m[2]!, '.') }];
+      if ((m = /^x-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) return [{ kind: 'alpine', event: m[1]!, modifiers: mods(m[2]!, '.') }];
+      if ((m = /^@([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) {
+        const vue = dial.has('VUE'), alpine = dial.has('ALPINE');
+        if (!vue && !alpine) return [];
+        return [{ kind: vue && alpine ? (alpineScope(e) ? 'alpine' : 'vue') : alpine ? 'alpine' : 'vue', event: m[1]!, modifiers: mods(m[2]!, '.') }];
       }
-      if ((m = /^x-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/i.exec(name))) return { kind: 'alpine', event: m[1]!.toLowerCase(), modifiers: m[2]! };
-      if ((m = /^\(([\w-]+)((?:\.[\w-]+)*)\)$/.exec(name))) return { kind: 'angular', event: m[1]!.toLowerCase(), modifiers: m[2]! };
-      if ((m = /^on-([\w-]+)$/i.exec(name))) return { kind: 'angular', event: m[1]!.toLowerCase(), modifiers: '' };
-      if ((m = ANGULARJS_EVENTS.exec(name))) return { kind: 'angularjs', event: m[1]!.toLowerCase(), modifiers: '' };
-      if ((m = /^on:([\w-]+)((?:\|[\w-]+)*)$/i.exec(name))) return { kind: 'svelte', event: m[1]!.toLowerCase(), modifiers: m[2]! };
-      if ((m = /^hx-on(?:::?|-)([\w:.-]+)$/i.exec(name))) return { kind: 'htmx', event: m[1]!.toLowerCase(), modifiers: '' };
-      if (name.toLowerCase() === 'data-action') return { kind: 'other_dialect', event: '', modifiers: '' };
-      return null;
+      if ((m = /^\(([\w-]+)((?:\.[\w-]+)*)\)$/.exec(n))) return [{ kind: 'angular', event: m[1]!, modifiers: mods(m[2]!, '.') }];
+      if ((m = /^on-([a-z][\w-]*)$/.exec(n))) return KNOWN_EVENTS.has(m[1]!) ? [{ kind: 'angular', event: m[1]!, modifiers: '' }] : [];
+      if ((m = ANGULARJS.exec(n))) return [{ kind: 'angularjs', event: m[1]!.toLowerCase(), modifiers: '' }];
+      if ((m = /^on:([\w-]+)((?:\|[\w-]+)*)$/.exec(n))) return [{ kind: 'svelte', event: m[1]!, modifiers: mods(m[2]!, '|') }];
+      if ((m = /^hx-on::([\w:.-]+)$/.exec(n))) return [{ kind: 'htmx', event: `htmx:${m[1]}`, modifiers: '' }];
+      if ((m = /^hx-on:([\w:.-]+)$/.exec(n)) || (m = /^hx-on-([\w-]+)$/.exec(n))) return [{ kind: 'htmx', event: m[1]!, modifiers: '' }];
+      if (n === 'data-action' && value.includes('#')) {
+        return value.trim().split(/\s+/).filter((d) => d.includes('#')).map((d) => {
+          const dm = /^(?:([\w:.@-]+)->)?(.+)$/.exec(d)!;
+          let ev = dm[1];
+          if (!ev) { const type = e?.attrs.get('type')?.value.toLowerCase(); ev = e?.tagLower === 'input' && type === 'submit' ? 'click' : (STIMULUS_DEFAULT[e?.tagLower ?? ''] ?? 'click'); }
+          const evParts = ev.split('.');
+          return { kind: 'stimulus', event: evParts[0]!.toLowerCase(), modifiers: evParts.slice(1).join(','), code: dm[2]! };
+        });
+      }
+      return [];
     };
+    /** the attribute name as written in the source (the IR lowercases an HTML attribute's name) */
+    const writtenName = (pageId: string, line: number | null, col: number | null, fallback: string): string => {
+      const pt = line !== null && col !== null ? textOfPage(pageId) : null;
+      if (!pt) return fallback;
+      const at = offsetOf(pt, line!, col!);
+      const got = pt.text.slice(at, at + fallback.length);
+      return got.toLowerCase() === fallback.toLowerCase() ? got : fallback;
+    };
+    const handlersByPage = new Map<string, Record<string, string | number | null>[]>();
     for (const r of T.attr.rows) {
       const prefix = g(T.attr, r, 'prefix'), name0 = g(T.attr, r, 'name');
       const name = prefix ? `${prefix}:${name0}` : name0;
+      if (g(T.attr, r, 'hasValue') !== 'true') continue;
       const elId = g(T.attr, r, 'ownerElementLinkHash'); const e = elById.get(elId);
-      const h = handlerOf(name, e);
-      if (!h) continue;
-      if (h.kind === 'on_attr' && g(T.attr, r, 'hasValue') !== 'true') continue; // a bare `once` runs nothing
+      if (e?.inert === 'iframe_text') continue;
       const d = g(T.attr, r, 'documentLinkHash');
+      const value = unesc(g(T.attr, r, 'value'));
+      const hs = classify(name, value, e, d);
+      if (hs.length === 0) continue;
       const line = num(g(T.attr, r, 'startLine')), col = num(g(T.attr, r, 'startColumn'));
-      const code = line !== null && col !== null ? (rawValue(d, line, col) ?? unesc(g(T.attr, r, 'value'))) : unesc(g(T.attr, r, 'value'));
-      let event = h.event;
-      if (h.kind === 'other_dialect') { const em = /^\s*([\w:.-]+)->/.exec(code); event = em ? em[1]!.toLowerCase() : ''; }
-      push(handlersByPage, d, { uid: g(T.attr, r, 'htmlAttributeUniqueHash'), element_uid: elId, attribute_uid: g(T.attr, r, 'htmlAttributeUniqueHash'), page_uid: d,
-        file: fileOfPage(d), tag: e?.tag ?? null, attr_as_written: name, event: nz(event), modifiers: nz(h.modifiers), source_kind: h.kind, code, line, col, handler_index: null,
-        known_event: h.kind === 'on_attr' ? (KNOWN_EVENTS.has(event) ? 1 : 0) : null });
+      const written = writtenName(d, line, col, name);
+      hs.forEach((h, i) => {
+        const code = h.code ?? value;
+        push(handlersByPage, d, { uid: hs.length > 1 ? `${g(T.attr, r, 'htmlAttributeUniqueHash')}#${i + 1}` : g(T.attr, r, 'htmlAttributeUniqueHash'),
+          element_uid: elId, attribute_uid: g(T.attr, r, 'htmlAttributeUniqueHash'), page_uid: d, file: fileOfPage(d), tag: e?.tag ?? null, attr_as_written: written,
+          event: h.event, modifiers: h.modifiers, source_kind: h.kind, code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null,
+          known_event: KNOWN_EVENTS.has(h.event) ? 1 : 0 });
+      });
     }
     for (const r of T.ref.rows) {
       if (g(T.ref, r, 'urlKind') !== 'JAVASCRIPT_URI') continue;
-      const attr = g(T.ref, r, 'attributeName').toLowerCase();
-      if (!['href', 'src', 'action', 'formaction'].includes(attr)) continue;
+      const attr = g(T.ref, r, 'attributeName');
+      if (!['href', 'src', 'action', 'formaction', 'xlink:href'].includes(attr.toLowerCase())) continue;
       const d = g(T.ref, r, 'documentLinkHash'); const elId = g(T.ref, r, 'ownerElementLinkHash');
-      const url = g(T.ref, r, 'urlAsWritten');
+      if (elById.get(elId)?.inert === 'iframe_text') continue;
+      const code = g(T.ref, r, 'urlAsWritten').replace(/^\s*javascript:/i, '');
+      const line = num(g(T.ref, r, 'startLine')), col = num(g(T.ref, r, 'startColumn'));
       push(handlersByPage, d, { uid: g(T.ref, r, 'htmlReferenceUniqueHash'), element_uid: elId, attribute_uid: nz(g(T.ref, r, 'attributeLinkHash')), page_uid: d,
-        file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: g(T.ref, r, 'attributeName'),
-        event: attr === 'href' || attr === 'src' ? 'click' : 'submit', modifiers: null, source_kind: 'javascript_url', code: url.replace(/^\s*javascript:/i, ''),
-        line: num(g(T.ref, r, 'startLine')), col: num(g(T.ref, r, 'startColumn')), handler_index: null, known_event: null });
+        file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: writtenName(d, line, col, attr), event: 'navigate', modifiers: '',
+        source_kind: 'javascript_url', code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null, known_event: null });
     }
     for (const rows of handlersByPage.values()) {
       rows.sort((a, b) => ((a.line as number) - (b.line as number)) || ((a.col as number) - (b.col as number)));

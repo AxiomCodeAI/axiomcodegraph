@@ -53,16 +53,16 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_scripts',
-    description: 'One <script> element, in page order (`order_on_page`): its type (script_type as classified, type_as_written), module / nomodule / async / defer, its src and the file it resolves to, or for an inline one the body range, `body` (the exact source text between the tags, sliced from the file: CRLF kept, nothing trimmed), `body_lines`, `body_bytes` and `inline_index` (its place among the page\'s inline scripts). Non-JavaScript types (JSON, importmap, templates) are rows too, so a reader sees and skips them. Nothing here reads a body as JavaScript.',
+    description: 'One <script> element (SPEC §10; view web_script), in page order (`order_on_page`): type as classified and as written, `attributes` (JSON of every attribute), module / nomodule / async / defer, src and the file it resolves to, or for an inline one the body range, `body` (the exact source text between the tags, sliced from the file: no entity decoding, CRLF kept, nothing trimmed; NULL with a web_unknown stale_source row when the file changed since parsing), `body_lines`, `body_bytes` and `inline_index`. Non-JavaScript types (JSON, importmap, templates) are rows too. Nothing here reads a body as JavaScript.',
     columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('order_on_page'), t('script_kind', 'EXTERNAL or INLINE'), t('script_type'),
-      t('type_as_written'), t('src'), id('resolved_file'), i('is_module'), i('is_async'), i('is_defer'), i('is_nomodule'), i('body_line'), i('body_col'), i('body_end_line'),
-      i('body_end_col'), i('body_length'), i('body_lines'), i('body_bytes'), t('body'), i('inline_index')],
+      t('type_as_written'), t('attributes'), t('src'), id('resolved_file'), i('is_module'), i('is_async'), i('is_defer'), i('is_nomodule'), i('body_start_line'), i('body_start_col'),
+      i('body_end_line'), i('body_end_col'), i('body_length'), i('body_lines'), i('body_bytes'), t('body'), i('inline_index')],
   },
   {
     name: 'web_handlers',
-    description: 'One event handler written on a tag, in page order (`handler_index`): an on* attribute in any case, a javascript: URL (href/src/action/formaction), Vue @x / v-on:x, Alpine x-on:x / @x, Angular (x) / on-x, AngularJS ng-x, Svelte on:x, htmx hx-on:x / hx-on::x, or a Stimulus-style data-action. `attr_as_written`, `event` (lowercase, no prefix), `modifiers` (.prevent, |once, keyup.enter …), `source_kind` (on_attr | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | other_dialect) and `code` verbatim as written in the file. No JavaScript is parsed.',
+    description: 'One handler-bearing attribute or javascript: URL on an HTML tag (SPEC §10; view web_handler), in page order (`handler_index`): `attr_as_written` (original case, read from the source), `event` (lower-case DOM event; `htmx:x` for hx-on::x; `navigate` for a javascript: URL), `modifiers` (comma list), `source_kind` (on_attribute | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | stimulus; one row per Stimulus descriptor), `code` as the attribute value reads (for javascript: the text after it; for Stimulus the descriptor) and `code_bytes`. Look-alikes (data-on*, onboarding, once, @x on a page with no Vue/Alpine, ng-if, data-action without #) are not rows. No JavaScript is parsed.',
     columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), id('tag'), t('attr_as_written'), id('event'), t('modifiers'), t('source_kind'),
-      t('code'), i('line'), i('col'), i('handler_index'), i('known_event', 'on* only: 1 when the event is a WHATWG event handler name (or touch*, mousewheel), 0 for an unknown name such as onclick2')],
+      t('code'), i('code_bytes'), i('line'), i('col'), i('handler_index'), i('known_event', '1 when the event is in the DOM/HTML event-handler list')],
   },
   {
     name: 'web_handler_calls',
@@ -196,8 +196,14 @@ export const WEB_TABLES: readonly TableSpec[] = [
 
 /** Views: the edges a reader expects by name that are a projection of a node table. */
 export const WEB_VIEWS: readonly string[] = [
-  `CREATE VIEW web_script AS SELECT * FROM web_scripts`,
-  `CREATE VIEW web_handler AS SELECT * FROM web_handlers`,
+  `CREATE VIEW web_script AS SELECT uid, page_uid, element_uid, file, order_on_page AS ordinal, type_as_written, script_type, lower(script_kind) AS kind,
+     attributes, src, resolved_file, body_start_line AS body_line, body_start_col AS body_col, body_end_line, body_end_col, body, body_bytes, body_lines, inline_index
+     FROM web_scripts`,
+  `CREATE VIEW web_handler AS SELECT uid, page_uid, element_uid, file, line, col, attr_as_written, event, modifiers, source_kind, code, code_bytes, tag, handler_index
+     FROM web_handlers`,
+  `CREATE VIEW web_event_handlers AS SELECT uid, element_uid, attr_as_written AS attribute_name,
+     CASE source_kind WHEN 'on_attribute' THEN 'EVENT_ATTRIBUTE' WHEN 'javascript_url' THEN 'JAVASCRIPT_URL' ELSE 'TEMPLATE_EVENT' END AS handler_source,
+     CASE WHEN source_kind = 'javascript_url' THEN NULL ELSE event END AS event_name, code AS raw_text FROM web_handlers`,
   // var(--x) per page: a use, every definition in scope on the page, and the inheritance status (SPEC §3.4, §3.4a). Not
   // materialized: it is the (use x def x page) set, quadratic on a large site; impact reads the stored tables.
   `CREATE VIEW web_var AS
