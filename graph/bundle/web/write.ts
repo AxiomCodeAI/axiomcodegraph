@@ -9,6 +9,15 @@ type Stmt = { run(...a: (string | number | null)[]): unknown };
 type Db = { exec(sql: string): void; prepare(sql: string): Stmt; close(): void };
 
 const BATCH = 64;
+/**
+ * SHORT UIDS (C-05). Every web uid is an IR hash, a kind prefix and 32 hex digits, repeated in many columns and
+ * indexes: on a dev project with 591k styles rows they were about a third of a 1.36 GB file. A value that is exactly such
+ * a hash is written with its first 16 hex digits (64 bits; within one project, one kind's million ids collide with odds
+ * near 1e-7). Every table goes through this one sink, so a uid and every reference to it stay equal; the prefix stays,
+ * so a uid still names its kind.
+ */
+const IR_HASH = /^([A-Z][A-Z0-9_]*_)([0-9a-f]{32})$/;
+const shortUid = (v: string): string => { const m = IR_HASH.exec(v); return m ? m[1]! + m[2]!.slice(0, 16) : v; };
 /** text columns where the empty string is a value, not "none": an empty inline script's body, an empty handler's code */
 const KEEP_EMPTY = new Set(['web_scripts.body', 'web_handlers.code']);
 
@@ -46,7 +55,10 @@ export class WebDb {
     const cols = this.cols.get(table)!;
     for (const k of Object.keys(r)) if (!cols.includes(k)) throw new Error(`${table} has no column ${k}`);
     const b = this.buf.get(table)!;
-    for (const c of cols) { const v = r[c]; b.push(v === undefined || (v === '' && !KEEP_EMPTY.has(`${table}.${c}`)) ? null : v); }
+    for (const c of cols) {
+      const v = r[c];
+      b.push(v === undefined || (v === '' && !KEEP_EMPTY.has(`${table}.${c}`)) ? null : typeof v === 'string' && v.length === 0 ? v : typeof v === 'string' ? shortUid(v) : v);
+    }
     this.counts.set(table, this.counts.get(table)! + 1);
     if (b.length === n * BATCH) {
       let st = this.full.get(table);

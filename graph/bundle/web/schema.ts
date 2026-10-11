@@ -19,6 +19,12 @@ import type { ColumnSpec, TableSpec } from '@/bundle/schema';
 const t = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT', description, nullable: true });
 const i = (name: string, description = ''): ColumnSpec => ({ name, type: 'INTEGER', description, nullable: true });
 const id = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT', description, nullable: true, indexed: true });
+/**
+ * An id column with no index of its own (C-05): on the three largest tables the per-column indexes were half the file
+ * (853 of 1,655 MB on a dev project), and these columns are never a query's lookup key (they are read with their row,
+ * or a composite index in write.ts leads with them). A column that becomes a lookup key goes back to id().
+ */
+const ref = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT', description, nullable: true });
 
 export const WEB_TABLES: readonly TableSpec[] = [
   // ── nodes ────────────────────────────────────────────────────────────────
@@ -102,8 +108,8 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_selector_parts',
     description: 'One simple selector (css_selector_part). `part_kind`: TYPE UNIVERSAL CLASS ID ATTRIBUTE PSEUDO_CLASS PSEUDO_ELEMENT NESTING RAW; arguments of :not()/:is()/:has()/:nth-child(of) have `parent_uid` and depth > 0.',
-    columns: [id('uid'), id('selector_uid'), id('rule_uid'), i('line'), i('col'), t('part_kind'), id('name'), t('value'), t('matcher'), t('flags'), t('combinator'),
-      i('compound_index'), i('position'), i('depth'), i('argument_index'), id('parent_uid')],
+    columns: [ref('uid'), id('selector_uid'), ref('rule_uid'), i('line'), i('col'), t('part_kind'), id('name'), t('value'), t('matcher'), t('flags'), t('combinator'),
+      i('compound_index'), i('position'), i('depth'), i('argument_index'), ref('parent_uid')],
   },
   {
     name: 'web_declarations',
@@ -156,10 +162,10 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_styles',
     description: 'selector -> element: the rule applies to the element on that page (only through sheets the page loads). `reason` lists every condition, sorted, \';\'-joined. Cascade order fields per SPEC §3.3: sort by (important_count>0, layer_rank, spec_a, spec_b, spec_c, sheet_order, rule_order). `pseudo_element` set when the rule styles a ::before/::after/… of the element.',
-    columns: [id('selector_uid'), id('rule_uid'), id('stylesheet_uid'), id('element_uid'), id('page_uid'), t('status'), t('reason'), t('conditions'), t('pseudo_element'),
+    columns: [ref('selector_uid'), id('rule_uid'), ref('stylesheet_uid'), id('element_uid'), ref('page_uid'), t('status'), t('reason'), t('conditions'), t('pseudo_element'),
       i('spec_a'), i('spec_b'), i('spec_c'), i('layer_rank'), i('sheet_order'), i('rule_order'), i('important_count'),
-      id('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element'),
-      id('host_page_uid', 'set when the element is a fragment\'s, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own')],
+      ref('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element'),
+      ref('host_page_uid', 'set when the element is a fragment\'s, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own')],
   },
   {
     name: 'web_includes',
@@ -223,7 +229,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_computed',
     description: 'The cascade winner per (element, pseudo-element, written property) with >= 1 contender (SPEC §9.2): contenders are the declarations of the property in every rule with a styles row for the element and pseudo-element, plus its style attribute, sorted by importance, origin/layer, specificity, sheet order, rule order, position. `winner_status` match | conditional_only (no exact contender) | unknown (an unknown contender sorts above the winner) | shorthand_override (a shorthand declaration sorts above this longhand\'s winner: `override_decl_uid`; values are not expanded, LIMIT L5). Inherited and initial values are not filled (L6). `winner_key` is the sort key the view web_cascade compares against.',
-    columns: [id('element_uid'), id('page_uid'), id('host_page_uid', 'a fragment element resolved where that host includes it (§11); NULL on its own page'), t('pseudo'), id('property'), id('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), id('override_decl_uid'), t('winner_key')],
+    columns: [id('element_uid'), ref('page_uid'), ref('host_page_uid', 'a fragment element resolved where that host includes it (§11); NULL on its own page'), t('pseudo'), ref('property'), ref('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), ref('override_decl_uid'), t('winner_key')],
   },
   {
     name: 'web_tokens',

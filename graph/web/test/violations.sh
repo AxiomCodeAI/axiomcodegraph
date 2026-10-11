@@ -230,5 +230,21 @@ H
   }
 fi
 
+if want C-05; then
+  # disk cost: uids carry 16 hex digits (every reference equal to its target), and the big tables carry no index nothing
+  # queries by; the composite (page, element) and (selector, page) indexes stay
+  put "$T/c05/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><p class="a"><b class="a">x</b></p></body></html>
+H
+  printf '.a{color:red}\np .a{color:blue}\n' > "$T/c05/src/s.css"
+  db=$(build c05) && {
+    eq "C-05 element uids are prefix + 16 hex (>= 1 row)" "$(sqlite3 "$db" "SELECT count(*) >= 1 AND sum(uid GLOB 'HTML_ELEMENT_????????????????' AND length(uid) = 29) = count(*) FROM web_elements")" "1"
+    eq "C-05 every styles row's element_uid names an element" "$(sqlite3 "$db" "SELECT count(*) >= 1 AND sum(e.uid IS NOT NULL) = count(*) FROM web_styles w LEFT JOIN web_elements e ON e.uid = w.element_uid")" "1"
+    eq "C-05 the indexes on web_styles / web_computed / web_selector_parts" \
+      "$(sqlite3 "$db" "SELECT group_concat(name, ' ') FROM (SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('web_styles', 'web_computed', 'web_selector_parts') ORDER BY name)")" \
+      "idx_web_computed_element_uid idx_web_selector_parts_name idx_web_selector_parts_selector_uid idx_web_styles_element_uid idx_web_styles_page_element idx_web_styles_rule_uid idx_web_styles_selector_page"
+  }
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]
