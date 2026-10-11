@@ -66,9 +66,12 @@ export class HtmlReference extends WebRow {
     this.generateHash();
   }
 
-  /** **PK** `HTML_REFERENCE_md5(attributeLinkHash ‖ position)`. */
+  /**
+   * **PK** `HTML_REFERENCE_md5(attributeLinkHash ‖ position)`. An include written in text or a comment (INCLUDE, G22)
+   * has no attribute: it is keyed by its page instead, or every page's first include would share one key.
+   */
   generateHash(): void {
-    this.hash = WebRow.key('HTML_REFERENCE', this.attributeLinkHash, this.position);
+    this.hash = WebRow.key('HTML_REFERENCE', this.attributeLinkHash || `${this.documentLinkHash}#include`, this.position);
   }
 
   protected values(): string[] {
