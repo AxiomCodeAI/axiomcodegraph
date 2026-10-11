@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Normalize the engine's web graph (and the JavaScript graph's per-language additions) into the
+"""Normalize the engine's web graph (HTML and CSS only) into the
 oracle's row vocabulary, so a case compares as a sorted multiset diff.
 
   normalize.py <out-dir> [--kinds=a,b,...]     prints rows on stdout, sorted
 
 <out-dir> is what `bin/axiomcode <src> <out-dir>` writes: <out-dir>/web/graph.sqlite and, for the
-js suite, <out-dir>/javascript/graph.sqlite.
+(the web layer is HTML and CSS only: no JavaScript table is read here).
 
 THE CONTRACT (the engine's tables this reads; SPEC.md section 5.1 in concrete column names).
 Every web node table has `uid` (the parser's unique hash), `file` (repo-relative), `line`, `col`
@@ -19,8 +19,12 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_attributes(uid, element_uid, name, value)
   web_class_tokens(uid, element_uid, position, class_name)
   web_references(uid, element_uid, attribute_name, url_as_written, url_kind, resolved_file)    url_kind = parser WebUrlKind
-  web_scripts(uid, element_uid, script_kind, script_type, resolved_file, js_module_path)
-  web_handler_calls(uid, element_uid, attribute_uid, handler_source, callee_name, js_module_path)
+  web_scripts(uid, element_uid, script_kind, script_type, resolved_file, body_start_line, body_start_col,
+              body_end_line, body_end_col)   an INLINE body's range: first char after the start tag .. the `<` of
+              `</script>` (exclusive); EXTERNAL rows compare resolved_file
+  web_event_handlers(uid, element_uid, attribute_name, handler_source, event_name, raw_text)
+              handler_source EVENT_ATTRIBUTE (on*; event = name without `on`, lowercased) | JAVASCRIPT_URL (event NULL)
+              | TEMPLATE_EVENT (@x / x-on:x / v-on:x / on:x / (x); event = x without modifiers); raw_text as written
   web_template_exprs(uid, element_uid, attribute_uid, expression_text)                         attribute_uid NULL = element text
   web_stylesheets(uid, file, source_kind, owner_element_uid)                                    source_kind FILE | HTML_STYLE_ELEMENT
   web_rules(uid, stylesheet_uid, parent_uid, file, line, col, rule_kind, at_rule_name, prelude_text)
@@ -46,12 +50,6 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_container_use(use_uid, name, target_uid, page_uid, status, reason)  use_uid = the @container rule
   web_unknown(kind, node_uid, page_uid, reason, detail)                  orphan_sheet, fragment_no_host,
              no_static_carrier, shadow_dom, selector_unparsed, implied_element, column_combinator, lang_unknown
-  JavaScript graph (per-language, never joined to the web graph):
-  methods(id, name, qualified_name, file_path, start_line, kind) + ext_method_name(method_id, name)
-             + ext_module_provenance(module, provenance)   [iter1b js rulings: binding names, BUNDLED provenance]
-             MODULE_INITIALIZER rows skipped; an inline module's functions carry
-             qualified_name starting with '<page>#script-<n>' / '<page>#on-<n>'
-  ext_dom_touch(file, line, api, arg_index, literal, tokens, status)
 
 Row keys (identical to the oracle's): page = file; element = file:line:col; sheet = file for a FILE
 sheet, style@<element key> for a <style>; rule = file:line:col; selector = <rule key>/<position>;
@@ -107,8 +105,7 @@ def main():
     out = []
     emit = (lambda kind, *f: out.append('\t'.join([kind] + [esc(x) for x in f])) if want(kind) else None)
 
-    JS_KINDS = {'js_function', 'dom_touch'}
-    web_needed = kinds is None or bool(kinds - JS_KINDS)
+    web_needed = True
     if web_needed:
         g = Graph(os.path.join(out_dir, 'web', 'graph.sqlite'))
         key = {}
@@ -138,10 +135,11 @@ def main():
             if e in iframe_text:
                 continue
             emit('reference', key.get(e), a, url, URL_KIND.get(uk, uk), res)
-        for _u, e, sk, st, res, mod in g.rows('web_scripts', ['uid', 'element_uid', 'script_kind', 'script_type', 'resolved_file', 'js_module_path']):
-            emit('script', key.get(e), sk, st, mod if sk == 'INLINE' else res)
-        for _u, e, a, src, callee, mod in g.rows('web_handler_calls', ['uid', 'element_uid', 'attribute_uid', 'handler_source', 'callee_name', 'js_module_path']):
-            emit('handler_call', key.get(e), attr_name.get(a), src, callee, mod if src == 'EVENT_ATTRIBUTE' else None)
+        for _u, e, sk, st, res, bsl, bsc, bel, bec in g.rows('web_scripts', ['uid', 'element_uid', 'script_kind', 'script_type', 'resolved_file',
+                                                                     'body_start_line', 'body_start_col', 'body_end_line', 'body_end_col']):
+            emit('script', key.get(e), sk, st, f'{bsl}:{bsc}-{bel}:{bec}' if sk == 'INLINE' else res)
+        for _u, e, an, src, ev, raw in g.rows('web_event_handlers', ['uid', 'element_uid', 'attribute_name', 'handler_source', 'event_name', 'raw_text']):
+            emit('event_handler', key.get(e), an, src, ev, (raw or '').strip() if src != 'EVENT_ATTRIBUTE' else raw)
         for _u, e, a, t in g.rows('web_template_exprs', ['uid', 'element_uid', 'attribute_uid', 'expression_text']):
             emit('template_expr', key.get(e), attr_name.get(a) if a else '#text', (t or '').strip())
         sheets = g.rows('web_stylesheets', ['uid', 'file', 'source_kind', 'owner_element_uid'])
@@ -258,34 +256,6 @@ def main():
                     emit(kind, key.get(u), n, key.get(t) if t else None, key.get(p), st, rs)
         for kind, n, p, rs, _d in g.rows('web_unknown', ['kind', 'node_uid', 'page_uid', 'reason', 'detail']):
             emit('unknown', rs, key.get(n, n), key.get(p) if p else None)
-
-    if kinds is None or kinds & JS_KINDS:
-        js = Graph(os.path.join(out_dir, 'javascript', 'graph.sqlite'))
-        if want('js_function'):
-            # [iter1b js rulings] methods.name stays <arrow>/<function-expression> for an anonymous function; its
-            # binding name (const g = () =>, {n: function}, x.onload = function, Foo.prototype.bar = function) is
-            # ext_method_name(method_id, name). Provenance per module: ext_module_provenance(module, provenance),
-            # module = the file path or the inline module's virtual path; a module with no row is PROJECT.
-            js.rows('ext_method_name', ['method_id', 'name'])
-            js.rows('ext_module_provenance', ['module', 'provenance'])
-            js.rows('methods', ['id', 'name', 'qualified_name', 'file_path', 'start_line', 'kind'])
-            prov = dict(js.db.execute('select module, provenance from ext_module_provenance').fetchall())
-            q = '''select coalesce(n.name, m.name), m.qualified_name, m.file_path, m.start_line, m.kind
-                   from methods m left join ext_method_name n on n.method_id = m.id'''
-            for name, qn, fp, ln, mk in js.db.execute(q).fetchall():
-                if mk == 'MODULE_INITIALIZER':
-                    continue  # the module's top level is not a function
-                mod = fp
-                for marker in ('#script-', '#on-'):
-                    if qn and marker in qn:
-                        head, tail = qn.split(marker, 1)
-                        num = ''.join(ch for ch in tail if ch.isdigit()) or tail.split('.')[0]
-                        mod = f'{fp}{marker}{num}'
-                nm = '' if (not name or name.startswith('<') or 'anonymous' in name.lower()) else name
-                emit('js_function', mod, ln, nm, prov.get(mod, prov.get(fp, 'PROJECT')))
-        if want('dom_touch'):
-            for f, ln, api, ai, lit, toks, st in js.rows('ext_dom_touch', ['file', 'line', 'api', 'arg_index', 'literal', 'tokens', 'status']):
-                emit('dom_touch', f, ln, api, ai, lit if st == 'literal' else None, toks if st == 'literal' else None)
 
     out.sort()
     sys.stdout.write(''.join(r + '\n' for r in out))

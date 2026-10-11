@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+<script>function save(){}</script>
+<script src="js/app.js" defer></script>
+</head>
+<body>
+<button onclick="save()">s</button>
+<form onsubmit="return validate(this)"><select onChange="app.filter(this.value); refresh()"></select></form>
+<a href="javascript:toggleMenu(1)">m</a>
+<input onkeyup="">
+<svg onload="init()"></svg>
+<button @click.prevent="open = true">a</button><button (click)="go($event)">b</button>
+</body>
+</html>

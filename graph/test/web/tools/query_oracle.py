@@ -119,13 +119,7 @@ def derive(R, fn, arg):
         return sorted({(at_of(r[0]),) for r in R.by['value_ref'] if r[1] == 'FONT_FAMILY' and r[2].lower() == a[0].lower()}), False
     if fn == 'handlers':
         page, src = a
-        return sorted({(at_of(r[0]), r[3]) for r in R.by['handler_call'] if R.page_of(r[0]) == page and r[2] == src}), False
-    if fn == 'inline_functions':
-        return sorted({(f'{a[0]}:{r[1]}', r[2]) for r in R.by['js_function'] if r[0].startswith(f'{a[0]}#script-')}), False
-    if fn == 'dom_ids':
-        return sorted({(f'{r[0]}:{r[1]}', r[4]) for r in R.by['dom_touch'] if r[0] == a[0] and r[2] == 'getElementById' and r[4] != '-'}), False
-    if fn == 'dom_class':
-        return sorted({(f'{r[0]}:{r[1]}', r[4]) for r in R.by['dom_touch'] if f'.{a[0]}' in r[5].split(',')}), False
+        return sorted({(at_of(r[0]), r[3]) for r in R.by['event_handler'] if R.page_of(r[0]) == page and r[2] == src}), False
     if fn == 'linked_from':
         return sorted({(at_of(r[0]),) for r in R.by['links_to'] if r[2] == a[0] and r[4] != 'unknown'}), False
     if fn == 'chain_links':

@@ -8,14 +8,14 @@
 // The row vocabulary is the contract graph/test/web/tools/normalize.py maps the engine's tables
 // onto; see the header of normalize.py for every row kind and its columns.
 //
-// Never imports the axiom parser: parse5, postcss, postcss-selector-parser, css-select, acorn.
+// Never imports the axiom parser: parse5, postcss, postcss-selector-parser, css-select.
+// HTML and CSS only (owner ruling, 2026-10-10): <script> and on* attributes are HTML nodes; no JavaScript is parsed.
 import fs from 'node:fs';
 import path from 'node:path';
-import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, JS_EXT, LineMap } from './lib/util.mjs';
+import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
-import { parseJs, functionsOf, domTouches, handlerCalls, shiftLoc, tokensOf } from './lib/js.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const a = args.find((x) => x.startsWith(`--${n}=`)); return a ? a.split('=').slice(1).join('=') : d; };
@@ -27,7 +27,6 @@ const KINDS = opt('kinds', '') ? new Set(opt('kinds', '').split(',')) : null;
 // the matching stage is the expensive one: run it only when a requested kind depends on it
 const STYLE_KINDS = ['styles', 'cascade', 'unknown', 'l1', 'var', 'keyframes_use', 'font_use', 'container_use'];
 const DO_STYLES = !flag('no-styles') && (!KINDS || STYLE_KINDS.some((k) => KINDS.has(k)));
-const DO_JS_FILES = !flag('no-js-files');
 const root = path.resolve(projectDir);
 
 const rows = [];
@@ -82,7 +81,6 @@ const JS_TYPES = (t) => {
   return 'DATA_BLOCK';
 };
 
-const inlineModules = []; // {module, page, text, base, isModule}
 const pageLoads = new Map(); // page.rel -> [{sheetKey|null, url, via, order, depth, status, reason, media, layer, disabled, conds, importLayer}]
 
 for (const page of pages) {
@@ -90,7 +88,6 @@ for (const page of pages) {
   const docHtml = page.elements.find((e) => e.tag === 'html' && e.parentKey === null);
   page.docLang = docHtml ? docHtml.node.attribs?.lang : undefined;
   const idCount = new Map();
-  let scriptN = 0; let onN = 0;
   for (const el of page.elements) {
     const cls = (el.node.attribs?.class ?? '').split(/[\t\n\f\r ]+/).filter(Boolean);
     const id = el.node.attribs?.id ?? '';
@@ -112,30 +109,16 @@ for (const page of pages) {
         const m = /url\s*=\s*['"]?([^'"]+)/i.exec(a.value); if (m) emitRef(page, el, 'content', m[1].trim());
       }
       if ((el.tag === 'use' || el.tag === 'image') && el.ns === 'svg' && (lname === 'href' || lname === 'xlink:href')) emitRef(page, el, lname, a.value);
-      // handlers
-      if (/^on[a-z]/.test(lname) && el.ns !== 'svg-never') {
-        onN += 1; const mod = `${page.rel}#on-${onN}`;
-        const raw = attrValueRaw(page, a);
-        const { ast } = parseJs(a.value, false);
-        if (ast) {
-          for (const h of handlerCalls(ast)) emit('handler_call', el.key, a.name, 'EVENT_ATTRIBUTE', h.calleeName, mod);
-          inlineModules.push({ module: mod, page, ast, base: raw ? { line: raw.line, col: raw.col } : { line: el.line, col: el.col } });
-        } else emit('js_parse_error', mod);
-      }
-      if (/^\s*javascript:/i.test(a.value) && (lname === 'href' || lname === 'src' || lname === 'action')) {
-        const body = a.value.replace(/^\s*javascript:/i, '');
-        let dec = body; try { dec = decodeURIComponent(body); } catch { /* as written */ }
-        const { ast } = parseJs(dec, false);
-        if (ast) for (const h of handlerCalls(ast)) emit('handler_call', el.key, a.name, 'JAVASCRIPT_URL', h.calleeName, '-');
+      // event handlers as HTML: the event and the attribute's raw text (no JavaScript is parsed)
+      if (/^on[a-z]/.test(lname)) emit('event_handler', el.key, a.name, 'EVENT_ATTRIBUTE', lname.slice(2), a.value);
+      if (/^\s*javascript:/i.test(a.value) && (lname === 'href' || lname === 'src' || lname === 'action' || lname === 'formaction')) {
+        emit('event_handler', el.key, a.name, 'JAVASCRIPT_URL', '-', a.value.trim());
       }
       // template dialect directives and interpolations in attribute values
       if (DIRECTIVE_RE.test(a.name)) {
         emit('template_expr', el.key, a.name, a.value.trim());
-        if (/^(@|x-on:|v-on:|\()/.test(a.name)) {
-          const v = a.value.trim();
-          if (/^[A-Za-z_$][\w$.]*$/.test(v)) emit('handler_call', el.key, a.name, 'TEMPLATE_EVENT', v.split('.').pop(), '-');
-          else { const { ast } = parseJs(v, false); if (ast) for (const h of handlerCalls(ast)) emit('handler_call', el.key, a.name, 'TEMPLATE_EVENT', h.calleeName, '-'); }
-        }
+        const ev = /^(?:@|x-on:|v-on:|on:)([^.]+)|^\(([^)]+)\)$/.exec(a.name);
+        if (ev) emit('event_handler', el.key, a.name, 'TEMPLATE_EVENT', (ev[1] ?? ev[2]).toLowerCase(), a.value.trim());
       } else if (TEMPLATE_IN_VALUE.test(a.value)) {
         for (const m of a.value.matchAll(/\{\{([\s\S]*?)\}\}|\{%([\s\S]*?)%\}|<%=?([\s\S]*?)%>|\$\{([^}]*)\}/g)) emit('template_expr', el.key, a.name, (m[1] ?? m[2] ?? m[3] ?? m[4]).trim());
       }
@@ -159,15 +142,11 @@ for (const page of pages) {
         const r = resolveUrl(src, page.rel, page.baseHref);
         emit('script', el.key, 'EXTERNAL', type, r.kind === 'local' && r.target && onDisk(r.target) ? r.target : '-');
       } else {
-        let mod = '-';
-        if (type === 'CLASSIC' || type === 'MODULE') {
-          scriptN += 1; mod = `${page.rel}#script-${scriptN}`;
-          const b = bodyOf(page, el);
-          const { ast, error } = parseJs(b.text, type === 'MODULE', true);
-          if (error) emit('js_parse_error', mod, error);
-          if (ast) inlineModules.push({ module: mod, page, ast, base: { line: b.line, col: b.col } });
-        }
-        emit('script', el.key, 'INLINE', type, mod);
+        // the body's range as written: first char after the start tag .. the `<` of `</script>` (exclusive)
+        const b = bodyOf(page, el);
+        const e = page.lines.pos(b.startOffset + b.text.length);
+        const range = `${b.line}:${b.col}-${e.line}:${e.col}`;
+        emit('script', el.key, 'INLINE', type, range);
       }
     }
   }
@@ -610,32 +589,6 @@ if (DO_STYLES) for (const page of pages) {
   }
 }
 
-// ── JavaScript: inline modules and JS files (SPEC 4) ─────────────────────────────────────────
-const jsUnits = [...inlineModules.map((m) => ({ module: m.module, file: m.page.rel, ast: m.ast, base: m.base, provenance: 'PROJECT' }))];
-if (DO_JS_FILES) for (const f of files) {
-  if (!JS_EXT.has(f.ext) || !f.parserWalk) continue;
-  const text = fs.readFileSync(f.abs, 'utf8');
-  if (tooBig(f, text)) { emit('skipped_file', f.rel, 'too_large'); continue; }
-  // a minified file's functions are still the site's code ("miss nothing"): kept, labelled BUNDLED so a vendor
-  // bundle stays identifiable; its DOM touches are not counted (SPEC 4.2 recall is over non-minified code)
-  const provenance = isMinifiedText(text, f.rel) ? 'BUNDLED' : 'PROJECT';
-  const { ast, error } = parseJs(text, f.ext === '.mjs', true);
-  if (error) emit('js_parse_error', f.rel, error);
-  if (!ast) continue;
-  jsUnits.push({ module: f.rel, file: f.rel, ast, base: { line: 1, col: 1 }, provenance });
-}
-for (const u of jsUnits) {
-  for (const fn of functionsOf(u.ast)) {
-    const p = shiftLoc(fn.node.loc.start, u.base);
-    emit('js_function', u.module, p.line, fn.name, u.provenance);
-  }
-  if (u.provenance === 'BUNDLED') continue;
-  for (const t of domTouches(u.ast)) {
-    const p = shiftLoc(t.node.loc.start, u.base);
-    emit('dom_touch', u.file, p.line, t.api, t.argIndex, t.literal ?? '-', t.status === 'literal' ? tokensOf(t.kind, t.literal) : '-');
-  }
-}
-
 // ── write ─────────────────────────────────────────────────────────────────────────────────────
 fs.mkdirSync(outDir, { recursive: true });
 rows.sort();
@@ -643,5 +596,5 @@ fs.writeFileSync(path.join(outDir, 'rows.tsv'), rows.length ? `${rows.join('\n')
 const counts = new Map();
 for (const r of rows) { const k = r.slice(0, r.indexOf('\t')); counts.set(k, (counts.get(k) ?? 0) + 1); }
 fs.writeFileSync(path.join(outDir, 'counts.tsv'), [...counts].sort().map(([k, v]) => `${k}\t${v}`).join('\n') + '\n');
-fs.writeFileSync(path.join(outDir, 'files.tsv'), files.filter((f) => HTML_EXT.has(f.ext) || CSS_EXT.has(f.ext) || JS_EXT.has(f.ext)).map((f) => `${f.rel}\t${f.parserWalk ? 'parser_walk' : 'parser_skips'}`).join('\n') + '\n');
+fs.writeFileSync(path.join(outDir, 'files.tsv'), files.filter((f) => HTML_EXT.has(f.ext) || CSS_EXT.has(f.ext)).map((f) => `${f.rel}\t${f.parserWalk ? 'parser_walk' : 'parser_skips'}`).join('\n') + '\n');
 console.error(`oracle: ${pages.length} pages, ${sheets.size} sheets, ${rows.length} rows, ${stylesCount} styles, ${l1Count} l1, ${((Date.now() - t0) / 1000).toFixed(1)}s`);

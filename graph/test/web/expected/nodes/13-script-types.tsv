@@ -1,12 +1,12 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
 # case: nodes/13-script-types   kinds: script
 # shape: demo pages with classic, module, JSON-LD, importmap, client-side template and transpiled script blocks
-script	index.html:10:3	INLINE	TRANSPILED	-
-script	index.html:11:3	INLINE	CLASSIC	index.html#script-3
+script	index.html:10:3	INLINE	TRANSPILED	10:29-10:52
+script	index.html:11:3	INLINE	CLASSIC	11:34-11:47
 script	index.html:12:3	EXTERNAL	CLASSIC	-
 script	index.html:4:3	EXTERNAL	CLASSIC	lib.js
-script	index.html:5:3	INLINE	CLASSIC	index.html#script-1
-script	index.html:6:3	INLINE	MODULE	index.html#script-2
-script	index.html:7:3	INLINE	JSON	-
-script	index.html:8:3	INLINE	IMPORTMAP	-
-script	index.html:9:3	INLINE	TEMPLATE	-
+script	index.html:5:3	INLINE	CLASSIC	5:11-5:27
+script	index.html:6:3	INLINE	MODULE	6:25-6:48
+script	index.html:7:3	INLINE	JSON	7:38-7:56
+script	index.html:8:3	INLINE	IMPORTMAP	8:28-8:43
+script	index.html:9:3	INLINE	TEMPLATE	9:41-9:71

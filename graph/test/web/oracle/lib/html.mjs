@@ -8,7 +8,6 @@
 import { parse } from 'parse5';
 import { adapter } from 'parse5-htmlparser2-tree-adapter';
 import { LineMap } from './util.mjs';
-import * as acorn from 'acorn';
 
 const NS = { 'http://www.w3.org/1999/xhtml': 'html', 'http://www.w3.org/2000/svg': 'svg', 'http://www.w3.org/1998/Math/MathML': 'math' };
 
@@ -157,33 +156,33 @@ export function attrValueRaw(page, a) {
  */
 export function dynamicTokens(name, value) {
   const n = name.toLowerCase();
-  let m = /^\[class\.([^\]]+)\]$/.exec(n) || /^class:(.+)$/.exec(n);
+  const m = /^\[class\.([^\]]+)\]$/.exec(n) || /^class:(.+)$/.exec(n);
   if (m) return new Set([m[1]]);
   if (n === 'class') return '*';
-  let ast;
-  try { ast = acorn.parseExpressionAt(`(${value})`, 0, { ecmaVersion: 'latest' }); } catch { return '*'; }
-  const out = new Set(); let wild = false;
-  const strTokens = (s) => s.split(/\s+/).filter(Boolean).forEach((t) => out.add(t));
-  const val = (e) => {
-    if (!e) return;
-    switch (e.type) {
-      case 'Literal': if (typeof e.value === 'string') strTokens(e.value); else if (e.value !== null && e.value !== false) wild = true; break;
-      case 'TemplateLiteral': if (e.expressions.length) wild = true; else strTokens(e.quasis[0].value.cooked); break;
-      case 'ObjectExpression':
-        for (const p of e.properties) {
-          if (p.type !== 'Property' || p.computed) { wild = true; continue; }
-          if (p.key.type === 'Identifier') out.add(p.key.name); else if (p.key.type === 'Literal') strTokens(String(p.key.value));
-        }
-        break;
-      case 'ArrayExpression': e.elements.forEach(val); break;
-      case 'ConditionalExpression': val(e.consequent); val(e.alternate); break;
-      case 'LogicalExpression': if (e.operator === '&&') val(e.right); else { val(e.left); val(e.right); } break;
-      case 'BinaryExpression': if (e.operator === '+') { val(e.left); val(e.right); } else wild = true; break;
-      default: wild = true;
-    }
-  };
-  val(ast);
-  return wild ? '*' : out;
+  // read as directive TEXT, not as JavaScript: string literals are tokens, object-literal keys are tokens; a name
+  // in a value position (after ? : , [ ( || or at the start of a plain expression), `+`, or `${` means the
+  // binding can produce a token the text does not spell -> wildcard
+  const v = value.trim();
+  if (/\$\{|\+/.test(v)) return '*';
+  const out = new Set();
+  const strings = [];
+  const bare = v.replace(/'([^'\\]*)'|"([^"\\]*)"|`([^`\\]*)`/g, (_x, a, b, c) => { strings.push(a ?? b ?? c); return '""'; });
+  if (bare.startsWith('{')) {
+    if (/[{,]\s*\[/.test(bare)) return '*';
+    for (const k of v.matchAll(/(?:^\{|,)\s*(?:'([^']*)'|"([^"]*)"|([\w$-]+))\s*:/g)) (k[1] ?? k[2] ?? k[3]).split(/\s+/).filter(Boolean).forEach((t) => out.add(t));
+    return out;
+  }
+  const ID = /^[A-Za-z_$][\w$.]*(\s*\()?/;
+  const valueStarts = [0];
+  for (const mm of bare.matchAll(/\?|:|,|\[|\(|\|\|/g)) valueStarts.push(mm.index + mm[0].length);
+  const hasCond = /\?|&&/.test(bare);
+  for (const i of valueStarts) {
+    const rest = bare.slice(i).trimStart();
+    if (i === 0 && hasCond) continue; // the condition of a ternary / the left of && is not a value
+    if (ID.test(rest) && !/^(true|false|null|undefined)\b/.test(rest)) return '*';
+  }
+  strings.forEach((s0) => s0.split(/\s+/).filter(Boolean).forEach((t) => out.add(t)));
+  return out;
 }
 
 /**

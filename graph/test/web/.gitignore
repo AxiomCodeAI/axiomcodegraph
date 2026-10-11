@@ -3,3 +3,8 @@
 oracle/node_modules/
 # the oracle pins its tools exactly; its lockfile is part of the ground truth (root ignores package-lock.json)
 !oracle/package-lock.json
+# Fixture trees are content, whatever their directory names: the root ignores target/, dist/, out/, build/, lib/ …
+# by name, and a fixture that models such a directory (refs/08 links into target/) must still be committed.
+# run-tests.sh refuses to run while any file under cases/ is git-ignored.
+!cases/**
+!expected/**

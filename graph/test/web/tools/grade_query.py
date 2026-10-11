@@ -5,15 +5,14 @@
                                                         5 skipped (iteration-2 template, never counted correct)
 
 The answer contract (SPEC 6.2): web rows are JSON objects carrying at least `at` ("file:line" or a file), `role`,
-`status` and, for ordered sections, `rank`. The JavaScript graph's rows sit under other_languages.javascript.
-Field aliases accepted for a tuple column: calleeName = calleeName | callee_name | callee; names may be a list.
+`status` and, for ordered sections, `rank`. Only the web graph's part of an answer is graded (HTML and CSS only;
+other_languages is never read). Field aliases: event = event | event_name; names may be a list.
 An expected `at` without a line compares the answer's file part only.
 """
 import json
 import sys
 
-ALIASES = {'calleeName': ['calleeName', 'callee_name', 'callee'], 'name': ['name', 'function', 'qualified_name'],
-           'literal': ['literal'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
+ALIASES = {'event': ['event', 'event_name'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
            'action': ['action'], 'names': ['names', 'inputs']}
 
 
@@ -31,11 +30,8 @@ def walk(o, out):
 
 
 def section_of(ans, section):
-    if section == 'javascript':
-        ol = ans.get('other_languages', {}) if isinstance(ans, dict) else {}
-        if 'javascript' in ol:
-            return ol['javascript']
-        return ans if isinstance(ans, dict) and ans.get('language') == 'javascript' else {}
+    if section != 'web':
+        raise SystemExit(f'grade_query: section {section}: only the web graph is graded')
     return ans
 
 

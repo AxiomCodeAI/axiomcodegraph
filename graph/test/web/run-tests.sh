@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# axiom-code-graph — web engine torture suites (HTML + CSS, plus the JavaScript graph's
-# per-language additions: inline-script functions and the DOM-touch table)
+# axiom-code-graph — web engine torture suites (HTML and CSS only; <script> and on* are HTML nodes)
 #
 # For every case graph/test/web/cases/<suite>/<case>/ (src/ + case.conf):
-#   1. build the graph:      bin/axiomcode <case>/src <work>/out --language web[,javascript] --debug
+#   1. build the graph:      bin/axiomcode <case>/src <work>/out --language web --debug
 #   2. normalize:            tools/normalize.py <work>/out --kinds=<case kinds>
 #                            (the engine's tables, in the oracle's row vocabulary; the contract
 #                            is the header of tools/normalize.py)
@@ -67,6 +66,15 @@ oracle_rows() {
 }
 
 mkdir -p "$WORK"
+# Preflight: a fixture file git ignores is missing from every clone, and the case then passes or fails on a
+# tree nobody reviewed (the root .gitignore drops target/, dist/, lib/, oracle/ … by name). Refuse to run.
+if git -C "$HERE" rev-parse --git-dir >/dev/null 2>&1; then
+  ignored=$(cd "$HERE" && find cases expected -type f -print0 | xargs -0 git check-ignore --no-index 2>/dev/null)
+  if [ -n "$ignored" ]; then
+    echo "FAIL: fixture files are git-ignored (add a re-include to graph/test/web/.gitignore):"
+    echo "$ignored" | sed 's/^/  /' | head -20; exit 1
+  fi
+fi
 CASES=()
 for d in "$HERE"/cases/*/*/; do
   [ -f "$d/case.conf" ] || continue
@@ -182,7 +190,6 @@ for rel in "${CASES[@]}"; do
     continue
   fi
   langs=web
-  case ",$kinds," in *,js_function,*|*,dom_touch,*) langs=web,javascript;; esac
   [[ ",$check," == *",crosslang,"* ]] && langs=web,javascript
   t0=$(date +%s)
   if ! /usr/bin/time -l bash "$ROOT/bin/axiomcode" "$src" "$w/out" --language "$langs" --debug >"$w/build.log" 2>"$w/build.err"; then
@@ -193,7 +200,7 @@ for rel in "${CASES[@]}"; do
   ok=1
   if [ "$mode" = "scale" ]; then
     oracle_counts="$w/oracle-counts.tsv"
-    node "$ORACLE_DIR/oracle.mjs" "$src" "$w/oracle" --walk=parser --kinds="$kinds" --no-js-files 2>"$w/oracle.log" || { echo "FAIL (oracle)"; ok=0; }
+    node "$ORACLE_DIR/oracle.mjs" "$src" "$w/oracle" --walk=parser --kinds="$kinds" 2>"$w/oracle.log" || { echo "FAIL (oracle)"; ok=0; }
     if [ $ok = 1 ]; then
       python3 "$HERE/tools/normalize.py" "$w/out" --kinds="$kinds" > "$w/actual.tsv" 2>"$w/norm.log" || { echo "FAIL (normalize — $(cat "$w/norm.log"))"; ok=0; }
     fi
@@ -217,7 +224,9 @@ for rel in "${CASES[@]}"; do
   fi
   # per-case checks (check=a,b): crosslang -> 0 web<->JS ids + join keys; var_budget -> SPEC 3.4a caps
   if [ $ok = 1 ] && [[ ",$check," == *",crosslang,"* ]]; then
-    python3 "$HERE/tools/crosslang_guard.py" "$w/out" > "$w/crosslang.txt" || { echo "FAIL (per-language guard)"; sed 's/^/  /' "$w/crosslang.txt"; ok=0; }
+    bash "$ROOT/bin/axiomcode" "$src" "$w/out-js" --language javascript --debug >"$w/build-js.log" 2>&1 \
+      || { echo "FAIL (javascript-only build — see $w/build-js.log)"; ok=0; }
+    [ $ok = 1 ] && { python3 "$HERE/tools/crosslang_guard.py" "$w/out" "$w/out-js" > "$w/crosslang.txt" || { echo "FAIL (per-language guard)"; sed 's/^/  /' "$w/crosslang.txt"; ok=0; }; }
   fi
   if [ $ok = 1 ] && [[ ",$check," == *",var_budget,"* ]]; then
     python3 "$HERE/tools/var_budget.py" "$w/out" > "$w/var_budget.txt" || { echo "FAIL (var row caps)"; sed 's/^/  /' "$w/var_budget.txt"; ok=0; }

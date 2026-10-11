@@ -1,2 +1,2 @@
-document.getElementById('x');
-document.querySelector('.btn');
+export function boot() { document.getElementById('x'); }
+boot();

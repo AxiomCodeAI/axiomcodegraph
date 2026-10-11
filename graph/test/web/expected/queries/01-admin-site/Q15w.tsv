@@ -1,5 +1,5 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
-# Q15w: elements carrying C (web section)
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
+# Q15w: elements carrying C
 # grade=SET section=web role=carries fields=at filter=-
 # ask: impact .card-primary
 index.html:22

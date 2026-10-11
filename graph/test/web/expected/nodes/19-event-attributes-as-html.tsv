@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
+# case: nodes/19-event-attributes-as-html   kinds: event_handler,script
+# shape: legacy admin pages with onclick/onsubmit/onchange attributes, javascript: URLs, an empty handler, an SVG onload, and Alpine/Angular event directives: each is an HTML node with its event and raw text
+event_handler	index.html:10:1	href	JAVASCRIPT_URL	-	javascript:toggleMenu(1)
+event_handler	index.html:11:1	onkeyup	EVENT_ATTRIBUTE	keyup	-
+event_handler	index.html:12:1	onload	EVENT_ATTRIBUTE	load	init()
+event_handler	index.html:13:1	@click.prevent	TEMPLATE_EVENT	click	open = true
+event_handler	index.html:13:48	(click)	TEMPLATE_EVENT	click	go($event)
+event_handler	index.html:8:1	onclick	EVENT_ATTRIBUTE	click	save()
+event_handler	index.html:9:1	onsubmit	EVENT_ATTRIBUTE	submit	return validate(this)
+event_handler	index.html:9:40	onchange	EVENT_ATTRIBUTE	change	app.filter(this.value); refresh()
+script	index.html:4:1	INLINE	CLASSIC	4:9-4:26
+script	index.html:5:1	EXTERNAL	CLASSIC	js/app.js

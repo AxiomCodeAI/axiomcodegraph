@@ -11,21 +11,17 @@ export const PARSER_EXCLUDED = new Set(['node_modules', '.git', '.idea', '.vscod
   'out', '__pycache__', '.pytest_cache', 'venv', 'env']);
 export const HTML_EXT = new Set(['.html', '.htm', '.xhtml']);
 export const CSS_EXT = new Set(['.css']);
-export const JS_EXT = new Set(['.js', '.mjs', '.cjs']);
 export const MAX_BYTES = 4 * 1024 * 1024;
 export const MAX_LINES = 55000;
 
 // The parser's WEB walk has its own skip list since #1909: it reads dist/, build/ and out/ (a client hands over
-// compiled CSS there); the JavaScript walk still skips them by name.
+// compiled CSS there).
 export const PARSER_WEB_EXCLUDED = new Set([...PARSER_EXCLUDED].filter((d) => d !== 'dist' && d !== 'build' && d !== 'out'));
 
-/**
- * Walk `root`; returns [{rel, abs, ext, parserWalk}] sorted by rel. parserWalk = the parser's walk for that file's
- * language reaches it (web walk for .html/.css, JavaScript walk for .js). mode 'parser' drops the rest.
- */
+/** Walk `root`; returns [{rel, abs, ext, parserWalk}] sorted by rel; mode 'parser' keeps what the web walk reads. */
 export function walk(root, mode) {
   const out = [];
-  const rec = (dir, relDir, inWeb, inJs) => {
+  const rec = (dir, relDir, inWeb) => {
     let ents;
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of ents) {
@@ -34,18 +30,14 @@ export function walk(root, mode) {
       if (e.isDirectory()) {
         if (e.name === 'node_modules' || e.name === '.git' || e.name.startsWith('.')) continue;
         const w = inWeb && !PARSER_WEB_EXCLUDED.has(e.name);
-        const j = inJs && !PARSER_EXCLUDED.has(e.name);
-        if (mode === 'parser' && !w && !j) continue;
-        rec(abs, rel, w, j);
+        if (mode === 'parser' && !w) continue;
+        rec(abs, rel, w);
       } else if (e.isFile()) {
-        const ext = path.extname(e.name).toLowerCase();
-        const pw = JS_EXT.has(ext) ? inJs : inWeb;
-        if (mode === 'parser' && !pw) continue;
-        out.push({ rel, abs, ext, parserWalk: pw });
+        out.push({ rel, abs, ext: path.extname(e.name).toLowerCase(), parserWalk: inWeb });
       }
     }
   };
-  rec(root, '', true, true);
+  rec(root, '', true);
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   return out;
 }
