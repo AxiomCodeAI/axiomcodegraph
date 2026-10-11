@@ -466,7 +466,7 @@ class Walk {
         continue;
       }
       const directive = readDirective(attr.name, this.flavour);
-      const kind = this.attributeKind(name, prefix, tag, directive !== undefined);
+      const kind = this.attributeKind(name, prefix, tag, directive !== undefined, attr.hasValue);
       this.noteDialect(name, prefix, directive);
       const row = new HtmlAttribute({
         name, prefix, value: attr.value, attributeKind: kind, hasValue: attr.hasValue,
@@ -532,7 +532,7 @@ class Walk {
     return rows;
   }
 
-  private attributeKind(name: string, prefix: string, tag: string, isDirective: boolean): HtmlAttributeKind {
+  private attributeKind(name: string, prefix: string, tag: string, isDirective: boolean, hasValue = true): HtmlAttributeKind {
     if (prefix === 'xmlns' || prefix === 'xml' || name === 'xmlns' || name.startsWith('xmlns:') || name.startsWith('xml:')) {
       return HtmlAttributeKind.NAMESPACE;
     }
@@ -545,7 +545,9 @@ class Walk {
     if (isDirective || TEMPLATE_DIRECTIVE.test(name)) {
       return HtmlAttributeKind.TEMPLATE_DIRECTIVE;
     }
-    if (/^on[a-z]/.test(name)) {
+    // An event handler is an on* attribute WITH a value: a bare `once` (a framework's boolean flag) runs nothing.
+    // Any case: in an XHTML page names keep their case (`onClick` is its own attribute there), and a handler it is.
+    if (/^on[a-z]/i.test(name) && hasValue) {
       return HtmlAttributeKind.EVENT_HANDLER;
     }
     if (name.startsWith('data-')) {
@@ -1174,7 +1176,9 @@ function splitAttributeName(raw: string, namespace: HtmlNamespace, xml: boolean)
     }
     return { prefix: '', name: xml ? name : SVG_ADJUSTED_ATTRIBUTES.get(name) ?? name };
   }
-  return { prefix: '', name: TEMPLATE_DIRECTIVE.test(raw) ? raw : raw.toLowerCase() };
+  // An XML document (.xhtml) keeps every attribute name as written: `onclick` and `onClick` are two attributes there,
+  // not a duplicate (an HTML document lowercases them, and the second is then a duplicate and a parse gap).
+  return { prefix: '', name: xml || TEMPLATE_DIRECTIVE.test(raw) ? raw : raw.toLowerCase() };
 }
 
 /** The class tokens of a value, with any template tag in it set aside: `btn {{ cls }}` is one class and a template's. */

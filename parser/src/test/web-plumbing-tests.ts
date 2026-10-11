@@ -124,8 +124,24 @@ async function keyframeLists(): Promise<void> {
   else ok('keyframe-lists: a minified keyframe selector list is one block with its whole list; a quoted @keyframes name is an @keyframes');
 }
 
+async function eventAttributes(): Promise<void> {
+  const root = tree({
+    'a.html': '<!doctype html><html><body><button once onclick2="x()" onclick="y()" ONDBLCLICK="z()">b</button></body></html>\n',
+    'b.xhtml': '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><button onclick="x1()" onClick="x2()">b</button></body></html>\n',
+  });
+  const ir = await parse(root);
+  const attrs = readCsv(path.join(ir, 'web', 'all-html-attributes.csv'));
+  const handlers = attrs.filter((a) => a.attributeKind === 'EVENT_HANDLER').map((a) => `${a.name}=${a.value}`).sort();
+  const once = attrs.find((a) => a.name === 'once');
+  ran++;
+  const want = ['onClick=x2()', 'onclick2=x()', 'onclick=x1()', 'onclick=y()', 'ondblclick=z()'].sort();
+  if (JSON.stringify(handlers) !== JSON.stringify(want)) fail(`event-attributes: handlers ${JSON.stringify(handlers)}, want ${JSON.stringify(want)}`);
+  else if (!once || once.attributeKind === 'EVENT_HANDLER') fail(`event-attributes: a bare \`once\` is ${once ? once.attributeKind : 'absent'}, want a row that is not an EVENT_HANDLER`);
+  else ok('event-attributes: on* with a value in any case is a handler, a bare `once` is not, and an XHTML page keeps onclick and onClick apart');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }
