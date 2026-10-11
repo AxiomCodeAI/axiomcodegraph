@@ -41,6 +41,9 @@ def dump(db, root):
             continue
         rows = []
         for r in db.execute(f'select {", ".join(chr(34) + c + chr(34) for c in cols)} from "{t}"'):
+            # a key/value table (run) holds build stamps as ROWS: drop the volatile keys, not just columns
+            if len(r) == 2 and isinstance(r[0], str) and VOLATILE_COL.search(r[0]):
+                continue
             rows.append(tuple(v.replace(root, '<OUT>') if isinstance(v, str) else v for v in r))
         out[t] = sorted(rows, key=repr)
     return out

@@ -50,7 +50,7 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              scope_root, scope_proximity)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
              + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
-  web_var_scope(page, element, name, root, status, reason, root_exact)   SPEC 3.4a, V1-12: one row per (page, element, name)
+  web_var_scope(page_uid, element_uid, name, root_uid, root_exact_uid, status, reason)   SPEC 3.4a, V1-12: one row per (page, element, name)
   web_var(use, def, page, status, reason)   [iter1b] the SQL VIEW over web_var_def / web_var_visible /
              web_var_scope (SPEC 3.4a); use = the VARIABLE value_ref uid (its declaration and name are read
              from web_value_refs), def = the defining declaration uid or the @property rule uid, NULL when none
@@ -355,7 +355,7 @@ def main():
             for c, ne, npg, sn, sm, st, ic in g.rows('web_classes', ['class_name', 'elements', 'pages', 'selectors_naming', 'selectors_matching', 'styled', 'icon']):
                 emit('class', c, ne, npg, sn, sm, b(st), b(ic))
         if want('var_scope'):
-            for p, e, n, r, st, rs, rx in g.rows('web_var_scope', ['page', 'element', 'name', 'root', 'status', 'reason', 'root_exact']):
+            for p, e, n, r, st, rs, rx in g.rows('web_var_scope', ['page_uid', 'element_uid', 'name', 'root_uid', 'status', 'reason', 'root_exact_uid']):
                 emit('var_scope', key.get(p), key.get(e), n, key.get(r) if r else None, st if r else 'unknown', rs, key.get(rx) if rx else None)
         if want('var'):
             vref = {uid: (key.get(d) if d else key.get(r), n) for uid, d, r, rk, n, *_x in refs if rk == 'VARIABLE'}

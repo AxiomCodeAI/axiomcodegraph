@@ -29,7 +29,7 @@ def main():
     decls = one("select count(*) from web_declarations where property like '--%'")
     visible = one('select count(*) from web_var_visible')
     scope = one('select count(*) from web_var_scope')
-    dups = one('select count(*) from (select page, element, name from web_var_scope group by page, element, name having count(*) > 1)')
+    dups = one('select count(*) from (select page_uid, element_uid, name from web_var_scope group by page_uid, element_uid, name having count(*) > 1)')
     view = db.execute("select type from sqlite_master where name = 'web_var'").fetchone()[0]
     ok = True
     print(f'  var() uses {uses}, custom-property declarations {decls}')
