@@ -48,6 +48,8 @@ export interface El {
   classesLower: Set<string>;
   attrs: Map<string, { value: string; hasValue: boolean }>;   // name lowercased for HTML elements
   text: string;
+  /** whether whitespace text (outside comments) sits between the tags; the IR's text is trimmed (V1-08). Absent: no */
+  blankText?: () => boolean;
   childCount: number;
   position: number;
   parent: El | null;
@@ -178,7 +180,8 @@ export function specificity(cx: Complex): [number, number, number] {
       case 'ID': a++; break;
       case 'CLASS': case 'ATTRIBUTE': b++; break;
       case 'TYPE': c++; break;
-      case 'PSEUDO_ELEMENT': c++; break;
+      // a view-transition pseudo-element with a `*` argument has specificity zero (CSS View Transitions 1, V1-17)
+      case 'PSEUDO_ELEMENT': if (!(s.name.toLowerCase().startsWith('view-transition-') && s.value.trim() === '*')) c++; break;
       case 'NESTING': { const m = maxOf(s.args); a += m[0]; b += m[1]; c += m[2]; break; }
       case 'PSEUDO_CLASS': {
         const n = s.name.toLowerCase();
@@ -488,7 +491,8 @@ export class Matcher {
       case 'nth-of-type': return this.nth(s, e, false, true);
       case 'nth-last-of-type': return this.nth(s, e, true, true);
       case 'empty':
-        if (e.childCount > 0 || e.text.trim() !== '') return R_NO;
+        // whitespace is a text child: `<b> </b>` is not :empty (Selectors 3, as browsers ship it)
+        if (e.childCount > 0 || e.text.trim() !== '' || e.blankText?.()) return R_NO;
         return e.text.length >= 1024 ? unknown('text_unknown') : R_EXACT;
       case 'link': case 'any-link': case 'visited': case 'local-link':
         return (e.tagLower === 'a' || e.tagLower === 'area') && attr('href') ? R_EXACT : R_NO;

@@ -295,6 +295,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       childCount: num(g(T.el, r, 'childElementCount')) ?? 0, position: num(g(T.el, r, 'position')) ?? 0,
       parent: null, children: [], inert: '', dynamicClass: dyn !== null, dynTokens: dyn, dynamicId: dynId, dynAttrs, lang: attrs.get('lang')?.value ?? attrs.get('xml:lang')?.value ?? '',
     };
+    if (e.childCount === 0 && e.text === '' && g(T.el, r, 'isVoid') !== 'true') {
+      const doc = g(T.el, r, 'documentLinkHash');
+      const at = [num(g(T.el, r, 'startLine')), num(g(T.el, r, 'startColumn')), num(g(T.el, r, 'endLine')), num(g(T.el, r, 'endColumn'))];
+      e.blankText = () => {
+        const pt = textOfPage(doc);
+        if (!pt || at.some((x) => x === null)) return false;
+        return whitespaceBetweenTags(pt.text.slice(offsetOf(pt, at[0]!, at[1]!), offsetOf(pt, at[2]!, at[3]!)), e.tagLower);
+      };
+    }
     elById.set(id, e); elRow.set(id, r);
     const p = pages.get(g(T.el, r, 'documentLinkHash'));
     if (p) { p.elements.push(e); p.rows.push(r); elPage.set(id, p); }
@@ -1372,6 +1381,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const cand = uk === 'ROOT_RELATIVE' ? path.join(root, g(T.ref, r, 'path')) : pg ? path.join(path.dirname(pg.abs), g(T.ref, r, 'path')) : '';
       if (cand && isDir(cand)) absRaw = cand;
     }
+    // `?p=1` (a query with no path) is the page itself with other parameters (V1-06)
+    if (!absRaw && uk === 'RELATIVE' && !g(T.ref, r, 'path') && g(T.ref, r, 'query')) absRaw = pages.get(page)?.abs ?? '';
     // a URL naming a directory (`docs/`) serves its index page
     const abs = absRaw && !pageByAbs.has(absRaw) && isDir(absRaw) ? (['index.html', 'index.htm'].map((f) => path.join(absRaw, f)).find((f) => pageByAbs.has(f)) ?? absRaw) : absRaw;
     const target = abs ? pageByAbs.get(abs) : undefined;
@@ -1555,6 +1566,24 @@ function decodeSafe(s: string): string { try { return decodeURIComponent(s); } c
  * The parser lowercases a TYPE part's name (`linearGradient` -> `lineargradient`); an SVG or MathML element's name is
  * case-sensitive, so the name is taken back from the selector text as written, part by part in source order.
  */
+/**
+ * Whether an element's source holds whitespace text between its start and end tag, comments aside: `<b> </b>` and
+ * `<b><!-- x --> </b>` do, `<b></b>` and `<b><!-- x --></b>` do not. Without an end tag as written (an implied close),
+ * no: what the browser puts in the element is not read here.
+ */
+export function whitespaceBetweenTags(src: string, tagLower: string): boolean {
+  const end = new RegExp(`</${tagLower.replace(/[^\w-]/g, '')}\\s*>\\s*$`, 'i').exec(src);
+  if (!end) return false;
+  let s = src.slice(0, end.index); let ws = false;
+  for (;;) {
+    if (s.endsWith('-->')) { const c = s.lastIndexOf('<!--'); if (c < 0) return false; s = s.slice(0, c); continue; }
+    const t = s.replace(/\s+$/, '');
+    if (t.length === s.length) break;
+    ws = true; s = t;
+  }
+  return ws && s.endsWith('>');
+}
+
 function writtenTypeNames(parts: PartRow[], text: string): void {
   let cursor = 0;
   for (const p of [...parts].sort((a, b) => a.position - b.position)) {
