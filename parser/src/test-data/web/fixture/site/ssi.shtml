@@ -1,0 +1,5 @@
+<!doctype html>
+<html><head><title><!--#echo var="title" --></title></head>
+<body>
+<div class="ssi-host"><!--#include virtual="/partials/frame.html" --></div>
+</body></html>

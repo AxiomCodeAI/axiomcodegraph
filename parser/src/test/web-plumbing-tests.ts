@@ -221,9 +221,36 @@ async function onlyRequestedLanguages(): Promise<void> {
   else ok('only-requested-languages: languages={web} writes web/ (1 page) and no javascript/; the control run writes both');
 }
 
+async function includeReferences(): Promise<void> {
+  // G22/G23: every include flavour is a reference of kind INCLUDE (flavour in attributeName, owner the element it sits
+  // in, or the <include> element itself); paths relative to the page resolve here; SSI directives are SSI expressions
+  const root = tree({
+    'index.html': '<!doctype html><html><body>\n<div id="a"><!--#include virtual="/inc/nav.html" --></div>\n<div id="b"><!--#include file="inc/nav.html" --></div>\n'
+      + '<include src="inc/nav.html"></include>\n<p id="c">@@include("./inc/nav.html", {"x": 1})</p>\n<span id="d">{% include "nav.html" %}{% include name %}</span>\n'
+      + '<i id="e"><!--#echo var="t" --><!--#set var="t" value="x" --></i>\n</body></html>\n',
+    'inc/nav.html': '<nav>n</nav>\n',
+    'child.html': '{% extends "base.html" %}{% from "m.html" import f %}\n',
+  });
+  const ir = await parse(root);
+  const refs = readCsv(path.join(ir, 'web', 'all-html-references.csv')).filter((r) => r.referenceKind === 'INCLUDE');
+  const els = new Map(readCsv(path.join(ir, 'web', 'all-html-elements.csv')).map((e) => [e.htmlElementUniqueHash ?? '', e]));
+  const owner = (r: Row): string => { const e = els.get(r.ownerElementLinkHash ?? ''); return e ? (e.id || e.tagName || '?') : '-'; };
+  const got = refs.map((r) => `${r.attributeName} ${r.urlAsWritten} ${r.urlKind} ${owner(r)} ${r.isResolved}`).sort();
+  const want = ['gulp:@@include ./inc/nav.html RELATIVE c true', 'jinja:extends base.html RELATIVE - false', 'jinja:import m.html RELATIVE - false',
+    'jinja:include name TEMPLATE_EXPRESSION d false', 'jinja:include nav.html RELATIVE d false', 'posthtml:include inc/nav.html RELATIVE include true',
+    'ssi:file inc/nav.html RELATIVE b true', 'ssi:virtual /inc/nav.html ROOT_RELATIVE a false'].sort();
+  const ssi = readCsv(path.join(ir, 'web', 'all-html-template-expressions.csv')).filter((t) => t.dialect === 'SSI').map((t) => `${t.directive}:${t.expressionKind}`).sort();
+  const docs = readCsv(path.join(ir, 'web', 'all-html-documents.csv')).filter((d) => (d.templateDialects ?? '').includes('SSI')).length;
+  ran++;
+  if (JSON.stringify(got) !== JSON.stringify(want)) fail(`include-references: got ${JSON.stringify(got)}`);
+  else if (JSON.stringify(ssi) !== JSON.stringify(['echo:INTERPOLATION', 'include:REFERENCE', 'include:REFERENCE', 'set:BINDING'])) fail(`include-references: SSI expressions ${JSON.stringify(ssi)}`);
+  else if (docs !== 1) fail(`include-references: ${docs} page(s) with dialect SSI, want 1`);
+  else ok(`include-references: ${want.length} INCLUDE references over 7 flavours, ${ssi.length} SSI expressions, the page's dialects name SSI`);
+}
+
 async function main(): Promise<number> {
   for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof, ssiPages,
-    onlyRequestedLanguages]) {
+    onlyRequestedLanguages, includeReferences]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }

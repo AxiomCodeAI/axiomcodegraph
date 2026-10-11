@@ -26,6 +26,7 @@ name=class	prefix=	value=label	attributeKind=CLASS	hasValue=true	startLine=2	sta
 name=class	prefix=	value=link	attributeKind=CLASS	hasValue=true	startLine=3	startColumn=35
 name=class	prefix=	value=nav	attributeKind=CLASS	hasValue=true	startLine=18	startColumn=8
 name=class	prefix=	value=partial	attributeKind=CLASS	hasValue=true	startLine=1	startColumn=6
+name=class	prefix=	value=ssi-host	attributeKind=CLASS	hasValue=true	startLine=4	startColumn=6
 name=class	prefix=	value=title	attributeKind=CLASS	hasValue=true	startLine=10	startColumn=12
 name=class	prefix=	value=tpl	attributeKind=CLASS	hasValue=true	startLine=37	startColumn=21
 name=class	prefix=	value=widget	attributeKind=CLASS	hasValue=true	startLine=1	startColumn=6

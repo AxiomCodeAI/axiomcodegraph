@@ -15,6 +15,7 @@ referenceKind=IMAGE	urlAsWritten=static/img/hero.webp	urlKind=RELATIVE	path=stat
 referenceKind=IMAGE	urlAsWritten=static/img/logo.png	urlKind=RELATIVE	path=static/img/logo.png	query=	fragment=	isResolved=true	position=0	attributeName=src	startLine=27	startColumn=15
 referenceKind=IMAGE	urlAsWritten=static/img/logo.png	urlKind=RELATIVE	path=static/img/logo.png	query=	fragment=	isResolved=true	position=0	attributeName=srcset	startLine=27	startColumn=44
 referenceKind=IMAGE	urlAsWritten=static/img/logo@2x.png	urlKind=RELATIVE	path=static/img/logo@2x.png	query=	fragment=	isResolved=false	position=1	attributeName=srcset	startLine=27	startColumn=44
+referenceKind=INCLUDE	urlAsWritten=/partials/frame.html	urlKind=ROOT_RELATIVE	path=/partials/frame.html	query=	fragment=	isResolved=false	position=0	attributeName=ssi:virtual	startLine=4	startColumn=23
 referenceKind=LINK_RESOURCE	urlAsWritten=js/app.js	urlKind=RELATIVE	path=js/app.js	query=	fragment=	isResolved=true	position=0	attributeName=href	startLine=9	startColumn=35
 referenceKind=LINK_RESOURCE	urlAsWritten=static/img/favicon.png	urlKind=RELATIVE	path=static/img/favicon.png	query=	fragment=	isResolved=false	position=0	attributeName=href	startLine=8	startColumn=26
 referenceKind=MEDIA	urlAsWritten=media/clip.mp4	urlKind=RELATIVE	path=media/clip.mp4	query=	fragment=	isResolved=false	position=0	attributeName=src	startLine=39	startColumn=17

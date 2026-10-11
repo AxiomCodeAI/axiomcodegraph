@@ -111,6 +111,9 @@ const SVG_ADJUSTED_ATTRIBUTES = new Map([
 const TEMPLATE_TAG = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|<%[\s\S]*?%>|\{#[\s\S]*?#\}|<\?[\s\S]*?\?>/g;
 
 /** Text-level template markers, each naming the family it belongs to. */
+/** An SSI directive: a comment whose first character is `#` followed by a directive name (G23). */
+const SSI_DIRECTIVE_MARKER = /<!--#\s*(?:include|set|echo|if|elif|else|endif|config|exec|fsize|flastmod|printenv)\b/i;
+
 const TEXT_DIALECTS: ReadonlyArray<readonly [HtmlTemplateDialect, RegExp]> = [
   [HtmlTemplateDialect.HANDLEBARS, /\{\{[#/>^]/],
   [HtmlTemplateDialect.MUSTACHE, /\{\{(?![#/>^!])/],
@@ -119,6 +122,7 @@ const TEXT_DIALECTS: ReadonlyArray<readonly [HtmlTemplateDialect, RegExp]> = [
   [HtmlTemplateDialect.PHP, /<\?php\b|<\?=/],
   [HtmlTemplateDialect.RAZOR, /(^|[\s>])@(model|using|inherits|page|section|if|foreach|for|while|switch|Html\.|Url\.|Model\b|\{)/m],
   [HtmlTemplateDialect.DOLLAR_BRACE, /\$\{[^}]*\}/],
+  [HtmlTemplateDialect.SSI, SSI_DIRECTIVE_MARKER],
 ];
 
 /**
@@ -201,6 +205,7 @@ export class HtmlParser {
     const roots = new Map<string, number>();
     top.filter((n) => ELEMENT_TYPES.has(n.type)).forEach((child, index) => walk.element(child, '', '', 0, roots, index, HtmlNamespace.HTML));
     walk.recordSyntaxErrors(root);
+    walk.includesAndSsi();
     walk.finish();
     return walk.result();
   }
@@ -243,6 +248,10 @@ class Walk {
   private readonly gapKeys = new Set<string>();
   private readonly recovered: Array<[number, number]> = [];
   private gapOverflow = 0;
+  /** Every element's source range, in walk order: the owner of a directive written in text is the innermost one. */
+  private readonly spans: Array<{ start: number; end: number; row: HtmlElement }> = [];
+  /** `<include src>` elements (posthtml-include): the element is replaced by the fragment at build time. */
+  private readonly includeElements: Array<{ offset: number; url: string; row: HtmlElement }> = [];
 
   constructor(
     private readonly css: CssParser,
@@ -403,6 +412,11 @@ class Walk {
       serviceVersionLinkHash: this.version,
     });
     this.out.elements.push(row);
+    this.spans.push({ start: node.startIndex, end: isVoid ? tagNode.endIndex : node.endIndex, row });
+    if (lower === 'include' && ownNamespace === HtmlNamespace.HTML) {
+      const src = own('src');
+      if (src !== undefined && src.value.trim() !== '') this.includeElements.push({ offset: node.startIndex, url: src.value, row });
+    }
     if (lower !== 'template' && ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower)) {
       (childOpen as Map<string, OpenElement>).set(lower, { row, names: new Set(attributes.filter((a) => !a.templateTag).map((a) => a.name.toLowerCase())) });
     }
@@ -998,6 +1012,67 @@ class Walk {
         stack.push(children[i]!);
       }
     }
+  }
+
+  /**
+   * INCLUDE REFERENCES (G22) AND SSI DIRECTIVES (G23), read from the page text, since each kind lives where the tree
+   * does not look: an SSI directive is a comment, a Jinja tag or a gulp `@@include` is text. Each include is a reference
+   * of kind INCLUDE whose `attributeName` names its flavour (`ssi:virtual`, `ssi:file`, `posthtml:include`,
+   * `gulp:@@include`, `jinja:include`, `jinja:extends`, `jinja:import`). Its owner is the innermost element the directive
+   * sits in (none at the top level), or for `<include src>` the include element itself, which the fragment replaces.
+   * Paths relative to the page (`ssi:file`, posthtml, gulp) are resolved here; `ssi:virtual` (site root) and Jinja
+   * (template directories) are resolved by the engine, which sees every page. A path that is a template expression
+   * (`{% include name %}`) has url kind TEMPLATE_EXPRESSION. Every SSI directive is also a template expression of
+   * dialect SSI, with the directive's name and its arguments as written.
+   */
+  includesAndSsi(): void {
+    const text = this.content;
+    const found: Array<{ offset: number; flavour: string; url: string; expression: boolean; owner: HtmlElement | undefined }> = [];
+    const ownerAt = (offset: number): HtmlElement | undefined => {
+      let best: { start: number; end: number; row: HtmlElement } | undefined;
+      for (const sp of this.spans) if (sp.start <= offset && offset < sp.end && (best === undefined || sp.start >= best.start)) best = sp;
+      return best?.row;
+    };
+    for (const m of text.matchAll(/<!--#\s*([a-z]+)\b([\s\S]*?)-->/gi)) {
+      const name = m[1]!.toLowerCase();
+      const args = m[2]!.trim();
+      const owner = ownerAt(m.index);
+      if (name === 'include') {
+        const a = /\b(virtual|file)\s*=\s*(["'])([\s\S]*?)\2/i.exec(args);
+        if (a !== null) found.push({ offset: m.index, flavour: `ssi:${a[1]!.toLowerCase()}`, url: a[3]!, expression: /\$\{?\w/.test(a[3]!), owner });
+      }
+      const kind = name === 'echo' ? HtmlTemplateExpressionKind.INTERPOLATION : name === 'set' ? HtmlTemplateExpressionKind.BINDING
+        : ['if', 'elif', 'else', 'endif'].includes(name) ? HtmlTemplateExpressionKind.CONDITION
+          : name === 'include' ? HtmlTemplateExpressionKind.REFERENCE : HtmlTemplateExpressionKind.DIRECTIVE;
+      if (owner !== undefined && SSI_DIRECTIVE_MARKER.test(m[0])) {
+        this.dialects.add(HtmlTemplateDialect.SSI);
+        this.templateExpression(undefined, owner, HtmlTemplateDialect.SSI, kind, name, '', [], args, m.index, this.lines.positionOf(m.index), false);
+      }
+    }
+    for (const m of text.matchAll(/@@include\(\s*(["'])([^"'\n]*)\1/g)) {
+      found.push({ offset: m.index, flavour: 'gulp:@@include', url: m[2]!, expression: false, owner: ownerAt(m.index) });
+    }
+    for (const m of text.matchAll(/\{%-?\s*(include|extends|import|from)\s+([\s\S]*?)\s*-?%\}/g)) {
+      const verb = m[1] === 'from' ? 'import' : m[1]!;
+      const q = /^(["'])([^"'\n]*)\1/.exec(m[2]!);
+      const url = q !== null ? q[2]! : m[2]!.split(/\s+(?:with|without|ignore|import|as|only)\b/)[0]!.trim();
+      found.push({ offset: m.index, flavour: `jinja:${verb}`, url, expression: q === null, owner: ownerAt(m.index) });
+    }
+    for (const inc of this.includeElements) found.push({ offset: inc.offset, flavour: 'posthtml:include', url: inc.url, expression: false, owner: inc.row });
+    found.sort((a, b) => a.offset - b.offset);
+    found.forEach((f, position) => {
+      const at = this.lines.positionOf(f.offset);
+      const classified = classifyUrl(f.url);
+      const pageRelative = f.flavour === 'ssi:file' || f.flavour === 'posthtml:include' || f.flavour === 'gulp:@@include';
+      const resolved = !f.expression && pageRelative ? resolveUrlToFile(classified, this.filePath, this.projectRoot, this.repoRoot) : '';
+      this.out.references.push(new HtmlReference({
+        referenceKind: HtmlReferenceKind.INCLUDE, urlAsWritten: f.url.trim(), urlKind: f.expression ? WebUrlKind.TEMPLATE_EXPRESSION : classified.kind,
+        path: f.expression ? '' : classified.path, query: f.expression ? '' : classified.query, fragment: f.expression ? '' : classified.fragment,
+        resolvedFilePath: resolved, isResolved: resolved !== '', position, attributeName: f.flavour, startLine: at.line, startColumn: at.column,
+        ownerElementLinkHash: f.owner?.getHash() ?? '', attributeLinkHash: '', documentLinkHash: this.out.document.getHash(),
+        serviceVersionLinkHash: this.version,
+      }));
+    });
   }
 
   private gap(kind: HtmlParseGapKind, detail: string, start: Pos, end: Pos, related: string): void {

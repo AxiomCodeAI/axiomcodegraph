@@ -999,7 +999,7 @@ function fixtureChecks(out: string, root: string): number {
   let bad = 0;
   const docs = tsv(out, WEB_CSV_FILES.HTML_DOCUMENTS);
   const rel = docs.map((d) => d['relativePath']).sort();
-  const want = ['index.html', 'page.html', 'partials/frame.html', 'templates/fragment.html', 'templates/layout.html', 'templates/mixed.html'];
+  const want = ['index.html', 'page.html', 'partials/frame.html', 'ssi.shtml', 'templates/fragment.html', 'templates/layout.html', 'templates/mixed.html'];
   if (rel.join(' ') !== want.join(' ')) bad += fail(`documents=${rel.join(' ')}\n      expected ${want.join(' ')}`);
   // Attribution: a page under site/ belongs to site/, never to the root target that also reaches it.
   for (const d of docs) {

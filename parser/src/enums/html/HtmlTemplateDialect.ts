@@ -47,4 +47,10 @@ export enum HtmlTemplateDialect {
 
   /** `hx-get`, `hx-post`, `hx-target`: htmx. */
   HTMX = 'HTMX',
+
+  /**
+   * Server-side includes, `<!--#include virtual="…" -->`, `<!--#echo var="…" -->`, `<!--#set -->`, `<!--#if expr -->`
+   * (Apache mod_include, nginx ssi): directives written as comments (G23).
+   */
+  SSI = 'SSI',
 }
