@@ -1,0 +1,22 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: computed/01-winners-and-losers   kinds: computed,cascade_entry
+# shape: a themed admin page where one heading is styled by a framework sheet, a theme sheet and an inline style: winner per property by importance, origin, specificity and source order; conditional overrides under :hover and @media; losers with their reasons
+cascade_entry	index.html:7:19	-	color	fw.css:1:10	lost	importance
+cascade_entry	index.html:7:19	-	color	fw.css:2:6	won	-
+cascade_entry	index.html:7:19	-	color	index.html:7:51	lost	importance
+cascade_entry	index.html:7:19	-	color	theme.css:1:16	lost	importance
+cascade_entry	index.html:7:19	-	color	theme.css:2:22	lost	importance
+cascade_entry	index.html:7:19	-	font-size	fw.css:1:24	lost	specificity
+cascade_entry	index.html:7:19	-	font-size	fw.css:3:6	won	-
+cascade_entry	index.html:7:19	-	font-size	theme.css:1:29	lost	specificity
+cascade_entry	index.html:7:19	-	font-size	theme.css:3:34	conditional	-
+cascade_entry	index.html:7:19	-	margin	fw.css:1:41	won	-
+cascade_entry	index.html:7:19	-	margin-top	index.html:7:65	won	-
+cascade_entry	index.html:7:19	before	color	theme.css:4:32	won	-
+cascade_entry	index.html:7:19	before	content	theme.css:4:18	won	-
+computed	index.html:7:19	-	color	fw.css:2:6	match	5	0	-
+computed	index.html:7:19	-	font-size	fw.css:3:6	match	4	1	-
+computed	index.html:7:19	-	margin	fw.css:1:41	match	1	0	-
+computed	index.html:7:19	-	margin-top	index.html:7:65	match	1	0	-
+computed	index.html:7:19	before	color	theme.css:4:32	match	1	0	-
+computed	index.html:7:19	before	content	theme.css:4:18	match	1	0	-

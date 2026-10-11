@@ -1,0 +1,5 @@
+@layer base, theme;
+@layer base { .p { color: red !important; padding: 1px; } }
+@layer theme { .p { color: blue !important; padding: 2px; margin-left: 5px; } }
+.p { padding: 3px; }
+.p { margin: 0; }

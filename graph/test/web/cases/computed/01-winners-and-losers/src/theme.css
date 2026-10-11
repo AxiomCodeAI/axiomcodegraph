@@ -1,0 +1,4 @@
+.card .title { color: blue; font-size: 18px; }
+.card .title:hover { color: red; }
+@media (max-width: 600px) { #t { font-size: 14px; } }
+.title::before { content: "*"; color: orange; }
