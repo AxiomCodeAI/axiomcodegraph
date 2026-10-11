@@ -15,6 +15,7 @@
  * Every `file` is the path relative to the source directory (run.source_dir), never the parser's relativePath,
  * which is relative to the nearest sub-project (SPEC §3.6 G14).
  */
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -26,6 +27,7 @@ import {
   COND, compileParts, EXACT, Matcher, NO, pageCtx, parseSelectorList, pseudoElementOf, requiredTokens, resolveNesting, specificity, staticReasons, unknownOf, UNKNOWN, usesRoot,
   type Complex, type El, type PartRow,
 } from '@/bundle/web/select';
+import { forms as formsOf, mediaRange, normMedia, outline as outlineOf, SHORTHANDS, structures, valueTokens } from '@/bundle/web/convert';
 
 /** Where the rows go: one call per row, written as they are made (the largest project would not fit in memory twice). */
 export type WebSink = (table: string, row: Record<string, string | number | null>) => void;
@@ -435,7 +437,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         if (svgHref && svgHref.hasValue && svgHref.value.trim() !== '') {
           kind = 'EXTERNAL'; srcText = svgHref.value.trim();
           if (root && !/^[a-z][\w+.-]*:|^\/\//i.test(srcText)) {
-            const pagePath = path.join(root, fileOfPage(d));
+            const pagePath = path.join(root, fileOfPage(d) ?? '');
             const p0 = srcText.split(/[?#]/)[0]!;
             abs = p0.startsWith('/') ? path.join(root, p0) : path.resolve(path.dirname(pagePath), p0);
           }
@@ -824,7 +826,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     };
     push(partsOf, sid, p); partRaw.set(p, r);
   }
-  interface SelN { id: string; rule: string; cx: Complex; spec: [number, number, number]; pe: string; req: { classes: string[]; ids: string[] }; unknown: string; root: boolean; reasons: string[]; row: string[] }
+  interface SelN { id: string; rule: string; cx: Complex; spec: [number, number, number]; pe: string; req: { classes: string[]; ids: string[] }; unknown: string; root: boolean; reasons: string[]; row: string[]; classNamed: string[] }
   const selsOfRule = new Map<string, SelN[]>();
   const selById = new Map<string, SelN>();
   for (const r of T.sel.rows) {
@@ -838,7 +840,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         position: p.position, depth: num(g(T.part, pr, 'depth')), argument_index: p.argIndex, parent_uid: nz(p.parent) });
     }
     const s: SelN = { id, rule, cx: compileParts(parts), spec: [num(g(T.sel, r, 'specificityA')) ?? 0, num(g(T.sel, r, 'specificityB')) ?? 0, num(g(T.sel, r, 'specificityC')) ?? 0],
-      pe: '', req: { classes: [], ids: [] }, unknown: parts.length === 0 || gapRules.has(rule) ? 'selector_unparsed' : '', root: false, reasons: [], row: r };
+      pe: '', classNamed: [...new Set(parts.filter((p) => p.kind === 'CLASS' && p.name).map((p) => p.name))], req: { classes: [], ids: [] }, unknown: parts.length === 0 || gapRules.has(rule) ? 'selector_unparsed' : '', root: false, reasons: [], row: r };
     selById.set(id, s); push(selsOfRule, rule, s);
   }
   for (const a of selsOfRule.values()) a.sort((x, y) => (num(g(T.sel, x.row, 'position')) ?? 0) - (num(g(T.sel, y.row, 'position')) ?? 0));
@@ -949,11 +951,64 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     return null;
   };
+  // ── §9.2 resolved style: contenders, the cascade key, winners ──
+  interface Cand { pe: string; rule: string; st: number; a: number; b: number; c: number; so: number; ro: number; lr: number }
+  const cmpCand = (x: Cand, y: Cand): number => (x.a - y.a) || (x.b - y.b) || (x.c - y.c) || (x.so - y.so) || (x.ro - y.ro) || (x.lr - y.lr);
+  const classSel = new Set<string>(); const styledClass = new Set<string>();
+  const inlineDecls = new Map<string, string[][]>(); // element -> its style attribute's declarations
+  for (const r of T.decl.rows) { const a = g(T.decl, r, 'htmlAttributeLinkHash'); const el = a ? attrOwner.get(a) : undefined; if (el) push(inlineDecls, el, r); }
+  const pad = (n: number, w: number): string => String(Math.max(0, Math.trunc(n))).padStart(w, '0');
+  /** the cascade sort key as text (web_cascade recomputes it in SQL with the same layout): higher wins */
+  const keyOf = (imp: number, inline: boolean, lr: number, a: number, b: number, c: number, so: number, ro: number, pos: number): string =>
+    `${imp}|${pad(inline ? 2000000000 : imp ? 1000000000 - lr : lr, 10)}|${pad(a, 4)}|${pad(b, 4)}|${pad(c, 4)}|${pad(so, 6)}|${pad(ro, 7)}|${pad(pos, 5)}`;
+  let computedRows = 0;
+  const computedOf = (pageId: string, cands: Map<string, Map<string, Cand>>) => {
+    const els = new Set<string>([...cands.keys()]);
+    for (const e of pages.get(pageId)?.elements ?? []) if (inlineDecls.has(e.id) && e.inert !== 'iframe_text') els.add(e.id);
+    for (const elId of els) {
+      interface K { decl: string; prop: string; key: string; st: number; inline: boolean; imp: number; value: string }
+      const byPe = new Map<string, Map<string, K[]>>();
+      const add = (pe: string, k: K) => { let m = byPe.get(pe); if (!m) { m = new Map(); byPe.set(pe, m); } const a = m.get(k.prop); if (a) a.push(k); else m.set(k.prop, [k]); };
+      for (const c of cands.get(elId)?.values() ?? []) {
+        for (const d of declsOfRule.get(c.rule) ?? []) {
+          const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
+          add(c.pe, { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: g(T.decl, d, 'property').toLowerCase(), st: c.st, inline: false, imp,
+            key: keyOf(imp, false, c.lr, c.a, c.b, c.c, c.so, c.ro, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
+        }
+      }
+      for (const d of inlineDecls.get(elId) ?? []) {
+        const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
+        add('', { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: g(T.decl, d, 'property').toLowerCase(), st: 0, inline: true, imp,
+          key: keyOf(imp, true, 0, 0, 0, 0, 0, 0, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
+      }
+      for (const [pe, props] of byPe) {
+        for (const ks of props.values()) ks.sort((x, y) => (x.key < y.key ? 1 : x.key > y.key ? -1 : 0));
+        for (const [prop, ks] of props) {
+          let wi = ks.findIndex((k) => k.st === 0);
+          let status = 'match';
+          if (wi < 0) { wi = ks.findIndex((k) => k.st === 1); status = 'conditional_only'; }
+          if (wi < 0) { wi = 0; status = 'unknown'; }
+          const w = ks[wi]!;
+          const above = ks.slice(0, wi);
+          const condOver = above.filter((k) => k.st === 1).length;
+          if (status === 'match' && above.some((k) => k.st === 2)) status = 'unknown';
+          let override: K | null = null;
+          for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;
+          if (override && status === 'match') status = 'shorthand_override';
+          computedRows++;
+          out('web_computed').push({ element_uid: elId, page_uid: pageId, pseudo: pe || null, property: prop, winner_decl_uid: w.decl, winner_origin: w.inline ? 'inline' : 'rule',
+            winner_status: status, value_text: unesc(w.value).replace(/\/\*[\s\S]*?\*\//g, '').trim() || null, important: w.imp, contenders: ks.length, conditional_overrides: condOver,
+            override_decl_uid: override?.decl ?? null, winner_key: w.key });
+        }
+      }
+    }
+  };
   const pageMatches = new Map<string, Map<string, Map<string, number>>>(); // page -> rule -> element -> best status
   let styleRows = 0;
   const t0 = Date.now();
   for (const [pageId, loads] of loadsOf) {
     const page = pages.get(pageId)!;
+    const cands = new Map<string, Map<string, Cand>>();
     if (page.kind === 'FRAGMENT' || page.elements.length === 0) continue;
     const live = page.elements.filter((e) => e.inert !== 'iframe_text');
     const ctx = pageCtx(live, page.quirks, page.lang);
@@ -996,6 +1051,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
               if ((re.get(e.id) ?? NO) < sc) re.set(e.id, sc);
             }
             u!.any = true;
+            // §9.2 contenders: per (element, pseudo, rule) the best styles row (status, then the cascade key)
+            {
+              const ck = `${s.pe}|${n.id}`; let em = cands.get(e.id); if (!em) { em = new Map(); cands.set(e.id, em); }
+              const prev = em.get(ck); const stc = status === 'match' ? 0 : status === 'conditional' ? 1 : 2;
+              const cand = { pe: s.pe, rule: n.id, st: stc, a: s.spec[0], b: s.spec[1], c: s.spec[2], so: l.order, ro: n.order, lr: layerRank };
+              if (!prev || stc < prev.st || (stc === prev.st && cmpCand(cand, prev) > 0)) em.set(ck, cand);
+              for (const c of s.classNamed) { classSel.add(s.id); if (e.classes.has(c)) styledClass.add(c); }
+            }
             // one row per LOAD (V1-07): a sheet linked twice is in the cascade twice, the later load's sheet_order winning
             if (seen.has(`s|${s.id}|${e.id}|${l.order}`)) return;
             seen.add(`s|${s.id}|${e.id}|${l.order}`); styleRows++;
@@ -1074,7 +1137,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const st = selStats.get(sid); if (!st || seen.has(`u|${sid}`)) continue;
       st.unmatched++; if (u.missing) st.missing++;
     }
+    computedOf(pageId, cands);
   }
+  for (const pageId of pages.keys()) if (!loadsOf.has(pageId)) computedOf(pageId, new Map());
   log(`  web styles: ${styleRows} selector->element rows over ${loadsOf.size} page(s) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   for (const s of selById.values()) {
     const r = s.row; const st = selStats.get(s.id); const n = rules.get(s.rule);
@@ -1334,6 +1399,144 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const value = unesc(g(T.attr, r, 'value'));
     const ids = TOKEN_LIST_ID_ATTRS.has(name) || (name === 'for' && e.tagLower === 'output') ? value.split(/\s+/).filter(Boolean) : [value.trim()];
     for (const v of ids) if (v) idRef(elId, g(T.attr, r, 'documentLinkHash'), g(T.attr, r, 'name'), v);
+  }
+
+  // ── [iter2] SPEC §9 conversion layer ──
+  {
+    const t9 = Date.now();
+    const sink = (table: string, row: Record<string, string | number | null>) => out(table).push(row);
+    const deepText = (e: El): string => { const parts: string[] = []; const go = (x: El) => { if (x.text) parts.push(x.text); for (const c of x.children) go(c); }; go(e); return parts.join(' ').replace(/\s+/g, ' ').trim(); };
+    const pageList = [...pages.values()].filter((p) => p.kind !== 'FRAGMENT' || true).map((p) => ({ id: p.id, file: p.file, elements: p.elements }));
+    // §9.1 / §9.8
+    const st = structures({ pages: pageList, at: (e) => startOf(e.id), rulesOn: (e) => {
+      const pm = pageMatches.get(elPage.get(e.id)?.id ?? ''); const out2: string[] = [];
+      if (pm) for (const [ruleId, m] of pm) if ((m.get(e.id) ?? NO) >= COND) out2.push(ruleId);
+      return out2;
+    } }, sink);
+    void st;
+    // §9.7 / §9.5
+    const actionRef = new Map<string, string>(); // form element -> resolved abs path of its action
+    for (const r of T.ref.rows) if (g(T.ref, r, 'attributeName').toLowerCase() === 'action') actionRef.set(g(T.ref, r, 'ownerElementLinkHash'), g(T.ref, r, 'resolvedFilePath'));
+    for (const p of pageList) {
+      const firstById = new Map<string, El>(); for (const e of p.elements) if (e.idAttr && !firstById.has(e.idAttr)) firstById.set(e.idAttr, e);
+      outlineOf(p, (id) => { const e = firstById.get(id); return e ? deepText(e) : ''; }, sink);
+      formsOf(p, (f) => { const abs = actionRef.get(f.id); return abs ? pageByAbs.get(abs)?.id ?? null : null; }, deepText, sink);
+    }
+    // §9.3 tokens
+    const sheetFiles = new Set([...sheets.values()].filter((x) => x.kind === 'FILE').map((x) => x.file));
+    const notProject = (sheetId: string): boolean => {
+      const sh = sheets.get(sheetId); if (!sh) return false;
+      if (VENDOR_PATH.test(sh.file)) return true;
+      const twin = sh.file.replace(/\.min\.css$/i, '.css');
+      return twin !== sh.file && sheetFiles.has(twin);
+    };
+    interface Tok { uid: string; kind: string; value: string; decls: Set<string>; proj: Set<string>; sheets: Set<string>; rules: Set<string>; vars: Set<string> }
+    const toks = new Map<string, Tok>();
+    for (const r of T.decl.rows) {
+      const did = g(T.decl, r, 'cssDeclarationUniqueHash'); const prop = g(T.decl, r, 'property');
+      const sheet = g(T.decl, r, 'stylesheetLinkHash'); const rule = g(T.decl, r, 'ruleLinkHash');
+      for (const tk of valueTokens(prop, unesc(g(T.decl, r, 'valueText')))) {
+        const k = `${tk.kind}\u0000${tk.value}`;
+        let t = toks.get(k);
+        if (!t) { t = { uid: `WEB_TOKEN_${createHash('md5').update(k).digest('hex')}`, kind: tk.kind, value: tk.value, decls: new Set(), proj: new Set(), sheets: new Set(), rules: new Set(), vars: new Set() }; toks.set(k, t); }
+        t.decls.add(did); if (!(sheet && notProject(sheet))) t.proj.add(did);
+        if (sheet) t.sheets.add(sheet); if (rule) t.rules.add(rule);
+        if (prop.startsWith('--') && tk.kind !== 'custom_property') t.vars.add(prop);
+      }
+    }
+    for (const t of toks.values()) {
+      out('web_tokens').push({ uid: t.uid, kind: t.kind, value: t.value, uses: t.decls.size, project_uses: t.proj.size, sheets: t.sheets.size, rules: t.rules.size,
+        vars: t.vars.size ? [...t.vars].sort().join(' ') : null });
+      for (const d of t.decls) out('web_token_uses').push({ token_uid: t.uid, declaration_uid: d });
+    }
+    toks.clear();
+    // §9.4 breakpoints
+    interface Bp { uid: string; media: string; rules: Map<string, number>; sheets: Set<string> }
+    const bps = new Map<string, Bp>();
+    const bpOf = (media: string): Bp => { let b = bps.get(media); if (!b) { b = { uid: `WEB_BREAKPOINT_${createHash('md5').update(media).digest('hex')}`, media, rules: new Map(), sheets: new Set() }; bps.set(media, b); } return b; };
+    for (const n of rules.values()) {
+      let d = 0;
+      for (let a = n.parent ? rules.get(n.parent) : undefined; a; a = a.parent ? rules.get(a.parent) : undefined) {
+        d++;
+        if (a.at === 'media') { const b = bpOf(normMedia(a.prelude)); if (!b.rules.has(n.id)) b.rules.set(n.id, d); b.sheets.add(n.sheet); }
+      }
+    }
+    for (const loads of loadsOf.values()) for (const l of loads) for (const c of l.conds) {
+      if (!c.startsWith('@media ')) continue;
+      const b = bpOf(normMedia(c.slice(7)));
+      b.sheets.add(l.sheet);
+      for (const n of sheets.get(l.sheet)?.rules ?? []) if (!b.rules.has(n.id)) b.rules.set(n.id, 0);
+    }
+    for (const b of bps.values()) {
+      const rg = mediaRange(b.media);
+      const els = new Set<string>(); const pgs = new Set<string>();
+      for (const [pid, pm] of pageMatches) for (const ruleId of b.rules.keys()) { const m = pm.get(ruleId); if (m && m.size) { pgs.add(pid); for (const e of m.keys()) els.add(e); } }
+      out('web_breakpoints').push({ uid: b.uid, media: b.media, min_px: rg.min, max_px: rg.max, unit: rg.unit, features: rg.features, rules: b.rules.size, sheets: b.sheets.size,
+        elements: els.size, pages: pgs.size });
+      for (const [ruleId, d] of b.rules) out('web_rule_breakpoints').push({ rule_uid: ruleId, breakpoint_uid: b.uid, depth: d });
+    }
+    // §9.6 icon classes and font faces
+    const carriers = new Map<string, El[]>(); // class -> elements carrying it (not iframe text)
+    for (const e of elById.values()) if (e.inert !== 'iframe_text') for (const c of e.classes) push(carriers, c, e);
+    const declOf = (ruleId: string, prop: string): string[] | undefined => {
+      const ds = (declsOfRule.get(ruleId) ?? []).filter((d) => g(T.decl, d, 'property').toLowerCase() === prop); return ds[ds.length - 1];
+    };
+    const oneClass = (cx: Complex): { cls: string; pe: string } | null => {
+      if (cx.length !== 1) return null;
+      let cls: string | null = null; let pe = '';
+      for (const sp of cx[0]!.simples) {
+        if (sp.kind === 'CLASS') { if (cls !== null) return null; cls = sp.name; }
+        else if (sp.kind === 'TYPE' || sp.kind === 'UNIVERSAL') continue;
+        else if ((sp.kind === 'PSEUDO_ELEMENT' || sp.kind === 'PSEUDO_CLASS') && /^(before|after)$/i.test(sp.name.replace(/^:+/, ''))) pe = sp.name;
+        else return null;
+      }
+      return cls ? { cls, pe } : null;
+    };
+    const fontRules = new Map<string, string>(); // class -> font-family value of a one-class rule (no pseudo)
+    for (const s of selById.values()) {
+      const oc = oneClass(s.cx); if (!oc || oc.pe) continue;
+      const ff = declOf(s.rule, 'font-family'); if (ff && !fontRules.has(oc.cls)) fontRules.set(oc.cls, unesc(g(T.decl, ff, 'valueText')).trim());
+    }
+    const icons = new Set<string>();
+    for (const s of selById.values()) {
+      const oc = oneClass(s.cx); if (!oc || !oc.pe) continue;
+      const ct = declOf(s.rule, 'content'); if (!ct) continue;
+      const v = unesc(g(T.decl, ct, 'valueText')).trim();
+      const m = /^(["'])(.*)\1$/s.exec(v); if (!m) continue;
+      const inner = m[2]!;
+      if (!(/^\\[0-9a-fA-F]{1,6} ?$/.test(inner) || [...inner].length <= 2)) continue;
+      let ff: string | null = null;
+      const own = declOf(s.rule, 'font-family'); if (own) ff = unesc(g(T.decl, own, 'valueText')).trim();
+      const els = carriers.get(oc.cls) ?? [];
+      if (!ff) for (const e of els) { for (const c of e.classes) if (c !== oc.cls && fontRules.has(c)) { ff = fontRules.get(c)!; break; } if (ff) break; }
+      icons.add(oc.cls);
+      out('web_icon_classes').push({ class_name: oc.cls, rule_uid: s.rule, content: v, font_family: ff, used_elements: els.length });
+    }
+    const familyUses = new Map<string, number>();
+    for (const r of T.decl.rows) if (g(T.decl, r, 'property').toLowerCase() === 'font-family' && g(T.decl, r, 'ruleLinkHash') && rules.get(g(T.decl, r, 'ruleLinkHash'))?.at !== 'font-face') {
+      for (const f of unesc(g(T.decl, r, 'valueText')).split(',')) { const k = f.trim().replace(/^["']|["']$/g, '').toLowerCase(); familyUses.set(k, (familyUses.get(k) ?? 0) + 1); }
+    }
+    for (const n of rules.values()) if (n.at === 'font-face') {
+      const fam = declOf(n.id, 'font-family'); const family = fam ? unesc(g(T.decl, fam, 'valueText')).trim().replace(/^["']|["']$/g, '') : null;
+      const files = new Set<string>();
+      for (const d of declsOfRule.get(n.id) ?? []) if (g(T.decl, d, 'property').toLowerCase() === 'src') {
+        for (const vr of T.vref.rows) if (g(T.vref, vr, 'ownerDeclarationLinkHash') === g(T.decl, d, 'cssDeclarationUniqueHash') && g(T.vref, vr, 'referenceKind') === 'URL') {
+          const abs = g(T.vref, vr, 'resolvedFilePath'); files.add(onDisk(abs) ? rel(abs) : g(T.vref, vr, 'name'));
+        }
+      }
+      const w = declOf(n.id, 'font-weight'); const sty = declOf(n.id, 'font-style');
+      out('web_font_faces').push({ rule_uid: n.id, family, src_files: files.size ? [...files].join(' ') : null, weight: w ? unesc(g(T.decl, w, 'valueText')).trim() : null,
+        style: sty ? unesc(g(T.decl, sty, 'valueText')).trim() : null, used_rules: family ? familyUses.get(family.toLowerCase()) ?? 0 : 0 });
+    }
+    // §9.9 classes
+    const naming = new Map<string, Set<string>>();
+    for (const s of selById.values()) for (const c of s.classNamed) { let x = naming.get(c); if (!x) { x = new Set(); naming.set(c, x); } x.add(s.id); }
+    for (const [c, els] of carriers) {
+      const nm = naming.get(c) ?? new Set<string>();
+      out('web_classes').push({ class_name: c, elements: els.length, pages: new Set(els.map((e) => elPage.get(e.id)?.id)).size, selectors_naming: nm.size,
+        selectors_matching: [...nm].filter((x) => classSel.has(x)).length, styled: styledClass.has(c) ? 1 : 0, icon: icons.has(c) ? 1 : 0 });
+    }
+    log(`  web conversion layer (§9): ${computedRows} computed rows; components, tokens, breakpoints, forms, outline in ${((Date.now() - t9) / 1000).toFixed(1)}s`);
   }
 
   // ── skipped files ──

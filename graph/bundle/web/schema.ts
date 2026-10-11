@@ -192,6 +192,75 @@ export const WEB_TABLES: readonly TableSpec[] = [
     description: '@container <name> (the rule) -> the declarations (container-name / container) naming it in sheets the same page loads.',
     columns: [id('use_uid'), id('name'), id('target_uid'), id('page_uid'), t('status'), t('reason')],
   },
+  // ── [iter2] SPEC §9 conversion layer ──────────────────────────────────────
+  {
+    name: 'web_components',
+    description: 'A shared structure (component candidate, SPEC §9.1): every written element (not inert, not html/head/body) with one signature, at a `level` — exact (tag, static class tokens, attribute names, children) or shape (tag and children only) — kept when it occurs >= 2 times with >= 3 elements, and maximal (a group only ever found as the direct part of one other group is folded into it). `display` <tag>.<first 3 classes sorted> (#n when shared); `size` elements in one occurrence; `parent_component_uid` the group whose occurrences contain every occurrence of this one; `rules_styling_root` rules with a styles row on the first occurrence.',
+    columns: [id('uid'), t('level'), t('signature'), t('root_tag'), t('root_classes'), id('display'), i('size'), i('occurrences'), i('pages'), id('parent_component_uid'), i('slot_count'), i('rules_styling_root')],
+  },
+  {
+    name: 'web_component_occurrences',
+    description: 'One occurrence (root element) of a component candidate.',
+    columns: [id('component_uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col')],
+  },
+  {
+    name: 'web_component_slots',
+    description: 'What varies between the aligned occurrences of a component (or the items of a repeat, keyed by its uid): `path` child-index path from the root (\'\' = the root, e.g. 0/2/1), `kind` text | attr:<name> | class (shape level), distinct_values and up to 5 samples (JSON).',
+    columns: [id('component_uid'), t('path'), t('kind'), t('attribute_name'), i('distinct_values'), t('samples')],
+  },
+  {
+    name: 'web_repeats',
+    description: 'A repeated list (SPEC §9.8): a maximal run of >= 3 consecutive element siblings of one shape, >= 2 elements per item. `uniform` = every item also has one exact signature; slots in web_component_slots under this uid.',
+    columns: [id('uid'), id('parent_element_uid'), id('page_uid'), id('first_element_uid'), i('start_position'), i('count'), t('item_tag'), t('item_classes'), i('item_size'), i('uniform'), id('component_uid'), i('slot_count')],
+  },
+  {
+    name: 'web_computed',
+    description: 'The cascade winner per (element, pseudo-element, written property) with >= 1 contender (SPEC §9.2): contenders are the declarations of the property in every rule with a styles row for the element and pseudo-element, plus its style attribute, sorted by importance, origin/layer, specificity, sheet order, rule order, position. `winner_status` match | conditional_only (no exact contender) | unknown (an unknown contender sorts above the winner) | shorthand_override (a shorthand declaration sorts above this longhand\'s winner: `override_decl_uid`; values are not expanded, LIMIT L5). Inherited and initial values are not filled (L6). `winner_key` is the sort key the view web_cascade compares against.',
+    columns: [id('element_uid'), id('page_uid'), t('pseudo'), id('property'), id('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), id('override_decl_uid'), t('winner_key')],
+  },
+  {
+    name: 'web_tokens',
+    description: 'A theme token (SPEC §9.3): kind color | font_family | font_size | spacing | radius | shadow | z_index | custom_property and its normalised value; `uses` declarations holding it, `project_uses` those outside vendor sheets and minified twins, `sheets`, `rules`, `vars` custom properties whose value holds it.',
+    columns: [id('uid'), t('kind'), id('value'), i('uses'), i('project_uses'), i('sheets'), i('rules'), t('vars')],
+  },
+  { name: 'web_token_uses', description: 'token -> declaration holding it.', columns: [id('token_uid'), id('declaration_uid')] },
+  {
+    name: 'web_breakpoints',
+    description: 'A @media prelude or a media attribute, normalised (SPEC §9.4): lower-cased, whitespace collapsed, no space inside parentheses or around : and ,. `min_px`/`max_px` from min-width/max-width/width ranges (em/rem x 16, `unit` as written), other features in `features`; counts of rules under it, sheets, elements styled through it and pages.',
+    columns: [id('uid'), id('media'), i('min_px'), i('max_px'), t('unit'), t('features'), i('rules'), i('sheets'), i('elements'), i('pages')],
+  },
+  { name: 'web_rule_breakpoints', description: 'rule -> breakpoint it sits under (depth 1 = a direct child of the @media, 0 = a rule of a sheet loaded with that media).', columns: [id('rule_uid'), id('breakpoint_uid'), i('depth')] },
+  {
+    name: 'web_forms',
+    description: 'A <form> (SPEC §9.5): action as written and the page it resolves to, method (lower-cased, default get), enctype, controls it owns.',
+    columns: [id('element_uid'), id('page_uid'), t('action'), id('action_resolved_page'), t('method'), t('enctype'), i('controls')],
+  },
+  {
+    name: 'web_form_controls',
+    description: 'input, select, textarea, button, contenteditable (SPEC §9.5): its form owner (form attribute, else the nearest ancestor form), type (input default text, button default submit), the constraint attributes, and its label per the HTML spec: `label_via` for | wrap | aria-labelledby | aria-label | title | none.',
+    columns: [id('element_uid'), id('page_uid'), id('form_uid'), t('tag'), t('type'), id('name'), id('id'), i('required'), t('pattern'), t('min'), t('max'), t('minlength'), t('maxlength'),
+      t('step'), t('placeholder'), t('value'), i('checked'), i('disabled'), i('multiple'), t('autocomplete'), id('label_uid'), t('label_via'), t('label_text')],
+  },
+  {
+    name: 'web_icon_classes',
+    description: 'A class C is an icon class (SPEC §9.6) when a selector of ONE compound whose only class is C, with ::before/::after, belongs to a rule declaring `content` with a string of <= 2 characters or one CSS escape. `font_family` as written: declared in that rule, or in a one-class rule for a class the same elements carry.',
+    columns: [id('class_name'), id('rule_uid'), t('content'), t('font_family'), i('used_elements')],
+  },
+  {
+    name: 'web_font_faces',
+    description: 'An @font-face: family, the files its src names, weight, style, and the rules using the family.',
+    columns: [id('rule_uid'), id('family'), t('src_files'), t('weight'), t('style'), i('used_rules')],
+  },
+  {
+    name: 'web_outline',
+    description: 'Landmarks and headings of a page in document order (SPEC §9.7): header, nav, main, aside, footer, search, section/article (region when named), a named form, ARIA landmark roles; h1-h6 and role=heading with aria-level. `parent_outline_uid` the nearest ancestor outline row.',
+    columns: [id('uid'), id('element_uid'), id('page_uid'), t('kind'), t('name'), i('level'), t('label'), t('text'), id('parent_outline_uid'), i('ordinal')],
+  },
+  {
+    name: 'web_classes',
+    description: 'A class token carried by an element (SPEC §9.9): elements and pages carrying it, selectors naming it, those of them with any styles row, `styled` = some selector naming it has a styles row on an element carrying it, `icon` = an icon class. Never "dead": classes added at run time are outside this layer.',
+    columns: [id('class_name'), i('elements'), i('pages'), i('selectors_naming'), i('selectors_matching'), i('styled'), i('icon')],
+  },
   {
     name: 'web_unknown',
     description: 'Every declared unknown that has no edge row of its own: orphan_sheet, fragment_no_host, no_static_carrier (a selector needing a class/id no element of the page carries), shadow_dom, selector_unparsed, implied_element, column_combinator (a selector undecidable on a page), parse_gap, duplicate_id, … with the node and page it concerns.',
@@ -208,6 +277,45 @@ export const WEB_FINALIZE: readonly string[] = [
 ];
 
 export const WEB_VIEWS: readonly string[] = [
+  // SPEC §9.2: every contender of a web_computed row with its outcome and why it lost (keys as web_computed.winner_key)
+  `CREATE VIEW web_cascade AS
+   WITH c AS (
+     SELECT s.element_uid AS element, COALESCE(s.pseudo_element, '') AS pseudo, lower(d.property) AS property, d.uid AS decl,
+            max(printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
+                s.spec_a, s.spec_b, s.spec_c, s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS k,
+            min(CASE s.status WHEN 'match' THEN 0 WHEN 'conditional' THEN 1 ELSE 2 END) AS st, max(s.conditions) AS conditions
+       FROM web_styles s JOIN web_declarations d ON d.rule_uid = s.rule_uid
+      GROUP BY 1, 2, 3, 4
+     UNION ALL
+     SELECT d.element_uid, '', lower(d.property), d.uid, printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
+       FROM web_declarations d WHERE d.attribute_uid IS NOT NULL AND d.element_uid IS NOT NULL)
+   SELECT c.element, NULLIF(c.pseudo, '') AS pseudo, c.property, c.decl,
+          ROW_NUMBER() OVER (PARTITION BY c.element, c.pseudo, c.property ORDER BY c.k DESC) AS rank,
+          CASE WHEN c.decl = w.winner_decl_uid THEN 'won' WHEN c.k > w.winner_key THEN 'conditional' ELSE 'lost' END AS outcome,
+          CASE WHEN c.decl = w.winner_decl_uid OR c.k > w.winner_key THEN NULL
+               WHEN substr(c.k, 1, 1) != substr(w.winner_key, 1, 1) THEN 'importance'
+               WHEN substr(c.k, 3, 10) != substr(w.winner_key, 3, 10) THEN
+                 CASE WHEN substr(c.k, 3, 10) = '2000000000' OR substr(w.winner_key, 3, 10) = '2000000000' THEN 'origin' ELSE 'layer' END
+               WHEN substr(c.k, 14, 14) != substr(w.winner_key, 14, 14) THEN 'specificity'
+               ELSE 'source_order' END AS lost_reason,
+          c.conditions, CASE c.st WHEN 0 THEN 'match' WHEN 1 THEN 'conditional' ELSE 'unknown' END AS status
+     FROM c JOIN web_computed w ON w.element_uid = c.element AND COALESCE(w.pseudo, '') = c.pseudo AND w.property = c.property`,
+  // SPEC §9.10: the per-page inventory, aggregates of existing tables
+  `CREATE VIEW web_page_inventory AS SELECT p.uid AS page, p.file,
+     (SELECT group_concat(f, ' ') FROM (SELECT st.file AS f FROM web_loads l JOIN web_stylesheets st ON st.uid = l.stylesheet_uid WHERE l.page_uid = p.uid ORDER BY l.load_order)) AS sheets_in_order,
+     (SELECT count(*) FROM web_stylesheets st JOIN web_elements e ON e.uid = st.owner_element_uid WHERE e.page_uid = p.uid) AS style_elements,
+     (SELECT count(DISTINCT attribute_uid) FROM web_declarations d WHERE d.page_uid = p.uid AND d.attribute_uid IS NOT NULL) AS inline_style_attrs,
+     (SELECT count(*) FROM web_scripts s WHERE s.page_uid = p.uid AND s.script_kind != 'INLINE') AS scripts_external,
+     (SELECT count(*) FROM web_scripts s WHERE s.page_uid = p.uid AND s.script_kind = 'INLINE') AS scripts_inline,
+     (SELECT group_concat(ev || ':' || n, ' ') FROM (SELECT COALESCE(event, '?') AS ev, count(*) AS n FROM web_handlers h WHERE h.page_uid = p.uid GROUP BY 1)) AS handlers_by_event,
+     (SELECT group_concat(dl || ':' || n, ' ') FROM (SELECT dialect AS dl, count(*) AS n FROM web_template_exprs t WHERE t.page_uid = p.uid GROUP BY 1)) AS template_directives_by_dialect,
+     (SELECT count(*) FROM web_forms f WHERE f.page_uid = p.uid) AS forms,
+     (SELECT count(*) FROM web_form_controls c WHERE c.page_uid = p.uid) AS controls,
+     (SELECT count(*) FROM web_outline o WHERE o.page_uid = p.uid AND o.kind = 'landmark') AS landmarks,
+     (SELECT count(DISTINCT component_uid) FROM web_component_occurrences o WHERE o.page_uid = p.uid) AS components,
+     (SELECT count(*) FROM web_repeats r WHERE r.page_uid = p.uid) AS repeats,
+     (SELECT count(DISTINCT rb.breakpoint_uid) FROM web_rule_breakpoints rb JOIN web_styles s ON s.rule_uid = rb.rule_uid WHERE s.page_uid = p.uid) AS breakpoints
+     FROM web_pages p`,
   // SPEC §3.5 [iter2]: the pages behind web_selectors.pages_unmatched — pages loading the selector's sheet with no styles row
   // for it and no whole-selector unknown row
   `CREATE VIEW web_selector_unmatched_pages AS SELECT DISTINCT s.uid AS selector_uid, s.selector_text, s.file AS sheet_file, s.line, l.page_uid,
