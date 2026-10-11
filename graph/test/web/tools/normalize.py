@@ -85,6 +85,9 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_attributes.file, .line          -> attr_at <element> <name> <file:line>               (V2-01 via_at)
   web_styles.loads (sheet orders)     -> styles_loads <selector> <element> <page> <orders>  (V2-22, > 1 load only)
   web_tokens.unused                   -> last column of token                               (V2-06)
+  web_attributes.value_raw            -> attr_raw <element> <name> <written text>, when it differs from value (V3-10a)
+  web_ssi_directives(element_uid, directive, file, line, col, text)
+                                      -> ssi_directive <parent element> <directive> <file:line:col> |<text> (V3-10b)
   web_rules.prelude_text/_bytes/_truncated, web_declarations.value_text/_bytes/_truncated
                                       -> prelude_text|value_text <key> <bytes> <truncated> |<first 1,000 chars>  (V2-12)
   web_form_controls(element_uid, form_uid, tag, type, name, required, label_uid, label_via)
@@ -150,8 +153,11 @@ def main():
     out = []
     emit = (lambda kind, *f: out.append('\t'.join([kind] + [esc(x) for x in f])) if want(kind) else None)
 
-    web_needed = True
-    if web_needed:
+    # V3-07 / V3-11: never crash and never write an empty file on a surprise. Whatever fails (a NULL key, a missing
+    # table or column of the contract) becomes a `normalize_error` row next to every row read so far, the exit code
+    # is 3, and the gate then fails on that row instead of comparing nothing.
+    failed = None
+    try:
         g = Graph(os.path.join(out_dir, 'web', 'graph.sqlite'))
         key = {}
         pages = g.rows('web_pages', ['uid', 'file', 'document_kind'])
@@ -167,7 +173,9 @@ def main():
             emit('element', key[uid], tag, hid, ' '.join((cls or '').split()))
             emit('contains', key.get(par) if par else key.get(p), key[uid])
         attrs = g.rows('web_attributes', ['uid', 'element_uid', 'name', 'value'])
-        a_line, a_file = {}, {}
+        a_line, a_file, a_raw = {}, {}, {}
+        if g.has('web_attributes', 'value_raw'):
+            a_raw = {u: r for u, r in g.rows('web_attributes', ['uid', 'value_raw'])}
         if g.has('web_attributes', 'line') and g.has('web_attributes', 'file'):
             for uid, f, ln in g.rows('web_attributes', ['uid', 'file', 'line']):
                 a_line[uid], a_file[uid] = ln, f
@@ -176,6 +184,8 @@ def main():
         for uid, e, n, v in attrs:
             attr_name[uid] = n
             emit('attribute', key.get(e), n, v)
+            if a_raw.get(uid) is not None and a_raw[uid] != v:
+                emit('attr_raw', key.get(e), n, a_raw[uid])
             if a_line.get(uid) is not None:
                 emit('attr_at', key.get(e), n, f'{a_file.get(uid)}:{a_line[uid]}')
         dyn_col = 'dynamic' if g.has('web_class_tokens', 'dynamic') else None
@@ -209,6 +219,9 @@ def main():
             for _u, e, gk, det in g.rows('web_gaps', ['uid', 'element_uid', 'gap_kind', 'detail']):
                 if e:
                     emit('html_gap', key.get(e), gk, det)
+        if want('ssi_directive') and 'web_ssi_directives' in g.tables:
+            for e, dv, f, ln, col, tx in g.rows('web_ssi_directives', ['element_uid', 'directive', 'file', 'line', 'col', 'text']):
+                emit('ssi_directive', key.get(e) if e else None, (dv or '').lower(), f'{f}:{ln}:{col}', '|' + (tx or ''))
         for _u, e, a, t in g.rows('web_template_exprs', ['uid', 'element_uid', 'attribute_uid', 'expression_text']):
             emit('template_expr', key.get(e), attr_name.get(a) if a else '#text', (t or '').strip())
         sheets = g.rows('web_stylesheets', ['uid', 'file', 'source_kind', 'owner_element_uid'])
@@ -363,7 +376,8 @@ def main():
         if want('component') or want('component_slot'):
             occ = {}
             for cu, eu in g.rows('web_component_occurrences', ['component_uid', 'element_uid']):
-                occ.setdefault(cu, []).append(key.get(eu, eu))
+                # V3-07: a NULL element is a mismatch to report, never a crash
+                occ.setdefault(cu, []).append(key.get(eu, eu) if eu is not None else '<NULL element_uid>')
             comps = {}
             for cu, lvl, size, n, pg in g.rows('web_components', ['uid', 'level', 'size', 'occurrences', 'pages']):
                 ks = sorted(occ.get(cu, []))
@@ -433,8 +447,14 @@ def main():
             # [iter2 grain] a no_static_carrier row here is a grain defect: kept under its own name so the gate fails
             emit('unknown', rs if rs != 'no_static_carrier' else 'no_static_carrier_in_web_unknown', key.get(n, n), key.get(p) if p else None)
 
+    except BaseException as e:  # noqa: BLE001  (SystemExit from die() included)
+        failed = f'{type(e).__name__}: {e}'
+        out.append('\t'.join(['normalize_error', esc(failed)]))
     out.sort()
     sys.stdout.write(''.join(r + '\n' for r in out))
+    if failed:
+        print(f'normalize: {failed}', file=sys.stderr)
+        sys.exit(3)
 
 
 if __name__ == '__main__':

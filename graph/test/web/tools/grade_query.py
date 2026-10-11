@@ -10,6 +10,7 @@ other_languages is never read). Field aliases: event = event | event_name; names
 An expected `at` without a line compares the answer's file part only.
 """
 import json
+import re
 import sys
 
 ALIASES = {'event': ['event', 'event_name'], 'code': ['code', 'body'], 'display': ['display', 'name'],
@@ -41,7 +42,10 @@ def field(row, name):
     for k in ALIASES.get(name, [name]):
         if k in row:
             v = row[k]
-            return ','.join(sorted(map(str, v))) if isinstance(v, list) else str(v)
+            v = ','.join(sorted(map(str, v))) if isinstance(v, list) else str(v)
+            # SPEC 9.1: a component display carries `#n` only to tell two groups of one display apart; the grader
+            # compares the display itself
+            return re.sub(r'#\d+$', '', v) if name == 'display' else v
     return None
 
 
@@ -127,9 +131,13 @@ def main():
             if f and f not in places:
                 places.append(f)
         top = places[:10]
-        missing = [e[0] for e in exp if e[0] not in top]
+        want = {e[0] for e in exp}
+        hit = want & set(top)
         print(f'  top-10 places: {top}')
-        return 0 if exp and not missing else 1
+        # TOP-k (iter4): |expected ∩ top-10| >= min(10, |expected|); with 10 or more expected places, every one of
+        # the top 10 must also be expected (with fewer, the top 10 may hold other places around them)
+        ok = bool(want) and len(hit) >= min(10, len(want)) and (len(want) < 10 or all(p in want for p in top))
+        return 0 if ok else 1
 
     if grade == 'CHAIN':
         start, end = exp[0][1], exp[0][2]

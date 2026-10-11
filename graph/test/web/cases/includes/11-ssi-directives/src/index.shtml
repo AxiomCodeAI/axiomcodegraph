@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head>
+<!--#set var="title" value="Home" -->
+<title><!--#echo var="title" --></title>
+</head>
+<body>
+<!--#if expr="$HTTP_HOST = /beta/" -->
+<div class="beta"><!--#include virtual="/inc/beta.html" --></div>
+<!--#endif -->
+</body>
+</html>

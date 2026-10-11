@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: usage/02-fragment-class-styled   kinds: class
+# shape: a posthtml dashboard whose sidebar partial carries .sb-link, styled only by the including page's sheet; a
+class	orphan-x	1	1	1	0	0	0
+class	sb-link	1	1	1	1	1	0

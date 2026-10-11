@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts; SPEC 3.5 web_unknown row per include not composed)
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
 # case: includes/01-ssi-virtual-file   kinds: page,include,reference,host_styles,styles,unknown
 # shape: an SSI community site (.shtml pages, header/footer/menu partials pulled in with <!--#include virtual="/inc/..." -->
 host_styles	css/site.css:1:1/0	docs/inc/header.html:1:1	docs/guide/page.shtml	match	-	-
@@ -23,7 +23,7 @@ reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/gone.html	local	-
 reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/header.html	local	docs/inc/header.html
 reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/menu.inc	local	-
 reference	docs/guide/page.shtml:8:1	ssi:file	note.html	local	docs/guide/note.html
-reference	inc/header.html:1:21	href	/	local	-
+reference	inc/header.html:1:21	href	/	local	index.shtml
 reference	index.shtml:4:1	href	css/site.css	local	css/site.css
 reference	index.shtml:6:1	ssi:virtual	inc/header.html	local	inc/header.html
 styles	css/site.css:5:1/0	docs/guide/page.shtml:10:1	match	-	-

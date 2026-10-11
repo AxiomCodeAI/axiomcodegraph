@@ -94,11 +94,19 @@ const existsRel = (rel) => { if (!SITE_ROOT) return false; try { return fs.statS
  * app/static/ …). [iter3 orchestrator, V2-21] It resolves against the nearest ancestor directory of the referring
  * file that holds the path (its own directory first), else the repository root.
  */
+/** [iter4 orchestrator, V3-02] a directory URL names its index file: the first of these on disk (else index.html). */
+const INDEX_FILES = ['index.html', 'index.htm', 'index.shtml', 'default.htm'];
+function dirIndex(dir) {
+  const d = dir === '.' ? '' : dir;
+  for (const f of INDEX_FILES) { const c = path.posix.join(d, f); if (existsRel(c)) return c; }
+  return path.posix.join(d, 'index.html');
+}
+
 function siteRootJoin(p, fromRel) {
   let dir = path.posix.dirname(fromRel);
   for (;;) {
     const c = path.posix.normalize(dir === '.' ? p : `${dir}/${p}`);
-    const probe = c.endsWith('/') || c === '.' ? path.posix.join(c, 'index.html') : c;
+    const probe = c.endsWith('/') || c === '.' ? dirIndex(c) : c;
     if (!probe.startsWith('..') && existsRel(probe)) return c;
     if (dir === '.') return p;
     dir = path.posix.dirname(dir);
@@ -153,6 +161,6 @@ export function resolveUrl(raw, fromRel, baseHref) {
   let joined = p.startsWith('/') ? siteRootJoin(p.replace(/^\/+/, ''), fromRel) : path.posix.join(baseDir === '.' ? '' : baseDir, p);
   joined = path.posix.normalize(joined);
   if (joined.startsWith('..')) return { kind: 'local', target: null, fragment };
-  if (joined.endsWith('/') || joined === '.') joined = path.posix.join(joined, 'index.html');
+  if (joined.endsWith('/') || joined === '.') joined = dirIndex(joined);
   return { kind: 'local', target: joined, fragment };
 }

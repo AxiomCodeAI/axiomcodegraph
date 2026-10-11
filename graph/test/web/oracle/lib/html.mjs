@@ -94,8 +94,13 @@ export function parsePage(rel, rawText) {
   // Left in, parse5 reads it as text before the doctype (quirks mode, every written html/head/body
   // becomes implied). Columns on line 1 are then counted without it, as an editor shows them.
   const text = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
-  const written = parseTree(text);
-  const browser = parseTree(text);
+  // [V3-11b] a quote inside a template tag (`placeholder="{% trans "Search" %}"`) is not the attribute's end: the
+  // template engine renders the tag first. Quotes inside {% %} / {{ }} are masked one-for-one (offsets keep) for the
+  // HTML parse and put back in every attribute value and text afterwards.
+  const masked = maskTemplateQuotes(text);
+  const written = parseTree(masked);
+  const browser = parseTree(masked);
+  if (masked !== text) { unmaskTree(written); unmaskTree(browser); }
   flattenTemplates(written); flattenTemplates(browser);
   spliceImplied(written, rel, new Set());
   keyBrowser(browser, rel, new Set());
@@ -138,9 +143,30 @@ export function parsePage(rel, rawText) {
       pushChildren(c, el.key, depth + 1, childInert);
     }
   }
-  // FRAGMENT = neither a doctype nor a written <html> start tag (the parser's rule, from the source).
-  const isFragment = !hasDoctype && !hasHtmlTag;
-  return { rel, xml: /\.xht(ml)?$/i.test(rel), text, lines, quirks, isFragment, hasHtmlTag, elements, byKey, writtenRoot: written, browserRoot: browser, baseHref, dynamicKeys, dynamicAttrKeys };
+  // FRAGMENT = neither a doctype nor a written <html> start tag. [iter4 orchestrator, V3-11] read from the SOURCE, not
+  // the tree: template text before <!DOCTYPE>/<html> ({% load %}) makes parse5 merge the written <html> into an
+  // implied one, and the file is still a page when it writes <html> or a doctype anywhere (comments aside).
+  const noComments = text.replace(/<!--[\s\S]*?-->/g, ' ');
+  const writesPage = /<!doctype\s/i.test(noComments) || /<html[\s>\/]/i.test(noComments);
+  const isFragment = !hasDoctype && !hasHtmlTag && !writesPage;
+  return { rel, xml: /\.xht(ml)?$/i.test(rel), text, masked, lines, quirks, isFragment, hasHtmlTag, elements, byKey, writtenRoot: written, browserRoot: browser, baseHref, dynamicKeys, dynamicAttrKeys };
+}
+
+const MASK = { '"': '\u0001', "'": '\u0002' };
+const UNMASK = { '\u0001': '"', '\u0002': "'" };
+export function maskTemplateQuotes(text) {
+  if (!/\{%|\{\{/.test(text)) return text;
+  return text.replace(/\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}/g, (m) => m.replace(/["']/g, (q) => MASK[q]));
+}
+export const unmask = (v) => (typeof v === 'string' && /[\u0001\u0002]/.test(v) ? v.replace(/[\u0001\u0002]/g, (c) => UNMASK[c]) : v);
+function unmaskTree(root) {
+  const stack = [root];
+  while (stack.length) {
+    const n = stack.pop();
+    if (n.attribs) for (const k of Object.keys(n.attribs)) n.attribs[k] = unmask(n.attribs[k]);
+    if (typeof n.data === 'string') n.data = unmask(n.data);
+    for (const c of n.children ?? []) stack.push(c);
+  }
 }
 
 /** Raw source text between an element's start and end tag (style/script bodies), with its start position. */

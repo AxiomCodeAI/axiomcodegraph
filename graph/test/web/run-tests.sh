@@ -147,6 +147,7 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
   [ "$BLESS" = "1" ] && exit 0
   if [ ${#FILTERS[@]} -eq 0 ] || [[ " ${FILTERS[*]} " == *queries* ]]; then
     python3 "$HERE/tools/grade_query_selftest.py" || { fail=$((fail+1)); failed+=("tools/grade_query_selftest.py"); }
+    python3 "$HERE/tools/normalize_selftest.py" || { fail=$((fail+1)); failed+=("tools/normalize_selftest.py"); }
   fi
   echo; echo "oracle agreement — passed: $pass  failed: $fail"
   [ $fail -eq 0 ] && [ $pass -ge 1 ] || { [ ${#failed[@]} -gt 0 ] && printf '  %s\n' "${failed[@]}"; exit 1; }

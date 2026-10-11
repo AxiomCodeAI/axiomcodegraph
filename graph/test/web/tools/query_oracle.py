@@ -183,7 +183,8 @@ def derive(R, fn, arg):
         for k, r in R.elem.items():
             if R.page_of(k) != a[0] or r[1] != 'form':
                 continue
-            action = next((x[2] for x in R.by['attribute'] if x[0] == k and x[1] == 'action'), '-')
+            # [V2-11] the form row's action: as written, or the page itself when the form has no action attribute
+            action = next((x[1] for x in R.by['form'] if x[0] == k), '-')
             names = []
             for c, p in R.parent.items():
                 q = p

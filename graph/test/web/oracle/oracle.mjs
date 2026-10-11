@@ -14,10 +14,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { walk, row, isMinifiedText, isVendor, resolveUrl, setSiteRoot, classTokens, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
-import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
+import { parsePage, bodyOf, attrValueRaw, unmask, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
+import { decodeHTMLAttribute, decodeXML } from 'entities';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import * as conv from './lib/convert.mjs';
-import { resolveIncludes, cutCycles, composes, composeTree, composeExtends, assertedInclude } from './lib/includes.mjs';
+import { resolveIncludes, cutCycles, composes, composeTree, composeExtends, assertedInclude, containerAt } from './lib/includes.mjs';
 import selectorParser from 'postcss-selector-parser';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
@@ -176,6 +177,16 @@ for (const page of pages) {
         for (const idv of ids) if (idv) page.idRefs = [...(page.idRefs ?? []), { el, attr: a.name, id: idv }];
       }
     }
+    // [V3-10a] an attribute whose written text differs from its DOM value (entities) keeps the written text
+    {
+      const seenRaw = new Set();
+      for (const at of startTagAttrs(page, el)) {
+        const k = page.xml ? at.name : at.name.toLowerCase();
+        if (seenRaw.has(k)) continue; seenRaw.add(k);
+        const d = page.xml ? decodeXML(at.raw) : decodeHTMLAttribute(at.raw);
+        if (d !== at.raw) emit('attr_raw', el.key, k, at.raw);
+      }
+    }
     // event handlers as HTML (lib/handlers.mjs), read from the start tag as written: name as written, event,
     // modifiers, dialect, known_event, code verbatim. An .xhtml page is XML: names keep their case and onclick /
     // onClick are two attributes. An HTML page keeps the FIRST of a case-duplicate (the tokenizer drops the rest)
@@ -203,7 +214,9 @@ for (const page of pages) {
     if (el.tag === 'script' && (el.ns === 'html' || el.ns === 'svg')) {
       scriptOrder += 1;
       const at = el.node.attribs ?? {};
-      const attrsJson = JSON.stringify(Object.fromEntries(startTagAttrs(page, el).map((x) => [x.name, x.raw]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))));
+      // [iter4 orchestrator, V3-10a] values as the DOM sees them (entities decoded); the written text is attr_raw
+      const dec = (v) => (page.xml ? decodeXML(v) : decodeHTMLAttribute(v));
+      const attrsJson = JSON.stringify(Object.fromEntries(startTagAttrs(page, el).map((x) => [x.name, dec(x.raw)]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))));
       const src = el.ns === 'svg' ? (at.href ?? at['xlink:href'] ?? at.src) : at.src;
       const type = JS_TYPES(at.type);
       if (src !== undefined) {
@@ -221,15 +234,23 @@ for (const page of pages) {
     }
   }
   for (const [id, els] of idCount) emit('id', page.rel, id, els.length);
+  // [iter4 orchestrator, V3-10b] SSI directives other than #include are ssi_directive rows (never template_expr);
+  // #include is an include reference (SPEC 11.2)
+  for (const m of page.text.matchAll(/<!--#([a-z]+)\b[\s\S]*?-->/gi)) {
+    if (m[1].toLowerCase() === 'include') continue;
+    const c = containerAt(page, m.index); const p = page.lines.pos(m.index);
+    emit('ssi_directive', c ? c.key : '-', m[1].toLowerCase(), `${page.rel}:${p.line}:${p.col}`, `|${m[0]}`);
+  }
   page.idCount = idCount;
 }
 
 /** Attributes of an element's start tag as written: [{name, raw}] in source order, duplicates included. */
 function startTagAttrs(page, el) {
   const t = el.loc.startTag;
-  const src = page.text.slice(t.startOffset, t.endOffset).replace(/^<[^\s/>]+/, '').replace(/\/?>$/, '');
+  // read from the masked text (V3-11b: a quote inside a template tag does not end the value), then put the quotes back
+  const src = (page.masked ?? page.text).slice(t.startOffset, t.endOffset).replace(/^<[^\s/>]+/, '').replace(/\/?>$/, '');
   const out = [];
-  for (const m of src.matchAll(/([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) out.push({ name: m[1], raw: m[2] ?? m[3] ?? m[4] ?? '' });
+  for (const m of src.matchAll(/([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) out.push({ name: unmask(m[1]), raw: unmask(m[2] ?? m[3] ?? m[4] ?? '') });
   return out;
 }
 
@@ -871,7 +892,9 @@ if (DO_STYLES) {
   if (want('icon_class', 'class')) conv.iconClasses(sheets, pages, (k, ...f) => { iconSet.add(f[0]); emit(k, ...f); }, selectorParser);
   if (want('outline')) conv.outline(pages, emit);
   if (want('class') && DO_STYLES) {
-    const sr = usageInput.filter((r) => r.startsWith('styles\t')).map((r) => r.split('\t').slice(1, 4));
+    // a fragment's class styled where a host includes it counts as styled (iter3 composed-tree ruling)
+    const sr = [...usageInput.filter((r) => r.startsWith('styles\t')).map((r) => r.split('\t').slice(1, 4)),
+      ...usageInput.filter((r) => r.startsWith('host_styles\t')).map((r) => { const f = r.split('\t'); return [f[1], f[2], f[4]]; })];
     conv.classes(pages, sheets, emit, sr, iconSet);
   }
 }

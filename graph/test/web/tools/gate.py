@@ -37,6 +37,10 @@ def main():
     if sum(exp.values()) < 1:
         print('  0 expected rows: a case must compare at least one row')
         return 1
+    if sum(act.values()) < 1:
+        # an empty actual file is a failed producer (a crashed normalizer once wrote one and was read as "no rows")
+        print('  0 actual rows: the file under test is empty; refusing to compare')
+        return 1
     stray_known = known - exp
     missing = exp - act
     extra = act - exp

@@ -82,9 +82,26 @@ def main():
         bad.append('LINK: an asserted row without its label still passed')
     if grade_link([dict(own, tier='asserted')] + frag) == 0:
         bad.append('LINK: a host element labelled asserted still passed')
+    # TOP-k: 12 expected places; a top 10 drawn from them passes, one stranger in it fails, 9 of them fails
+    def grade_top(places, expected):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump({'rows': [dict(at=p, role='x') for p in places]}, f)
+        with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as e:
+            e.write('# reviewed: yes\n# grade=TOP-k section=web role=- fields=at filter=-\n')
+            e.write(''.join(f'{x}\n' for x in expected))
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'grade_query.py'), f.name, e.name], capture_output=True, text=True).returncode
+        os.unlink(f.name); os.unlink(e.name)
+        return rc
+    many = [f'css/s{i}.css' for i in range(12)]
+    if grade_top(many[2:12] + many[:2], many) != 0:
+        bad.append('TOP-k: a top 10 drawn from 12 expected places was graded wrong')
+    if grade_top(many[:9] + ['other.css'], many) == 0:
+        bad.append('TOP-k: a stranger in the top 10 of 12 expected still passed')
+    if grade_top(['other.css', 'css/app.css'], ['css/app.css']) != 0:
+        bad.append('TOP-k: one expected place inside the top 10 was graded wrong')
     for b in bad:
         print(f'  {b}')
-    print(f'grade_query self-test: {15 - len(bad)}/15 checks')
+    print(f'grade_query self-test: {18 - len(bad)}/18 checks')
     return 1 if bad else 0
 
 
