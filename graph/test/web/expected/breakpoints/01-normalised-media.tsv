@@ -1,0 +1,15 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: breakpoints/01-normalised-media   kinds: breakpoint,rule_breakpoint
+# shape: responsive frameworks writing the same breakpoint with and without spaces, range syntax, em units, a print sheet loaded with media=, and nested rules under @media
+breakpoint	(min-width:768px)	768	-	px	2	1
+breakpoint	(orientation:landscape),print	-	-	-	1	1
+breakpoint	(width >= 1200px)	1200	-	px	2	1
+breakpoint	print	-	-	-	1	1
+breakpoint	screen and (max-width:47.9375em)	-	767	em	1	1
+rule_breakpoint	p.css:1:1	print	0
+rule_breakpoint	s.css:1:28	(min-width:768px)	1
+rule_breakpoint	s.css:2:29	(min-width:768px)	1
+rule_breakpoint	s.css:3:44	screen and (max-width:47.9375em)	1
+rule_breakpoint	s.css:4:28	(width >= 1200px)	1
+rule_breakpoint	s.css:4:55	(width >= 1200px)	2
+rule_breakpoint	s.css:5:46	(orientation:landscape),print	1

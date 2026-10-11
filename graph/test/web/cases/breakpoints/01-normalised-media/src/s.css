@@ -1,0 +1,5 @@
+@media (min-width:768px) { .a { a: 1 } }
+@media (min-width: 768px) { .b { a: 2 } }
+@media screen and (max-width: 47.9375em) { .c { a: 3 } }
+@media (width >= 1200px) { @supports (display:grid) { .d { a: 4 } } }
+@media ( orientation : landscape ) , print { .e { a: 5 } }
