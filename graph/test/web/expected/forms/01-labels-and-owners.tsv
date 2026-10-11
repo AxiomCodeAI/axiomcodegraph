@@ -1,0 +1,15 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: forms/01-labels-and-owners   kinds: form,form_control
+# shape: admin forms with labels by for=, by wrapping, by aria-labelledby, aria-label and title, unlabelled controls, a control owned through form= from outside, a hidden input, a contenteditable editor and a duplicate id that steals the label
+form	index.html:7:1	save.html	save.html	post	9
+form_control	index.html:10:27	index.html:7:1	input	text	q	0	index.html:10:1	aria-labelledby
+form_control	index.html:11:1	index.html:7:1	input	text	s	0	-	aria-label
+form_control	index.html:12:1	index.html:7:1	select	-	c	0	-	title
+form_control	index.html:13:1	index.html:7:1	textarea	-	n	0	-	none
+form_control	index.html:14:1	index.html:7:1	input	hidden	tok	0	-	none
+form_control	index.html:15:1	index.html:7:1	button	submit	-	0	-	none
+form_control	index.html:17:1	index.html:7:1	input	text	ext	0	-	none
+form_control	index.html:18:1	-	div	-	-	0	-	none
+form_control	index.html:19:56	-	input	text	d	0	-	none
+form_control	index.html:8:31	index.html:7:1	input	text	name	1	index.html:8:1	for
+form_control	index.html:9:12	index.html:7:1	input	number	age	0	index.html:9:1	wrap

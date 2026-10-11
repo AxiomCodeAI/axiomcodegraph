@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<form id="f" action="save.html" method="POST">
+<label for="name">Name</label><input id="name" name="name" required>
+<label>Age <input name="age" type="number"></label>
+<span id="ql">Query</span><input name="q" aria-labelledby="ql">
+<input name="s" aria-label="Search">
+<select name="c" title="Country"></select>
+<textarea name="n"></textarea>
+<input type="hidden" name="tok">
+<button>Save</button>
+</form>
+<input name="ext" form="f">
+<div contenteditable="true">edit</div>
+<label for="dup">Dup</label><span id="dup">first</span><input id="dup" name="d">
+</body>
+</html>
