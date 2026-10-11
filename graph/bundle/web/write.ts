@@ -91,6 +91,8 @@ export class WebDb {
       // rows for the page) and by element (its own index); no query leads with the page alone, so the (page, element)
       // and (selector, page) composites, a quarter of a styles-heavy file, are not kept (C-05)
       db.exec('CREATE INDEX idx_web_styles_selector ON web_styles(selector_uid);');
+      db.exec('CREATE INDEX idx_web_page_carriers ON web_page_carriers(page_uid, kind, token);');
+      db.exec('CREATE INDEX idx_web_page_carriers_lc ON web_page_carriers(page_uid, kind, token_lc);');
       for (const f of WEB_FINALIZE) db.exec(f + ';');
       db.exec('COMMIT;');
       // sqlite_stat1 for the planner: with an index on most id columns and none on others, it otherwise guesses (V2-07)

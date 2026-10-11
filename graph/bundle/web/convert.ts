@@ -261,9 +261,14 @@ export function forms(page: StructPage, resolvePage: (form: El, action: string) 
       label_uid: lab?.id ?? null, label_via: via, label_text: text });
   }
   for (const f of html.filter((e) => isHtmlNs(e) && e.tagLower === 'form')) {
-    const action = f.attrs.get('action')?.value ?? null;
-    out('web_forms', { element_uid: f.id, page_uid: page.id, action, action_resolved_page: action ? resolvePage(f, action) : null,
-      method: (f.attrs.get('method')?.value ?? '').trim().toLowerCase() || 'get', enctype: f.attrs.get('enctype')?.value ?? null, controls: perForm.get(f.id) ?? 0 });
+    // no action attribute submits to the document itself (V2-11 ruling): action = the page, flagged implicit_action;
+    // an action written empty stays as written
+    const written = f.attrs.get('action')?.value ?? null;
+    const implicit = !f.attrs.has('action');
+    const action = implicit ? page.file : written;
+    out('web_forms', { element_uid: f.id, page_uid: page.id, action, action_resolved_page: implicit ? page.id : written ? resolvePage(f, written) : null,
+      method: (f.attrs.get('method')?.value ?? '').trim().toLowerCase() || 'get', enctype: f.attrs.get('enctype')?.value ?? null, controls: perForm.get(f.id) ?? 0,
+      implicit_action: implicit ? 1 : 0 });
   }
 }
 
@@ -308,7 +313,8 @@ export function valueTokens(property: string, value: string): { kind: string; va
   const prop = property.trim().toLowerCase();
   const out: { kind: string; value: string }[] = [];
   const add = (kind: string, v: string) => { if (v && !out.some((t) => t.kind === kind && t.value === v)) out.push({ kind, value: v }); };
-  const val = value.replace(/!\s*important\s*$/i, '').trim();
+  // comment-free (V2-05): `0 /*{x}*/ -1px` is the value `0 -1px`
+  const val = value.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ').replace(/!\s*important\s*$/i, '').trim();
   const s = scrub(val);
   for (const m of s.matchAll(/var\(\s*(--[\w-]+)/g)) add('custom_property', m[1]!);
   if (prop === 'font-family') {
@@ -319,6 +325,8 @@ export function valueTokens(property: string, value: string): { kind: string; va
   // colours: hex, colour functions (whole), named colours as whole identifiers
   const noVar = s.replace(/var\([^()]*(\([^()]*\)[^()]*)*\)/g, (m) => ' '.repeat(m.length));
   for (const m of noVar.matchAll(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()]*\)|(?<![\w-])[a-zA-Z]+(?![\w-(])/g)) {
+    // a colour function with a var() inside (`rgba(var(--rgb), .65)`) is no literal colour (V2-06)
+    if (m[0].includes('(') && /var\(/i.test(s.slice(m.index, m.index! + m[0].length))) continue;
     const c = normColor(m[0]); if (c) add('color', c);
   }
   if (prop === 'font-size') add('font_size', val.replace(/\s+/g, ' ').toLowerCase());

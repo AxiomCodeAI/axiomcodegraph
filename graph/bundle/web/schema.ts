@@ -49,7 +49,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_class_tokens',
     description: 'One token of a class attribute: what `.name` selectors and the JavaScript graph\'s DOM-touch literals name.',
-    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('position'), id('class_name')],
+    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('position'), id('class_name'), i('dynamic', '1 for a token a template expression writes (`{{m.tag}}`, `btn-{{ kind }}`), kept as written (V2-15)')],
   },
   {
     name: 'web_references',
@@ -165,7 +165,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
     columns: [ref('selector_uid'), id('rule_uid'), ref('stylesheet_uid'), id('element_uid'), ref('page_uid'), t('status'), t('reason'), t('conditions'), t('pseudo_element'),
       i('spec_a'), i('spec_b'), i('spec_c'), i('layer_rank'), i('sheet_order'), i('rule_order'), i('important_count'),
       ref('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element'),
-      ref('host_page_uid', 'set when the element is a fragment\'s, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own')],
+      ref('host_page_uid', 'set when the element is a fragment\'s, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own'), t('loads', 'the sheet_order of every load of this sheet on the page when there are two or more (V2-22); the row\'s sheet_order is the later one')],
   },
   {
     name: 'web_includes',
@@ -234,7 +234,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_tokens',
     description: 'A theme token (SPEC §9.3): kind color | font_family | font_size | spacing | radius | shadow | z_index | custom_property and its normalised value; `uses` declarations holding it, `project_uses` those outside vendor sheets and minified twins, `sheets`, `rules`, `vars` custom properties whose value holds it.',
-    columns: [id('uid'), t('kind'), id('value'), i('uses'), i('project_uses'), i('sheets'), i('rules'), t('vars')],
+    columns: [id('uid'), t('kind'), id('value'), i('uses'), i('project_uses'), i('sheets'), i('rules'), t('vars'), i('unused', '1 for a custom property declared and never read through var() (V2-06)')],
   },
   { name: 'web_token_uses', description: 'token -> declaration holding it.', columns: [id('token_uid'), id('declaration_uid')] },
   {
@@ -246,7 +246,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_forms',
     description: 'A <form> (SPEC §9.5): action as written and the page it resolves to, method (lower-cased, default get), enctype, controls it owns.',
-    columns: [id('element_uid'), id('page_uid'), t('action'), id('action_resolved_page'), t('method'), t('enctype'), i('controls')],
+    columns: [id('element_uid'), id('page_uid'), t('action'), id('action_resolved_page'), t('method'), t('enctype'), i('controls'), i('implicit_action', '1 when the form has no action attribute: it submits to the page itself (action = the page)')],
   },
   {
     name: 'web_form_controls',
@@ -275,6 +275,11 @@ export const WEB_TABLES: readonly TableSpec[] = [
     columns: [id('class_name'), i('elements'), i('pages'), i('selectors_naming'), i('selectors_matching'), i('styled'), i('icon')],
   },
   {
+    name: 'web_page_carriers',
+    description: 'Every class and id token a page carries, its own elements\' and those of every fragment it includes (outside iframe text): what the view web_selector_unmatched_pages looks a required token up in (V2-08). `token_lc` is the token lower-cased, for quirks-mode pages.',
+    columns: [ref('page_uid'), t('kind'), t('token'), t('token_lc')],
+  },
+  {
     name: 'web_unknown',
     description: 'Every declared unknown that has no edge row of its own: orphan_sheet, fragment_no_host, no_static_carrier (a selector needing a class/id no element of the page carries), shadow_dom, selector_unparsed, implied_element, column_combinator (a selector undecidable on a page), parse_gap, duplicate_id, … with the node and page it concerns.',
     columns: [t('kind'), id('node_uid'), id('page_uid'), t('reason'), t('detail'), id('file'), i('line')],
@@ -293,19 +298,21 @@ export const WEB_VIEWS: readonly string[] = [
   // SPEC §9.2: every contender of a web_computed row with its outcome and why it lost (keys as web_computed.winner_key)
   `CREATE VIEW web_cascade AS
    WITH c AS (
-     SELECT s.element_uid AS element, COALESCE(s.pseudo_element, '') AS pseudo, lower(d.property) AS property, d.uid AS decl,
+     SELECT s.element_uid AS element, COALESCE(s.pseudo_element, '') AS pseudo, CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END AS property, d.uid AS decl,
             max(printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
                 s.spec_a, s.spec_b, s.spec_c, s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS k,
             min(CASE s.status WHEN 'match' THEN 0 WHEN 'conditional' THEN 1 ELSE 2 END) AS st, max(s.conditions) AS conditions
        FROM web_styles s JOIN web_declarations d ON d.rule_uid = s.rule_uid
       GROUP BY 1, 2, 3, 4
      UNION ALL
-     SELECT d.element_uid, '', lower(d.property), d.uid, printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
+     SELECT d.element_uid, '', CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END, d.uid, printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
        FROM web_declarations d WHERE d.attribute_uid IS NOT NULL AND d.element_uid IS NOT NULL)
    SELECT c.element, NULLIF(c.pseudo, '') AS pseudo, c.property, c.decl,
           ROW_NUMBER() OVER (PARTITION BY c.element, c.pseudo, c.property ORDER BY c.k DESC) AS rank,
-          CASE WHEN c.decl = w.winner_decl_uid THEN 'won' WHEN c.k > w.winner_key THEN 'conditional' ELSE 'lost' END AS outcome,
-          CASE WHEN c.decl = w.winner_decl_uid OR c.k > w.winner_key THEN NULL
+          -- no unconditional winner (V2-03): every contender is conditional (or unknown), none lost
+          CASE WHEN w.winner_decl_uid IS NULL THEN (CASE c.st WHEN 2 THEN 'unknown' ELSE 'conditional' END)
+               WHEN c.decl = w.winner_decl_uid THEN 'won' WHEN c.k > w.winner_key THEN 'conditional' ELSE 'lost' END AS outcome,
+          CASE WHEN w.winner_decl_uid IS NULL OR c.decl = w.winner_decl_uid OR c.k > w.winner_key THEN NULL
                WHEN substr(c.k, 1, 1) != substr(w.winner_key, 1, 1) THEN 'importance'
                WHEN substr(c.k, 3, 10) != substr(w.winner_key, 3, 10) THEN
                  CASE WHEN substr(c.k, 3, 10) = '2000000000' OR substr(w.winner_key, 3, 10) = '2000000000' THEN 'origin' ELSE 'layer' END
@@ -331,20 +338,17 @@ export const WEB_VIEWS: readonly string[] = [
      FROM web_pages p`,
   // SPEC §3.5 [iter2]: the pages behind web_selectors.pages_unmatched — pages loading the selector's sheet with no styles row
   // for it and no whole-selector unknown row
+  // V2-08: the carrier check is an indexed lookup in web_page_carriers (each page's class/id tokens, its included
+  // fragments' too), not a rescan of the page's elements for every (selector, page)
   `CREATE VIEW web_selector_unmatched_pages AS SELECT DISTINCT s.uid AS selector_uid, s.selector_text, s.file AS sheet_file, s.line, l.page_uid,
      p.file AS page_file, 'no_static_carrier' AS unknown_reason
      FROM web_selectors s JOIN web_loads l ON l.stylesheet_uid = s.stylesheet_uid JOIN web_pages p ON p.uid = l.page_uid
-     WHERE EXISTS (SELECT 1 FROM web_selector_required r0 WHERE r0.selector_uid = s.uid)
-       AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND (w.page_uid = l.page_uid OR w.host_page_uid = l.page_uid))
-       AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)
+     WHERE s.uid IN (SELECT selector_uid FROM web_selector_required)
        AND EXISTS (SELECT 1 FROM web_selector_required q WHERE q.selector_uid = s.uid AND NOT EXISTS (
-         SELECT 1 FROM web_elements e WHERE (e.page_uid = l.page_uid OR e.page_uid IN (WITH RECURSIVE inc(p) AS (
-             SELECT i.fragment_page_uid FROM web_includes i WHERE i.host_page_uid = l.page_uid AND i.status IN ('match', 'asserted') AND i.kind != 'jinja:import'
-             UNION SELECT i.fragment_page_uid FROM web_includes i JOIN inc ON i.host_page_uid = inc.p WHERE i.status IN ('match', 'asserted') AND i.kind != 'jinja:import')
-           SELECT p FROM inc)) AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
-           (q.kind = 'id' AND (e.html_id = q.token OR (p.quirks = 1 AND lower(e.html_id) = lower(q.token))))
-           OR (q.kind = 'class' AND EXISTS (SELECT 1 FROM web_class_tokens t WHERE t.element_uid = e.uid
-                 AND (t.class_name = q.token OR (p.quirks = 1 AND lower(t.class_name) = lower(q.token))))))))`,
+         SELECT 1 FROM web_page_carriers c WHERE c.page_uid = l.page_uid AND c.kind = q.kind AND c.token = q.token)
+         AND NOT (p.quirks = 1 AND EXISTS (SELECT 1 FROM web_page_carriers c WHERE c.page_uid = l.page_uid AND c.kind = q.kind AND c.token_lc = lower(q.token))))
+       AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND (w.page_uid = l.page_uid OR w.host_page_uid = l.page_uid))
+       AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)`,
   `CREATE VIEW web_script AS SELECT uid, page_uid, element_uid, file, order_on_page AS ordinal, type_as_written, script_type, lower(script_kind) AS kind,
      attributes, src, resolved_file, body_start_line AS body_line, body_start_col AS body_col, body_end_line, body_end_col, body, body_bytes, body_lines, inline_index
      FROM web_scripts`,

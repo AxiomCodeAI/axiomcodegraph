@@ -25,8 +25,9 @@ if want V1-07; then
 <!doctype html><html><head><link rel="stylesheet" href="a.css"><style>.x{color:blue}</style><link rel="stylesheet" href="a.css"></head><body><p class="x">x</p></body></html>
 H
   printf '.x{color:red}\n' > "$T/v107/src/a.css"
-  db=$(build v107) && eq "V1-07 one styles row per load (sheet_order 1 and 3)" \
-    "$(sqlite3 "$db" "SELECT group_concat(sheet_order) FROM (SELECT w.sheet_order FROM web_styles w JOIN web_stylesheets s ON s.uid = w.stylesheet_uid WHERE s.file = 'a.css' ORDER BY 1)")" "1,3"
+  # V2-22 grain (ruling): one row per (selector, element, page); the later load's sheet_order, every load in `loads`
+  db=$(build v107) && eq "V1-07/V2-22 one styles row, sheet_order 3, loads 1,3" \
+    "$(sqlite3 "$db" "SELECT group_concat(w.sheet_order || '/' || w.loads) FROM web_styles w JOIN web_stylesheets s ON s.uid = w.stylesheet_uid WHERE s.file = 'a.css'")" "3/1,3"
 fi
 
 if want V1-02; then
@@ -244,6 +245,18 @@ H
       "$(sqlite3 "$db" "SELECT group_concat(name, ' ') FROM (SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('web_styles', 'web_computed', 'web_selector_parts') ORDER BY name)")" \
       "idx_web_computed_element_uid idx_web_selector_parts_name idx_web_selector_parts_selector_uid idx_web_styles_element_uid idx_web_styles_rule_uid idx_web_styles_selector"
   }
+fi
+
+if want V2-02; then
+  # a style attribute is a contender: with no rule matching, the inline declaration wins (a page and an unhosted fragment)
+  put "$T/v202/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><div style="max-height: 16rem" class="o">x</div></body></html>
+H
+  printf '<div style="max-height: 8rem" class="o">x</div>\n' > "$T/v202/src/frag.html"
+  printf '.other{color:red}\n' > "$T/v202/src/s.css"
+  db=$(build v202) && eq "V2-02 one inline winner per page (page and fragment)" \
+    "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT p.file || ':' || c.property || '=' || c.value_text || '/' || c.winner_origin AS x FROM web_computed c JOIN web_pages p ON p.uid = c.page_uid ORDER BY 1)")" \
+    "frag.html:max-height=8rem/inline index.html:max-height=16rem/inline"
 fi
 
 echo "web violation checks: $pass passed, $fail failed"

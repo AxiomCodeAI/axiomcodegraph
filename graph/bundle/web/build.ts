@@ -391,7 +391,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const r of T.cls.rows) {
     const d = g(T.cls, r, 'documentLinkHash');
     out('web_class_tokens').push({ uid: g(T.cls, r, 'htmlClassReferenceUniqueHash'), element_uid: g(T.cls, r, 'ownerElementLinkHash'), page_uid: d, file: fileOfPage(d),
-      line: num(g(T.cls, r, 'startLine')), position: num(g(T.cls, r, 'position')), class_name: g(T.cls, r, 'className') });
+      line: num(g(T.cls, r, 'startLine')), position: num(g(T.cls, r, 'position')), class_name: g(T.cls, r, 'className'), dynamic: TEMPLATE_IN_VALUE.test(g(T.cls, r, 'className')) || /<\?/.test(g(T.cls, r, 'className')) ? 1 : 0 });
   }
   const refById = new Map<string, string[]>();
   const refsOfPage = new Map<string, string[][]>();
@@ -400,7 +400,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const id = g(T.ref, r, 'htmlReferenceUniqueHash');
     refById.set(id, r); push(refsOfPage, d, r);
     if (g(T.ref, r, 'referenceKind') === 'INCLUDE') continue; // written once its include is resolved (§11)
-    const abs = g(T.ref, r, 'resolvedFilePath');
+    let abs = g(T.ref, r, 'resolvedFilePath');
+    // `?p=1.1.1` (a query, no path) names the page itself (V1-06): the reference resolves to it, as its link does
+    if (!abs && g(T.ref, r, 'urlKind') === 'RELATIVE' && !g(T.ref, r, 'path') && g(T.ref, r, 'query')) abs = pages.get(d)?.abs ?? '';
     out('web_references').push({ uid: id, element_uid: g(T.ref, r, 'ownerElementLinkHash'), page_uid: d, file: fileOfPage(d),
       line: num(g(T.ref, r, 'startLine')), col: num(g(T.ref, r, 'startColumn')), reference_kind: g(T.ref, r, 'referenceKind'), attribute_name: nz(g(T.ref, r, 'attributeName')),
       url_as_written: g(T.ref, r, 'urlAsWritten'), url_kind: g(T.ref, r, 'urlKind'), path: nz(g(T.ref, r, 'path')), query: nz(g(T.ref, r, 'query')),
@@ -551,8 +553,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const position = replaced ? (replaced.parent ? replaced.parent.children : topOf(page.id)).indexOf(replaced) : positionAt(page.id, hostEl, at);
       const args = includeArgs(page, r, flavour, owner);
       if (res.targets.length === 0) { includeRow(page.id, null, flavour, hostEl, position, refId, url, at[0], at[1], args, res.status, res.reason); unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]); continue; }
-      if (res.status !== 'match' || flavour === 'jinja:import') {
-        // listed, never composed: an ambiguous name (one row per candidate), a macro import (it gives no host either)
+      // a macro import is a reference only (ruling): no web_includes row, no host (it imports macros, not markup)
+      if (flavour === 'jinja:import') continue;
+      if (res.status !== 'match') {
+        // listed, never composed: an ambiguous name (one row per candidate)
         for (const frag of res.targets) includeRow(page.id, frag, flavour, hostEl, position, refId, url, at[0], at[1], args, res.status, res.reason);
         if (res.status === 'ambiguous') unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]);
         continue;
@@ -1254,6 +1258,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const classSel = new Set<string>(); const styledClass = new Set<string>();
   const inlineDecls = new Map<string, string[][]>(); // element -> its style attribute's declarations
   for (const r of T.decl.rows) { const a = g(T.decl, r, 'htmlAttributeLinkHash'); const el = a ? attrOwner.get(a) : undefined; if (el) push(inlineDecls, el, r); }
+  /** a standard property is case-insensitive; a custom property's name is case-sensitive (V2-04) */
+  const propKey = (p: string): string => (p.startsWith('--') ? p : p.toLowerCase());
   const pad = (n: number, w: number): string => String(Math.max(0, Math.trunc(n))).padStart(w, '0');
   /** the cascade sort key as text (web_cascade recomputes it in SQL with the same layout): higher wins */
   const keyOf = (imp: number, inline: boolean, lr: number, a: number, b: number, c: number, so: number, ro: number, pos: number): string =>
@@ -1270,33 +1276,34 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       for (const c of cands.get(elId)?.values() ?? []) {
         for (const d of declsOfRule.get(c.rule) ?? []) {
           const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
-          add(c.pe, { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: g(T.decl, d, 'property').toLowerCase(), st: c.st, inline: false, imp,
+          add(c.pe, { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: propKey(g(T.decl, d, 'property')), st: c.st, inline: false, imp,
             key: keyOf(imp, false, c.lr, c.a, c.b, c.c, c.so, c.ro, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
         }
       }
       for (const d of inlineDecls.get(elId) ?? []) {
         const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
-        add('', { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: g(T.decl, d, 'property').toLowerCase(), st: 0, inline: true, imp,
+        add('', { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: propKey(g(T.decl, d, 'property')), st: 0, inline: true, imp,
           key: keyOf(imp, true, 0, 0, 0, 0, 0, 0, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
       }
       for (const [pe, props] of byPe) {
         for (const ks of props.values()) ks.sort((x, y) => (x.key < y.key ? 1 : x.key > y.key ? -1 : 0));
         for (const [prop, ks] of props) {
-          let wi = ks.findIndex((k) => k.st === 0);
+          // the winner is the best UNCONDITIONAL contender (V2-03); a property set only under a condition (:hover,
+          // @media) has no winner for the unconditional state, and its conditional declarations are the overrides
+          const wi = ks.findIndex((k) => k.st === 0);
           let status = 'match';
-          if (wi < 0) { wi = ks.findIndex((k) => k.st === 1); status = 'conditional_only'; }
-          if (wi < 0) { wi = 0; status = 'unknown'; }
-          const w = ks[wi]!;
-          const above = ks.slice(0, wi);
+          if (wi < 0) status = ks.some((k) => k.st === 1) ? 'conditional_only' : 'unknown';
+          const w = wi >= 0 ? ks[wi]! : null;
+          const above = wi >= 0 ? ks.slice(0, wi) : ks;
           const condOver = above.filter((k) => k.st === 1).length;
           if (status === 'match' && above.some((k) => k.st === 2)) status = 'unknown';
           let override: K | null = null;
-          for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;
+          if (w) for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;
           if (override && status === 'match') status = 'shorthand_override';
           computedRows++;
-          out('web_computed').push({ element_uid: elId, page_uid: pageId, host_page_uid: composed?.host ?? null, pseudo: pe || null, property: prop, winner_decl_uid: w.decl, winner_origin: w.inline ? 'inline' : 'rule',
-            winner_status: status, value_text: unesc(w.value).replace(/\/\*[\s\S]*?\*\//g, '').trim() || null, important: w.imp, contenders: ks.length, conditional_overrides: condOver,
-            override_decl_uid: override?.decl ?? null, winner_key: w.key });
+          out('web_computed').push({ element_uid: elId, page_uid: pageId, host_page_uid: composed?.host ?? null, pseudo: pe || null, property: prop, winner_decl_uid: w?.decl ?? null,
+            winner_origin: w ? (w.inline ? 'inline' : 'rule') : null, winner_status: status, value_text: w ? unesc(w.value).replace(/\/\*[\s\S]*?\*\//g, '').trim() || null : null,
+            important: w?.imp ?? 0, contenders: ks.length, conditional_overrides: condOver, override_decl_uid: override?.decl ?? null, winner_key: w?.key ?? null });
         }
       }
     }
@@ -1319,7 +1326,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const runPage = (pageId: string, loads: Load[], comp?: { live: CEl[]; mode: 'host' | 'extends' }): void => {
     const page = pages.get(pageId)!;
     const cands = new Map<string, Map<string, Cand>>();
-    if (!comp && (page.kind === 'FRAGMENT' || page.elements.length === 0)) return;
+    if (!comp && (page.kind === 'FRAGMENT' || page.elements.length === 0)) {
+      // not matched on its own, but a style attribute still resolves (V2-02): a fragment no host composes keeps its
+      // inline declarations' rows (a hosted one gets them, with its host, from the composition)
+      if (!hosted.has(pageId)) computedOf(pageId, new Map());
+      return;
+    }
     const live: El[] = comp ? comp.live.filter((e) => e.inert !== 'iframe_text') : page.elements.filter((e) => e.inert !== 'iframe_text');
     const ctx = pageCtx(live, page.quirks, page.lang);
     const m = new Matcher(ctx, false);
@@ -1334,6 +1346,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       return c.origPage === pageId ? { el: c.origId, page: pageId, host: null } : { el: c.origId, page: c.origPage, host: pageId };
     };
     const candsByPage = new Map<string, Map<string, Map<string, Cand>>>();
+    const stylesBuf = new Map<string, { row: Record<string, string | number | null>; orders: number[] }>();
     const rank = layerRanks(loads);
     const seen = new Set<string>();
     const unmatched = new Map<string, { any: boolean; missing: boolean }>();
@@ -1387,17 +1400,23 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             if (seen.has(`s|${s.id}|${eid}|${l.order}`)) return;
             seen.add(`s|${s.id}|${eid}|${l.order}`);
             if (tg.host) { const k = `${s.id}|${eid}|${tg.host}|${l.order}`; if (emittedComposed.has(k)) return; emittedComposed.add(k); }
-            styleRows++;
             if (!seen.has(`s|${s.id}|${eid}|${status}`)) {
               seen.add(`s|${s.id}|${eid}|${status}`);
               if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else { st!.u++; st!.ur ||= reason; }
             }
             let prox: number | null = null;
             if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
-            out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: eid, page_uid: tg.page, status, reason: reason || null,
+            // ONE ROW PER (selector, element, page) (V2-22): a sheet loaded twice is one row whose cascade position is the
+            // later load's sheet_order; every load's order is listed in `loads`
+            const row = { selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: eid, page_uid: tg.page, status, reason: reason || null,
               conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
               sheet_order: l.order, rule_order: n.order, important_count: n.important, scope_root: root ? ((root as CEl).origId ?? root.id) : null, scope_proximity: prox,
-              host_page_uid: tg.host });
+              host_page_uid: tg.host, loads: null as string | null };
+            const bk = `${s.id}|${eid}|${tg.host ?? ''}`;
+            const prev = stylesBuf.get(bk);
+            if (!prev) { stylesBuf.set(bk, { row, orders: [l.order] }); return; }
+            prev.orders.push(l.order);
+            if (l.order > (prev.row.sheet_order as number)) prev.row = row;
           };
           const statusOf = (rs: { s: number; r: string }, e: El): [string, string] => {
             const reasons = new Set(base);
@@ -1457,6 +1476,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         }
       }
     }
+    for (const { row, orders } of stylesBuf.values()) {
+      if (orders.length > 1) row.loads = [...new Set(orders)].sort((a, b) => a - b).join(',');
+      out('web_styles').push(row); styleRows++;
+    }
+    stylesBuf.clear();
     // the fragments' resolved style, as matched in this host (one set of web_computed rows per host)
     for (const [fp, cm] of candsByPage) computedOf(fp, cm, { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) });
     // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
@@ -1477,6 +1501,27 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     if (!comp || comp.mode === 'host') computedOf(pageId, cands);
   };
+  // V2-08: each page's carried tokens, its own and its included fragments' (transitively), for the per-page view
+  {
+    const own = (pid: string): string[] => {
+      const out2: string[] = [];
+      for (const e of pages.get(pid)?.elements ?? []) {
+        if (e.inert === 'iframe_text') continue;
+        if (e.idAttr) out2.push(`id\u0000${e.idAttr}`);
+        for (const c of e.classes) out2.push(`class\u0000${c}`);
+      }
+      return out2;
+    };
+    for (const p of pages.values()) {
+      const set = new Set<string>(); const seenP = new Set<string>(); const stack = [p.id];
+      while (stack.length) {
+        const q = stack.pop()!; if (seenP.has(q)) continue; seenP.add(q);
+        for (const k of own(q)) set.add(k);
+        for (const x of includeInserts.get(q) ?? []) stack.push(x.frag);
+      }
+      for (const k of set) { const [kind, token] = k.split('\u0000') as [string, string]; out('web_page_carriers').push({ page_uid: p.id, kind, token, token_lc: token.toLowerCase() }); }
+    }
+  }
   // §11: a page whose includes resolve is matched only as composed (below), as the browser sees it
   const targetedPages = new Set([...includeInserts.values()].flatMap((xs) => xs.map((x) => x.frag)));
   const composedRoots = [...includeInserts.keys()].filter((h) => pages.get(h)!.kind !== 'FRAGMENT' || !targetedPages.has(h)).filter((h) => pages.get(h)!.kind !== 'FRAGMENT');
@@ -1812,6 +1857,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     for (const r of T.decl.rows) {
       const did = g(T.decl, r, 'cssDeclarationUniqueHash'); const prop = g(T.decl, r, 'property');
       const sheet = g(T.decl, r, 'stylesheetLinkHash'); const rule = g(T.decl, r, 'ruleLinkHash');
+      // every declared custom property is a token, used or not (V2-06): its declaration defines it, no use
+      if (prop.startsWith('--')) {
+        const k = `custom_property\u0000${prop}`;
+        if (!toks.has(k)) toks.set(k, { uid: `WEB_TOKEN_${createHash('md5').update(k).digest('hex')}`, kind: 'custom_property', value: prop, decls: new Set(), proj: new Set(), sheets: new Set(), rules: new Set(), vars: new Set() });
+        const t = toks.get(k)!; if (sheet) t.sheets.add(sheet); if (rule) t.rules.add(rule);
+      }
       for (const tk of valueTokens(prop, unesc(g(T.decl, r, 'valueText')))) {
         const k = `${tk.kind}\u0000${tk.value}`;
         let t = toks.get(k);
@@ -1823,7 +1874,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     for (const t of toks.values()) {
       out('web_tokens').push({ uid: t.uid, kind: t.kind, value: t.value, uses: t.decls.size, project_uses: t.proj.size, sheets: t.sheets.size, rules: t.rules.size,
-        vars: t.vars.size ? [...t.vars].sort().join(' ') : null });
+        vars: t.vars.size ? [...t.vars].sort().join(' ') : null, unused: t.decls.size === 0 ? 1 : 0 });
       for (const d of t.decls) out('web_token_uses').push({ token_uid: t.uid, declaration_uid: d });
     }
     toks.clear();
