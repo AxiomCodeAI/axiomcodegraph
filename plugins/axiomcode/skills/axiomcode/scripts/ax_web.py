@@ -207,6 +207,12 @@ class Web:
         if m: return ('line', (m.group(1), int(m.group(2))))
         if re.match(r'^[^\s]+\.(html?|xhtml|shtml?)$', a, re.I): return ('page', a)
         if re.match(r'^[^\s]+\.css$', a, re.I): return ('sheet', a)
+        # V2-09: a Tailwind class (`.dark:bg-gray-900`, `.w-1/2`, `.md\:flex` with its CSS escape) is a class when some
+        # element carries that token, though it reads like a selector with a pseudo-class
+        if a[:1] in '.#' and len(a) > 1:
+            name = re.sub(r'\\(.)', r'\1', a[1:])
+            if a[0] == '.' and not re.search(r'\s', name) and self.q1("SELECT 1 FROM web_class_tokens WHERE class_name = ? LIMIT 1", name): return ('class', name)
+            if a[0] == '#' and not re.search(r'\s', name) and self.q1("SELECT 1 FROM web_elements WHERE html_id = ? LIMIT 1", name): return ('id', name)
         if self.q1("SELECT 1 FROM web_selectors WHERE selector_text = ? LIMIT 1", a) and (' ' in a or not re.match(r'^[.#][\w-]+$', a)): return ('selector', a)
         if re.match(r'^\.[^\s.#\[:>+~]+$', a): return ('class', a[1:])
         if re.match(r'^#[^\s.#\[:>+~]+$', a): return ('id', a[1:])
@@ -248,10 +254,13 @@ class Web:
         return out
 
     def handler_rows(self, where, *a):
-        return [self.row(at_of(h['file'], h['line']), 'handler', 'handlers', tag=h['tag'], attr=h['attr_as_written'], event=h['event'], modifiers=h['modifiers'] or None,
-                         source_kind=h['source_kind'], code=h['code'], code_bytes=h['code_bytes'], order=h['handler_index'])
-                for h in self.q(f"""SELECT file, line, tag, attr_as_written, event, modifiers, source_kind, code, code_bytes, handler_index FROM web_handlers h
-                                   WHERE {where} ORDER BY file, handler_index""", *a)]
+        # V2-01: `at` is the element's start tag; the handler attribute is `via_at`
+        return [self.row(at_of(h['efile'] or h['file'], h['eline'] or h['line']), 'handler', 'handlers', tag=h['tag'], attr=h['attr_as_written'], event=h['event'],
+                         modifiers=h['modifiers'] or None, source_kind=h['source_kind'], code=h['code'], code_bytes=h['code_bytes'], order=h['handler_index'],
+                         via_at=at_of(h['file'], h['line']))
+                for h in self.q(f"""SELECT h.file, h.line, h.tag, h.attr_as_written, h.event, h.modifiers, h.source_kind, h.code, h.code_bytes, h.handler_index,
+                                   e.file efile, e.line eline FROM web_handlers h LEFT JOIN web_elements e ON e.uid = h.element_uid
+                                   WHERE {where} ORDER BY h.file, h.handler_index""", *a)]
 
     def code_prose(self, prose, scripts, handlers):
         if scripts:
@@ -299,13 +308,16 @@ class Web:
 
     def cascade_rows(self, element_uid, role='styled_by'):
         rows = self.q("""SELECT s.status, s.reason, s.conditions, s.pseudo_element, s.spec_a, s.spec_b, s.spec_c, s.layer_rank, s.sheet_order,
-                   s.rule_order, s.important_count, sel.selector_text, sel.file, sel.line, st.display sheet, s.scope_root
+                   s.rule_order, s.important_count, sel.selector_text, sel.file, sel.line, st.display sheet, s.scope_root, ru.file rfile, ru.line rline
             FROM web_styles s JOIN web_selectors sel ON sel.uid = s.selector_uid JOIN web_stylesheets st ON st.uid = s.stylesheet_uid
+            LEFT JOIN web_rules ru ON ru.uid = s.rule_uid
             WHERE s.element_uid = ? AND s.status != 'unknown'
             ORDER BY s.important_count > 0, s.layer_rank, s.spec_a, s.spec_b, s.spec_c, s.sheet_order, s.rule_order""", element_uid)
         out = []
         for i, r in enumerate(rows):
-            out.append(self.row(at_of(r['file'], r['line']), 'styles', role, r['status'], r['reason'], rank=i + 1, selector=r['selector_text'],
+            # V2-01: `at` is the rule's own start; the selector that matched is `via_at`
+            out.append(self.row(at_of(r['rfile'] or r['file'], r['rline'] or r['line']), 'styles', role, r['status'], r['reason'], rank=i + 1, selector=r['selector_text'],
+                                via_at=at_of(r['file'], r['line']),
                                 conditions=r['conditions'] or '-', important=r['important_count'] or 0, pseudo_element=r['pseudo_element'],
                                 specificity=f"{r['spec_a']},{r['spec_b']},{r['spec_c']}", layer_rank=r['layer_rank'], sheet_order=r['sheet_order'],
                                 rule_order=r['rule_order'], sheet=r['sheet']))
@@ -320,13 +332,14 @@ class Web:
 
     def impact_class(self, name):
         pf, pp = self.in_page('t.page_uid')
-        els = self.q(f"""SELECT t.file, t.line, e.display, e.inert, e.uid FROM web_class_tokens t JOIN web_elements e ON e.uid = t.element_uid
+        els = self.q(f"""SELECT e.file, e.line, t.file tfile, t.line tline, e.display, e.inert, e.uid FROM web_class_tokens t JOIN web_elements e ON e.uid = t.element_uid
                         WHERE t.class_name = ? AND (e.inert IS NULL OR e.inert != 'iframe_text'){pf} ORDER BY t.file, t.line""", name, *pp)
         sels = self.q("""SELECT DISTINCT s.uid, s.selector_text, s.file, s.line, s.decidability, s.reason, s.pages_loading, s.pages_matched
                          FROM web_selector_parts sp JOIN web_selectors s ON s.uid = sp.selector_uid
                          WHERE sp.part_kind = 'CLASS' AND sp.name = ? ORDER BY s.file, s.line""", name)
         if not (els or sels): return {'found': False, 'kind': 'class', 'target': '.' + name, 'refusal': f"web graph: no element carries class '{name}' and no selector names it"}
-        rows = [self.row(at_of(e['file'], e['line']), 'element', 'carries', 'conditional' if e['inert'] else 'match', f"inert:{e['inert']}" if e['inert'] else None, display=e['display']) for e in els]
+        rows = [self.row(at_of(e['file'], e['line']), 'element', 'carries', 'conditional' if e['inert'] else 'match', f"inert:{e['inert']}" if e['inert'] else None, display=e['display'],
+                         via_at=at_of(e['tfile'], e['tline'])) for e in els]
         rows += [self.row(at_of(s['file'], s['line']), 'selector', 'selectors', 'match' if s['decidability'] == 'exact' else ('conditional' if s['decidability'] == 'conditional' else 'unknown'),
                           s['reason'], selector=s['selector_text'], pages_loading=s['pages_loading'], pages_matched=s['pages_matched']) for s in sels]
         unknown = []
@@ -432,7 +445,9 @@ class Web:
             prose.append(f"web: element {e['display']} at {e['file']}:{e['line']}" + (f" (inert: {e['inert']})" if e['inert'] else ''))
             self.section(prose, "rules styling it in cascade order (last wins)", cas, self.cascade_line)
             self.section(prose, "computed: the winning declaration per property (inherited values are not filled; conditional-only properties marked)", [r for r in comp if r['role'] in ('computed', 'computed_conditional')],
-                         lambda r: f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: {r.get('value')}  ← {r['at']} [{r['origin']}{', ' + r['status'] if r['status'] != 'match' else ''}{', overridden by shorthand at ' + r['override'] if r.get('override') else ''}]")
+                         lambda r: (f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: {r.get('value')}  ← {r['at']} [{r['origin']}{', ' + r['status'] if r['status'] != 'match' else ''}{', overridden by shorthand at ' + r['override'] if r.get('override') else ''}]"
+                                    if r.get('origin') else
+                                    f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: no unconditional winner [{r.get('reason') or r['status']}; {r.get('conditional_overrides') or 0} conditional declaration(s)]"))
             if self.WHY: self.section(prose, "cascade: every contender and why it lost", [r for r in comp if r['role'] == 'cascade'],
                                       lambda r: f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: {r['at']} {r['outcome']}{' (' + r['lost_reason'] + ')' if r.get('lost_reason') else ''}")
             if inline: self.section(prose, "inline style (wins over every rule but !important)", inline,
@@ -651,7 +666,8 @@ class Web:
             if l['status'] == 'unknown':
                 rows.append(self.row(at_of(pf, l['eline']) if l['via'] == 'link' else l['url_as_written'], 'stylesheet', 'unknown', 'unknown', l['reason'], url=l['url_as_written'], via=l['via']))
             else:
-                rows.append(self.row(l['file'] if l['source_kind'] == 'FILE' else l['display'], 'stylesheet', 'loads', l['status'], l['reason'], rank=l['load_order'], via=l['via'],
+                # V2-10: a <style> element's `at` is file:line (its start tag); the display keeps `<style#n>`
+                rows.append(self.row(l['file'] if l['source_kind'] == 'FILE' else at_of(pf, l['eline']) if l['via'] == 'style' and l['eline'] else l['display'], 'stylesheet', 'loads', l['status'], l['reason'], rank=l['load_order'], via=l['via'],
                                      import_depth=l['import_depth'], media=l['media'], display=l['display']))
         for s in self.q("""SELECT s.src, s.resolved_file, s.line, r.url_kind FROM web_scripts s
                            LEFT JOIN web_references r ON r.element_uid = s.element_uid AND r.attribute_name = 'src' WHERE s.page_uid = ? AND s.script_kind = 'EXTERNAL' ORDER BY s.line""", pid):

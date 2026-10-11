@@ -15,12 +15,12 @@ cat > "$T/site/index.html" <<'H'
 H
 cat > "$T/site/sub/about.html" <<'H'
 <!doctype html>
-<html><head><link rel="stylesheet" href="../style.css"></head><body><p class="menu">x</p></body></html>
+<html><head><link rel="stylesheet" href="../style.css"></head><body><p class="menu">x</p><p class="dark:bg-gray-900 w-1/2">t</p></body></html>
 H
-printf '.menu{color:red}\n#top{--gap:4px;margin:var(--gap)}\n.never{color:blue}\n.slot > .card{color:green}\n' > "$T/site/style.css"
+printf '.menu{color:red}\n#top{--gap:4px;margin:var(--gap)}\n.never{color:blue}\n.slot > .card{color:green}\n.dark\\:bg-gray-900{background:#111}\n' > "$T/site/style.css"
 # a fragment no include reference names, for `link` (SPEC §11.2, Q36): asserted into host.html at line 4
 mkdir -p "$T/site/parts"
-printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></head><body>\n<div class="slot">\n  <!-- the card goes here -->\n</div></body></html>\n' > "$T/site/host.html"
+printf '<!doctype html>\n<html><head><style>.slot{margin:0}</style><link rel="stylesheet" href="style.css"></head><body>\n<div class="slot">\n  <!-- the card goes here -->\n</div></body></html>\n' > "$T/site/host.html"
 printf '<p class="card">c</p>\n' > "$T/site/parts/card.html"
 pass=0; fail=0
 check(){ # name, expected substring, command...
@@ -32,12 +32,18 @@ if ! (cd "$T/site" && "$AX" index "$T/site" --lang web >"$T/index.log" 2>&1); th
 [ -f "$T/site/.axiomcode/out/graph.sqlite" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL index wrote no graph.sqlite"; tail -5 "$T/index.log"; }
 check impact-class 'elements carrying .menu: 2' "$AX" impact .menu
 check impact-page '1. style.css' "$AX" impact index.html
+# V2-10: a <style> element loads at its own file:line
+check impact-style-at '"at": "host.html:2"' "$AX" impact host.html --json
 # C-04: a single-class selector asked for on a page answers the selector->element role too, not only the class lookup
 check impact-class-styled 'elements the selector .menu styles: 1' "$AX" impact .menu --in index.html
 check impact-var '--gap' "$AX" impact --gap
 # --json with a name that starts with -- (a custom property): a name, not a flag, so not the "your edits" answer
 check impact-var-json '"--gap"' "$AX" impact --gap --json
 check impact-var-json-in '"--gap"' "$AX" impact --gap --in index.html --json
+# V2-09: Tailwind class names, as written and with their CSS escape
+check impact-tailwind 'elements carrying .dark:bg-gray-900: 1' "$AX" impact .dark:bg-gray-900
+check impact-tailwind-escaped 'elements carrying .dark:bg-gray-900: 1' "$AX" impact '.dark\:bg-gray-900'
+check impact-tailwind-slash 'elements carrying .w-1/2: 1' "$AX" impact .w-1/2
 check impact-handler 'onclick' "$AX" impact index.html
 check context 'menu' "$AX" context "menu colour"
 check path 'about.html' "$AX" path index.html sub/about.html
