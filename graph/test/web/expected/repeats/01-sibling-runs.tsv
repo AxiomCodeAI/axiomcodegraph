@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: repeats/01-sibling-runs   kinds: repeat
+# shape: product grids and menus: runs of identical-shape siblings that need a loop, a run broken by a different sibling, a run of single elements (below the item-size floor) and a non-uniform run (same shape, different classes)
+repeat	index.html:7:1	index.html:7:18	0	3	li	2	1
+repeat	index.html:8:1	index.html:8:19	0	3	div	3	0
