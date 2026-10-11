@@ -1513,7 +1513,15 @@ def query(repo, verb, argv, fresh=False):
         pass
     def run():
         return subprocess.run(argv, stdout=subprocess.PIPE)
-    def passthrough(): ax_exec.become(argv)             # never os.execvp: on Windows it returns 0 before the answer (#1640)
+    def passthrough():
+        # THE FRONT DOOR'S RENDERER RUNS IN THIS PROCESS (ax_blocks.py, by this interpreter): handed over, it started Python
+        # a second time to import what this one has imported, on every query, and on Windows as a child process
+        if len(argv) > 2 and argv[0] == sys.executable and os.path.abspath(argv[1]) == os.path.join(H, 'ax_blocks.py'):
+            sys.stdout.flush(); sys.stderr.flush()
+            sys.argv = list(argv[1:])
+            import ax_blocks
+            sys.exit(ax_blocks.cli(sys.argv))
+        ax_exec.become(argv)                            # never os.execvp: on Windows it returns 0 before the answer (#1640)
     def with_note(n):                                   # the answer as it is, then one line about it on stderr
         r = subprocess.run(argv); print(n, file=sys.stderr); return r.returncode
     # REFRESH SWITCHED OFF IS NOT "UP TO DATE". With AXIOMCODE_NO_REFRESH nothing rebuilds the graph, which is exactly when

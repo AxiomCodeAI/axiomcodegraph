@@ -504,8 +504,8 @@ PY
   # (and for the plugin that first query is inside hooks/changes.py's timeout=14), but on a large repository the export
   # takes minutes and `index` must not wait on it. fd 9 is the build lock: the child closes it, so the lock is released
   # when this build ends, and a query or a second build never waits on the warm-up. Its writes are atomic renames.
-  ( exec 9>&-; nohup python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 & ) || true
-  echo "graph ready; precomputing impact facts in the background"
+  # The build still waits for it a little at the end (warm_wait): see there.
+  nohup python3 "$H/axiomcode-impact" --warm "$REPO" 9>&- >/dev/null 2>&1 & WARM_PID=$!
   # the query rules: their compile started at the top of the build, detached (a caller's timeout cannot kill it half-way,
   # which cached nothing and repeated on every edit); this only says where it is. A query never waits for it.
   python3 "$H/dl_program.py" --no-wait || true
@@ -560,6 +560,18 @@ for l in ${OTHER_LANGS//,/ }; do
   case "$DONE" in *" $l "*) ;; *) publish_other "$l" ok;; esac
 done
 rm -f "$PROGRESS" "$PENDING" "$OUT/partial"
+# THE FIRST QUERY AFTER `index` DOES NOT PAY THE WARM-UP. Started in the background above, the export was still running
+# when a small repository's index returned, and the query asked right after it waited on the export lock for all of it:
+# 1-3 s on a ~150-file project, seconds more on Windows, where 0.1.8 had exported inside the build. So the build waits
+# for the warm-up for up to AXIOMCODE_WARM_WAIT seconds (default 15; 0 never waits): a small repository's export ends
+# well inside that and the first query finds the facts ready; a large one's goes on in the background as before.
+warm_wait(){ [ -n "${WARM_PID:-}" ] || return 0
+  local lim="${AXIOMCODE_WARM_WAIT:-15}"; case "$lim" in ''|*[!0-9]*) lim=15;; esac
+  local end=$((SECONDS + lim))
+  while [ "$SECONDS" -lt "$end" ] && kill -0 "$WARM_PID" 2>/dev/null; do sleep 0.05 2>/dev/null || sleep 1; done
+  kill -0 "$WARM_PID" 2>/dev/null && echo "graph ready; precomputing impact facts in the background"
+  return 0; }
+warm_wait
 if [ ${#FAILED[@]} -gt 0 ]; then
   for l in "${FAILED[@]}"; do
     if [ -f "$LANGDIR/$l/out/graph.sqlite" ]; then echo "⚠️  the $l graph did not build: $l questions are answered from its PREVIOUS graph, which predates this tree; see $REPO/.axiomcode/build.log"

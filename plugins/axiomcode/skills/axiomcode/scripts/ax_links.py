@@ -925,6 +925,7 @@ def rejected_note(q):
 # the caller's callers, a computed name's constant prefix, callables registered as values in the same file, and
 # declarations of the callee's own name. Ranked in that order, at most `cap`. A candidate is a LEAD: the agent confirms
 # it by reading the call, never by its rank.
+_VALUE_RE = re.compile(r'[:\[,(=]\s*([A-Za-z_$][\w$]*)\s*(?=[,\]})])')
 def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5):
     out, seen = [], set()
     def add(mid, why):
@@ -973,10 +974,15 @@ def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5)
             add(m, f"named {pref}…, the constant part of the computed name")
     # callables registered as VALUES in the same file (a table, a list, a register(...) call)
     if L is not None:
-        vals = set()
-        for t in L:
-            for v in re.findall(r'[:\[,(=]\s*([A-Za-z_$][\w$]*)\s*(?=[,\]})])', t): vals.add(v)
-        for v in sorted(vals):
+        # read once per file: every unknown site of one file scans the same lines (reader caches them by file)
+        vals = reader.__dict__.setdefault('_vals', {}).get(file_) if reader is not None else None
+        if vals is None:
+            vals = set()
+            for t in L:
+                for v in _VALUE_RE.findall(t): vals.add(v)
+            vals = sorted(vals)
+            if reader is not None: reader._vals[file_] = vals
+        for v in vals:
             for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind NOT IN ('module', 'class') LIMIT 3", v):
                 add(m, "handed over as a value in this file")
     return out
@@ -1032,6 +1038,13 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
     except sqlite3.Error: pass
     spans = {r[0]: (r[1], r[2], r[3], r[4]) for r in (q(f"SELECT id, start_line, start_column, end_line, end_column FROM call_sites WHERE id IN ({ph})", *ids) if ids else [])}
     rd = Reader(repo) if repo else None
+    # the candidate lookups repeat across the sites of one answer (the same name, the same file's values): asked once.
+    # The graph does not change under a query, so a repeated read is the same rows
+    memo = {}
+    def qm(sql, *a):
+        k = (sql, a)
+        if k not in memo: memo[k] = q(sql, *a)
+        return memo[k]
     def col_of(sid, f, callee):
         sl, sc, el, ec = spans.get(sid, (0, 0, 0, None))
         L = rd.lines(f) if rd and f else None
@@ -1046,7 +1059,7 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
         lc = str(libcall.get(sid, ''))
         why = reasons.get(sid) or ((f"calls a value typed by {lc}" if ' ' in lc else f"runs a value through {lc.split(':')[-1]}") if sid in libcall else 'unresolved')
         rf = site_file(f) if f else '?'
-        try: cands = candidates(q, sid, caller, callee, kind, rf, ln, reasons.get(sid), rd)
+        try: cands = candidates(qm, sid, caller, callee, kind, rf, ln, reasons.get(sid), rd)
         except Exception: cands = []
         site = f"{rf}:{ln or 0}:{col_of(sid, rf, callee)}"
         out.append(dict(at=f"{rf}:{ln or 0}", site=site, call=callee or '', kind=kind, caller=disp[caller], candidates=cands,
