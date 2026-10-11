@@ -212,6 +212,21 @@ case "$cmd" in
             named=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] || named=1; done
             [ -z "$named" ] && exec python3 "$H/ax_blocks.py" edits "$FR"
             ARGS+=(--tests); B=impact
+          else
+            # impact --json with no name: the same edits answer as a document (an agent or script asking for JSON
+            # got the usage text). A flag's value is not a name; --warm / --from-text / --delete keep the verb's own forms.
+            hasj=""; named=""; sk=""; FL=()
+            for a in ${ARGS[@]+"${ARGS[@]}"}; do
+              if [ -n "$sk" ]; then sk=""; FL+=("$a"); continue; fi
+              case "$a" in
+                --json) hasj=1 ;;
+                --depth|--in|--limit|--page|--budget|--tests-in|--kind) sk=1; FL+=("$a") ;;
+                --warm|--from-text|--delete|-h|--help) named=1 ;;
+                -*) FL+=("$a") ;;
+                *) [ -d "$a" ] || named=1 ;;
+              esac
+            done
+            [ -n "$hasj" ] && [ -z "$named" ] && exec python3 "$H/ax_blocks.py" edits-json "$FR" -- ${FL[@]+"${FL[@]}"}
           fi ;;
 esac
 [ -n "$B" ] && G=(python3 "$H/ax_blocks.py" "$B" "$FR" --)
