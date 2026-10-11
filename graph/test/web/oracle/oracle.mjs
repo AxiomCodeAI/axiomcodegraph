@@ -625,7 +625,9 @@ if (DO_STYLES) for (const page of pages) {
           if (!root) { root = a; rootSt = st; }
           if (st === 'match') { exact = a; break; }
         }
-        const reason = root ? '-' : (defs.get(ref.name)?.length ? 'not_inherited' : 'no_definition_in_scope');
+        // ruling (iter2): a var defined only by @property has its initial value, no defining element -> property_initial
+        const ds = defs.get(ref.name) ?? [];
+        const reason = root ? '-' : !ds.length ? 'no_definition_in_scope' : ds.every((d) => d.property) ? 'property_initial' : 'not_inherited';
         emit('var_scope', page.rel, k, ref.name, root ?? '-', root ? rootSt : 'unknown', reason, exact && exact !== root ? exact : '-');
       }
     }
