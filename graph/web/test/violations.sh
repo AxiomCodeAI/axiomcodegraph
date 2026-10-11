@@ -259,5 +259,56 @@ H
     "frag.html:max-height=8rem/inline index.html:max-height=16rem/inline"
 fi
 
+if want V2-14; then
+  # a named <article> is listed as a region, as a named <section> is (SPEC 9.7)
+  put "$T/v214/src/index.html" <<'H'
+<!doctype html><html><body><article aria-labelledby="t"><h2 id="t">News</h2></article><article><p>x</p></article></body></html>
+H
+  db=$(build v214) && eq "V2-14 outline names: region for the named article, article for the other" \
+    "$(sqlite3 "$db" "SELECT group_concat(name, ',') FROM (SELECT o.name FROM web_outline o WHERE o.kind = 'landmark' ORDER BY o.ordinal)")" "region,article"
+fi
+
+if want V2-16; then
+  # a var() whose name nothing defines (set by script) still has a scope row: unknown no_definition_in_scope
+  put "$T/v216/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><div class="progress">x</div></body></html>
+H
+  printf '.progress{width:calc(var(--container-width) * 1)}\n' > "$T/v216/src/s.css"
+  db=$(build v216) && eq "V2-16 one scope row, unknown no_definition_in_scope" \
+    "$(sqlite3 "$db" "SELECT group_concat(name || ':' || status || ':' || reason) FROM web_var_scope")" "--container-width:unknown:no_definition_in_scope"
+fi
+
+if want V2-17; then
+  # a whitespace-only content is no icon; an icon's font comes from its rule or a class EVERY carrier has
+  put "$T/v217/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><div class="clearfix">c</div>
+<i class="glyphicon fa fa-calendar"></i><i class="fa fa-calendar"></i></body></html>
+H
+  put "$T/v217/src/s.css" <<'C'
+.clearfix:before{content:" ";display:table}
+.fa-calendar:before{content:"\f073"}
+.glyphicon{font-family:"Glyphicons Halflings"}
+.fa{font-family:"Font Awesome"}
+C
+  db=$(build v217) && eq "V2-17 icon classes: fa-calendar only, font from the class every carrier has" \
+    "$(sqlite3 "$db" "SELECT group_concat(class_name || '=' || coalesce(font_family, '-')) FROM web_icon_classes")" 'fa-calendar="Font Awesome"'
+fi
+
+if want V2-18; then
+  # a lone CR is a line break (HTML preprocessing): the element after \r\r\n is on line 4
+  mkdir -p "$T/v218/src"; printf '<!doctype html>\r\n<html><body>\r\r\n<p class="late">x</p></body></html>\r\n' > "$T/v218/src/index.html"
+  db=$(build v218) && eq "V2-18 p.late on line 4" "$(sqlite3 "$db" "SELECT line FROM web_elements WHERE tag_name = 'p'")" "4"
+fi
+
+if want V2-19; then
+  # a selector under an at-rule the matcher does not take, in a sheet no page loads, is not_loaded
+  put "$T/v219/src/index.html" <<'H'
+<!doctype html><html><body><p>x</p></body></html>
+H
+  printf '@utility no-scrollbar { &::-webkit-scrollbar { display: none } }\n.u{color:red}\n' > "$T/v219/src/unused.css"
+  db=$(build v219) && eq "V2-19 every selector of the unloaded sheet is not_loaded" \
+    "$(sqlite3 "$db" "SELECT count(*) >= 2 AND sum(usage = 'not_loaded') = count(*) FROM web_selectors")" "1"
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

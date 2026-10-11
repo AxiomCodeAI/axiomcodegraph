@@ -329,7 +329,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const p of pages.values()) {
     let lines: string[] | null = null;
     const textOf = (id: string): string => {
-      if (lines === null) { try { let t = fs.readFileSync(p.abs, 'utf8'); if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); lines = t.split('\n'); } catch { lines = []; } }
+      if (lines === null) { try { let t = fs.readFileSync(p.abs, 'utf8'); if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); lines = t.split(/\r\n|\r|\n/); } catch { lines = []; } }
       const r = elRow.get(id)!; const sl = num(g(T.el, r, 'startLine'))!, sc = num(g(T.el, r, 'startColumn'))!, el = num(g(T.el, r, 'endLine'))!, ec = num(g(T.el, r, 'endColumn'))!;
       if (sl === el) return (lines[sl - 1] ?? '').slice(sc - 1, ec);
       return [(lines[sl - 1] ?? '').slice(sc - 1), ...lines.slice(sl, el - 1), (lines[el - 1] ?? '').slice(0, ec)].join('\n');
@@ -418,7 +418,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         let t = p ? fs.readFileSync(p.abs, 'utf8') : '';
         if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); // the parser's positions are counted without the BOM
         const starts = [0];
-        for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) starts.push(i + 1);
+        // line starts as the parser counts them: LF, CRLF and a lone CR each end a line (V2-18)
+        for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); if (c === 10 || (c === 13 && t.charCodeAt(i + 1) !== 10)) starts.push(i + 1); }
         v = p ? { text: t, starts } : null;
       } catch { v = null; }
       pageText.set(pageId, v);
@@ -752,7 +753,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           is_module: g(T.script, r, 'scriptType') === 'MODULE' ? 1 : 0, is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')),
           is_nomodule: bool(g(T.script, r, 'isNoModule')), body_start_line: sl, body_start_col: sc, body_end_line: el, body_end_col: ec,
           attributes: JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? v.value : '']))),
-          body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body === '' ? 0 : body.split('\n').length,
+          body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body === '' ? 0 : body.split(/\r\n|\r|\n/).length,
           body_bytes: body === null ? null : Buffer.byteLength(body, 'utf8'), body, inline_index: inlineIndex });
       });
     }
@@ -1226,7 +1227,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   }
   const textCache = new Map<string, string[] | null>();
   function sheetText(s: Sheet): string[] | null {
-    if (!textCache.has(s.abs)) { try { textCache.set(s.abs, fs.readFileSync(s.abs, 'utf8').split('\n')); } catch { textCache.set(s.abs, null); } }
+    if (!textCache.has(s.abs)) { try { textCache.set(s.abs, fs.readFileSync(s.abs, 'utf8').split(/\r\n|\r|\n/)); } catch { textCache.set(s.abs, null); } }
     return textCache.get(s.abs)!;
   }
 
@@ -1555,7 +1556,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const dec = !n || !n.matchable ? { d: 'none', r: n?.inKeyframes ? 'keyframe_selector' : 'not_an_element_selector' }
       : s.unknown ? { d: 'unknown', r: s.unknown }
       : (s.reasons.length || (n.condNames.length > 0)) ? { d: 'conditional', r: [...s.reasons, ...n.condNames.map((c) => `at_rule:${c}`)].join(';') } : { d: 'exact', r: null };
-    const usage = dec.d === 'none' ? null : !st || st.loading === 0 ? 'not_loaded' : st.m > 0 ? 'matched' : st.c > 0 ? 'conditional_only'
+    // a selector in a sheet no page loads is not_loaded even under an at-rule the matcher does not take (`@utility`,
+    // V2-19); only a keyframe selector (`from`, `50%`) has no usage at all
+    const usage = dec.d === 'none' && (n?.inKeyframes || (st && st.loading > 0)) ? null : !st || st.loading === 0 ? 'not_loaded' : dec.d === 'none' ? null
+      : st.m > 0 ? 'matched' : st.c > 0 ? 'conditional_only'
       : st.u > 0 || st.wholeUnk > 0 ? 'unknown_only' : 'unmatched_static';
     // ruling (c): unknown_reason explains the selector's own usage label — unmatched_static: no_static_carrier (a
     // required class/id has no carrier on some page) else no_element_matches; unknown_only: the styles/unknown reason;
@@ -1647,8 +1651,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const scopeSeen = new Set<string>();
     const scopeRow = (pageId: string, ruleEls: Map<string, Map<string, number>>, elId: string, name: string) => {
       const propOnly = propertyNames.has(name) && !definingRules.has(name) && !attrDefEls.has(name);
-      if (!definingRules.has(name) && !attrDefEls.has(name) && !propOnly) return; // nothing defines it anywhere: web_var_visible says so, once per use
       const sk = `${pageId}|${elId}|${name}`; if (scopeSeen.has(sk)) return; scopeSeen.add(sk);
+      // nothing defines it anywhere (set by script): still one row, unknown no_definition_in_scope (V2-16)
+      if (!definingRules.has(name) && !attrDefEls.has(name) && !propOnly) {
+        out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: null, root_exact_uid: null, status: 'unknown', reason: 'no_definition_in_scope' });
+        return;
+      }
       const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
       const attrDefs = attrDefEls.get(name);
       let root: string | null = null, rootSt = NO, rootExact: string | null = null;
@@ -1933,11 +1941,16 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const m = /^(["'])(.*)\1$/s.exec(v); if (!m) continue;
       const inner = m[2]!;
       // ruling: <= 2 characters or exactly one CSS escape, as written; an empty string is no icon
-      if (inner === '' || !(/^\\[0-9a-fA-F]{1,6} ?$/.test(inner) || [...inner].length <= 2)) continue;
+      // an empty or whitespace-only string (a clearfix's " ") is no icon (V2-17)
+      if (inner.trim() === '' || !(/^\\[0-9a-fA-F]{1,6} ?$/.test(inner) || [...inner].length <= 2)) continue;
       let ff: string | null = null;
       const own = declOf(s.rule, 'font-family'); if (own) ff = unesc(g(T.decl, own, 'valueText')).trim();
       const els = carriers.get(oc.cls) ?? [];
-      if (!ff) for (const e of els) { for (const c of e.classes) if (c !== oc.cls && fontRules.has(c)) { ff = fontRules.get(c)!; break; } if (ff) break; }
+      // else the font of a class EVERY carrier also has (V2-17): one carrier's extra class says nothing of the others
+      if (!ff && els.length) {
+        const common = [...els[0]!.classes].filter((c) => c !== oc.cls && fontRules.has(c) && els.every((e) => e.classes.has(c))).sort();
+        if (common.length) ff = fontRules.get(common[0]!)!;
+      }
       icons.add(oc.cls);
       out('web_icon_classes').push({ class_name: oc.cls, rule_uid: s.rule, content: v, font_family: ff, used_elements: els.length });
     }

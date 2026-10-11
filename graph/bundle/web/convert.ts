@@ -199,7 +199,7 @@ export function outline(page: StructPage, textOfId: (id: string) => string, out:
     else if (isHtmlNs(e) && LANDMARK_TAGS.has(e.tagLower)) {
       const named = label(e) !== null || !!e.attrs.get('title')?.value.trim();
       if (e.tagLower === 'form' && !named) continue;
-      kind = 'landmark'; name = e.tagLower === 'section' && named ? 'region' : e.tagLower;
+      kind = 'landmark'; name = (e.tagLower === 'section' || e.tagLower === 'article') && named ? 'region' : e.tagLower; // SPEC 9.7 (V2-14)
     } else continue;
     let parent: string | null = null;
     for (let a = e.parent; a; a = a.parent) { const u = rows.get(a.id); if (u) { parent = u; break; } }

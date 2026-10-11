@@ -37,19 +37,19 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_elements',
     description: 'One element as WRITTEN (implied tbody/html/head/body are not rows, LIMIT L1). `display` is tag#id.class1.class2; `position` the 0-based index among the parent\'s element children; `nth_of_type` 1-based; `inert` = 1 inside <template> or <noscript>; `dynamic_class` = 1 when a template directive or interpolation sets the class at run time.',
-    columns: [id('uid'), id('page_uid'), id('parent_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'), id('tag_name'), t('namespace'),
+    columns: [id('uid'), id('page_uid'), id('parent_uid'), ref('file'), i('line'), i('col'), i('end_line'), i('end_col'), id('tag_name'), t('namespace'),
       i('depth'), i('position'), i('nth_of_type'), id('html_id', 'the id attribute'), t('class_names', 'as written, space-separated'), i('child_count'),
       t('text', 'direct text, cut at 1,024 chars'), t('inert', 'template | noscript | iframe_text (markup inside <iframe>, text to a browser: never styled) | NULL'), i('dynamic_class'), t('display')],
   },
   {
     name: 'web_attributes',
     description: 'One attribute (html_attribute). `kind` is what it does: ID, CLASS, STYLE, EVENT_HANDLER, URL, SRCSET, DATA, ARIA, FOR, ID_REFERENCE, NAME, TYPE, REL, TEMPLATE_DIRECTIVE, …',
-    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), id('name'), t('prefix'), t('value', 'cut at 4,096 chars'), t('kind'), i('has_value')],
+    columns: [ref('uid'), id('element_uid'), ref('page_uid'), ref('file'), i('line'), i('col'), id('name'), t('prefix'), t('value', 'cut at 4,096 chars'), t('kind'), i('has_value')],
   },
   {
     name: 'web_class_tokens',
     description: 'One token of a class attribute: what `.name` selectors and the JavaScript graph\'s DOM-touch literals name.',
-    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('position'), id('class_name'), i('dynamic', '1 for a token a template expression writes (`{{m.tag}}`, `btn-{{ kind }}`), kept as written (V2-15)')],
+    columns: [ref('uid'), id('element_uid'), ref('page_uid'), ref('file'), i('line'), i('position'), id('class_name'), i('dynamic', '1 for a token a template expression writes (`{{m.tag}}`, `btn-{{ kind }}`), kept as written (V2-15)')],
   },
   {
     name: 'web_references',
@@ -214,7 +214,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_component_occurrences',
     description: 'One occurrence (root element) of a component candidate.',
-    columns: [id('component_uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col')],
+    columns: [id('component_uid'), id('element_uid'), id('page_uid'), ref('file'), i('line'), i('col')],
   },
   {
     name: 'web_component_slots',
