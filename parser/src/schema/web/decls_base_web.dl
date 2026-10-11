@@ -38,8 +38,8 @@
 
 // One attribute; (element, prefix, name) is unique by the algorithm. c3 attributeKind is what
 // the attribute does: ID, CLASS, STYLE, EVENT_HANDLER, URL, TEMPLATE_DIRECTIVE, ...
-// (11 columns)
-.decl html_attribute(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
+// (12 columns)
+.decl html_attribute(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol)
 
 // One token of a class attribute: the row css_selector_part (CLASS) joins on.
 // (8 columns)

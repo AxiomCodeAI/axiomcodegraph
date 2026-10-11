@@ -93,6 +93,7 @@
     "hasValue",
     "startLine",
     "startColumn",
+    "valueRaw",
     "ownerElementLinkHash",
     "documentLinkHash",
     "serviceVersionLinkHash",

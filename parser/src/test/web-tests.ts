@@ -351,15 +351,19 @@ const formatChecks: FormatCheck[] = [
     },
   },
   {
-    name: 'a-root-relative-url-resolves-only-when-one-served-root-holds-it',
-    spec: 'a path-absolute URL resolves against the origin, which the repository does not record',
-    rulesOut: 'a resolver that guesses between two candidate roots, or never resolves /static/x',
+    name: 'a-root-relative-url-resolves-against-the-nearest-ancestor-that-holds-it',
+    spec: 'a path-absolute URL resolves against the origin, which the repository does not record: the nearest ancestor of the page that holds the path (V3-01), else exactly one conventionally served directory',
+    rulesOut: 'a resolver that prefers the repository root over a nearer ancestor, guesses between two served roots, or never resolves /static/x',
     run: () => {
       file('app/public/static/one.js', '');
       file('app/pages/deep/page.html', '');
       file('app/public/static/two.js', '');
       file('app/pages/static/two.js', '');
-      const content = '<script src="/static/one.js"></script><script src="/static/two.js"></script><script src="/static/none.js"></script>';
+      file('app/public/static/three.js', '');
+      file('app/static/static/three.js', '');
+      file('app/pages/docs/index.htm', '');
+      const content = '<script src="/static/one.js"></script><script src="/static/two.js"></script><script src="/static/none.js"></script>'
+        + '<script src="/static/three.js"></script><a href="/pages/docs/"></a>';
       const p = file('app/pages/deep/page.html', content);
       const x = new HtmlParser().parse(content, p, path.join(TMP, 'app'), 'V');
       const by = Object.fromEntries(x.references.map((r) => [r.urlAsWritten, r]));
@@ -367,8 +371,14 @@ const formatChecks: FormatCheck[] = [
       if (by['/static/one.js']?.resolvedFilePath !== path.join(TMP, 'app/public/static/one.js')) {
         bad += fail(`one candidate: resolved to ${JSON.stringify(by['/static/one.js']?.resolvedFilePath)}`);
       }
-      if (by['/static/two.js']?.isResolved !== false) bad += fail('two candidates were not refused');
+      if (by['/static/two.js']?.resolvedFilePath !== path.join(TMP, 'app/pages/static/two.js')) {
+        bad += fail(`the nearest ancestor did not win: ${JSON.stringify(by['/static/two.js']?.resolvedFilePath)}`);
+      }
+      if (by['/static/three.js']?.isResolved !== false) bad += fail('two served-root candidates were not refused');
       if (by['/static/none.js']?.isResolved !== false) bad += fail('no candidate reads as resolved');
+      if (by['/pages/docs/']?.resolvedFilePath !== path.join(TMP, 'app/pages/docs/index.htm')) {
+        bad += fail(`a directory URL did not resolve to its index file: ${JSON.stringify(by['/pages/docs/']?.resolvedFilePath)}`);
+      }
       const script = x.scripts.find((s) => s.src === '/static/one.js')!;
       if (script.resolvedFilePath !== by['/static/one.js']!.resolvedFilePath || script.referenceLinkHash !== by['/static/one.js']!.getHash()) {
         bad += fail('the script row does not carry its reference\'s resolution');

@@ -230,6 +230,8 @@ function sanitiseForGrammar(text: string): string {
 interface ReadAttribute {
   readonly name: string;
   readonly value: string;
+  /** The value as written, before entity decoding (V3-10a). */
+  readonly raw: string;
   readonly hasValue: boolean;
   /** 0-based offset of the attribute's name, and of the end of the attribute. */
   readonly start: number;
@@ -581,7 +583,7 @@ class Walk {
       const kind = this.attributeKind(name, prefix, tag, directive !== undefined, attr.hasValue);
       this.noteDialect(name, prefix, directive);
       const row = new HtmlAttribute({
-        name, prefix, value: attr.value, attributeKind: kind, hasValue: attr.hasValue,
+        name, prefix, value: attr.value, valueRaw: attr.raw !== attr.value ? attr.raw : '', attributeKind: kind, hasValue: attr.hasValue,
         startLine: at.line, startColumn: at.column, ownerElementLinkHash: element.getHash(),
         documentLinkHash: this.out.document.getHash(), serviceVersionLinkHash: this.version,
       });
@@ -1101,10 +1103,19 @@ class Walk {
         this.templateExpression(undefined, owner, HtmlTemplateDialect.SSI, kind, name, '', [], args, m.index, this.lines.positionOf(m.index), false);
       }
     }
+    // V3-03: a gulp or Jinja directive written inside a comment includes nothing: an HTML comment (not an SSI one), a
+    // Jinja `{# #}` comment, a `{% comment %}…{% endcomment %}` block, or a `{% raw %}` / `{% verbatim %}` block
+    const commented: Array<[number, number]> = [];
+    for (const m of text.matchAll(/<!--(?!#)[\s\S]*?(?:-->|$)|\{#[\s\S]*?#\}|\{%-?\s*(comment|raw|verbatim)\b[\s\S]*?%\}[\s\S]*?(?:\{%-?\s*end\1\s*-?%\}|$)/g)) {
+      commented.push([m.index, m.index + m[0].length]);
+    }
+    const isCommented = (offset: number): boolean => commented.some(([a, b]) => a < offset && offset < b);
     for (const m of text.matchAll(/@@include\(\s*(["'])([^"'\n]*)\1/g)) {
+      if (isCommented(m.index)) continue;
       found.push({ offset: m.index, flavour: 'gulp:@@include', url: m[2]!, expression: false, owner: ownerAt(m.index) });
     }
     for (const m of text.matchAll(/\{%-?\s*(include|extends|import|from)\s+([\s\S]*?)\s*-?%\}/g)) {
+      if (isCommented(m.index)) continue;
       const verb = m[1] === 'from' ? 'import' : m[1]!;
       const q = /^(["'])([^"'\n]*)\1/.exec(m[2]!);
       const url = q !== null ? q[2]! : m[2]!.split(/\s+(?:with|without|ignore|import|as|only)\b/)[0]!.trim();
@@ -1244,6 +1255,7 @@ function readAttributes(node: SyntaxNode, content: string, flavour: TemplateFlav
     return {
       name: nameNode === undefined ? '' : content.slice(nameNode.startIndex, nameNode.endIndex),
       value: decodeHTMLAttribute(inner === undefined ? '' : content.slice(inner.startIndex, inner.endIndex)),
+      raw: inner === undefined ? '' : content.slice(inner.startIndex, inner.endIndex),
       hasValue,
       start: attr.startIndex,
       end: attr.endIndex,
@@ -1325,14 +1337,14 @@ function rawAttributes(tagText: string, tagStart: number): ReadAttribute[] {
       valueStart = tagStart + from + m.index + valueOffsetInMatch;
       rawValue = body.slice(m.index + valueOffsetInMatch, m.index + valueOffsetInMatch + length);
     }
-    out.push({ name, value: decodeHTMLAttribute(rawValue), hasValue, start: tagStart + from + m.index, end: tagStart + from + m.index + m[0].length, valueStart, templateTag: false });
+    out.push({ name, value: decodeHTMLAttribute(rawValue), raw: rawValue, hasValue, start: tagStart + from + m.index, end: tagStart + from + m.index + m[0].length, valueStart, templateTag: false });
   }
   // A template tag standing between attributes is a directive of the template's; one inside
   // an attribute's value is that attribute's expression and is read with the attribute.
   for (const tag of tags) {
     const inside = out.some((a) => a.valueStart !== undefined && tagStart + from + tag.start >= a.valueStart && tagStart + from + tag.end <= a.end);
     if (!inside) {
-      out.push({ name: tag.text.replace(/\s+/g, ' ').trim(), value: '', hasValue: false, start: tagStart + from + tag.start, end: tagStart + from + tag.end, valueStart: undefined, templateTag: true });
+      out.push({ name: tag.text.replace(/\s+/g, ' ').trim(), value: '', raw: '', hasValue: false, start: tagStart + from + tag.start, end: tagStart + from + tag.end, valueStart: undefined, templateTag: true });
     }
   }
   return out.sort((a, b) => a.start - b.start);

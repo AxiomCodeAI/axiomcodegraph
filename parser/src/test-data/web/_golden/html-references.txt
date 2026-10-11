@@ -5,7 +5,7 @@ referenceKind=ANCHOR	urlAsWritten=javascript:void(0)	urlKind=JAVASCRIPT_URI	path
 referenceKind=ANCHOR	urlAsWritten=mailto:hi@example.com	urlKind=OTHER_SCHEME	path=mailto:hi@example.com	query=	fragment=	isResolved=false	position=0	attributeName=href	startLine=22	startColumn=33
 referenceKind=ANCHOR	urlAsWritten=page.html?x=1#top	urlKind=RELATIVE	path=page.html	query=x=1	fragment=top	isResolved=true	position=0	attributeName=href	startLine=21	startColumn=40
 referenceKind=ANCHOR	urlAsWritten={{ url_for('home') }}	urlKind=TEMPLATE_EXPRESSION	path={{ url_for('home') }}	query=	fragment=	isResolved=false	position=0	attributeName=href	startLine=3	startColumn=12
-referenceKind=BASE	urlAsWritten=/	urlKind=ROOT_RELATIVE	path=/	query=	fragment=	isResolved=false	position=0	attributeName=href	startLine=6	startColumn=15
+referenceKind=BASE	urlAsWritten=/	urlKind=ROOT_RELATIVE	path=/	query=	fragment=	isResolved=true	position=0	attributeName=href	startLine=6	startColumn=15
 referenceKind=FORM_ACTION	urlAsWritten=/alt	urlKind=ROOT_RELATIVE	path=/alt	query=	fragment=	isResolved=false	position=0	attributeName=formaction	startLine=31	startColumn=27
 referenceKind=FORM_ACTION	urlAsWritten=/submit	urlKind=ROOT_RELATIVE	path=/submit	query=	fragment=	isResolved=false	position=0	attributeName=action	startLine=29	startColumn=19
 referenceKind=FRAME	urlAsWritten=partials/frame.html	urlKind=RELATIVE	path=partials/frame.html	query=	fragment=	isResolved=true	position=0	attributeName=src	startLine=36	startColumn=18
