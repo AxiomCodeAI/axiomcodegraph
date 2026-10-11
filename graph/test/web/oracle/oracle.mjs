@@ -96,6 +96,8 @@ for (const r of includeRefs) {
   for (const t of r.targets) {
     emit('include', extendsRow ? t : r.page.rel, extendsRow ? r.page.rel : t, r.kind, extendsRow ? '-' : r.hostKey ?? '-', extendsRow ? '-' : r.position, at, r.args, r.status, r.reason);
   }
+  // SPEC 3.5: web_unknown lists every unknown reason; an include that is not composed is one row on its reference
+  if (r.status !== 'match') emit('unknown', r.reason, `include@${at}`, r.page.rel);
   const resolved = r.status === 'match' || r.reason === 'include_cycle' || r.reason === 'include_depth' ? r.targets[0] : '-';
   emit('reference', r.includeEl ? r.includeEl.key : r.hostKey ?? '-', r.kind, r.url, r.urlKind, resolved);
 }

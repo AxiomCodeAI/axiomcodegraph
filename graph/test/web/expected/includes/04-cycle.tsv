@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts; SPEC 3.5 web_unknown row per include not composed)
 # case: includes/04-cycle   kinds: page,include,host_styles,unknown
 # shape: two SSI partials that include each other (a menu that pulls in a submenu that pulls the menu back) and a
 host_styles	css/s.css:1:1/0	loop1.html:1:1	index.html	match	-	-
@@ -13,3 +13,5 @@ page	index.html	DOCUMENT
 page	loop1.html	FRAGMENT
 page	loop2.html	FRAGMENT
 page	self.html	FRAGMENT
+unknown	include_cycle	include@loop2.html:1:17	loop2.html
+unknown	include_cycle	include@self.html:1:19	self.html

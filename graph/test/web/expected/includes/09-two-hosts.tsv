@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts; SPEC 3.5 web_unknown row per include not composed)
 # case: includes/09-two-hosts   kinds: page,include,host_styles,usage,unknown
 # shape: one card partial included by two pages that load different stylesheets (an admin page with a dark theme
 host_styles	css/a.css:1:1/0	parts/card.html:1:1	a.html	match	-	-

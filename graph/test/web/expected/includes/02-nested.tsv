@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts; SPEC 3.5 web_unknown row per include not composed)
 # case: includes/02-nested   kinds: page,include,host_styles,styles,unknown
 # shape: a dashboard shell whose layout partial itself includes a widget partial (<include src> two levels deep,
 host_styles	css/app.css:1:1/0	parts/b.html:1:1	index.html	match	-	-

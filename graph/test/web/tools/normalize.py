@@ -53,7 +53,8 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              [iter3, SPEC 11.2] + host_page_uid: set when the element is an included fragment's, matched in that
              host's composed tree; such a row is emitted as
              -> host_styles <selector> <element> <host page> <status> <reasons> <pseudo>   (no cascade/scope row)
-  web_includes(host_page_uid, fragment_page_uid, kind, host_element_uid, position, file, line, col, args, status, reason)
+  web_includes(host_page_uid, fragment_page_uid, kind, host_element_uid, position, reference_uid, file, line, col, args,
+               status, reason)       reference_uid keys web_unknown rows on an include as include@<file:line:col>
              -> include <host> <fragment> <kind> <host element> <position> <file:line:col of the directive> <args>
                 <status> <reason>   [iter3, SPEC 11.2]
   web_var_scope(page_uid, element_uid, name, root_uid, root_exact_uid, status, reason)   SPEC 3.4a, V1-12: one row per (page, element, name)
@@ -294,10 +295,14 @@ def main():
             emit('links_to', key.get(e), an, key.get(tp) if tp else url, key.get(te) if te else None, st, rs)
         for e, an, idv, te, st, rs in g.rows('web_id_refs', ['from_element_uid', 'attribute_name', 'id_value', 'to_element_uid', 'status', 'reason']):
             emit('id_ref', key.get(e), an, idv, key.get(te) if te else None, st, rs)
+        # an include's reference is keyed by its position (web_unknown rows name it): include@file:line:col
+        incl = g.rows('web_includes', ['host_page_uid', 'fragment_page_uid', 'kind', 'host_element_uid', 'position', 'file',
+                                       'line', 'col', 'args', 'status', 'reason', 'reference_uid'])
+        for *_x, f, ln, col, _a, _s, _r, ru in incl:
+            if ru:
+                key.setdefault(ru, f'include@{f}:{ln}:{col}')
         if want('include'):
-            for h, fr, kd, he, pos, f, ln, col, args, st, rs in g.rows('web_includes', [
-                    'host_page_uid', 'fragment_page_uid', 'kind', 'host_element_uid', 'position', 'file', 'line', 'col',
-                    'args', 'status', 'reason']):
+            for h, fr, kd, he, pos, f, ln, col, args, st, rs, _ru in incl:
                 emit('include', key.get(h, h) if h else None, key.get(fr, fr) if fr else None, kd, key.get(he, he) if he else None,
                      pos, f'{f}:{ln}:{col}', (args or '').strip(), st, rs)
         if want('styles') or want('cascade') or want('scope') or want('host_styles'):

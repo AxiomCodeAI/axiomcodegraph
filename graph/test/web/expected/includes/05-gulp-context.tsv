@@ -1,4 +1,4 @@
-# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts; SPEC 3.5 web_unknown row per include not composed)
 # case: includes/05-gulp-context   kinds: page,include,host_styles,unknown
 # shape: a gulp-file-include theme: @@include("./partials/x.html", { ...context... }) partials in <body>, a context
 host_styles	css/site.css:1:1/0	partials/nav.html:1:18	index.html	match	-	-
