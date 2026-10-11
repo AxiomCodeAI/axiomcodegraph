@@ -524,6 +524,7 @@
      "GAP_LIMIT_REACHED",
      "PARSE_ERROR",
      "PREPROCESSOR_SYNTAX",
+     "UNCLOSED_BLOCK",
      "UNPARSED_FRAGMENT"
     ]
    }

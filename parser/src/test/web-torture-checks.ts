@@ -838,7 +838,10 @@ export const CHECKS: Check[] = [
       const gaps = names(ir.rulesOf('css/gaps.css'), 'preludeText');
       for (const want of ['.before-gaps', '.g3', '.g4', '.g5', '.g8', '.g12', '.g13', '.g14', '.g15', '.g18', '.g19', '.g20', '.g21', '.g22', '.g23']) if (!gaps.includes(want)) fail(`gaps.css lost rule ${want}`);
       expectEq(fail, 'gaps.css unknown statement is PREPROCESSOR_SYNTAX', ir.cssGapsOf('css/gaps.css').some((g) => g['detail']!.startsWith('postcss statement')), true);
-      expectEq(fail, 'gaps.css trailing declaration outside a rule is UNPARSED_FRAGMENT', ir.cssGapsOf('css/gaps.css').some((g) => g['gapKind'] === 'UNPARSED_FRAGMENT'), true);
+      // V1-03: `.g28 { color: red` at EOF is closed there as a browser does (it was a declaration outside a rule); the
+      // block the end of file closed is an UNCLOSED_BLOCK gap
+      expectEq(fail, 'gaps.css block open at EOF is an UNCLOSED_BLOCK gap', ir.cssGapsOf('css/gaps.css').some((g) => g['gapKind'] === 'UNCLOSED_BLOCK'), true);
+      expectEq(fail, 'gaps.css .g28 closed at EOF is a rule', names(ir.rulesOf('css/gaps.css'), 'preludeText').includes('.g28'), true);
       expectEq(fail, 'sassy.css $var at top level is UNPARSED_FRAGMENT', ir.cssGapsOf('css/sassy.css').some((g) => g['gapKind'] === 'UNPARSED_FRAGMENT'), true);
       expectEq(fail, 'sassy.css line comment flagged', ir.cssGapsOf('css/sassy.css').some((g) => g['detail']!.startsWith('line comment')), true);
       expectEq(fail, 'jinja <style> keeps .item rule', ir.rulesOf('templates/jinja.html#style1').some((r) => r['preludeText'] === '.item'), true);

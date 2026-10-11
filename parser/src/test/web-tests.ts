@@ -929,6 +929,7 @@ const UNREACHABLE_BY_CONSTRUCTION: Readonly<Record<string, string>> = {};
 const MERELY_UNOBSERVED: Readonly<Record<string, string>> = {
   'HtmlParseGapKind.GAP_LIMIT_REACHED': 'needs 200+ errors in one page; the format check gaps-are-capped produces it',
   'CssParseGapKind.GAP_LIMIT_REACHED': 'needs 200+ gaps in one stylesheet; the HTML cap check covers the collector shape',
+  'CssParseGapKind.UNCLOSED_BLOCK': 'the fixture sheets all close their blocks; web-plumbing-tests unclosed-eof and the torture gaps.css produce it',
   'CssSelectorPartKind.RAW': 'a selector node of a kind this reader does not classify; the grammar\'s own node set is covered, so the fixture produces none',
   'HtmlNamespace.MATHML': 'no fixture page holds <math>; the namespace is decided from context exactly as SVG is',
 };

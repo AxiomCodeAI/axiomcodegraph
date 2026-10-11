@@ -175,6 +175,21 @@ function blankOddCustomValues(text: string): string {
   return out + text.slice(last);
 }
 
+/** How many `{` are still open at the end of the text (comments, strings and escapes skipped). */
+function unclosedBlocks(text: string): number {
+  const t = withoutComments(text);
+  let depth = 0; let quote = '';
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i]!;
+    if (c === '\\') { i++; continue; }
+    if (quote) { if (c === quote || c === '\n') quote = ''; continue; }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '{') depth++;
+    else if (c === '}' && depth > 0) depth--;
+  }
+  return depth;
+}
+
 /** The text with every comment's inside blanked, same length, for scans that must not read comments. */
 function withoutComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, (m) => '/*' + ' '.repeat(m.length - 4) + '*/');
@@ -333,9 +348,16 @@ export class CssParser {
       baseHref: origin.baseHref,
     };
     const gaps = new GapCollector(out.parseGaps);
-    const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(text)).rootNode;
+    // AN UNCLOSED BLOCK AT THE END OF THE SHEET (V1-03): a browser closes every open block at EOF, so `.a { color: red;`
+    // followed by more rules is `.a` holding them as nested rules. The grammar gets the missing `}` appended (after
+    // the text, so no offset moves) and the sheet gets a gap row saying how many blocks the end of file closed.
+    const open = unclosedBlocks(text);
+    const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(text) + '}'.repeat(open)).rootNode;
     this.walkBlock(root, '', 0, sheet, out, gaps, '');
     this.recordSyntaxErrors(root, sheet, gaps);
+    if (open > 0) {
+      gaps.add(sheet, CssParseGapKind.UNCLOSED_BLOCK, `${open} block(s) still open at the end of the sheet, closed there as a browser does`, text.length, text.length, '');
+    }
     const uncommented = withoutComments(text);
     for (const [name, pattern] of PREPROCESSOR_MARKERS) {
       const m = pattern.exec(uncommented);

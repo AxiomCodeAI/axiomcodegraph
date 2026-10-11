@@ -9,6 +9,9 @@ export enum CssParseGapKind {
   /** An `ERROR` region or a token the grammar had to invent; `detail` says which, with the text. */
   PARSE_ERROR = 'PARSE_ERROR',
 
+  /** Blocks still open at the end of a sheet: closed there, as a browser does (rules after them are nested). */
+  UNCLOSED_BLOCK = 'UNCLOSED_BLOCK',
+
   /**
    * Text the grammar read as something CSS has no place for — a declaration outside any
    * rule, a rule inside a `style` attribute — so no row carries it. `detail` is the text, bounded.

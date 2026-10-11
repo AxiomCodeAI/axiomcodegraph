@@ -15,6 +15,7 @@
  *   keyframe-lists    a minified keyframe selector list is one block; a quoted @keyframes name is an @keyframes.
  *   odd-custom-value  `:root{--x:.}` (a custom property's value need not be an ordinary value) keeps every later
  *                     rule top-level (V1-04, #1909).
+ *   unclosed-eof      a block still open at the end of a sheet closes there and nests what follows; a gap counts it (V1-03).
  *   climb-out         `../shared.css` from a page in a sub-project folder resolves inside the repository (V1-05).
  */
 import * as fs from 'fs';
@@ -175,8 +176,26 @@ async function climbOutOfSubProject(): Promise<void> {
   else ok('climb-out: a relative url from a page in a sub-project resolves to a sheet outside it, inside the repository');
 }
 
+async function unclosedAtEof(): Promise<void> {
+  // V1-03: an unclosed block at EOF closes there (browser behaviour): the later rules are nested in it, and a gap says so
+  const root = tree({ 's.css': '.ok { color: black; }\n.broken { color: red;\n.after-broken { color: blue; }\n@media (min-width:10px) { .inside { color: green; }\n' });
+  const ir = await parse(root);
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const decls = readCsv(path.join(ir, 'web', 'all-css-declarations.csv'));
+  const gaps = readCsv(path.join(ir, 'web', 'all-css-parse-gaps.csv'));
+  const hashOf = (r: Row) => r.cssRuleUniqueHash ?? '';
+  const by = (pre: string) => rules.find((r) => (r.preludeText ?? '').trim() === pre);
+  const broken = by('.broken'); const after = by('.after-broken'); const media = rules.find((r) => r.atRuleName === 'media'); const inside = by('.inside');
+  ran++;
+  if (!broken || !after || !media || !inside) fail(`unclosed-eof: rules ${JSON.stringify(rules.map((r) => r.preludeText))}`);
+  else if (after.parentRuleLinkHash !== hashOf(broken) || media.parentRuleLinkHash !== hashOf(broken) || inside.parentRuleLinkHash !== hashOf(media)) fail('unclosed-eof: .after-broken and @media are not nested in .broken, or .inside not in @media');
+  else if (!decls.some((d) => d.property === 'color' && (d.valueText ?? '').trim() === 'red' && d.ruleLinkHash === hashOf(broken))) fail('unclosed-eof: .broken lost color: red');
+  else if (!gaps.some((g) => g.gapKind === 'UNCLOSED_BLOCK' && /^2 block/.test(g.detail ?? ''))) fail(`unclosed-eof: no UNCLOSED_BLOCK gap for 2 blocks: ${JSON.stringify(gaps.map((g) => g.gapKind + ' ' + g.detail))}`);
+  else ok('unclosed-eof: blocks open at EOF close there; later rules nest in them; one gap row counts them');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }
