@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: computed/04-custom-property-case   kinds: computed,token
+# shape: a component sheet declaring --boxColor and a different --boxcolor on one element (camelCase custom
+computed	index.html:4:7	-	--boxColor	s.css:1:8	match	1	0	-
+computed	index.html:4:7	-	--boxcolor	s.css:1:25	match	1	0	-
+computed	index.html:4:7	-	background	s.css:1:43	match	1	0	-
+token	color	blue	1	1	0
+token	color	red	1	1	0
+token	custom_property	--boxColor	1	1	0
+token	custom_property	--boxcolor	0	0	1

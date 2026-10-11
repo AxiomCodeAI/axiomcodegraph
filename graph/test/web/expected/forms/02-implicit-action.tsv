@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: forms/02-implicit-action   kinds: form
+# shape: search and filter forms with no action attribute (they submit to the page itself), next to one with an
+form	list.html:4:1	list.html	list.html	get	1	1
+form	list.html:5:1	-	-	get	1	0
+form	list.html:6:1	save.html	save.html	post	1	0

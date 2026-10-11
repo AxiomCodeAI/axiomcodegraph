@@ -223,8 +223,10 @@ const LENGTH = /^-?(\d+\.?\d*|\.\d+)(px|em|rem|%|vh|vw|vmin|vmax|ch|ex|pt|pc|cm|
 export function tokensOfDecl(prop, value) {
   const out = [];
   const v = value.replace(/!important\s*$/i, '').trim();
-  if (prop.startsWith('--')) out.push(['custom_property', prop]);
-  const noVar = v.replace(/var\([^()]*(\([^()]*\))*[^()]*\)/g, ' ');
+  // (a custom property is a token by its DECLARATION, counted by its var() uses: see tokens())
+  // a colour function with a var() argument is not a literal colour (`rgba(var(--x), .65)`): masked out whole
+  const noVar = v.replace(/\b(rgba?|hsla?)\((?:[^()]|\([^()]*\))*var\((?:[^()]|\([^()]*\))*\)/gi, ' ')
+    .replace(/var\([^()]*(\([^()]*\))*[^()]*\)/g, ' ');
   for (const m of noVar.matchAll(/#([0-9a-f]{3,8})\b|\b(rgba?|hsla?)\([^)]*\)|\b([a-z]+)\b/gi)) {
     if (m[1]) {
       const h = m[1].toLowerCase();
@@ -250,9 +252,19 @@ export function tokens(sheets, pages, emit, sheetIsProject) {
     tok.get(k).uses.add(d.key);
     if (project) tok.get(k).proj.add(d.key);
   };
-  for (const s of sheets.values()) for (const d of s.decls) for (const [k, v] of tokensOfDecl(d.prop, d.value)) add(k, v, d, sheetIsProject(s));
-  for (const p of pages) for (const el of p.elements) for (const d of el.styleDecls ?? []) for (const [k, v] of tokensOfDecl(d.prop, d.value)) add(k, v, d, true);
-  for (const [k, t] of tok) { const [kind, value] = k.split('\u0000'); emit('token', kind, value, t.uses.size, t.proj.size); }
+  // [iter3 orchestrator, V2-06] every declared custom property is a token, used or not (`unused` flagged); its uses are
+  // the var() references to it, a literal token's uses are its occurrences (declarations holding it); values are
+  // read comment-free (postcss's decl.value; V2-05)
+  const all = [...[...sheets.values()].flatMap((s) => s.decls.map((d) => [d, sheetIsProject(s)])),
+    ...pages.flatMap((p) => p.elements.flatMap((el) => (el.styleDecls ?? []).map((d) => [d, true])))];
+  const cp = new Map(); // --name -> {uses, proj}
+  for (const [d] of all) if (d.custom && !cp.has(d.prop)) cp.set(d.prop, { uses: 0, proj: 0 });
+  for (const [d, project] of all) {
+    for (const [k, v] of tokensOfDecl(d.prop, d.value)) add(k, v, d, project);
+    for (const m of d.value.matchAll(/var\(\s*(--[^,\s)]+)/g)) { const c = cp.get(m[1]); if (c) { c.uses += 1; if (project) c.proj += 1; } }
+  }
+  for (const [k, t] of tok) { const [kind, value] = k.split('\u0000'); emit('token', kind, value, t.uses.size, t.proj.size, 0); }
+  for (const [n, c] of cp) emit('token', 'custom_property', n, c.uses, c.proj, c.uses === 0 ? 1 : 0);
 }
 
 // ── 9.4 breakpoints ─────────────────────────────────────────────────────────────────────────────
@@ -334,9 +346,11 @@ export function forms(pages, emit, resolveUrl, pageByPath) {
     for (const el of p.elements) {
       if (el.tag !== 'form' || el.inert) continue;
       const at = el.node.attribs ?? {};
-      const r = at.action !== undefined ? resolveUrl(at.action, p.rel, p.baseHref) : null;
-      const target = r && r.kind === 'local' && r.target && pageByPath.has(r.target) ? r.target : '-';
-      emit('form', el.key, at.action ?? '-', target, (at.method ?? 'get').toLowerCase(), controlsOf.get(el.key) ?? 0);
+      // [iter3 orchestrator, V2-11] no action attribute: the form submits to the page itself, flagged implicit_action
+      const implicit = at.action === undefined;
+      const r = implicit ? null : resolveUrl(at.action, p.rel, p.baseHref);
+      const target = implicit ? p.rel : r && r.kind === 'local' && r.target && pageByPath.has(r.target) ? r.target : '-';
+      emit('form', el.key, implicit ? p.rel : at.action, target, (at.method ?? 'get').toLowerCase(), controlsOf.get(el.key) ?? 0, implicit ? 1 : 0);
     }
   }
 }

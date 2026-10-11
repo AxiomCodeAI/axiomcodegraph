@@ -275,6 +275,14 @@ def derive(R, fn, arg):
                 continue
             out.add((at_of(r[0]), r[2], r[5], r[7][1:]))
         return sorted(out), False
+    # [iter3 orchestrator, V2-01] `at` = the node's own start, `via_at` = where the matched attribute is written
+    if fn == 'carries_via':
+        pos = {(r[0], r[1].lower()): r[2] for r in R.by['attr_at']}
+        return sorted({(at_of(r[0]), pos.get((r[0], 'class'), '-')) for r in R.by['class_token'] if r[2] == a[0]}), False
+    if fn == 'handlers_via':
+        pos = {(r[0], r[1].lower()): r[2] for r in R.by['attr_at']}
+        return sorted({(at_of(r[0]), pos.get((r[0], r[1].lower()), '-'), r[2]) for r in R.by['handler']
+                       if R.page_of(r[0]) == a[0]}), False
     # SPEC 11.2 [iter3] fragment hosts
     if fn == 'asserted_styles':
         # LINK: the rows come from an oracle run with this question's include asserted (--assert-include); only the

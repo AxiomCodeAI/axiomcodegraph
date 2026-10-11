@@ -78,7 +78,13 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_cascade VIEW (element, pseudo, property, decl, outcome, lost_reason)  -> cascade_entry rows
   web_tokens(kind, value, uses, project_uses)
   web_breakpoints(uid, media, min_px, max_px, unit, rules, sheets) + web_rule_breakpoints(rule_uid, breakpoint_uid, depth)
-  web_forms(element_uid, action, action_resolved_page, method, controls)
+  web_forms(element_uid, action, action_resolved_page, method, controls, implicit_action)  [V2-11] no action attribute:
+             action = the page itself, implicit_action 1
+  [iter3 orchestrator rulings, read when the column exists; absent -> the rows are missing and the gate fails]
+  web_class_tokens.dynamic            -> dynamic_class_token <element> <position> <token>   (V2-15)
+  web_attributes.file, .line          -> attr_at <element> <name> <file:line>               (V2-01 via_at)
+  web_styles.loads (sheet orders)     -> styles_loads <selector> <element> <page> <orders>  (V2-22, > 1 load only)
+  web_tokens.unused                   -> last column of token                               (V2-06)
   web_form_controls(element_uid, form_uid, tag, type, name, required, label_uid, label_via)
   web_icon_classes(class_name, rule_uid, content, font_family, used_elements)
   web_outline(uid, element_uid, page_uid, kind, name, level, parent_outline_uid, ordinal)
@@ -120,6 +126,9 @@ class Graph:
         self.db = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
         self.tables = {r[0] for r in self.db.execute("select name from sqlite_master where type in ('table','view')")}
 
+    def has(self, table, col):
+        return table in self.tables and col in {r[1] for r in self.db.execute(f'pragma table_info({table})')}
+
     def rows(self, table, cols):
         if table not in self.tables:
             die(f'table {table} missing from the web graph (contract: graph/test/web/tools/normalize.py)')
@@ -156,15 +165,24 @@ def main():
             emit('element', key[uid], tag, hid, ' '.join((cls or '').split()))
             emit('contains', key.get(par) if par else key.get(p), key[uid])
         attrs = g.rows('web_attributes', ['uid', 'element_uid', 'name', 'value'])
+        a_line, a_file = {}, {}
+        if g.has('web_attributes', 'line') and g.has('web_attributes', 'file'):
+            for uid, f, ln in g.rows('web_attributes', ['uid', 'file', 'line']):
+                a_line[uid], a_file[uid] = ln, f
         attr_name = {}
         attrs = [a for a in attrs if a[1] not in iframe_text]
         for uid, e, n, v in attrs:
             attr_name[uid] = n
             emit('attribute', key.get(e), n, v)
-        for _u, e, pos, c in g.rows('web_class_tokens', ['uid', 'element_uid', 'position', 'class_name']):
+            if a_line.get(uid) is not None:
+                emit('attr_at', key.get(e), n, f'{a_file.get(uid)}:{a_line[uid]}')
+        dyn_col = 'dynamic' if g.has('web_class_tokens', 'dynamic') else None
+        for _u, e, pos, c, *dy in g.rows('web_class_tokens', ['uid', 'element_uid', 'position', 'class_name'] + ([dyn_col] if dyn_col else [])):
             if e in iframe_text:
                 continue
             emit('class_token', key.get(e), pos, c)
+            if dy and str(dy[0]).lower() in ('1', 'true'):
+                emit('dynamic_class_token', key.get(e), pos, c)
         for _u, e, a, url, uk, res in g.rows('web_references', ['uid', 'element_uid', 'attribute_name', 'url_as_written', 'url_kind', 'resolved_file']):
             if e in iframe_text:
                 continue
@@ -305,7 +323,13 @@ def main():
             for h, fr, kd, he, pos, f, ln, col, args, st, rs, _ru in incl:
                 emit('include', key.get(h, h) if h else None, key.get(fr, fr) if fr else None, kd, key.get(he, he) if he else None,
                      pos, f'{f}:{ln}:{col}', (args or '').strip(), st, rs)
-        if want('styles') or want('cascade') or want('scope') or want('host_styles'):
+        # [V2-22] web_styles.loads: every sheet_order of the loads of the row's sheet on the page (one row per
+        # (selector, element, page)); emitted as styles_loads when there is more than one
+        s_loads = {}
+        if want('styles_loads') and g.has('web_styles', 'loads'):
+            for s_, e_, p_, lo in g.rows('web_styles', ['selector_uid', 'element_uid', 'page_uid', 'loads']):
+                s_loads[(s_, e_, p_)] = lo
+        if want('styles') or want('cascade') or want('scope') or want('host_styles') or want('styles_loads'):
             for s, e, p, st, rs, pe, cond, a, b, c, lr, so, ro, ic, sr, sp, hp in g.rows('web_styles', [
                     'selector_uid', 'element_uid', 'page_uid', 'status', 'reason', 'pseudo_element', 'conditions',
                     'spec_a', 'spec_b', 'spec_c', 'layer_rank', 'sheet_order', 'rule_order', 'important_count',
@@ -320,6 +344,10 @@ def main():
                     emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
                     emit('cascade', key.get(p), key.get(s), key.get(e), so, ro, lr, f'{a},{b},{c}', ic, cond)
+                    if want('styles_loads') and s_loads.get((s, e, p)):
+                        lo = sorted({int(x) for x in str(s_loads[(s, e, p)]).replace(';', ',').split(',') if x.strip().isdigit()})
+                        if len(lo) > 1:
+                            emit('styles_loads', key.get(s), key.get(e), key.get(p), ','.join(map(str, lo)))
         b = lambda v: 1 if str(v).lower() in ('1', 'true') else 0
         if want('component') or want('component_slot'):
             occ = {}
@@ -347,8 +375,9 @@ def main():
             for e, ps, pr, d, oc, lr in g.rows('web_cascade', ['element', 'pseudo', 'property', 'decl', 'outcome', 'lost_reason']):
                 emit('cascade_entry', key.get(e), ps, pr, key.get(d), oc, lr)
         if want('token'):
-            for k, v, u, pu in g.rows('web_tokens', ['kind', 'value', 'uses', 'project_uses']):
-                emit('token', k, v, u, pu)
+            un_col = ['unused'] if g.has('web_tokens', 'unused') else []
+            for k, v, u, pu, *un in g.rows('web_tokens', ['kind', 'value', 'uses', 'project_uses'] + un_col):
+                emit('token', k, v, u, pu, b(un[0]) if un else None)
         if want('breakpoint') or want('rule_breakpoint'):
             media = {}
             for bu, m, mn, mx, un, nr, ns in g.rows('web_breakpoints', ['uid', 'media', 'min_px', 'max_px', 'unit', 'rules', 'sheets']):
@@ -358,8 +387,9 @@ def main():
                 for ru, bu, dp in g.rows('web_rule_breakpoints', ['rule_uid', 'breakpoint_uid', 'depth']):
                     emit('rule_breakpoint', key.get(ru), media.get(bu), dp)
         if want('form'):
-            for e, ac, ap, me, nc in g.rows('web_forms', ['element_uid', 'action', 'action_resolved_page', 'method', 'controls']):
-                emit('form', key.get(e), ac, key.get(ap, ap) if ap else None, (me or 'get').lower(), nc)
+            ia_col = ['implicit_action'] if g.has('web_forms', 'implicit_action') else []
+            for e, ac, ap, me, nc, *ia in g.rows('web_forms', ['element_uid', 'action', 'action_resolved_page', 'method', 'controls'] + ia_col):
+                emit('form', key.get(e), ac, key.get(ap, ap) if ap else None, (me or 'get').lower(), nc, b(ia[0]) if ia else None)
         if want('form_control'):
             for e, fu, tag, ty, nm, rq, lu, lv in g.rows('web_form_controls', ['element_uid', 'form_uid', 'tag', 'type', 'name', 'required', 'label_uid', 'label_via']):
                 emit('form_control', key.get(e), key.get(fu) if fu else None, tag, ty, nm, b(rq), key.get(lu) if lu else None, lv)

@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 3 — V2-01: at = the element start tag / rule line, via_at = the class or handler attribute line, read against the source
+# Q24v: state-conditional rules styling E, at the rule's own line
+# grade=SET section=web role=styled_by fields=at filter=state
+# ask: impact page.html:5
+css/s.css:1

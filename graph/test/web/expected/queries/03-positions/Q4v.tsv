@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 3 — V2-01: at = the element start tag / rule line, via_at = the class or handler attribute line, read against the source
+# Q4v: elements carrying class C: element start and the class attribute
+# grade=SET section=web role=carries fields=at,via_at filter=-
+# ask: impact .font-semibold
+page.html:5	page.html:6
+page.html:8	page.html:8

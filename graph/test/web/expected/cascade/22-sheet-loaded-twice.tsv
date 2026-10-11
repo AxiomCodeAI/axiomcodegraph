@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: cascade/22-sheet-loaded-twice   kinds: styles,cascade,styles_loads
+# shape: a page that links the same vendor sheet twice (once in <head>, once again before </body>) with a page
+cascade	index.html	css/a.css:1:1/0	index.html:8:1	3	1	1	0,1,0	0	-
+cascade	index.html	css/b.css:1:1/0	index.html:8:1	2	1	1	0,1,0	0	-
+styles	css/a.css:1:1/0	index.html:8:1	match	-	-
+styles	css/b.css:1:1/0	index.html:8:1	match	-	-
+styles_loads	css/a.css:1:1/0	index.html:8:1	index.html	1,3

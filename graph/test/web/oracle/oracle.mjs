@@ -13,7 +13,7 @@
 // HTML and CSS only (owner ruling, 2026-10-10): <script> and on* attributes are HTML nodes; no JavaScript is parsed.
 import fs from 'node:fs';
 import path from 'node:path';
-import { walk, row, isMinifiedText, isVendor, resolveUrl, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
+import { walk, row, isMinifiedText, isVendor, resolveUrl, setSiteRoot, classTokens, MAX_BYTES, MAX_LINES, HTML_EXT, CSS_EXT, LineMap } from './lib/util.mjs';
 import { parsePage, bodyOf, attrValueRaw, DIRECTIVE_RE, TEMPLATE_IN_VALUE } from './lib/html.mjs';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import * as conv from './lib/convert.mjs';
@@ -33,6 +33,7 @@ const KINDS = opt('kinds', '') ? new Set(opt('kinds', '').split(',')) : null;
 const STYLE_KINDS = ['styles', 'cascade', 'unknown', 'l1', 'var', 'var_scope', 'keyframes_use', 'font_use', 'container_use', 'usage', 'rule_usage', 'computed', 'cascade_entry', 'class'];
 const DO_STYLES = !flag('no-styles') && (!KINDS || STYLE_KINDS.some((k) => KINDS.has(k)));
 const root = path.resolve(projectDir);
+setSiteRoot(root);
 
 const rows = [];
 const usageInput = []; // styles/unknown rows, kept whatever --kinds selects (the usage pass reads them)
@@ -95,7 +96,8 @@ const effectiveDialects = (page, seen = new Set([page.rel])) => {
 for (const r of includeRefs) {
   const extendsRow = r.kind === 'jinja:extends';
   const at = `${r.page.rel}:${r.line}:${r.col}`;
-  for (const t of r.targets) {
+  // [iter3 orchestrator] jinja:import is a reference only: macros, not markup; no web_includes row, no host
+  if (r.kind !== 'jinja:import') for (const t of r.targets) {
     emit('include', extendsRow ? t : r.page.rel, extendsRow ? r.page.rel : t, r.kind, extendsRow ? '-' : r.hostKey ?? '-', extendsRow ? '-' : r.position, at, r.args, r.status, r.reason);
   }
   if (r.asserted) continue; // no reference exists for an asserted include
@@ -137,14 +139,19 @@ for (const page of pages) {
   let scriptOrder = 0;
   const dialects = effectiveDialects(page);
   for (const el of page.elements) {
-    const cls = (el.node.attribs?.class ?? '').split(/[\t\n\f\r ]+/).filter(Boolean);
+    const ct = classTokens(el.node.attribs?.class);
+    const cls = ct.map((t) => t.tok);
     const id = el.node.attribs?.id ?? '';
     emit('element', el.key, el.tag, id, cls.join(' '));
+    // [V2-15] a token written with a template expression is a class token AND flagged dynamic
+    ct.forEach((t, i) => { if (t.dynamic) emit('dynamic_class_token', el.key, i, t.tok); });
     emit('contains', el.parentKey ?? page.rel, el.key);
     if (id !== '') idCount.set(id, [...(idCount.get(id) ?? []), el]);
     cls.forEach((c, i) => emit('class_token', el.key, i, c));
     for (const a of el.attrs) {
       emit('attribute', el.key, a.name, a.value);
+      // [V2-01] where the attribute is written: an answer's `via_at` (its `at` is the element's own start)
+      emit('attr_at', el.key, a.name, `${page.rel}:${a.line}`);
       const lname = a.name.toLowerCase();
       // references
       const tags = URL_ATTRS[lname];
@@ -411,6 +418,7 @@ const rewrite = (t, scoped = false) => { const k = `${scoped ? 'S' : 'U'}${t}`; 
 let l1Count = 0; let stylesCount = 0;
 const pageMatches = new Map();
 const carrierMiss = new Set();
+const cascadeBuf = new Map(); // page\0sel\0el -> {best, orders}
 const carrierAcc = new Map(); // page -> {classes, ids, sels: selKey -> {matched, required}} over all the page's views
 const contenderLoads = []; // every (page, element, pseudo, rule, selector, load) with a match/conditional styles row (SPEC 9.2) // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
@@ -471,7 +479,7 @@ if (DO_STYLES) for (const v of views) {
   const staticClasses = acc.classes; const staticIds = acc.ids;
   for (const el of page.elements) {
     if (!page.report(el.key) && page.viewKind === 'extends') continue;
-    for (const c of (el.node.attribs?.class ?? '').split(/\s+/).filter(Boolean)) staticClasses.add(page.quirks ? c.toLowerCase() : c);
+    for (const { tok: c, dynamic } of classTokens(el.node.attribs?.class)) if (!dynamic) staticClasses.add(page.quirks ? c.toLowerCase() : c);
     if (el.node.attribs?.id) staticIds.add(page.quirks ? el.node.attribs.id.toLowerCase() : el.node.attribs.id);
   }
   const dyn = [...page.dynamicKeys].map((k) => page.byKey.get(k));
@@ -519,7 +527,18 @@ if (DO_STYLES) for (const v of views) {
             emit('styles', sel.key, el.key, status, rs, rw.pseudoElement); stylesCount += 1;
             if (scopeOf) { const so = scopeOf.get(n); emit('scope', sel.key, el.key, so.root, so.prox); }
           });
-          if (status !== 'unknown') emit('cascade', page.rel, sel.key, el.key, load.order, r.order, layerRank(layer), sel.spec ?? '-', r.important, atConds.join(' && ') || '-');
+          if (status !== 'unknown') {
+            // [V2-22] one cascade row per (page, selector, element): the winning load (an exact one over a conditional
+            // one, then the later) gives the position; every load's sheet_order is listed (styles_loads, > 1 only)
+            const ck = `${page.rel}\u0000${sel.key}\u0000${el.key}`;
+            const cand = { f: [page.rel, sel.key, el.key, load.order, r.order, layerRank(layer), sel.spec ?? '-', r.important, atConds.join(' && ') || '-'], exact: status === 'match', so: load.order };
+            const prev = cascadeBuf.get(ck);
+            if (!prev) cascadeBuf.set(ck, { best: cand, orders: [load.order] });
+            else {
+              prev.orders.push(load.order);
+              if ((cand.exact && !prev.best.exact) || (cand.exact === prev.best.exact && cand.so > prev.best.so)) prev.best = cand;
+            }
+          }
           if (status !== 'unknown') contenderLoads.push({ page: page.rel, el: el.key, pseudo: rw.pseudoElement || '', rule: r, sel, status, so: load.order, lr: layerRank(layer), spec: sel.spec, sheet: s, conds: atConds });
         }
         // L1: what the browser tree (implied elements present) decides differently
@@ -584,6 +603,12 @@ if (DO_STYLES) for (const v of views) {
   const own = new Map();
   for (const [k, e] of matchesHere) own.set(k, { ...e, elems: new Map([...e.elems].filter(([ek]) => page.report(ek) === 'own')) });
   pageMatches.set(page.rel, own);
+}
+
+// [V2-22] the cascade rows, one per (page, selector, element)
+for (const { best, orders } of cascadeBuf.values()) {
+  emit('cascade', ...best.f);
+  if (orders.length > 1) emit('styles_loads', best.f[1], best.f[2], best.f[0], [...new Set(orders)].sort((a, b) => a - b).join(','));
 }
 
 // no_static_carrier per page, over all its views

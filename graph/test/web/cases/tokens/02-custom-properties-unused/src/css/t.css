@@ -1,0 +1,4 @@
+:root { --color-gray-200: #eee; --breakpoint-sm: 40rem; --rgb: 0, 0, 0; }
+.a { color: var(--color-gray-200); border-color: var(--color-gray-200); }
+.b { text-shadow: 0 /*{a-bar-shadow-x}*/ -1px /*{a-bar-shadow-y}*/ 0 #000; }
+.c { background: rgba(var(--rgb), .65); }

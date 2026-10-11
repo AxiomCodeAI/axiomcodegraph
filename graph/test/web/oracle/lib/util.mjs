@@ -84,6 +84,49 @@ export const isVendor = (rel) => VENDOR_RE.test(rel) || /\.min\.css$/i.test(rel)
  *  kind: local | external | data | template | fragment | scheme | empty
  *  target: repo-relative posix path (no query/fragment) for local URLs that stay inside root.
  */
+// The project root, for root-relative URLs (set once by oracle.mjs).
+let SITE_ROOT = null;
+export function setSiteRoot(abs) { SITE_ROOT = abs; }
+const existsRel = (rel) => { if (!SITE_ROOT) return false; try { return fs.statSync(path.join(SITE_ROOT, rel)).isFile(); } catch { return false; } };
+
+/**
+ * A root-relative path (`/css/x.css`) names the SITE root, which in a snapshot is often a subdirectory (public/,
+ * app/static/ …). [iter3 orchestrator, V2-21] It resolves against the nearest ancestor directory of the referring
+ * file that holds the path (its own directory first), else the repository root.
+ */
+function siteRootJoin(p, fromRel) {
+  let dir = path.posix.dirname(fromRel);
+  for (;;) {
+    const c = path.posix.normalize(dir === '.' ? p : `${dir}/${p}`);
+    const probe = c.endsWith('/') || c === '.' ? path.posix.join(c, 'index.html') : c;
+    if (!probe.startsWith('..') && existsRel(probe)) return c;
+    if (dir === '.') return p;
+    dir = path.posix.dirname(dir);
+  }
+}
+
+/** Class attribute tokens as written: whitespace separates tokens except inside a template expression
+ * ({{ }}, {% %}, <% %>, ${ }), so `btn-{{ kind }}` is ONE token. A token holding a template expression is
+ * dynamic ([iter3 orchestrator, V2-15]: kept and flagged, never dropped). Returns [{tok, dynamic}]. */
+export function classTokens(value) {
+  const out = []; let cur = ''; let close = null;
+  const v = value ?? '';
+  for (let i = 0; i < v.length; i++) {
+    if (!close) {
+      const two = v.slice(i, i + 2);
+      const c = { '{{': '}}', '{%': '%}', '<%': '%>', '${': '}' }[two];
+      if (c) { close = c; cur += two; i++; continue; }
+      if (/[\t\n\f\r ]/.test(v[i])) { if (cur) out.push(cur); cur = ''; continue; }
+      cur += v[i];
+    } else {
+      if (v.startsWith(close, i)) { cur += close; i += close.length - 1; close = null; continue; }
+      cur += v[i];
+    }
+  }
+  if (cur) out.push(cur);
+  return out.map((tok) => ({ tok, dynamic: /\{\{|\{%|<%|\$\{/.test(tok) }));
+}
+
 export function resolveUrl(raw, fromRel, baseHref) {
   const u = (raw ?? '').trim();
   if (u === '') return { kind: 'empty' };
@@ -107,7 +150,7 @@ export function resolveUrl(raw, fromRel, baseHref) {
     }
   }
   if (p === '') return { kind: 'local', target: fromRel, fragment, selfOnly: true };
-  let joined = p.startsWith('/') ? p.slice(1) : path.posix.join(baseDir === '.' ? '' : baseDir, p);
+  let joined = p.startsWith('/') ? siteRootJoin(p.replace(/^\/+/, ''), fromRel) : path.posix.join(baseDir === '.' ? '' : baseDir, p);
   joined = path.posix.normalize(joined);
   if (joined.startsWith('..')) return { kind: 'local', target: null, fragment };
   if (joined.endsWith('/') || joined === '.') joined = path.posix.join(joined, 'index.html');

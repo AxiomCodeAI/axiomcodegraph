@@ -1,0 +1,4 @@
+# qid	template	grade	section	role	fields	ask	derive
+Q4v	elements carrying class C: element start and the class attribute	SET	web	carries	at,via_at	impact .font-semibold	carries_via font-semibold
+Q12v	handlers on P: element start and the handler attribute	SET	web	handlers	at,via_at,event	impact page.html	handlers_via page.html
+Q24v	state-conditional rules styling E, at the rule's own line	SET	web	styled_by	at	impact page.html:5	styled_by_state page.html:5

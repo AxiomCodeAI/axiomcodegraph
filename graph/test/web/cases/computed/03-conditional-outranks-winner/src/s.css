@@ -1,0 +1,3 @@
+.btn { color: blue; }
+.btn.x:hover { color: red; text-decoration: underline; }
+@media (max-width: 600px) { a.btn.x { color: green; } }

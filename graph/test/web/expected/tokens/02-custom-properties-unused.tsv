@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: tokens/02-custom-properties-unused   kinds: token
+# shape: a Tailwind-style @theme / :root block declaring many custom properties of which a few are used, a
+token	color	#000000	1	1	0
+token	color	#eeeeee	1	1	0
+token	custom_property	--breakpoint-sm	0	0	1
+token	custom_property	--color-gray-200	2	2	0
+token	custom_property	--rgb	1	1	0
+token	shadow	0 -1px 0 #000	1	1	0

@@ -1,0 +1,1 @@
+.box { --boxColor: red; --boxcolor: blue; BACKGROUND: var(--boxColor); }
