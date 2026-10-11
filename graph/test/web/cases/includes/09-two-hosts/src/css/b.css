@@ -1,0 +1,3 @@
+.card { color: blue }
+.dark .card .t { a: 2 }
+.light .card { a: 3 }

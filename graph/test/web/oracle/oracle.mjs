@@ -406,6 +406,7 @@ const rewrite = (t, scoped = false) => { const k = `${scoped ? 'S' : 'U'}${t}`; 
 let l1Count = 0; let stylesCount = 0;
 const pageMatches = new Map();
 const carrierMiss = new Set();
+const carrierAcc = new Map(); // page -> {classes, ids, sels: selKey -> {matched, required}} over all the page's views
 const contenderLoads = []; // every (page, element, pseudo, rule, selector, load) with a match/conditional styles row (SPEC 9.2) // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
 // Views (SPEC §11.2): every DOCUMENT page, matched in its tree with its includes expanded (its own elements report
@@ -439,7 +440,9 @@ function makeView(v) {
   }
   const dynamicKeys = new Set([...memberPages].flatMap((p) => [...p.dynamicKeys]).filter((k) => byKey.has(k)));
   const dynamicAttrKeys = new Set([...memberPages].flatMap((p) => [...p.dynamicAttrKeys]).filter((k) => byKey.has(k)));
-  const report = v.kind === 'extends' ? (k) => (base.byKey.has(k) ? null : 'host') : (k) => (base.byKey.has(k) ? 'own' : 'host');
+  // an extends view reports the child's elements (and what the child includes) only; the layout's own and its own
+  // includes' are reported by the layout's page view
+  const report = v.kind === 'extends' ? (k) => (c.childKeys.has(k) ? 'host' : null) : (k) => (base.byKey.has(k) ? 'own' : 'host');
   return Object.assign(Object.create(base), { base, writtenRoot: c.root, byKey, elements, dynamicKeys, dynamicAttrKeys, report, composed: true, viewKind: v.kind });
 }
 
@@ -456,8 +459,13 @@ if (DO_STYLES) for (const v of views) {
   const comp = (q) => { if (!compiled.has(q)) compiled.set(q, compileQuery(q, pseudos, page.quirks)); return compiled.get(q); };
   // layer ranks over this page's sheet order (SPEC 3.3)
   const layerRank = layerRanks(loads);
-  const staticClasses = new Set(); const staticIds = new Set();
+  // carriers are counted over every view of the page (SPEC 11.2: an included or extending fragment's classes count
+  // as carried on its host); decided after all views (carrierAcc)
+  if (!carrierAcc.has(page.rel)) carrierAcc.set(page.rel, { quirks: page.quirks, classes: new Set(), ids: new Set(), sels: new Map() });
+  const acc = carrierAcc.get(page.rel);
+  const staticClasses = acc.classes; const staticIds = acc.ids;
   for (const el of page.elements) {
+    if (!page.report(el.key) && page.viewKind === 'extends') continue;
     for (const c of (el.node.attribs?.class ?? '').split(/\s+/).filter(Boolean)) staticClasses.add(page.quirks ? c.toLowerCase() : c);
     if (el.node.attribs?.id) staticIds.add(page.quirks ? el.node.attribs.id.toLowerCase() : el.node.attribs.id);
   }
@@ -557,9 +565,9 @@ if (DO_STYLES) for (const v of views) {
             }
           }
         }
-        if (selEntry.elems.size === 0) {
-          const missing = rw.required.filter((t) => (t[0] === '.' ? !staticClasses.has(page.quirks ? t.slice(1).toLowerCase() : t.slice(1)) : !staticIds.has(page.quirks ? t.slice(1).toLowerCase() : t.slice(1))));
-          if (missing.length) selEntry.unmatched = 'no_static_carrier';
+        {
+          const a = acc.sels.get(sel.key) ?? { matched: false, required: rw.required }; acc.sels.set(sel.key, a);
+          if (selEntry.elems.size > 0) a.matched = true;
         }
       }
     }
@@ -567,11 +575,19 @@ if (DO_STYLES) for (const v of views) {
   // per page: a required class/id with no static carrier on THIS page (the view web_selector_unmatched_pages keeps
   // this meaning; the selector row carries usage and the reason)
   if (!ownView) continue;
-  for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) { carrierMiss.add(k); emit('unknown', 'no_static_carrier', k, page.rel); }
   // the value-level pass below reads the page's OWN elements only
   const own = new Map();
   for (const [k, e] of matchesHere) own.set(k, { ...e, elems: new Map([...e.elems].filter(([ek]) => page.report(ek) === 'own')) });
   pageMatches.set(page.rel, own);
+}
+
+// no_static_carrier per page, over all its views
+for (const [rel, acc] of carrierAcc) {
+  const q = (t) => (acc.quirks ? t.slice(1).toLowerCase() : t.slice(1));
+  for (const [k, a] of acc.sels) {
+    if (a.matched) continue;
+    if (a.required.some((t) => (t[0] === '.' ? !acc.classes.has(q(t)) : !acc.ids.has(q(t))))) { carrierMiss.add(k); emit('unknown', 'no_static_carrier', k, rel); }
+  }
 }
 
 /**

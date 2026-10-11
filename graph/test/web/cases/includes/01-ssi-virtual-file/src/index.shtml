@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<!--#include virtual="inc/header.html" -->
+<p>home</p>
+</body>
+</html>

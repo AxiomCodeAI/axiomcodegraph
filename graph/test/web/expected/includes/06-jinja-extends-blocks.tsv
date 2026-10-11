@@ -1,0 +1,21 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/06-jinja-extends-blocks   kinds: page,include,host_styles,styles,unknown,usage
+# shape: a Flask/Django app: templates/base.html with {% block %} slots and an {% include %}d navbar, pages that
+host_styles	static/site.css:1:1/0	app/templates/page.html:5:1	app/templates/base.html	match	-	-
+host_styles	static/site.css:3:1/0	app/templates/partials/nav.html:1:1	app/templates/base.html	match	-	-
+host_styles	static/site.css:4:1/0	app/templates/page.html:5:23	app/templates/base.html	match	-	-
+include	app/templates/base.html	app/templates/page.html	jinja:extends	-	-	app/templates/page.html:1:1	-	match	-
+include	app/templates/base.html	app/templates/partials/nav.html	jinja:include	app/templates/base.html:7:1	0	app/templates/base.html:8:1	-	match	-
+include	app/templates/page.html	app/templates/macros.html	jinja:import	-	0	app/templates/page.html:2:1	-	match	-
+page	app/templates/base.html	DOCUMENT
+page	app/templates/macros.html	FRAGMENT
+page	app/templates/page.html	FRAGMENT
+page	app/templates/partials/nav.html	FRAGMENT
+styles	static/site.css:2:1/0	app/templates/base.html:10:20	match	-	-
+unknown	fragment_no_host	app/templates/macros.html	app/templates/macros.html
+unknown	no_static_carrier	static/site.css:5:1/0	app/templates/base.html
+usage	static/site.css:1:1/0	matched	-	1	1	0
+usage	static/site.css:2:1/0	matched	-	1	1	0
+usage	static/site.css:3:1/0	matched	-	1	1	0
+usage	static/site.css:4:1/0	matched	-	1	1	0
+usage	static/site.css:5:1/0	unmatched_static	no_static_carrier	1	0	1

@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/08-include-in-template   kinds: page,include,host_styles,styles
+# shape: a posthtml page that stamps a row partial inside a <template> used by a client-side list renderer: the
+host_styles	css/s.css:1:1/0	parts/row.html:1:1	index.html	conditional	inert:template	-
+host_styles	css/s.css:2:1/0	parts/row.html:1:1	index.html	conditional	inert:template	-
+host_styles	css/s.css:3:1/0	parts/live.html:1:1	index.html	match	-	-
+include	index.html	parts/live.html	posthtml:include	index.html:8:1	0	index.html:8:5	-	match	-
+include	index.html	parts/row.html	posthtml:include	index.html:7:1	0	index.html:7:20	-	match	-
+page	index.html	DOCUMENT
+page	parts/live.html	FRAGMENT
+page	parts/row.html	FRAGMENT

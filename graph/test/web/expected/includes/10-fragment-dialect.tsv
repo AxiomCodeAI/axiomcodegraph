@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/10-fragment-dialect   kinds: page,include,handler
+# shape: an Alpine dashboard whose overlay partial carries @click and :class but no x-data of its own (the x-data
+handler	partials/overlay.html:1:1	@click	click	written	-	alpine	12	|open = false
+include	index.html	partials/overlay.html	posthtml:include	index.html:3:1	0	index.html:4:1	-	match	-
+page	index.html	DOCUMENT
+page	partials/overlay.html	FRAGMENT
+page	partials/unused.html	FRAGMENT

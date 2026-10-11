@@ -1,0 +1,6 @@
+.hdr { a: 1 }
+.hdr .logo { a: 2 }
+body > .hdr { a: 3 }
+.m > .note { a: 4 }
+.note + p { a: 5 }
+.sec { a: 6 }

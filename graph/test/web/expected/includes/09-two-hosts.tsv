@@ -1,0 +1,18 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/09-two-hosts   kinds: page,include,host_styles,usage,unknown
+# shape: one card partial included by two pages that load different stylesheets (an admin page with a dark theme
+host_styles	css/a.css:1:1/0	parts/card.html:1:1	a.html	match	-	-
+host_styles	css/a.css:2:1/0	parts/card.html:1:19	a.html	match	-	-
+host_styles	css/b.css:1:1/0	parts/card.html:1:1	b.html	match	-	-
+host_styles	css/b.css:2:1/0	parts/card.html:1:19	b.html	match	-	-
+include	a.html	parts/card.html	posthtml:include	a.html:6:1	0	a.html:7:1	-	match	-
+include	b.html	parts/card.html	posthtml:include	b.html:7:1	0	b.html:7:6	-	match	-
+page	a.html	DOCUMENT
+page	b.html	DOCUMENT
+page	parts/card.html	FRAGMENT
+unknown	no_static_carrier	css/b.css:3:1/0	b.html
+usage	css/a.css:1:1/0	matched	-	1	1	0
+usage	css/a.css:2:1/0	matched	-	1	1	0
+usage	css/b.css:1:1/0	matched	-	1	1	0
+usage	css/b.css:2:1/0	matched	-	1	1	0
+usage	css/b.css:3:1/0	unmatched_static	no_static_carrier	1	0	1

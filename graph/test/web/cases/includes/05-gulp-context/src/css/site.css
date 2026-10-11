@@ -1,0 +1,5 @@
+.nav a { a: 1 }
+body > .nav { a: 2 }
+.crumbs li { a: 3 }
+.m > .hero h1 { a: 4 }
+.hero + .crumbs { a: 5 }

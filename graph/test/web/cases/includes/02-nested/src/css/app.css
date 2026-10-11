@@ -1,0 +1,5 @@
+.shell .b { a: 1 }
+.shell > .a { a: 2 }
+.a > .b { a: 3 }
+.b { a: 4 }
+.shell > .b { a: 5 }

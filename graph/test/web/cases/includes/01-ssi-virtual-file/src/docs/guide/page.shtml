@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="../../css/site.css">
+</head>
+<body>
+<!--#include virtual="/inc/header.html" -->
+<main class="m">
+<!--#include file="note.html" -->
+<p>t</p>
+</main>
+<!--#include virtual="/inc/menu.inc" -->
+<!--#include virtual="/inc/gone.html" -->
+</body>
+</html>

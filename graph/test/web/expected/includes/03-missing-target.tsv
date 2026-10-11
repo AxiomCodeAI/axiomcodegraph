@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/03-missing-target   kinds: page,include,reference,unknown
+# shape: include directives a static reader cannot follow: a partial deleted from the snapshot, a path built from a
+include	index.html	-	jinja:include	index.html:8:1	0	index.html:8:16	-	unknown	template_url
+include	index.html	-	posthtml:include	index.html:5:1	0	index.html:6:1	-	unknown	unresolved_url
+include	index.html	-	ssi:virtual	index.html:7:1	0	index.html:7:19	-	unknown	template_url
+page	index.html	DOCUMENT
+page	parts/orphan.html	FRAGMENT
+reference	index.html:6:1	posthtml:include	parts/missing.html	local	-
+reference	index.html:6:1	src	parts/missing.html	local	-
+reference	index.html:7:1	ssi:virtual	/inc/$LANG/head.html	template	-
+reference	index.html:8:1	jinja:include	partial_name	template	-
+unknown	fragment_no_host	parts/orphan.html	parts/orphan.html

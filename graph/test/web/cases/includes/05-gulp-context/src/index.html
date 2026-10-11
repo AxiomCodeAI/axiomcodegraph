@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+@@include("partials/nav.html")
+<main class="m">
+@@include('./partials/hero.html', {
+  "title": "Home",
+  "tags": ["a", "b"]
+})
+@@include('./partials/crumbs.html', {"items": [{"label": "Home"}]})
+</main>
+</body>
+</html>

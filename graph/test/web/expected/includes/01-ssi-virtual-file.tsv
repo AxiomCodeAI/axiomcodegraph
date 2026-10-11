@@ -1,0 +1,33 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/01-ssi-virtual-file   kinds: page,include,reference,host_styles,styles,unknown
+# shape: an SSI community site (.shtml pages, header/footer/menu partials pulled in with <!--#include virtual="/inc/..." -->
+host_styles	css/site.css:1:1/0	docs/inc/header.html:1:1	docs/guide/page.shtml	match	-	-
+host_styles	css/site.css:1:1/0	inc/header.html:1:1	index.shtml	match	-	-
+host_styles	css/site.css:2:1/0	inc/header.html:1:21	index.shtml	match	-	-
+host_styles	css/site.css:3:1/0	docs/inc/header.html:1:1	docs/guide/page.shtml	match	-	-
+host_styles	css/site.css:3:1/0	inc/header.html:1:1	index.shtml	match	-	-
+host_styles	css/site.css:4:1/0	docs/guide/note.html:1:1	docs/guide/page.shtml	match	-	-
+host_styles	css/site.css:6:1/0	docs/inc/header.html:1:1	docs/guide/page.shtml	match	-	-
+include	docs/guide/page.shtml	-	ssi:virtual	docs/guide/page.shtml:6:1	1	docs/guide/page.shtml:12:1	-	unknown	not_indexed
+include	docs/guide/page.shtml	-	ssi:virtual	docs/guide/page.shtml:6:1	1	docs/guide/page.shtml:13:1	-	unknown	unresolved_url
+include	docs/guide/page.shtml	docs/guide/note.html	ssi:file	docs/guide/page.shtml:8:1	0	docs/guide/page.shtml:9:1	-	match	-
+include	docs/guide/page.shtml	docs/inc/header.html	ssi:virtual	docs/guide/page.shtml:6:1	0	docs/guide/page.shtml:7:1	-	match	-
+include	index.shtml	inc/header.html	ssi:virtual	index.shtml:6:1	0	index.shtml:7:1	-	match	-
+page	docs/guide/note.html	FRAGMENT
+page	docs/guide/page.shtml	DOCUMENT
+page	docs/inc/header.html	FRAGMENT
+page	inc/header.html	FRAGMENT
+page	index.shtml	DOCUMENT
+reference	docs/guide/page.shtml:4:1	href	../../css/site.css	local	css/site.css
+reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/gone.html	local	-
+reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/header.html	local	docs/inc/header.html
+reference	docs/guide/page.shtml:6:1	ssi:virtual	/inc/menu.inc	local	-
+reference	docs/guide/page.shtml:8:1	ssi:file	note.html	local	docs/guide/note.html
+reference	inc/header.html:1:21	href	/	local	-
+reference	index.shtml:4:1	href	css/site.css	local	css/site.css
+reference	index.shtml:6:1	ssi:virtual	inc/header.html	local	inc/header.html
+styles	css/site.css:5:1/0	docs/guide/page.shtml:10:1	match	-	-
+unknown	no_static_carrier	css/site.css:2:1/0	docs/guide/page.shtml
+unknown	no_static_carrier	css/site.css:4:1/0	index.shtml
+unknown	no_static_carrier	css/site.css:5:1/0	index.shtml
+unknown	no_static_carrier	css/site.css:6:1/0	index.shtml

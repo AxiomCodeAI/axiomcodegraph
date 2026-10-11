@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and SPEC §11.2 (resolution per kind, host element and position by the written tree, composed-tree matches per host, cycle cut, carriers over hosts)
+# case: includes/07-jinja-ambiguous-root   kinds: page,include,reference,unknown
+# shape: a multi-app Django project where two apps ship a templates/ directory holding the same partial name
+include	shop/templates/list.html	blog/templates/row.html	jinja:include	shop/templates/list.html:4:1	0	shop/templates/list.html:5:1	-	ambiguous	ambiguous_template_root
+include	shop/templates/list.html	shop/templates/row.html	jinja:include	shop/templates/list.html:4:1	0	shop/templates/list.html:5:1	-	ambiguous	ambiguous_template_root
+page	blog/templates/row.html	FRAGMENT
+page	shop/templates/list.html	DOCUMENT
+page	shop/templates/row.html	FRAGMENT
+reference	shop/templates/list.html:4:1	jinja:include	row.html	local	-
+unknown	fragment_no_host	blog/templates/row.html	blog/templates/row.html
+unknown	fragment_no_host	shop/templates/row.html	shop/templates/row.html

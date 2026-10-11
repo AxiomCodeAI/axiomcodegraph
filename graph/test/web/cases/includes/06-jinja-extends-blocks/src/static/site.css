@@ -1,0 +1,5 @@
+.content > .card { a: 1 }
+.content > .default { a: 2 }
+body > .nav { a: 3 }
+.card .btn { a: 4 }
+.side { a: 5 }

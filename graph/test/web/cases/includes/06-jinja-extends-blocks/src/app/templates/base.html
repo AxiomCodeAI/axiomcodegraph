@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="/static/site.css">
+<title>{% block title %}{% endblock %}</title>
+</head>
+<body>
+{% include "partials/nav.html" %}
+<main class="content">
+{% block content %}<p class="default">d</p>{% endblock %}
+</main>
+</body>
+</html>

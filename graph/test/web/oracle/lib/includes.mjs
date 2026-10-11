@@ -255,7 +255,6 @@ export function composeExtends(layout, child, pageByPath, refsByPage) {
     parent.children = parent.children.filter((n) => !defaults.includes(n)); relink(parent);
     splice(parent, tops, position, null);
   }
-  const keep = new Set(C.members.map((m) => m.node));
-  const members = [...L.members.filter((m) => m.page === layout), ...C.members.filter((m) => keep.has(m.node))];
-  return { root: L.root, members };
+  // every element copy (the caller keeps those its walk reaches: the child's content outside blocks is never placed)
+  return { root: L.root, members: [...L.members, ...C.members], childKeys: new Set(C.members.map((m) => m.el.key)) };
 }
