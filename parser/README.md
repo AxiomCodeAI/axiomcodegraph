@@ -52,6 +52,14 @@ a link the parser emits is correct, and a link it cannot decide is absent rather
 There is no standalone CLI. It is consumed as a library through `extractProject()` or as a
 subprocess through `dist/index.js`.
 
+**0.2.1** fixes the HTML and CSS front end. Pages and sheets get their own `<ir>/web/` folder. The web walk now reads
+`dist/`, `build/` and `out/`, and reads `.shtml` and `.shtm` pages as HTML. A relative URL can climb out of a
+sub-project up to the repository root. A bare `on*` attribute is no longer an event handler, and an XHTML page keeps
+`onclick` and `onClick` apart. On the CSS side, a comment holding braces inside a value no longer splits the rule.
+Minified keyframe selector lists and quoted `@keyframes` names now parse. A custom property whose value is
+punctuation (`:root{--x:.}`) no longer swallows the rules after it. A block left open at the end of a sheet is
+closed there, as a browser does, and gets an `UNCLOSED_BLOCK` gap row.
+
 ## The intermediate representation
 
 The IR is relational rather than tree shaped. A conventional AST answers "what is the syntax here".
