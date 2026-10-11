@@ -278,11 +278,6 @@ export class WebProjectAnalyzer {
 
   // ── the walk ──────────────────────────────────────────────────────────────
 
-  /** The walk alone, for a reader that needs the file list and not the rows. */
-  async listFiles(root: string): Promise<string[]> {
-    return this.findWebFiles(root);
-  }
-
   private async findWebFiles(root: string): Promise<string[]> {
     const files: string[] = [];
     await this.scan(root, files);
@@ -381,16 +376,6 @@ function append<T>(target: T[], rows: readonly T[]): void {
   for (const row of rows) {
     target.push(row);
   }
-}
-
-/**
- * Every HTML page the web walk would read under `root`, by the same skip rules. The JavaScript front end
- * reads their inline scripts and `on*` attributes as JavaScript modules (#1908), so the two front ends
- * must agree on which pages exist.
- */
-export async function listWebPages(root: string): Promise<string[]> {
-  const files = await new WebProjectAnalyzer(ANALYSIS_OUTPUT_DIR).listFiles(root);
-  return files.filter((f) => isHtmlFile(f)).sort();
 }
 
 export function isHtmlFile(fileName: string): boolean {

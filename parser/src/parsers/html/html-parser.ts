@@ -59,23 +59,6 @@ export interface HtmlExtraction {
   stylesheets: CssStylesheet[];
   /** The rows of every `<style>` element and every `style` attribute, together. */
   css: CssExtraction;
-  /**
-   * The JavaScript text the page holds, where it sits (0-based offsets into the file): each inline classic or
-   * module `<script>` body and each `on*` attribute value. Not a relation: the JavaScript front end reads it to
-   * index that text as JavaScript modules (`page.html#script-<n>`, `page.html#on-<n>`), per language (#1908).
-   */
-  scriptSpans: ScriptSpan[];
-}
-
-/** One piece of JavaScript inside a page. `text` is what the script engine runs (an attribute value decoded). */
-export interface ScriptSpan {
-  readonly kind: 'script' | 'on';
-  readonly start: number;
-  readonly end: number;
-  readonly text: string;
-  /** for `on`: the attribute's own start offset, the order the web graph numbers `#on-<n>` by */
-  readonly attributeStart: number;
-  readonly module: boolean;
 }
 
 /** The grammar's three element node types; `script_element` and `style_element` hold raw text. */
@@ -279,7 +262,6 @@ class Walk {
       document, elements: [], attributes: [], classReferences: [], references: [], scripts: [], handlerCalls: [],
       templateExpressions: [], parseGaps: [], stylesheets: [],
       css: { rules: [], selectors: [], selectorParts: [], declarations: [], valueReferences: [], comments: [], parseGaps: [] },
-      scriptSpans: [],
     };
   }
 
@@ -512,9 +494,6 @@ class Walk {
           this.styleAttribute(attr.value, row, element, valueAt);
           break;
         case HtmlAttributeKind.EVENT_HANDLER:
-          if (attr.valueStart !== undefined && attr.value.trim() !== '' && !TEMPLATE_MARKER.test(attr.value)) {
-            this.out.scriptSpans.push({ kind: 'on', start: attr.valueStart, end: attr.valueStart + attr.value.length, text: attr.value, attributeStart: attr.start, module: false });
-          }
           this.handler(attr.value, HtmlHandlerSource.EVENT_ATTRIBUTE, name.slice(2), row, element, attr.valueStart, valueAt);
           break;
         case HtmlAttributeKind.URL: {
@@ -844,12 +823,6 @@ class Walk {
     const body = this.bodyRange(node, tagNode);
     if (!external) {
       this.inlineScriptCount += 1;
-      const type = scriptType(typeAsWritten);
-      if (type === HtmlScriptType.CLASSIC || type === HtmlScriptType.MODULE) {
-        const raw = node.namedChildren.find((c) => c.type === 'raw_text');
-        const start = raw?.startIndex ?? tagNode.endIndex;
-        this.out.scriptSpans.push({ kind: 'script', start, end: start + body.text.length, text: body.text, attributeStart: start, module: type === HtmlScriptType.MODULE });
-      }
     }
     const srcAttribute = rows.get('src');
     const reference = srcAttribute === undefined ? undefined

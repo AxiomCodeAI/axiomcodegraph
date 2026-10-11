@@ -121,8 +121,6 @@ export interface JsFileExtractionOptions {
    * component's virtual script is JS or JSX by its `lang`, not by its name.
    */
   readonly scriptKind?: ts.ScriptKind;
-  /** the part of a page this text is (`script-2`, `on-5`): an inline script read as its own module (#1908) */
-  readonly virtualKey?: string;
 }
 
 export interface JsFileFacts {
@@ -186,7 +184,6 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     governingPackageJsonPath: options.governingPackageJsonPath,
     packageName: options.packageName,
     serviceVersionLinkHash: options.serviceVersionLinkHash,
-    virtualKey: options.virtualKey,
   });
   const fileModuleHash = moduleResult.module.getHash();
 

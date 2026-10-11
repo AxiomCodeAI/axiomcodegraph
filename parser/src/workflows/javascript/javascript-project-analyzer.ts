@@ -52,8 +52,6 @@ import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 import { scriptTextOf } from '@/utils/vue-sfc';
-import { HtmlParser } from '@/parsers/html/html-parser';
-import { listWebPages } from '@/workflows/web/web-project-analyzer';
 import {
   JsParseOutcome,
   parseFilesInPool,
@@ -598,79 +596,6 @@ export class JavaScriptProjectAnalyzer {
             outcome = { extractError: String(error) };
           }
           await consumeOutcome(file, outcome);
-        }
-      }
-
-      // INLINE JAVASCRIPT IN PAGES (#1908). A page's inline <script> bodies (classic and module) and its on*
-      // attribute values are JavaScript, and every function in them is a function of this graph. Each is read as
-      // a module of its own whose file is the PAGE: the text is the page with everything but that script blanked
-      // (newlines kept), so every row's line and column point into the .html file. Its module key and qualified
-      // name carry `#script-<n>` / `#on-<n>` (n in document order, as the web graph numbers them). This is the
-      // JavaScript graph reading JavaScript text; nothing here links the page's own nodes to these modules.
-      if (options.libraryRoot !== true && process.env.AXIOMCODE_NO_INLINE_JS !== '1') {
-        const pageRoot = baseMservPath !== '' ? baseMservPath : rootDir;
-        const html = new HtmlParser();
-        for (const page of await listWebPages(pageRoot)) {
-          let content: string;
-          try {
-            content = await fsp.readFile(page, 'utf-8');
-          } catch {
-            continue;
-          }
-          if (content.length > 4 * 1024 * 1024) {
-            continue;
-          }
-          if (content.charCodeAt(0) === 0xfeff) {
-            content = content.slice(1);
-          }
-          let spans: ReturnType<HtmlParser['parse']>['scriptSpans'];
-          try {
-            spans = html.parse(content, page, pageRoot, serviceVersionLinkHash).scriptSpans;
-          } catch {
-            continue;
-          }
-          const scripts = spans.filter((x) => x.kind === 'script').sort((a, b) => a.start - b.start);
-          const handlers = spans.filter((x) => x.kind === 'on').sort((a, b) => a.attributeStart - b.attributeStart);
-          const jobs = [
-            ...scripts.map((x, i) => ({ span: x, key: `script-${i + 1}` })),
-            ...handlers.map((x, i) => ({ span: x, key: `on-${i + 1}` })),
-          ];
-          if (jobs.length === 0) {
-            continue;
-          }
-          const governing = packageJson.resolve(page);
-          const relativePage = toRelative(pathAnchor, page);
-          for (const job of jobs) {
-            const blank = (t: string): string => t.replace(/[^\n\r]/g, ' ');
-            const end = Math.min(content.length, job.span.start + job.span.text.length);
-            const sourceText = blank(content.slice(0, job.span.start)) + job.span.text + blank(content.slice(end));
-            let outcome: JsParseOutcome;
-            try {
-              outcome = {
-                facts: extractJavaScriptFile({
-                  absoluteFilePath: page,
-                  filePath: relativePage,
-                  baseMservPath,
-                  moduleQualifiedName: `${relativePage}#${job.key}`,
-                  sourceText,
-                  scriptKind: ts.ScriptKind.JS,
-                  serviceVersionLinkHash,
-                  moduleSystem: governing.moduleSystem,
-                  moduleSystemSource: governing.moduleSystemSource,
-                  governingPackageJsonPath: governing.packageJsonPath === '' ? '' : toRelative(pathAnchor, governing.packageJsonPath),
-                  packageName: governing.packageName,
-                  compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(page)),
-                  projectModuleHashes,
-                  toProjectRelative,
-                  resolveWorkspaceModule,
-                  virtualKey: job.key,
-                }),
-              };
-            } catch (error) {
-              outcome = { extractError: String(error) };
-            }
-            await consumeOutcome(page, outcome);
-          }
         }
       }
 
