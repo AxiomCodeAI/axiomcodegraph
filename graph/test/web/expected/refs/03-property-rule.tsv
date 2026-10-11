@@ -1,7 +1,8 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
-# case: refs/03-property-rule   kinds: var,custom_property,rule
+# reviewed: yes 2026-10-10 iter2 — selector-grain usage, V1-21 aliases, V1-12 var scope rows read against the source
+# case: refs/03-property-rule   kinds: var,var_scope,custom_property,rule
 # shape: animated gradients declaring a registered custom property with @property and using it
 custom_property	--angle
 rule	s.css:1:1	@property	--angle	-
 rule	s.css:2:1	style	.g	-
 var	s.css:2:6	--angle	s.css:1:1	index.html	match	-
+var_scope	index.html	index.html:7:1	--angle	-	unknown	not_inherited	-

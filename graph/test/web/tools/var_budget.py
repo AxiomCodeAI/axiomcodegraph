@@ -4,7 +4,7 @@
   var_budget.py <out-dir>
 
   web_var_visible <= 4 x (#VARIABLE value_refs + #custom-property declarations)
-  web_var_scope   <= 2 x #web_styles rows whose rule has a declaration using var()   and   <= 2,000,000
+  web_var_scope   exactly one row per (page, element, name)   [V1-12, iter2: the 2 x styles cap is withdrawn]
 FAIL when a table is missing, when either cap is broken, or when there is nothing to measure
 (0 var() uses: the check would be vacuous).
 """
@@ -29,20 +29,19 @@ def main():
     decls = one("select count(*) from web_declarations where property like '--%'")
     visible = one('select count(*) from web_var_visible')
     scope = one('select count(*) from web_var_scope')
-    styles_var = one("""select count(*) from web_styles st join web_selectors se on se.uid = st.selector_uid
-                        where se.rule_uid in (select rule_uid from web_declarations where value_text like '%var(%')""")
+    dups = one('select count(*) from (select page, element, name from web_var_scope group by page, element, name having count(*) > 1)')
     view = db.execute("select type from sqlite_master where name = 'web_var'").fetchone()[0]
     ok = True
-    print(f'  var() uses {uses}, custom-property declarations {decls}, styles rows of var-using rules {styles_var}')
+    print(f'  var() uses {uses}, custom-property declarations {decls}')
     if uses < 1:
         print('  FAIL: no var() use to measure (vacuous)'); ok = False
     cap_v = 4 * (uses + decls)
     print(f'  web_var_visible {visible} <= {cap_v}: {"ok" if visible <= cap_v else "OVER"}')
-    cap_s = min(2 * styles_var, 2_000_000)
-    print(f'  web_var_scope {scope} <= {cap_s}: {"ok" if scope <= cap_s else "OVER"}')
+    # V1-12 [iter2]: exactly one web_var_scope row per (page, element, name); the 2 x styles cap is withdrawn
+    print(f'  web_var_scope {scope} rows, duplicated (page, element, name) keys: {dups} (must be 0)')
     if view != 'view':
         print(f'  FAIL: web_var is a {view}, SPEC 3.4a says a view (not materialized)'); ok = False
-    return 0 if ok and visible <= cap_v and scope <= cap_s else 1
+    return 0 if ok and visible <= cap_v and dups == 0 else 1
 
 
 if __name__ == '__main__':

@@ -1,0 +1,5 @@
+.theme { --c: red; }
+.card { --c: blue; }
+.btn { color: var(--c); }
+.btn-primary { border-color: var(--c); }
+a.btn { outline-color: var(--c, black); }

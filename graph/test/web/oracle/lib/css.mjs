@@ -11,7 +11,7 @@ const calculate = (s) => Specificity.calculate(s);
 const COND_AT = new Set(['media', 'supports', 'container', 'starting-style', 'document', '-moz-document']);
 export const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
   'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong', 'inherit', 'initial', 'unset', 'revert',
-  'revert-layer', '-apple-system', 'blinkmacsystemfont']);
+  'revert-layer', '-apple-system', 'blinkmacsystemfont', '-webkit-body', '-webkit-pictograph']); // V1-21: vendor system-font aliases are no reference
 const ANIM_KEYWORDS = new Set(['none', 'initial', 'inherit', 'unset', 'revert', 'revert-layer', 'infinite', 'normal', 'reverse',
   'alternate', 'alternate-reverse', 'forwards', 'backwards', 'both', 'running', 'paused', 'linear', 'ease', 'ease-in',
   'ease-out', 'ease-in-out', 'step-start', 'step-end', 'auto', 'replace', 'add', 'accumulate']);

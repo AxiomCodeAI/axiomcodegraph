@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 — selector-grain usage, V1-21 aliases, V1-12 var scope rows read against the source
+# case: refs/10-system-font-aliases   kinds: value_ref,font_use
+# shape: (V1-21) admin themes listing the vendor system-font aliases before the generic family: -apple-system, BlinkMacSystemFont, -webkit-body, -webkit-pictograph produce no reference, a real web font does
+font_use	s.css:2:6	Inter	s.css:1:1	index.html	match	-
+font_use	s.css:2:6	Segoe UI	-	index.html	unknown	system_or_external_font
+value_ref	s.css:1:36	URL	inter.woff2	local	-
+value_ref	s.css:2:6	FONT_FAMILY	Inter	-	-
+value_ref	s.css:2:6	FONT_FAMILY	Segoe UI	-	-

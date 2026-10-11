@@ -1,0 +1,6 @@
+.card { a: 1 }
+.card:hover { a: 2 }
+.card.open { a: 3 }
+.card > p.x { a: 4 }
+.never { a: 5 }
+.card .missing, .card { a: 6 }

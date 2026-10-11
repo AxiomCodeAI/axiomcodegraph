@@ -1,5 +1,5 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
-# case: cascade/11-dynamic-class-and-unmatched   kinds: styles,unknown
+# reviewed: yes 2026-10-10 iter2 — selector-grain usage, V1-21 aliases, V1-12 var scope rows read against the source
+# case: cascade/11-dynamic-class-and-unmatched   kinds: styles,unknown,usage
 # shape: Alpine/Vue dashboards toggling classes through :class / x-bind:class, and utility classes that only JavaScript adds
 styles	s.css:1:1/0	index.html:5:1	unknown	dynamic_class	-
 styles	s.css:2:1/0	index.html:5:45	unknown	dynamic_class	-
@@ -7,3 +7,9 @@ styles	s.css:3:1/0	index.html:6:1	unknown	dynamic_class	-
 styles	s.css:6:1/0	index.html:5:1	match	-	-
 unknown	no_static_carrier	s.css:4:1/0	index.html
 unknown	no_static_carrier	s.css:5:1/0	index.html
+usage	s.css:1:1/0	unknown_only	dynamic_class	1	1	0
+usage	s.css:2:1/0	unknown_only	dynamic_class	1	1	0
+usage	s.css:3:1/0	unknown_only	dynamic_class	1	1	0
+usage	s.css:4:1/0	unmatched_static	no_static_carrier	1	0	1
+usage	s.css:5:1/0	unmatched_static	no_static_carrier	1	0	1
+usage	s.css:6:1/0	matched	-	1	1	0

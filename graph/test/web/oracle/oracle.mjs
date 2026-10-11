@@ -31,7 +31,11 @@ const DO_STYLES = !flag('no-styles') && (!KINDS || STYLE_KINDS.some((k) => KINDS
 const root = path.resolve(projectDir);
 
 const rows = [];
-const emit = (kind, ...f) => { if (!KINDS || KINDS.has(kind)) rows.push(row(kind, ...f)); };
+const usageInput = []; // styles/unknown rows, kept whatever --kinds selects (the usage pass reads them)
+const emit = (kind, ...f) => {
+  if (kind === 'styles' || kind === 'unknown') usageInput.push(row(kind, ...f));
+  if (!KINDS || KINDS.has(kind)) rows.push(row(kind, ...f));
+};
 const t0 = Date.now();
 
 // ── walk ──────────────────────────────────────────────────────────────────────────────────────
@@ -364,7 +368,8 @@ function decodeFrag(f) { try { return decodeURIComponent(f); } catch { return f;
 const rewriteCache = new Map();
 const rewrite = (t, scoped = false) => { const k = `${scoped ? 'S' : 'U'}${t}`; let r = rewriteCache.get(k); if (!r) { r = rewriteSelector(t, scoped); rewriteCache.set(k, r); } return r; };
 let l1Count = 0; let stylesCount = 0;
-const pageMatches = new Map(); // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
+const pageMatches = new Map();
+const carrierMiss = new Set(); // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
 if (DO_STYLES) for (const page of pages) {
   const loads = pageLoads.get(page.rel) ?? [];
@@ -471,7 +476,7 @@ if (DO_STYLES) for (const page of pages) {
       }
     }
   }
-  for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) emit('unknown', 'no_static_carrier', k, page.rel);
+  for (const [k, e] of matchesHere) if (e.elems.size === 0 && e.unmatched) carrierMiss.add(k);
 }
 
 /**
@@ -578,6 +583,47 @@ if (DO_STYLES) for (const page of pages) {
   const uses = [];
   for (const s of pageSheets) for (const ref of s.refs) uses.push({ ref, useEls: ref.ownerDecl?.rule ? ruleElems(ref.ownerDecl.rule) : new Map() });
   for (const { el } of styleAttrDecls.filter((x, i, a) => a.findIndex((y) => y.el === x.el) === i)) for (const ref of el.styleRefs ?? []) uses.push({ ref, useEls: new Map([[el.key, 'match']]) });
+  // web_var_scope (SPEC 3.4a, V1-12): ONE row per (page, element, name) for every element styled (any status) by a
+  // rule or style attribute that USES --name; root = nearest ancestor-or-self styled by a rule / style attribute
+  // DEFINING --name (status of that styles row, match preferred over conditional at the same element); root_exact =
+  // nearest exact root when the nearest is conditional
+  {
+    const anyElems = (rule) => {
+      const m = new Map();
+      for (const sel of rule.selectors) for (const [k, st] of matches.get(sel.key)?.elems ?? []) if (!m.has(k) || st === 'match' || (st === 'conditional' && m.get(k) === 'unknown')) m.set(k, st);
+      return m;
+    };
+    const defAt = new Map(); // name -> Map(elemKey -> best status)
+    for (const [name, ds] of defs) {
+      const m = new Map();
+      for (const d of ds) {
+        if (d.property) continue;
+        const em = d.el ? new Map([[d.el.key, 'match']]) : d.rule && d.rule.kind === 'style' ? ruleElems(d.rule) : new Map();
+        for (const [k, st] of em) if (!m.has(k) || st === 'match') m.set(k, st);
+      }
+      defAt.set(name, m);
+    }
+    const scopeKeys = new Set();
+    for (const { ref, useEls: _u } of uses) {
+      if (ref.kind !== 'VARIABLE') continue;
+      const els = ref.ownerDecl?.rule ? anyElems(ref.ownerDecl.rule) : _u;
+      for (const k of els.keys()) {
+        const sk = `${k}\u0000${ref.name}`;
+        if (scopeKeys.has(sk)) continue;
+        scopeKeys.add(sk);
+        const m = defAt.get(ref.name) ?? new Map();
+        let root = null; let rootSt = null; let exact = null;
+        for (const a of ancestorsOrSelf(k)) {
+          const st = m.get(a);
+          if (!st) continue;
+          if (!root) { root = a; rootSt = st; }
+          if (st === 'match') { exact = a; break; }
+        }
+        const reason = root ? '-' : (defs.get(ref.name)?.length ? 'not_inherited' : 'no_definition_in_scope');
+        emit('var_scope', page.rel, k, ref.name, root ?? '-', root ? rootSt : 'unknown', reason, exact && exact !== root ? exact : '-');
+      }
+    }
+  }
   for (const { ref, useEls } of uses) {
     if (ref.kind === 'VARIABLE') {
       const ds = defs.get(ref.name) ?? [];
@@ -612,6 +658,36 @@ if (DO_STYLES) for (const page of pages) {
       const ts = cn.get(ref.name) ?? [];
       if (!ts.length) emit('container_use', ref.owner, ref.name, '-', page.rel, 'unknown', 'no_such_container');
       for (const t of ts) emit('container_use', ref.owner, ref.name, t.key, page.rel, 'match', '-');
+    }
+  }
+}
+
+// ── selector / rule usage at the SELECTOR grain (SPEC 3.5 [iter2], 9.9) ──────────────────────────────
+if (DO_STYLES) {
+  const RANK = { matched: 4, conditional_only: 3, unknown_only: 2, unmatched_static: 1, not_loaded: 0 };
+  const st = new Map(); // sel -> {match, cond, unk, pages:Set, unkReason}
+  const get = (k) => { let v = st.get(k); if (!v) { v = { match: false, cond: false, unk: false, pages: new Set(), unkReason: null }; st.set(k, v); } return v; };
+  for (const r of usageInput) {
+    const f = r.split('\t');
+    if (f[0] === 'styles') { const v = get(f[1]); v.pages.add(f[2].replace(/:\d+:\d+$/, '')); if (f[3] === 'match') v.match = true; else if (f[3] === 'conditional') v.cond = true; else { v.unk = true; v.unkReason = v.unkReason ?? f[4]; } }
+    if (f[0] === 'unknown' && f[3] !== '-' && /\/\d+$/.test(f[2])) { const v = get(f[2]); v.unk = true; v.unkReason = v.unkReason ?? f[1]; }
+  }
+  for (const s of sheets.values()) {
+    const loading = [...(loadedBy.get(s.key) ?? [])].filter((p) => !pageByPath.get(p)?.isFragment);
+    for (const r of s.rules) {
+      if (r.kind !== 'style') continue;
+      let best = 'not_loaded';
+      for (const sel of r.selectors) {
+        const v = st.get(sel.key) ?? { match: false, cond: false, unk: false, pages: new Set(), unkReason: null };
+        const usage = v.match ? 'matched' : v.cond ? 'conditional_only' : v.unk ? 'unknown_only' : loading.length ? 'unmatched_static' : 'not_loaded';
+        const reason = usage === 'unmatched_static' && carrierMiss.has(sel.key) ? 'no_static_carrier' : usage === 'unknown_only' ? (v.unkReason ?? '-') : '-';
+        const unmatchedPages = loading.filter((p) => !v.pages.has(p));
+        emit('usage', sel.key, usage, reason, loading.length, loading.length - unmatchedPages.length, unmatchedPages.length);
+        // the per-page list (view web_selector_unmatched_pages) for the no_static_carrier reason
+        if (reason === 'no_static_carrier') for (const p of unmatchedPages) emit('unknown', 'no_static_carrier', sel.key, p);
+        if (RANK[usage] > RANK[best]) best = usage;
+      }
+      emit('rule_usage', r.key, best);
     }
   }
 }

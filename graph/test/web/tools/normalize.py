@@ -30,7 +30,11 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_template_exprs(uid, element_uid, attribute_uid, expression_text)                         attribute_uid NULL = element text
   web_stylesheets(uid, file, source_kind, owner_element_uid)                                    source_kind FILE | HTML_STYLE_ELEMENT
   web_rules(uid, stylesheet_uid, parent_uid, file, line, col, rule_kind, at_rule_name, prelude_text)
-  web_selectors(uid, rule_uid, position, selector_text, spec_a, spec_b, spec_c)
+  web_selectors(uid, rule_uid, position, selector_text, spec_a, spec_b, spec_c, usage, unknown_reason, pages_loading,
+                pages_matched, pages_unmatched)   [iter2 grain] usage per SPEC 9.9; no_static_carrier lives HERE
+  web_rules.usage                                  best usage of its selectors
+  web_selector_unmatched_pages(selector_uid, page_uid)  VIEW: the per-page list; emitted as `unknown no_static_carrier`
+                                                   rows for selectors whose unknown_reason is no_static_carrier
   web_selector_parts(uid, selector_uid, part_kind, name)
   web_declarations(uid, rule_uid, attribute_uid, file, line, col, property, value_text, is_important)
   web_value_refs(uid, declaration_uid, rule_uid, reference_kind, name, fallback_text, url_kind, resolved_file)
@@ -44,6 +48,7 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              scope_root, scope_proximity)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
              + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
+  web_var_scope(page, element, name, root, status, reason, root_exact)   SPEC 3.4a, V1-12: one row per (page, element, name)
   web_var(use, def, page, status, reason)   [iter1b] the SQL VIEW over web_var_def / web_var_visible /
              web_var_scope (SPEC 3.4a); use = the VARIABLE value_ref uid (its declaration and name are read
              from web_value_refs), def = the defining declaration uid or the @property rule uid, NULL when none
@@ -175,11 +180,26 @@ def main():
                 emit('keyframes', key[uid], (pre or '').strip().strip('"\''))
         sels = g.rows('web_selectors', ['uid', 'rule_uid', 'position', 'selector_text', 'spec_a', 'spec_b', 'spec_c'])
         keyframe_rules = {uid for uid, _s, par, *_x in rules if par in kf_parent}
+        kf_rules_all = keyframe_rules | {uid for uid, *_r, rk, _at, _pre in rules if rk == 'AT_RULE'}
         for uid, r, pos, t, a, b, c in sels:
             key[uid] = f'{key.get(r)}/{pos}'
             if r in keyframe_rules:
                 continue  # `from`/`to`/`50%` select keyframes, not elements; the oracle has no selector row for them
             emit('selector', key[uid], ' '.join((t or '').split()), f'{a},{b},{c}' if a is not None else None)
+        kf_sels = {uid for uid, r, *_x in sels if r in keyframe_rules}
+        if want('usage') or want('unknown'):
+            sel_reason = {}
+            for uid, us, ur, pl, pm, pu in g.rows('web_selectors', ['uid', 'usage', 'unknown_reason', 'pages_loading', 'pages_matched', 'pages_unmatched']):
+                sel_reason[uid] = ur
+                if uid in key and uid not in kf_sels:
+                    emit('usage', key[uid], us, ur, pl, pm, pu)
+            for s_uid, p_uid in g.rows('web_selector_unmatched_pages', ['selector_uid', 'page_uid']):
+                if sel_reason.get(s_uid) == 'no_static_carrier':
+                    emit('unknown', 'no_static_carrier', key.get(s_uid), key.get(p_uid))
+        if want('rule_usage'):
+            for uid, us in g.rows('web_rules', ['uid', 'usage']):
+                if uid in key and uid not in kf_rules_all:
+                    emit('rule_usage', key[uid], us)
         for _u, s, pk, n in g.rows('web_selector_parts', ['uid', 'selector_uid', 'part_kind', 'name']):
             if pk in ('TYPE', 'UNIVERSAL', 'CLASS', 'ID', 'ATTRIBUTE', 'PSEUDO_CLASS', 'PSEUDO_ELEMENT', 'NESTING', 'RAW'):
                 emit('selector_part', key.get(s), pk, n)
@@ -261,6 +281,9 @@ def main():
                     emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
                     emit('cascade', key.get(p), key.get(s), key.get(e), so, ro, lr, f'{a},{b},{c}', ic, cond)
+        if want('var_scope'):
+            for p, e, n, r, st, rs, rx in g.rows('web_var_scope', ['page', 'element', 'name', 'root', 'status', 'reason', 'root_exact']):
+                emit('var_scope', key.get(p), key.get(e), n, key.get(r) if r else None, st if r else 'unknown', rs, key.get(rx) if rx else None)
         if want('var'):
             vref = {uid: (key.get(d) if d else key.get(r), n) for uid, d, r, rk, n, *_x in refs if rk == 'VARIABLE'}
             for u, d, p, st, rs in g.rows('web_var', ['use', 'def', 'page', 'status', 'reason']):
@@ -273,7 +296,8 @@ def main():
                 for u, n, t, p, st, rs in g.rows(tbl, ['use_uid', 'name', 'target_uid', 'page_uid', 'status', 'reason']):
                     emit(kind, key.get(u), n, key.get(t) if t else None, key.get(p), st, rs)
         for kind, n, p, rs, _d in g.rows('web_unknown', ['kind', 'node_uid', 'page_uid', 'reason', 'detail']):
-            emit('unknown', rs, key.get(n, n), key.get(p) if p else None)
+            # [iter2 grain] a no_static_carrier row here is a grain defect: kept under its own name so the gate fails
+            emit('unknown', rs if rs != 'no_static_carrier' else 'no_static_carrier_in_web_unknown', key.get(n, n), key.get(p) if p else None)
 
     out.sort()
     sys.stdout.write(''.join(r + '\n' for r in out))

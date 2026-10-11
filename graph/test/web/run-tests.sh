@@ -11,7 +11,8 @@
 #                            missing / extra rows fail; a listed known gap that starts passing fails;
 #                            fewer than 1 compared row fails
 #   4. per case checks:      check=crosslang -> tools/crosslang_guard.py (0 web<->JS edges, join keys present)
-#                            check=var_budget -> tools/var_budget.py (SPEC 3.4a caps on the stored var tables)
+#                            check=var_budget -> tools/var_budget.py (SPEC 3.4a caps; V1-12 one scope row per key)
+#                            check=unknown_budget -> tools/unknown_budget.py (SPEC 3.5 iter2 grain and cap)
 #                            mode=scale      -> tools/gen_scale.py generates src/, budgets on time and RSS
 #
 # The expectations are the ORACLE's rows (oracle/oracle.mjs: parse5, postcss, css-select, acorn;
@@ -227,6 +228,9 @@ for rel in "${CASES[@]}"; do
     bash "$ROOT/bin/axiomcode" "$src" "$w/out-js" --language javascript --debug >"$w/build-js.log" 2>&1 \
       || { echo "FAIL (javascript-only build — see $w/build-js.log)"; ok=0; }
     [ $ok = 1 ] && { python3 "$HERE/tools/crosslang_guard.py" "$w/out" "$w/out-js" > "$w/crosslang.txt" || { echo "FAIL (per-language guard)"; sed 's/^/  /' "$w/crosslang.txt"; ok=0; }; }
+  fi
+  if [ $ok = 1 ] && [[ ",$check," == *",unknown_budget,"* ]]; then
+    python3 "$HERE/tools/unknown_budget.py" "$w/out" > "$w/unknown_budget.txt" || { echo "FAIL (unknown-row grain)"; sed 's/^/  /' "$w/unknown_budget.txt"; ok=0; }
   fi
   if [ $ok = 1 ] && [[ ",$check," == *",var_budget,"* ]]; then
     python3 "$HERE/tools/var_budget.py" "$w/out" > "$w/var_budget.txt" || { echo "FAIL (var row caps)"; sed 's/^/  /' "$w/var_budget.txt"; ok=0; }
