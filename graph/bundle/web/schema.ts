@@ -167,8 +167,8 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_var_visible',
-    description: 'Page-independent: a var() use (the using declaration and its value reference) sees a definition when some page loads both (or the definition is a style attribute of a page that loads the use). A use no definition reaches: one row, def_uid NULL, reason no_definition_in_scope / fallback_only.',
-    columns: [id('use_uid'), id('value_ref_uid'), id('name'), id('def_uid'), t('status'), t('reason')],
+    description: 'Page-independent: a var() use (the using declaration and its value reference) sees the definitions of its name held by an OWNER (`def_owner_kind` sheet: a stylesheet some page loads with the use; page: style attributes of a page that loads the use) — one row per (use, owner), `defs` = how many definitions of the name that owner holds, `def_uid` set when it is exactly one (V1-22 grain; the per-definition rows are the view web_var_visible_defs). A use no definition reaches: one row, def_owner_uid NULL, reason no_definition_in_scope / fallback_only.',
+    columns: [id('use_uid'), id('value_ref_uid'), id('name'), id('def_owner_uid'), t('def_owner_kind'), i('defs'), id('def_uid'), t('status'), t('reason')],
   },
   {
     name: 'web_var_scope',
@@ -231,6 +231,16 @@ export const WEB_VIEWS: readonly string[] = [
      CASE WHEN source_kind = 'javascript_url' THEN NULL ELSE event END AS event_name, code AS raw_text FROM web_handlers`,
   // var(--x) per page: a use, every definition in scope on the page, and the inheritance status (SPEC §3.4, §3.4a). Not
   // materialized: it is the (use x def x page) set, quadratic on a large site; impact reads the stored tables.
+  // the per-definition visibility (lossless expansion of web_var_visible's owner grain)
+  `CREATE VIEW web_var_visible_defs AS
+     SELECT v.use_uid, v.value_ref_uid, v.name, d.def_uid, v.status, v.reason
+       FROM web_var_visible v JOIN web_var_def d ON d.name = v.name AND v.def_owner_kind = 'sheet' AND d.attribute_uid IS NULL AND d.stylesheet_uid = v.def_owner_uid
+     UNION ALL
+     SELECT v.use_uid, v.value_ref_uid, v.name, d.def_uid, v.status, v.reason
+       FROM web_var_visible v JOIN web_var_def d ON d.name = v.name AND v.def_owner_kind = 'page' AND d.attribute_uid IS NOT NULL
+       JOIN web_declarations x ON x.uid = d.def_uid AND x.page_uid = v.def_owner_uid
+     UNION ALL
+     SELECT use_uid, value_ref_uid, name, NULL, status, reason FROM web_var_visible WHERE def_owner_uid IS NULL`,
   `CREATE VIEW web_var AS
    WITH RECURSIVE
    loads AS (SELECT DISTINCT page_uid, stylesheet_uid FROM web_loads WHERE stylesheet_uid IS NOT NULL),

@@ -50,5 +50,27 @@ H
   }
 fi
 
+if want V1-12 V1-22; then
+  # var tables: one scope row per (page, element, name) — two rules using --c on one element, a style attribute using it
+  # too; visible rows at (use, owner) grain — --c defined in three theme sheets is ONE row per sheet, not per definition
+  put "$T/v112/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="t1.css"><link rel="stylesheet" href="t2.css"><link rel="stylesheet" href="a.css"></head>
+<body><div class="box big" style="border-color: var(--c)">x</div></body></html>
+H
+  printf ':root{--c:red}\n:root{--c:pink}\n.box{--c:navy}\n' > "$T/v112/src/t1.css"
+  printf ':root{--c:blue}\n' > "$T/v112/src/t2.css"
+  printf '.box{color:var(--c)}\n.big{background:var(--c)}\n' > "$T/v112/src/a.css"
+  db=$(build v112) && {
+    eq "V1-12 scope rows = distinct (page, element, name) and >= 1" \
+      "$(sqlite3 "$db" "SELECT count(*) = (SELECT count(*) FROM (SELECT DISTINCT page_uid, element_uid, name FROM web_var_scope)) AND count(*) >= 1 FROM web_var_scope")" "1"
+    eq "V1-12 the div's --c root is itself (.box defines it)" \
+      "$(sqlite3 "$db" "SELECT count(*) FROM web_var_scope s JOIN web_elements e ON e.uid = s.element_uid WHERE e.tag_name = 'div' AND s.root_uid = s.element_uid")" "1"
+    eq "V1-22 visible: one row per (use, owner sheet): 3 uses x 2 sheets" \
+      "$(sqlite3 "$db" "SELECT count(*) || '/' || sum(defs) FROM web_var_visible")" "6/12"
+    eq "V1-22 web_var_visible_defs expands to one row per (use, def)" \
+      "$(sqlite3 "$db" "SELECT count(*) FROM (SELECT DISTINCT value_ref_uid, def_uid FROM web_var_visible_defs WHERE def_uid IS NOT NULL)")" "12"
+  }
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

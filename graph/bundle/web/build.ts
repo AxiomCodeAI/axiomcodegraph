@@ -1104,44 +1104,68 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const a = declAttr(decl!);
       const usePages = a ? new Set([attrPage.get(a) ?? '']) : pagesLoading(declSheet(decl!));
       const fb = g(T.vref, vrefRow.get(vref!) ?? [], 'fallbackText');
-      let any = false;
+      // V1-22 grain: one row per (use, def OWNER) — the sheet or the page (style attribute) holding the definitions — not
+      // per (use, def): a name defined in every theme sheet made the use x def product 8.5x the budget. Lossless: the
+      // per-definition rows are the view web_var_visible_defs (web_var_def by name and owner).
+      const byOwner = new Map<string, { kind: string; defs: string[] }>();
+      const okOwner = new Map<string, boolean>();
       for (const d of defsByName.get(name!) ?? []) {
         const w = defSheetOrPage(d);
-        const ok = [...usePages].some((p) => (w.page ? w.page === p : pagesLoading(w.sheet).has(p)));
+        const owner = w.page ? w.page : w.sheet; const kind = w.page ? 'page' : 'sheet';
+        let ok = okOwner.get(owner);
+        if (ok === undefined) { ok = [...usePages].some((p) => (w.page ? w.page === p : pagesLoading(w.sheet).has(p))); okOwner.set(owner, ok); }
         if (!ok) continue;
-        any = true;
-        const k = `${vref}|${d}`; if (visible.has(k)) continue; visible.add(k);
-        out('web_var_visible').push({ use_uid: decl!, value_ref_uid: vref!, name: name!, def_uid: d, status: 'match', reason: null });
+        let o = byOwner.get(owner); if (!o) { o = { kind, defs: [] }; byOwner.set(owner, o); }
+        o.defs.push(d);
       }
-      if (!any) out('web_var_visible').push({ use_uid: decl!, value_ref_uid: vref!, name: name!, def_uid: null, status: 'unknown', reason: fb ? 'fallback_only' : 'no_definition_in_scope' });
+      for (const [owner, o] of byOwner) {
+        const k = `${vref}|${owner}`; if (visible.has(k)) continue; visible.add(k);
+        out('web_var_visible').push({ use_uid: decl!, value_ref_uid: vref!, name: name!, def_owner_uid: owner, def_owner_kind: o.kind, defs: o.defs.length,
+          def_uid: o.defs.length === 1 ? o.defs[0]! : null, status: 'match', reason: null });
+      }
+      if (byOwner.size === 0) out('web_var_visible').push({ use_uid: decl!, value_ref_uid: vref!, name: name!, def_owner_uid: null, def_owner_kind: null, defs: 0,
+        def_uid: null, status: 'unknown', reason: fb ? 'fallback_only' : 'no_definition_in_scope' });
     }
     // scope rows: (page, element styled by a var-using rule, name) -> nearest ancestor-or-self styled by a defining rule
     const usingRules = new Map<string, Set<string>>(); // rule -> names used
     for (const [, name, decl] of R.useVar) { const r = declRule(decl!); if (r) { const s = usingRules.get(r) ?? new Set(); s.add(name!); usingRules.set(r, s); } }
     const definingRules = new Map<string, Set<string>>(); // name -> rules
     for (const [decl, name] of R.defVar) { const r = declRule(decl!); if (r) { const s = definingRules.get(name!) ?? new Set(); s.add(r); definingRules.set(name!, s); } }
+    // style attributes: an element whose style="" defines --x is an exact inheritance root for --x; one whose style=""
+    // uses --x is styled by a var-using declaration (SPEC §3.4a: "a rule or style attr")
+    const attrDefEls = new Map<string, Set<string>>(); // name -> elements
+    for (const [decl, name] of R.defVar) { const a = declAttr(decl!); const el = a ? attrOwner.get(a) : undefined; if (el) { const s2 = attrDefEls.get(name!) ?? new Set(); s2.add(el); attrDefEls.set(name!, s2); } }
+    const attrUses = new Map<string, Map<string, Set<string>>>(); // page -> element -> names
+    for (const [, name, decl] of R.useVar) {
+      const a = declAttr(decl!); const el = a ? attrOwner.get(a) : undefined; const pg = a ? attrPage.get(a) : undefined;
+      if (!el || !pg) continue;
+      let m = attrUses.get(pg); if (!m) { m = new Map(); attrUses.set(pg, m); }
+      let ns = m.get(el); if (!ns) { ns = new Set(); m.set(el, ns); } ns.add(name!);
+    }
+    // V1-12: exactly one row per (page, element, name)
     const scopeSeen = new Set<string>();
+    const scopeRow = (pageId: string, ruleEls: Map<string, Map<string, number>>, elId: string, name: string) => {
+      if (!definingRules.has(name) && !attrDefEls.has(name)) return; // nothing defines it anywhere: web_var_visible says so, once per use
+      const sk = `${pageId}|${elId}|${name}`; if (scopeSeen.has(sk)) return; scopeSeen.add(sk);
+      const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
+      const attrDefs = attrDefEls.get(name);
+      let root: string | null = null, rootSt = NO, rootExact: string | null = null;
+      for (let a: El | null = elById.get(elId) ?? null; a; a = a.parent) {
+        let best = attrDefs?.has(a.id) ? EXACT : NO;
+        for (const dr of defRules) best = Math.max(best, ruleEls.get(dr)!.get(a.id) ?? NO);
+        if (best === UNKNOWN) best = NO;
+        if (best > NO && root === null) { root = a.id; rootSt = best; }
+        if (best === EXACT) { rootExact = a.id; break; }
+      }
+      out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: root, root_exact_uid: rootExact !== root ? rootExact : null,
+        status: root ? (rootSt === EXACT ? 'match' : 'conditional') : 'unknown', reason: root ? null : (defRules.length || attrDefs ? 'not_inherited' : 'no_definition_in_scope') });
+    };
     for (const [pageId, ruleEls] of pageMatches) {
       for (const [ruleId, names] of usingRules) {
         const els = ruleEls.get(ruleId); if (!els) continue;
-        for (const name of names) {
-          const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
-          if (!definingRules.has(name)) continue; // nothing defines it anywhere: web_var_visible says so, once per use
-          for (const [elId] of els) {
-            const sk = `${pageId}|${elId}|${name}`; if (scopeSeen.has(sk)) continue; scopeSeen.add(sk);
-            let root: string | null = null, rootSt = NO, rootExact: string | null = null;
-            for (let a: El | null = elById.get(elId) ?? null; a; a = a.parent) {
-              let best = NO;
-              for (const dr of defRules) best = Math.max(best, ruleEls.get(dr)!.get(a.id) ?? NO);
-              if (best === UNKNOWN) best = NO;
-              if (best > NO && root === null) { root = a.id; rootSt = best; }
-              if (best === EXACT) { rootExact = a.id; break; }
-            }
-            out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: root, root_exact_uid: rootExact !== root ? rootExact : null,
-              status: root ? (rootSt === EXACT ? 'match' : 'conditional') : 'unknown', reason: root ? null : (defRules.length ? 'not_inherited' : 'no_definition_in_scope') });
-          }
-        }
+        for (const name of names) for (const [elId] of els) scopeRow(pageId, ruleEls, elId, name);
       }
+      for (const [elId, names] of attrUses.get(pageId) ?? []) for (const name of names) scopeRow(pageId, ruleEls, elId, name);
     }
   }
   // keyframes, fonts, containers: per page, through the sheets the page loads

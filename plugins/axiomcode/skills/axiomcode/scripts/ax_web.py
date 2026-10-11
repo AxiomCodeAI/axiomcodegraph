@@ -421,7 +421,7 @@ class Web:
         pf2, pp2 = self.in_page('e.page_uid')
         inline_els = self.q(f"""SELECT DISTINCT e.file, e.line, e.display FROM web_declarations d JOIN web_elements e ON e.uid = d.element_uid
                                 WHERE d.uid IN ({','.join('?' * len(every)) or 'NULL'}){pf2}""", *([u['uid'] for u in every] + pp2)) if every else []
-        unresolved = self.q("SELECT reason, count(*) n FROM web_var_visible WHERE name = ? AND def_uid IS NULL GROUP BY reason", name)
+        unresolved = self.q("SELECT reason, count(*) n FROM web_var_visible WHERE name = ? AND def_owner_uid IS NULL GROUP BY reason", name)
         rows = [self.row(at_of(d['file'], d['line']), 'var_def', 'defines', value=d['value_text'], selector=d['selector']) for d in defs]
         rows += [self.row(at_of(u['file'], u['line']), 'var_use', 'uses', property=u['property'], value=u['value_text']) for u in direct]
         rows += [self.row(at_of(u['file'], u['line']), 'var_use', 'uses_via', property=u['property'], value=u['value_text'], via=u['name']) for u in every if u['name'] != name]
