@@ -366,6 +366,8 @@
     "parentRuleLinkHash",
     "stylesheetLinkHash",
     "serviceVersionLinkHash",
+    "preludeBytes",
+    "preludeTruncated",
     "cssRuleUniqueHash"
    ],
    "domains": {
@@ -453,6 +455,8 @@
     "htmlAttributeLinkHash",
     "stylesheetLinkHash",
     "serviceVersionLinkHash",
+    "valueBytes",
+    "valueTruncated",
     "cssDeclarationUniqueHash"
    ]
   },

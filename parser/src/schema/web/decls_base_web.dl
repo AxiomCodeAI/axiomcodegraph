@@ -82,8 +82,8 @@
 // A style rule or an at-rule, in the tree as written: c13 parentRuleLinkHash is the enclosing
 // block. c2 name is what an at-rule declares (the @keyframes, @layer, @container, @property
 // name; a @font-face's font-family), the column a css_value_reference joins on.
-// (17 columns)
-.decl css_rule(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+// (19 columns)
+.decl css_rule(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol)
 
 // One complex selector of a rule's selector list, with its (a,b,c) specificity.
 // (16 columns)
@@ -97,8 +97,8 @@
 .decl css_selector_part(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
 
 // One property: value. Owned by a rule (c10) OR a style attribute (c11), never both.
-// (15 columns)
-.decl css_declaration(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+// (17 columns)
+.decl css_declaration(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
 
 // A name a value refers to: VARIABLE (var(--x)), URL, IMPORT, KEYFRAMES, LAYER, CONTAINER,
 // FONT_FAMILY. URL and IMPORT carry c3 urlKind and c4 resolvedFilePath; the rest join by c1 name.

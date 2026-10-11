@@ -537,7 +537,7 @@ export class CssParser {
     const block = node.namedChildren.find((c) => c.type === 'block');
     const preludeEnd = block?.startIndex ?? selectors?.endIndex ?? node.endIndex;
     const ruleStart = leadingCombinator?.startIndex ?? node.startIndex;
-    const preludeText = collapse(sheet.text.slice(ruleStart, preludeEnd));
+    const preludeText = sheet.text.slice(ruleStart, preludeEnd).trim(); // as written (V2-12)
     const start = this.at(sheet, ruleStart);
     const end = this.at(sheet, node.endIndex);
     const rule = new CssRule({
@@ -583,7 +583,7 @@ export class CssParser {
   /** A style rule whose header the grammar rejected, read from the header's text; its block is the declarations that follow. */
   private ruleFromText(header: SyntaxNode, position: number, depth: number, sheet: Sheet, out: CssExtraction, gaps: GapCollector): CssRule {
     const text = sourceOf(sheet, header);
-    const preludeText = collapse(text.slice(0, text.indexOf('{')));
+    const preludeText = text.slice(0, text.indexOf('{')).trim(); // as written (V2-12)
     const start = this.at(sheet, header.startIndex);
     const end = this.at(sheet, header.endIndex);
     const rule = new CssRule({
@@ -618,7 +618,7 @@ export class CssParser {
   private keyframeBlock(node: SyntaxNode, parentRule: string, position: number, depth: number, sheet: Sheet, out: CssExtraction, gaps: GapCollector, leading?: SyntaxNode): void {
     const block = node.namedChildren.find((c) => c.type === 'block');
     const ruleStart = leading?.startIndex ?? node.startIndex;
-    const preludeText = collapse(sheet.text.slice(ruleStart, block?.startIndex ?? node.endIndex));
+    const preludeText = sheet.text.slice(ruleStart, block?.startIndex ?? node.endIndex).trim(); // as written (V2-12)
     // What the grammar rejected in the selector (`68.2%`, a `10%, 20%` list) the text has read.
     gaps.recover(sheet, ruleStart, block?.startIndex ?? node.endIndex);
     const start = this.at(sheet, ruleStart);
@@ -649,7 +649,7 @@ export class CssParser {
     if (block === undefined && sheet.text[preludeEnd - 1] === ';') {
       preludeEnd -= 1;
     }
-    const preludeText = collapse(sheet.text.slice(preludeStart, preludeEnd));
+    const preludeText = sheet.text.slice(preludeStart, preludeEnd).trim(); // as written (V2-12)
     const start = this.at(sheet, node.startIndex);
     const end = this.at(sheet, node.endIndex);
     const rule = new CssRule({
@@ -783,7 +783,8 @@ export class CssParser {
       gaps.recover(sheet, valueEnd, closedAt);
       valueEnd = closedAt;
     }
-    const valueText = collapse(sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)));
+    // the value as written, whitespace and line breaks kept (V2-12 ruling: miss nothing); only its ends are trimmed
+    const valueText = sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)).trim();
     const end = Math.max(error?.endIndex ?? node.endIndex, valueEnd);
     const declaration = this.declarationRow(property, valueText, important, node.startIndex, end, positions.n++, ruleLinkHash, htmlAttributeLinkHash, sheet);
     out.declarations.push(declaration);

@@ -672,7 +672,8 @@ const formatChecks: FormatCheck[] = [
     run: () => {
       const x = parseCss(':root { --Brand: #09f; -webkit-font-smoothing: antialiased; background: url(a.png)   no-repeat !important; color: RED }');
       const got = x.declarations.map((d) => `${d.position}:${d.property}=${d.valueText}${d.isImportant ? '!' : ''}${d.isCustomProperty ? '~' : ''}${d.vendorPrefix ? '(' + d.vendorPrefix + ')' : ''}`).join(' ');
-      const want = '0:--Brand=#09f~ 1:-webkit-font-smoothing=antialiased(-webkit-) 2:background=url(a.png) no-repeat! 3:color=RED';
+      // V2-12 ruling: the value is kept as written, its inner whitespace included
+      const want = '0:--Brand=#09f~ 1:-webkit-font-smoothing=antialiased(-webkit-) 2:background=url(a.png)   no-repeat! 3:color=RED';
       return got === want ? 0 : fail(`got  ${got}\n      want ${want}`);
     },
   },
