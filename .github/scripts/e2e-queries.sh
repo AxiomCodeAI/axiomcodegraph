@@ -8,8 +8,8 @@
 # calls entry(), and `expect` names the four in that language's spelling. The project is
 # copied to <work-dir>, committed, indexed, and asked:
 #
-#   impact LEAF            lists HELPER, the method that calls it
-#   path ENTRY LEAF        reached, through HELPER
+#   impact LEAF            lists HELPER, the method that calls it, as a resolved place with its code
+#   path ENTRY LEAF        a chain through HELPER, every hop re-checked
 #   path ENTRY LEAF        the same from the shipped Datalog programs (AXIOMCODE_DATALOG=1)
 #   path … --every         at least one route listed, both backends
 #   context LEAF           names LEAF
@@ -20,11 +20,10 @@
 #   impact, path (Datalog) with os.symlink refused, as for an unelevated Windows user (#1363)
 #   impact, path, context with os.exec* ending the caller at once, as Windows' exec does (#1640)
 #   Windows: impact run from a directory holding a git.exe, python.exe and py.exe (#1332)
-#   graph --out, help impact, --version
+#   help impact, --version
 #   leaf's 41 becomes 42, then
-#   changed                names LEAF
-#   changed --impact       names HELPER as reached
-#   test-impact            selects TEST
+#   impact (no name)       names LEAF as edited, and HELPER as reached
+#   tests                  selects TEST, with the command that runs it
 #
 # Running is not passing: each answer has to contain what the project makes true, and no
 # answer may carry a Python traceback.
@@ -52,11 +51,21 @@ must() {  # <extended regex> the last answer has to match, and why
   grep -Eq -- "$1" "$R/.q.log" || { sed 's/^/     /' "$R/.q.log" | head -25; fail "$LABEL: expected /$1/ ($2)"; }
   echo "   ok  $LABEL  — $2"
 }
+# The answers are the front door's: numbered places, each with the code of the function it sits in.
+# A caller is right when a [resolved] place's marked line is HELPER's; a chain when a hop names HELPER.
+calls_ok() {  # <why>: HELPER is a resolved place in the last answer
+  # HELPER is named by the place's tag ([resolved · helper], where its first line is not the one marked) or on the
+  # marked line itself (where the declaration and the call share it)
+  must "^1\. .*\[resolved" "$1 (a resolved place)"
+  must "\[resolved[^]]*\b$HELPER\b[^]]*\]|→ +[0-9]+ .*\b$HELPER\b" "$1 (the place is $HELPER)"
+}
+path_ok() {  # <why>: the last path answer is a chain through HELPER whose hops were re-checked
+  must "hop [0-9]+/[0-9]+ [^]]*\b$HELPER\b" "$1 (a hop through $HELPER)"; must "^verified: ✓" "$1 (every hop re-checked)"
+}
 DL="AXIOMCODE_DATALOG=1"
-run "" impact "$LEAF";                          must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a resolved caller"
+run "" impact "$LEAF";                          calls_ok "$HELPER is a resolved caller"
 for e in "" "$DL"; do
-  run "$e" path "$ENTRY" "$LEAF";               must "reached" "a chain exists"
-                                                must "→ .*([A-Za-z_.]*\.)?$HELPER " "the chain goes through $HELPER"
+  run "$e" path "$ENTRY" "$LEAF";               path_ok "the chain goes through $HELPER"
   run "$e" path "$ENTRY" "$LEAF" --every;       must "[0-9]+ hop\(s\): .*$HELPER.* → .*$LEAF" "a route through $HELPER to $LEAF is listed"
 done
 run "" context "$LEAF";                         must "^ +([A-Za-z_.]*\.)?$LEAF +" "$LEAF is an entry point"
@@ -75,7 +84,7 @@ read -r QLEAF LEAF_AT < <(node -e '
 [ -n "${QLEAF:-}" ] || fail "the graph has no declaration named $LEAF"
 DOTTED="$(printf '%s' "$QLEAF" | sed -e 's/::/./g' -e 's/[\/\\#$]/./g' -e 's/\.\.*/./g' -e 's/^\.//' -e 's/\.$//')"
 for t in "$QLEAF" "$DOTTED" "$LEAF_AT"; do
-  run "" impact "$t";                           must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a resolved caller"
+  run "" impact "$t";                           calls_ok "$HELPER is a resolved caller"
 done
 run "" impact "$LEAF" --json;                   must "\"$HELPER\"|[.#/]$HELPER\"" "the JSON names $HELPER"
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$(native_path "$R/.q.log")" \
@@ -86,8 +95,8 @@ run "" path '*' "$LEAF";                        must "([A-Za-z_.]*\.)?$ENTRY\b" 
 NOSYM="$R.nosymlink"; mkdir -p "$NOSYM"
 printf 'import os\ndef _deny(*a, **k):\n    raise OSError(1314, "A required privilege is not held by the client")\nos.symlink = _deny\n' > "$NOSYM/sitecustomize.py"
 NS="PYTHONPATH=$(native_path "$NOSYM")"
-run "$NS" impact "$LEAF";                       must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a caller without symlinks"
-run "$NS $DL" path "$ENTRY" "$LEAF";            must "reached" "the Datalog path answers without symlinks"
+run "$NS" impact "$LEAF";                       calls_ok "$HELPER is a caller without symlinks"
+run "$NS $DL" path "$ENTRY" "$LEAF";            path_ok "the Datalog path answers without symlinks"
 
 # ── os.exec* that does not replace the process, as on Windows (#1640) ─────────────────────────
 # Windows' exec starts the program as a NEW process and ends the caller at once with status 0, so a verb handed over
@@ -111,8 +120,8 @@ PY
 SCR="$(cd "$(dirname "$bin")/../@axiomcode/code-graph/plugins/axiomcode/skills/axiomcode/scripts" 2>/dev/null && pwd)"
 [ -n "$SCR" ] || fail "the installed package has no plugin scripts next to $bin"
 NX="PYTHONPATH=$(native_path "$NOEXEC") E2E_AX_SCRIPTS=$(native_path "$SCR")"
-run "$NX" impact "$LEAF";                       must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a caller where exec does not replace the process"
-run "$NX" path "$ENTRY" "$LEAF";                must "reached" "path answers where exec does not replace the process"
+run "$NX" impact "$LEAF";                       calls_ok "$HELPER is a caller where exec does not replace the process"
+run "$NX" path "$ENTRY" "$LEAF";                path_ok "path answers where exec does not replace the process"
 run "$NX" context "$LEAF";                      must "^ +([A-Za-z_.]*\.)?$LEAF +" "context answers where exec does not replace the process"
 
 # ── Windows: a git.exe / python.exe / py.exe in the working directory is not the one run (#1332) ──
@@ -122,12 +131,10 @@ if [ -n "$win" ]; then
   LABEL="impact $LEAF from a directory holding git.exe, python.exe and py.exe"
   ( cd "$TRAP" && "$bin" impact "$LEAF" "$R" ) > "$R/.q.log" 2>&1 \
     || { sed 's/^/     /' "$R/.q.log" | head -25; fail "$LABEL: rc=$?"; }
-  must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "the programs in the working directory were not run"
+  calls_ok "the programs in the working directory were not run"
 fi
 
-# ── the rest of the CLI: graph, help, --version ───────────────────────────────────────────────
-run "" graph --out "$R/.graph.html"
-[ -s "$R/.graph.html" ] || fail "graph --out wrote no page"; echo "   ok  graph --out  — $(wc -c < "$R/.graph.html" | tr -d ' ') bytes"
+# ── the rest of the CLI: help, --version (0.1.9's entry point has no graph verb) ───────────────
 run "" help impact;                             must "axiomcode impact" "help describes impact"
 want="$(node -p 'require(process.argv[1]).version' "$(native_path "$(dirname "$bin")/../@axiomcode/code-graph/package.json")" 2>/dev/null)"
 run "" --version;                               must "^${want//./\\.}\$" "--version is the installed version ($want)"
@@ -135,8 +142,9 @@ run "" --version;                               must "^${want//./\\.}\$" "--vers
 # a real edit to leaf's body: what changed, and which tests have to run for it
 sed 's/41/42/' "$R/$LEAF_FILE" > "$R/.edit" && mv "$R/.edit" "$R/$LEAF_FILE"
 git -C "$R" diff --quiet && fail "the edit to $LEAF_FILE changed nothing"
-run "" changed;                                 must "([A-Za-z_.]*\.)?$LEAF\b" "$LEAF is reported changed"
-run "" changed --impact;                        must "([A-Za-z_.]*\.)?$HELPER\b" "the edit hook's answer reaches $HELPER"
-run "" test-impact;                             must "^tests to run: [1-9]" "a test reaches the change through the graph"
-                                                must "^ +\S*$TEST\S* +\(" "$TEST is the test selected"
+run "" impact;                                  must "^your edits: .*\b$LEAF\b" "$LEAF is reported edited"
+                                                calls_ok "the edit reaches $HELPER"
+run "" tests;                                   must "\[test[^]]*\].*" "a test reaches the change through the graph"
+                                                must "\b$TEST\b" "$TEST is the test selected"
+                                                must "^run: " "the command that runs it"
 echo "e2e queries: every verb answered correctly for $(basename "$fx")"
