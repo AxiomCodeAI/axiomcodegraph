@@ -154,10 +154,29 @@ class Web:
         rows = self.q("SELECT uid FROM web_pages WHERE file = ? OR file LIKE ?", self.IN, '%' + self.IN.lstrip('./'))
         return {r['uid'] for r in rows}
 
-    def in_page(self, col):
+    def in_page(self, col, host_col=None):
+        """the --in filter on a page column; with host_col (web_styles.host_page_uid, §11) a fragment's rows matched where
+        the page includes it count as the page's too"""
         sp = self.scope_pages()
         if sp is None: return '', []
-        return f" AND {col} IN ({','.join('?' * len(sp)) or 'NULL'})", list(sp)
+        ph = ','.join('?' * len(sp)) or 'NULL'
+        if host_col and self.has_col('web_styles', 'host_page_uid'):
+            return f" AND ({col} IN ({ph}) OR {host_col} IN ({ph}))", list(sp) * 2
+        return f" AND {col} IN ({ph})", list(sp)
+
+    def has_col(self, table, col):
+        key = (table, col)
+        if not hasattr(self, '_cols'): self._cols = {}
+        if key not in self._cols:
+            try: self._cols[key] = any(r[1] == col for r in self.con.execute(f"PRAGMA table_info({table})"))
+            except Exception: self._cols[key] = False
+        return self._cols[key]
+
+    def host_cols(self, alias='s'):
+        """SQL columns naming the host a fragment row was matched in, and whether that include was asserted"""
+        if not self.has_col('web_styles', 'host_page_uid'): return ", NULL AS host, 0 AS asserted"
+        return (f", (SELECT file FROM web_pages WHERE uid = {alias}.host_page_uid) AS host, EXISTS (SELECT 1 FROM web_includes i WHERE i.host_page_uid = {alias}.host_page_uid"
+                f" AND i.fragment_page_uid = {alias}.page_uid AND i.status = 'asserted') AS asserted")
 
     def classify(self, args):
         """[(kind, value)] for the targets written; an at-rule word joins the name after it"""
@@ -487,21 +506,24 @@ class Web:
         return self.finish({'found': True, 'kind': 'breakpoint', 'target': b['media'], 'prose': prose}, rows)
 
     def impact_selector(self, text, sel_ids=None):
-        pf, pp = self.in_page('s.page_uid')
+        pf, pp = self.in_page('s.page_uid', 's.host_page_uid')
         sels = self.q("SELECT * FROM web_selectors WHERE uid IN (%s)" % ','.join('?' * len(sel_ids)), *sel_ids) if sel_ids else \
             self.q("SELECT * FROM web_selectors WHERE selector_text = ? ORDER BY file, line", text)
         if not sels: return {'found': False, 'kind': 'selector', 'target': text, 'refusal': f"web graph: nothing named '{text}' (not a class, id, custom property, page, stylesheet, @-name or selector)"}
         ids = [s['uid'] for s in sels]; ph = ','.join('?' * len(ids))
-        styled = self.q(f"""SELECT DISTINCT s.status, s.reason, e.file, e.line, e.display FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid
+        styled = self.q(f"""SELECT DISTINCT s.status, s.reason, e.file, e.line, e.display{self.host_cols()} FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid
                             WHERE s.selector_uid IN ({ph}){pf} ORDER BY e.file, e.line""", *(ids + pp))
         rows = [self.row(at_of(s['file'], s['line']), 'selector', 'selectors', 'match' if s['decidability'] == 'exact' else 'conditional' if s['decidability'] == 'conditional' else 'unknown',
                          s['reason'], selector=s['selector_text'], specificity=f"{s['spec_a']},{s['spec_b']},{s['spec_c']}") for s in sels]
-        rows += [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display']) for r in styled]
+        rows += [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display'],
+                          **({'host': r['host']} if r['host'] else {}), **({'tier': 'asserted'} if r['asserted'] else {})) for r in styled]
         pf2, pp2 = self.in_page('page_uid')
         rows += [self.row(None, 'selector', 'unknown', 'unknown', u['reason']) for u in self.q(f"SELECT DISTINCT reason FROM web_unknown WHERE node_uid IN ({ph}){pf2}", *(ids + pp2))]
         prose = [f"web: selector {text}"]
         self.section(prose, "defined at", [r for r in rows if r['role'] == 'selectors'], lambda r: f"{r['at']}: {r['selector']} ({r['specificity']}) [{r['status']}]")
-        self.section(prose, "elements it styles", [r for r in rows if r['role'] == 'styled'], lambda r: f"{r['at']}: {r['display']} [{r['status']}{' ' + r['reason'] if r['reason'] else ''}]")
+        self.section(prose, "elements it styles", [r for r in rows if r['role'] == 'styled'],
+                     lambda r: f"{r['at']}: {r['display']} [{r['status']}{' ' + r['reason'] if r['reason'] else ''}]"
+                               + (f" (included in {r['host']})" if r.get('host') else '') + (" [asserted]" if r.get('tier') == 'asserted' else ''))
         for r in rows:
             if r['role'] == 'unknown': prose.append(f"  undecided on some page: {r['reason']}")
         return self.finish({'found': True, 'kind': 'selector', 'target': text, 'prose': prose}, rows)

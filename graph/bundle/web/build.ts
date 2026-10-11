@@ -370,7 +370,6 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         html_id: nz(e.idAttr), class_names: nz((tokensOf.get(e.id) ?? []).map((t) => t.name).join(' ')), child_count: e.childCount, text: nz(e.text), inert: nz(e.inert),
         dynamic_class: e.dynamicClass ? 1 : 0, display: `${e.tagLower}${e.idAttr ? '#' + e.idAttr : ''}${[...e.classes].map((c) => '.' + c).join('')}` });
     }
-    if (p.kind === 'FRAGMENT') unknownRow('fragment_no_host', p.id, p.id, 'fragment_no_host', 'a fragment page is matched only in a host page that includes it', p.file, 1);
   }
 
   // attributes; on* attributes numbered per page in document order (handler_index)
@@ -425,6 +424,210 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   };
   /** the 0-based offset of a 1-based (line, column) in the page text */
   const offsetOf = (pt: { starts: number[] }, line: number, col: number): number => (pt.starts[line - 1] ?? 0) + col - 1;
+
+  // ── §11 fragment hosts: includes (G22), resolved and composed ──
+  // A page that includes a fragment is styled as the browser sees it after the include: the fragment's top-level elements
+  // stand where the include is, inside the host's tree and under the host's sheets. Each such composition is matched
+  // again below (runPage with a composed tree), and only the fragment's elements get rows from it, with host_page_uid.
+  interface Insert { hostEl: El | null; at: [number, number]; position: number; frag: string; elems: El[] | null; removes: Set<string> }
+  const includeInserts = new Map<string, Insert[]>(); // host page -> what goes into it (includes, asserted includes)
+  const extendsComps: { layout: string; child: string; inserts: Insert[] }[] = [];
+  const hosted = new Set<string>();
+  const hostsOfFragment = new Map<string, { host: string; hostEl: El | null; line: number; col: number }[]>(); // included (not extends/import)
+  const posOf = (e: El): [number, number] => startOf(e.id);
+  const before = (a: [number, number], b: [number, number]): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+  const topOf = (pageId: string): El[] => (pages.get(pageId)?.elements ?? []).filter((e) => e.parent === null).sort((a, b) => a.position - b.position);
+  const positionAt = (pageId: string, hostEl: El | null, at: [number, number]): number =>
+    (hostEl ? hostEl.children : topOf(pageId)).filter((c) => before(posOf(c), at)).length;
+  // Jinja resolves a template name against its template directories: every directory named `templates` under the root
+  const templateRoots = (() => {
+    const set = new Set<string>();
+    for (const p of pages.values()) {
+      for (let d = path.dirname(p.abs); d.startsWith(root) && d !== path.dirname(d); d = path.dirname(d)) {
+        if (path.basename(d) === 'templates') set.add(d);
+        if (d === root) break;
+      }
+    }
+    return [...set].sort();
+  })();
+  const resolveInclude = (page: Page, r: string[], flavour: string): { targets: string[]; status: string; reason: string | null } => {
+    const uk = g(T.ref, r, 'urlKind'); const url = g(T.ref, r, 'urlAsWritten');
+    const p0 = (g(T.ref, r, 'path') || url).split(/[?#]/)[0]!;
+    if (uk === 'TEMPLATE_EXPRESSION') return { targets: [], status: 'unknown', reason: 'template_url' };
+    if (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || !p0) return { targets: [], status: 'unknown', reason: 'external_url' };
+    let cands: string[];
+    if (flavour.startsWith('jinja:')) {
+      cands = templateRoots.length ? templateRoots.map((d) => path.join(d, p0)) : [path.join(root, p0)];
+    } else if (flavour === 'ssi:virtual') {
+      // the site root is the nearest ancestor directory of the page that holds the path; else the repository root
+      const rp = p0.replace(/^\/+/, ''); cands = [path.join(root, rp)];
+      for (let d = path.dirname(page.abs); d.startsWith(root); d = path.dirname(d)) {
+        if (onDisk(path.join(d, rp))) { cands = [path.join(d, rp)]; break; }
+        if (d === root || d === path.dirname(d)) break;
+      }
+    } else {
+      const abs = g(T.ref, r, 'resolvedFilePath');
+      cands = [abs || (uk === 'ROOT_RELATIVE' ? path.join(root, p0) : path.join(path.dirname(page.abs), p0))];
+    }
+    const hits = [...new Set(cands)].filter((c) => pageByAbs.has(c));
+    if (hits.length === 1) return { targets: [pageByAbs.get(hits[0]!)!.id], status: 'match', reason: null };
+    if (hits.length > 1) return { targets: hits.map((h) => pageByAbs.get(h)!.id), status: 'ambiguous', reason: 'ambiguous_template_root' };
+    return { targets: [], status: 'unknown', reason: cands.some(onDisk) ? 'not_indexed' : 'unresolved_url' };
+  };
+  // `{% block name %}` … `{% endblock %}` ranges of a page, as text offsets
+  const blocksOf = (pageId: string): Map<string, [number, number]> => {
+    const out2 = new Map<string, [number, number]>(); const pt = textOfPage(pageId); if (!pt) return out2;
+    const stack: { name: string; start: number }[] = [];
+    for (const m of pt.text.matchAll(/\{%-?\s*(block|endblock)\b\s*([\w.]*)[\s\S]*?%\}/g)) {
+      if (m[1] === 'block') stack.push({ name: m[2]!, start: m.index });
+      else { const b = stack.pop(); if (b && !out2.has(b.name)) out2.set(b.name, [b.start, m.index + m[0].length]); }
+    }
+    return out2;
+  };
+  const offsetOfEl = (e: El): number => { const pt = textOfPage(elPage.get(e.id)?.id ?? ''); const [l, c] = posOf(e); return pt ? offsetOf(pt, l, c) : -1; };
+  const innermostAt = (pageId: string, off: number, strict = false): El | null => {
+    let best: El | null = null; let bestStart = -1;
+    const pt = textOfPage(pageId); if (!pt) return null;
+    for (const e of pages.get(pageId)?.elements ?? []) {
+      const r = elRow.get(e.id)!; const s0 = offsetOf(pt, num(g(T.el, r, 'startLine')) ?? 0, num(g(T.el, r, 'startColumn')) ?? 0);
+      const e0 = offsetOf(pt, num(g(T.el, r, 'endLine')) ?? 0, num(g(T.el, r, 'endColumn')) ?? 0);
+      if ((strict ? s0 < off : s0 <= off) && off < e0 && s0 >= bestStart && !VOID_ELEMENTS.has(e.tagLower)) { best = e; bestStart = s0; }
+    }
+    return best;
+  };
+  const includeRow = (host: string, frag: string | null, kind: string, hostEl: El | null, position: number | null, refId: string | null, url: string, line: number | null,
+    col: number | null, args: string | null, status: string, reason: string | null) => {
+    out('web_includes').push({ host_page_uid: host, fragment_page_uid: frag, kind, host_element_uid: hostEl?.id ?? null, position, reference_uid: refId, url_as_written: url,
+      file: fileOfPage(host), line, col, args, status, reason });
+  };
+  for (const page of pages.values()) {
+    for (const r of refsOfPage.get(page.id) ?? []) {
+      if (g(T.ref, r, 'referenceKind') !== 'INCLUDE') continue;
+      const flavour = g(T.ref, r, 'attributeName'); const refId = g(T.ref, r, 'htmlReferenceUniqueHash'); const url = g(T.ref, r, 'urlAsWritten');
+      const at: [number, number] = [num(g(T.ref, r, 'startLine')) ?? 0, num(g(T.ref, r, 'startColumn')) ?? 0];
+      const owner = elById.get(g(T.ref, r, 'ownerElementLinkHash')) ?? null;
+      const res = resolveInclude(page, r, flavour);
+      if (flavour === 'jinja:extends') {
+        // the extending page (this one) is the fragment; the layout it names is the host its blocks are matched in
+        for (const layout of res.targets) {
+          includeRow(layout, page.id, flavour, null, null, refId, url, at[0], at[1], null, res.status, res.reason);
+          if (res.status !== 'match') continue;
+          hosted.add(page.id);
+          const lb = blocksOf(layout); const cb = blocksOf(page.id); const inserts: Insert[] = [];
+          for (const [name, [cs, ce]] of cb) {
+            const span = lb.get(name); if (!span) continue;
+            const hostEl = innermostAt(layout, span[0]);
+            const lpt = textOfPage(layout)!;
+            const removes = new Set((hostEl ? hostEl.children : topOf(layout)).filter((e) => { const o = offsetOfEl(e); return o > span[0] && o < span[1]; }).map((e) => e.id));
+            const blockAt = lpt ? (() => { const lineIdx = lpt.starts.findIndex((_st0, i) => (lpt.starts[i + 1] ?? Infinity) > span[0]); return [lineIdx + 1, span[0] - lpt.starts[lineIdx]! + 1] as [number, number]; })() : at;
+            const elems = (pages.get(page.id)?.elements ?? []).filter((e) => { const o = offsetOfEl(e); if (o <= cs || o >= ce) return false; const po = e.parent ? offsetOfEl(e.parent) : -1; return !e.parent || po <= cs || po >= ce; })
+              .sort((a, b) => offsetOfEl(a) - offsetOfEl(b));
+            inserts.push({ hostEl, at: blockAt, position: (hostEl ? hostEl.children : topOf(layout)).filter((c) => before(posOf(c), blockAt)).length, frag: page.id, elems, removes });
+          }
+          extendsComps.push({ layout, child: page.id, inserts });
+        }
+        if (res.targets.length === 0) includeRow(page.id, null, flavour, null, null, refId, url, at[0], at[1], null, res.status, res.reason);
+        if (res.status !== 'match') unknownRow('include', refId, page.id, res.reason ?? res.status, url, page.file, at[0]);
+        continue;
+      }
+      // `<include src>` is replaced by the fragment: the include element's parent hosts it, at the include element's place
+      const replaced = flavour === 'posthtml:include' && owner && owner.tagLower === 'include' ? owner : null;
+      const hostEl = replaced ? replaced.parent : owner;
+      const position = replaced ? (replaced.parent ? replaced.parent.children : topOf(page.id)).indexOf(replaced) : positionAt(page.id, hostEl, at);
+      if (res.targets.length === 0) { includeRow(page.id, null, flavour, hostEl, position, refId, url, at[0], at[1], null, res.status, res.reason); unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]); continue; }
+      for (const frag of res.targets) {
+        includeRow(page.id, frag, flavour, hostEl, position, refId, url, at[0], at[1], null, res.status, res.reason);
+        if (res.status !== 'match') continue;
+        hosted.add(frag);
+        if (flavour === 'jinja:import') continue; // macros are listed, not composed
+        push(hostsOfFragment, frag, { host: page.id, hostEl, line: at[0], col: at[1] });
+        const ins = includeInserts.get(page.id) ?? []; includeInserts.set(page.id, ins);
+        ins.push({ hostEl, at, position, frag, elems: null, removes: new Set(replaced ? [replaced.id] : []) });
+      }
+      if (res.status === 'ambiguous') unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]);
+    }
+  }
+  // ASSERTED INCLUDES (`axiomcode link <fragment>:1 <host>:<line>`, SPEC §11.2): where no include reference exists or it
+  // does not resolve, the agent says where the fragment goes. They are read from axiomcode-web-links.tsv (the source
+  // directory or the nearest ancestor holding one; paths relative to that file), kind and status `asserted`, the element
+  // the line sits in being the host element. One that names no page, or a line the host does not have, is a row with
+  // status unknown and its reason, never applied.
+  {
+    let linksFile = process.env.AXIOMCODE_WEB_LINKS || '';
+    if (!linksFile && root) for (let d = root; ; d = path.dirname(d)) { const f = path.join(d, 'axiomcode-web-links.tsv'); if (onDisk(f)) { linksFile = f; break; } if (d === path.dirname(d)) break; }
+    let lines: string[] = [];
+    try { lines = linksFile ? fs.readFileSync(linksFile, 'utf8').split('\n') : []; } catch { lines = []; }
+    const base = linksFile ? path.dirname(linksFile) : root;
+    for (const raw of lines) {
+      if (!raw.trim() || raw.trimStart().startsWith('#')) continue;
+      const [fragRel = '', hostRel = '', lineText = ''] = raw.split('\t');
+      const frag = pageByAbs.get(path.resolve(base, fragRel)); const host = pageByAbs.get(path.resolve(base, hostRel));
+      const line = Number(lineText.trim());
+      const reject = (reason: string) => out('web_includes').push({ host_page_uid: host?.id ?? null, fragment_page_uid: frag?.id ?? null, kind: 'asserted', host_element_uid: null,
+        position: null, reference_uid: null, url_as_written: fragRel, file: host ? host.file : hostRel, line: Number.isFinite(line) ? line : null, col: null, args: null, status: 'unknown', reason });
+      if (!frag) { reject('fragment_not_a_page'); continue; }
+      if (!host) { reject('host_not_a_page'); continue; }
+      if (frag.id === host.id) { reject('fragment_is_host'); continue; }
+      const pt = textOfPage(host.id);
+      if (!pt || !Number.isInteger(line) || line < 1 || line > pt.starts.length) { reject('no_such_line'); continue; }
+      // the element the line sits in: one that STARTS on the line is the included content's sibling, not its host
+      const hostEl = innermostAt(host.id, pt.starts[line - 1]! + ((/^\s*/.exec(pt.text.slice(pt.starts[line - 1]!, pt.starts[line] ?? pt.text.length))?.[0].length) ?? 0), true);
+      const at: [number, number] = [line, 1];
+      const position = positionAt(host.id, hostEl, at);
+      includeRow(host.id, frag.id, 'asserted', hostEl, position, null, fragRel, line, 1, null, 'asserted', null);
+      hosted.add(frag.id);
+      push(hostsOfFragment, frag.id, { host: host.id, hostEl, line, col: 1 });
+      const ins = includeInserts.get(host.id) ?? []; includeInserts.set(host.id, ins);
+      ins.push({ hostEl, at, position, frag: frag.id, elems: null, removes: new Set() });
+    }
+  }
+  for (const p of pages.values()) {
+    if (p.kind === 'FRAGMENT' && !hosted.has(p.id)) unknownRow('fragment_no_host', p.id, p.id, 'fragment_no_host', 'a fragment page is matched only in a host page that includes it', p.file, 1);
+  }
+  // the composed tree of a host: its elements cloned, each fragment's (composed in turn) inserted where it is included
+  type CEl = El & { origId: string; origPage: string };
+  let cloneSeq = 0;
+  const cycleSeen = new Set<string>();
+  const compose = (rootPage: string, extra: Insert[]): CEl[] => {
+    const insertsOf = (pageId: string, depthPages: string[]): Insert[] => [...(includeInserts.get(pageId) ?? []), ...(depthPages.length === 1 ? extra : [])];
+    const clone = (e: El, pageId: string, parent: CEl | null, stack: string[]): CEl => {
+      const c: CEl = { ...e, id: `${e.id}@${++cloneSeq}`, origId: e.id, origPage: pageId, parent: parent as El | null, children: [], idx: 0 };
+      c.children = place(e.children, e, pageId, c, stack);
+      c.childCount = c.children.length;
+      return c;
+    };
+    const place = (list: El[], hostEl: El | null, pageId: string, parent: CEl | null, stack: string[]): CEl[] => {
+      const ins = insertsOf(pageId, stack).filter((x) => x.hostEl === hostEl);
+      const removes = new Set(ins.flatMap((x) => [...x.removes]));
+      const orig = [...list].sort((a, b) => a.position - b.position);
+      const kept = orig.filter((e) => !removes.has(e.id));
+      // an insert's position counts the children as written; where removed ones (a replaced `<include>`, a layout block's
+      // default content) stood before it, it moves up by as many
+      const at = (x: Insert): number => orig.slice(0, x.position).filter((e) => !removes.has(e.id)).length;
+      const out2: CEl[] = [];
+      const addFrag = (x: Insert) => {
+        if (x.elems) { for (const e of x.elems) out2.push(clone(e, x.frag, parent, [...stack, x.frag])); return; }
+        if (stack.includes(x.frag) || stack.length > 8) {
+          const k = `${stack[stack.length - 1]}>${x.frag}`;
+          if (!cycleSeen.has(k)) { cycleSeen.add(k); unknownRow('include', x.frag, stack[stack.length - 1]!, 'include_cycle', stack.map((s0) => fileOfPage(s0)).join(' > '), fileOfPage(stack[stack.length - 1]!), x.at[0]); }
+          return;
+        }
+        for (const e of topOf(x.frag)) out2.push(clone(e, x.frag, parent, [...stack, x.frag]));
+      };
+      kept.forEach((e, i) => {
+        for (const x of ins) if (at(x) === i) addFrag(x);
+        out2.push(clone(e, pageId, parent, stack));
+      });
+      for (const x of ins) if (at(x) >= kept.length) addFrag(x);
+      out2.forEach((c, i) => { c.position = i; });
+      return out2;
+    };
+    const top = place(topOf(rootPage), null, rootPage, null, [rootPage]);
+    const flat: CEl[] = [];
+    const walk = (c: CEl) => { c.idx = flat.length; flat.push(c); for (const k of c.children) walk(k as CEl); };
+    for (const c of top) walk(c);
+    return flat;
+  };
 
   // scripts: every <script>, in page order, with its type and attributes, and an inline one's body as written
   // (sliced from the file by the parser's body range: CRLF kept, nothing trimmed). Nothing reads it as JavaScript.
@@ -490,6 +693,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const d = g(T.tpl, r, 'documentLinkHash'); let ds = dialectsOf.get(d); if (!ds) { ds = new Set(); dialectsOf.set(d, ds); }
       ds.add(g(T.tpl, r, 'dialect').toUpperCase());
     }
+    const hostDialects = (page: string): Set<string> | null => {
+      const hs = hostsOfFragment.get(page); if (!hs) return null;
+      const set = new Set<string>(); for (const h of hs) for (const d of dialectsOf.get(h.host) ?? []) if (d === 'VUE' || d === 'ALPINE') set.add(d);
+      return set.size ? set : null;
+    };
     const alpineScope = (e: El | undefined): boolean => { for (let a = e ?? null; a; a = a.parent) if (a.attrs.has('x-data')) return true; return false; };
     const mods = (s: string, sep: string): string => s.split(sep).filter(Boolean).join(',');
     interface H { kind: string; event: string; modifiers: string; code?: string; source?: string }
@@ -505,7 +713,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const n = written.toLowerCase();
       const W = (re: RegExp): RegExpExecArray | null => (re.exec(n) ? re.exec(written) : null);
       let m: RegExpExecArray | null;
-      const dial = dialectsOf.get(page) ?? new Set<string>();
+      // a fragment included somewhere takes its hosts' Vue/Alpine dialect, not its own guess (SPEC §11.2)
+      const hostDial = hostDialects(page);
+      const dial = hostDial ?? dialectsOf.get(page) ?? new Set<string>();
       if ((m = /^on([a-z][a-z0-9]*)$/.exec(n))) return KNOWN_EVENTS.has(m[1]!) ? [{ kind: 'on_attribute', event: m[1]!, modifiers: '' }] : [];
       const ev = (x: string): string => (x.startsWith('[') ? x : x.toLowerCase());
       if ((m = W(/^v-on:([\w-]+(?::[\w-]+)?|\[[^\]]+\])((?:\.[\w-]+)*)$/i))) return [{ kind: 'vue', event: ev(m[1]!), modifiers: mods(m[2]!, '.') }];
@@ -973,9 +1183,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const keyOf = (imp: number, inline: boolean, lr: number, a: number, b: number, c: number, so: number, ro: number, pos: number): string =>
     `${imp}|${pad(inline ? 2000000000 : imp ? 1000000000 - lr : lr, 10)}|${pad(a, 4)}|${pad(b, 4)}|${pad(c, 4)}|${pad(so, 6)}|${pad(ro, 7)}|${pad(pos, 5)}`;
   let computedRows = 0;
-  const computedOf = (pageId: string, cands: Map<string, Map<string, Cand>>) => {
+  const computedOf = (pageId: string, cands: Map<string, Map<string, Cand>>, composed?: { host: string; els: string[] }) => {
     const els = new Set<string>([...cands.keys()]);
-    for (const e of pages.get(pageId)?.elements ?? []) if (inlineDecls.has(e.id) && e.inert !== 'iframe_text') els.add(e.id);
+    if (composed) { for (const id of composed.els) if (inlineDecls.has(id)) els.add(id); }
+    else for (const e of pages.get(pageId)?.elements ?? []) if (inlineDecls.has(e.id) && e.inert !== 'iframe_text') els.add(e.id);
     for (const elId of els) {
       interface K { decl: string; prop: string; key: string; st: number; inline: boolean; imp: number; value: string }
       const byPe = new Map<string, Map<string, K[]>>();
@@ -1007,7 +1218,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;
           if (override && status === 'match') status = 'shorthand_override';
           computedRows++;
-          out('web_computed').push({ element_uid: elId, page_uid: pageId, pseudo: pe || null, property: prop, winner_decl_uid: w.decl, winner_origin: w.inline ? 'inline' : 'rule',
+          out('web_computed').push({ element_uid: elId, page_uid: pageId, host_page_uid: composed?.host ?? null, pseudo: pe || null, property: prop, winner_decl_uid: w.decl, winner_origin: w.inline ? 'inline' : 'rule',
             winner_status: status, value_text: unesc(w.value).replace(/\/\*[\s\S]*?\*\//g, '').trim() || null, important: w.imp, contenders: ks.length, conditional_overrides: condOver,
             override_decl_uid: override?.decl ?? null, winner_key: w.key });
         }
@@ -1017,16 +1228,26 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const pageMatches = new Map<string, Map<string, Map<string, number>>>(); // page -> rule -> element -> best status
   let styleRows = 0;
   const t0 = Date.now();
-  for (const [pageId, loads] of loadsOf) {
+  /**
+   * One page's selector -> element rows. With `comp` the tree is a host's composed one (§11): only the fragments'
+   * elements get rows (page_uid their own page, host_page_uid the host), and the page-level tallies are left alone.
+   */
+  const runPage = (pageId: string, loads: Load[], comp?: { live: CEl[] }): void => {
     const page = pages.get(pageId)!;
     const cands = new Map<string, Map<string, Cand>>();
-    if (page.kind === 'FRAGMENT' || page.elements.length === 0) continue;
-    const live = page.elements.filter((e) => e.inert !== 'iframe_text');
+    if (!comp && (page.kind === 'FRAGMENT' || page.elements.length === 0)) return;
+    const live: El[] = comp ? comp.live.filter((e) => e.inert !== 'iframe_text') : page.elements.filter((e) => e.inert !== 'iframe_text');
     const ctx = pageCtx(live, page.quirks, page.lang);
     const m = new Matcher(ctx, false);
     const md = ctx.dynamicClassEls.length ? new Matcher(ctx, true) : null;
     const ruleEls = new Map<string, Map<string, number>>();
-    pageMatches.set(pageId, ruleEls);
+    if (!comp) pageMatches.set(pageId, ruleEls);
+    // in a composed tree: the element a row is for, and its page; null for the host's own (it has its rows already)
+    const targetOf = (e: El): { el: string; page: string } | null => {
+      if (!comp) return { el: e.id, page: pageId };
+      const c = e as CEl; return c.origPage === pageId ? null : { el: c.origId, page: c.origPage };
+    };
+    const candsByPage = new Map<string, Map<string, Map<string, Cand>>>();
     const rank = layerRanks(loads);
     const seen = new Set<string>();
     const unmatched = new Map<string, { any: boolean; missing: boolean }>();
@@ -1044,10 +1265,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         for (const s of sels) {
           let st = selStats.get(s.id);
           if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0, ur: '' }; selStats.set(s.id, st); }
-          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); st.loading++; }
+          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (!comp) st.loading++; }
           const unk = s.unknown || scope?.spec.unknown || '';
-          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
-          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
+          if (unk) { if (!comp && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
+          if (s.root && !page.hasHtml && !scope) { if (!comp && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
           if (l.disabled) base.add('alternate_sheet');
@@ -1056,32 +1277,38 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           const missing = s.req.classes.some((c) => !ctx.classes.has(fold(c))) || s.req.ids.some((c) => !ctx.ids.has(fold(c)));
           const W = new Set<string>();
           const emit = (e: El, status: string, reason: string, root: El | null) => {
+            const tg = targetOf(e); if (!tg) return;
+            const eid = tg.el;
             const sc = status === 'match' ? EXACT : status === 'conditional' ? COND : UNKNOWN;
             if (sc !== UNKNOWN || reason !== 'lang_unknown') {
-              let re = ruleEls.get(n.id); if (!re) { re = new Map(); ruleEls.set(n.id, re); }
-              if ((re.get(e.id) ?? NO) < sc) re.set(e.id, sc);
+              let pm = ruleEls;
+              if (comp) { pm = pageMatches.get(tg.page) ?? new Map(); pageMatches.set(tg.page, pm); }
+              let re = pm.get(n.id); if (!re) { re = new Map(); pm.set(n.id, re); }
+              if ((re.get(eid) ?? NO) < sc) re.set(eid, sc);
             }
             u!.any = true;
             // §9.2 contenders: per (element, pseudo, rule) the best styles row (status, then the cascade key)
             {
-              const ck = `${s.pe}|${n.id}`; let em = cands.get(e.id); if (!em) { em = new Map(); cands.set(e.id, em); }
+              const cmap = comp ? (candsByPage.get(tg.page) ?? (candsByPage.set(tg.page, new Map()), candsByPage.get(tg.page)!)) : cands;
+              const ck = `${s.pe}|${n.id}`; let em = cmap.get(eid); if (!em) { em = new Map(); cmap.set(eid, em); }
               const prev = em.get(ck); const stc = status === 'match' ? 0 : status === 'conditional' ? 1 : 2;
               const cand = { pe: s.pe, rule: n.id, st: stc, a: s.spec[0], b: s.spec[1], c: s.spec[2], so: l.order, ro: n.order, lr: layerRank };
               if (!prev || stc < prev.st || (stc === prev.st && cmpCand(cand, prev) > 0)) em.set(ck, cand);
               for (const c of s.classNamed) { classSel.add(s.id); if (e.classes.has(c)) styledClass.add(c); }
             }
             // one row per LOAD (V1-07): a sheet linked twice is in the cascade twice, the later load's sheet_order winning
-            if (seen.has(`s|${s.id}|${e.id}|${l.order}`)) return;
-            seen.add(`s|${s.id}|${e.id}|${l.order}`); styleRows++;
-            if (!seen.has(`s|${s.id}|${e.id}|${status}`)) {
-              seen.add(`s|${s.id}|${e.id}|${status}`);
+            if (seen.has(`s|${s.id}|${eid}|${l.order}`)) return;
+            seen.add(`s|${s.id}|${eid}|${l.order}`); styleRows++;
+            if (!seen.has(`s|${s.id}|${eid}|${status}`)) {
+              seen.add(`s|${s.id}|${eid}|${status}`);
               if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else { st!.u++; st!.ur ||= reason; }
             }
             let prox: number | null = null;
             if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
-            out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status, reason: reason || null,
+            out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: eid, page_uid: tg.page, status, reason: reason || null,
               conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
-              sheet_order: l.order, rule_order: n.order, important_count: n.important, scope_root: root?.id ?? null, scope_proximity: prox });
+              sheet_order: l.order, rule_order: n.order, important_count: n.important, scope_root: root ? ((root as CEl).origId ?? root.id) : null, scope_proximity: prox,
+              host_page_uid: comp ? pageId : null });
           };
           const statusOf = (rs: { s: number; r: string }, e: El): [string, string] => {
             const reasons = new Set(base);
@@ -1141,6 +1368,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         }
       }
     }
+    if (comp) {
+      // the fragments' resolved style, as matched in this host (one set of web_computed rows per host)
+      for (const [fp, cm] of candsByPage) computedOf(fp, cm, { host: pageId, els: comp.live.filter((e) => e.origPage === fp).map((e) => e.origId) });
+      return;
+    }
     for (const [sid, u] of unmatched) {
       if (u.any) { const st = selStats.get(sid); if (st) st.matched++; continue; }
       // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
@@ -1149,9 +1381,28 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       st.unmatched++; if (u.missing) st.missing++;
     }
     computedOf(pageId, cands);
+  };
+  for (const [pageId, loads] of loadsOf) runPage(pageId, loads);
+  // §11 compositions: every host with resolved includes, and every (layout, extending page) pair; the sheets are the
+  // host's, then those the fragments load themselves
+  const composedLoads = (host: string, frags: string[]): Load[] => {
+    const ls = [...(loadsOf.get(host) ?? [])]; let order = ls.reduce((a, l) => Math.max(a, l.order), 0);
+    for (const f of frags) for (const l of loadsOf.get(f) ?? []) if (!ls.some((x) => x.sheet === l.sheet)) ls.push({ ...l, order: ++order });
+    return ls;
+  };
+  let composedRuns = 0;
+  for (const host of includeInserts.keys()) {
+    const live = compose(host, []);
+    if (!live.some((e) => e.origPage !== host)) continue;
+    runPage(host, composedLoads(host, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== host)), { live }); composedRuns++;
+  }
+  for (const x of extendsComps) {
+    const live = compose(x.layout, x.inserts);
+    if (!live.some((e) => e.origPage !== x.layout)) continue;
+    runPage(x.layout, composedLoads(x.layout, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== x.layout)), { live }); composedRuns++;
   }
   for (const pageId of pages.keys()) if (!loadsOf.has(pageId)) computedOf(pageId, new Map());
-  log(`  web styles: ${styleRows} selector->element rows over ${loadsOf.size} page(s) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  log(`  web styles: ${styleRows} selector->element rows over ${loadsOf.size} page(s)${composedRuns ? ` and ${composedRuns} composed host(s)` : ''} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   for (const s of selById.values()) {
     const r = s.row; const st = selStats.get(s.id); const n = rules.get(s.rule);
     const dec = !n || !n.matchable ? { d: 'none', r: n?.inKeyframes ? 'keyframe_selector' : 'not_an_element_selector' }
@@ -1427,6 +1678,17 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       return out2;
     } }, sink);
     void st;
+    // §11: a fragment included by >= 2 hosts is a component candidate of kind include; an occurrence is an include site
+    for (const [frag, hs] of hostsOfFragment) {
+      const hostPages = new Set(hs.map((h) => h.host));
+      if (hostPages.size < 2) continue;
+      const fp = pages.get(frag)!; const top = topOf(frag); const root0 = top[0];
+      const uid = `WEB_COMPONENT_INCLUDE_${frag.replace(/^HTML_DOCUMENT_/, '')}`;
+      out('web_components').push({ uid, level: 'include', signature: `include:${fp.file}`, root_tag: root0?.tagLower ?? null,
+        root_classes: root0 ? [...root0.classes].sort().join(' ') || null : null, display: `include:${fp.file}`, size: fp.elements.length, occurrences: hs.length,
+        pages: hostPages.size, parent_component_uid: null, slot_count: 0, rules_styling_root: null });
+      for (const h of hs) out('web_component_occurrences').push({ component_uid: uid, element_uid: h.hostEl?.id ?? null, page_uid: h.host, file: fileOfPage(h.host), line: h.line, col: h.col });
+    }
     // §9.7 / §9.5
     const actionRef = new Map<string, string>(); // form element -> resolved abs path of its action
     for (const r of T.ref.rows) if (g(T.ref, r, 'attributeName').toLowerCase() === 'action') actionRef.set(g(T.ref, r, 'ownerElementLinkHash'), g(T.ref, r, 'resolvedFilePath'));

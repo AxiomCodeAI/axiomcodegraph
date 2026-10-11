@@ -1139,10 +1139,14 @@ def list_links(repo, as_json=False):
     for n, raw, why in bad:
         rows.append(dict(link=n, site='', target=raw[:80], status='malformed', reason=why))
     rows.sort(key=lambda r: r['link'])
+    web = list_web_links(repo)
     if as_json:
-        print(json.dumps(dict(file=links_path(repo), links=rows), indent=1)); return 0
+        print(json.dumps(dict(file=links_path(repo), links=rows, **({'web_file': web_links_path(repo), 'web_includes': web} if web else {})), indent=1)); return 0
+    for w in web:
+        print(f"asserted include: {w['fragment']} → {w['host']}  taken {w['taken']}" + (f" ({w['reason']})" if w['reason'] else ''))
     if not rows:
-        print(f"no asserted links ({links_path(repo)} has none)"); return 0
+        if not web: print(f"no asserted links ({links_path(repo)} has none)")
+        return 0
     print(f"{len(rows)} asserted link(s) in {os.path.relpath(links_path(repo), repo)}:")
     for r in rows:
         where = r['site'] + (f" (now line {r['now']})" if r.get('now') and r['site'] and int(r['site'].split(':')[1]) != r['now'] else '')
@@ -1161,6 +1165,9 @@ def main(argv):
     if '--list' in argv: argv = [a for a in argv if a != '--list']; return list_links(find_repo(argv)[0], as_json)
     if argv and argv[0] in ('-h', '--help', 'help'): print(USAGE); return 0
     repo, args = find_repo(argv)
+    if args and not remove and not reject:
+        r = web_link(repo, args, as_json)
+        if r is not None: return r
     if not os.path.isdir(os.path.join(repo, '.axiomcode')):
         print(f"axiomcode link: no graph for {repo} — ask a question first (impact, path) so it is built", file=sys.stderr); return 2
     if not args: return list_links(repo, as_json)
@@ -1228,6 +1235,121 @@ def main(argv):
     print(f"linked {where} `{new['callee']}` → {new['target']} [asserted]" + (" (the graph already had this edge; recorded, nothing added)" if r['status'] == 'redundant' else '')
           + (f"; {note_}" if note_ else '') + f"  — applied to {sum(1 for v in res.values() if v[0])} graph(s) in {ms:.0f} ms")
     return 0
+
+
+# ── web: asserted includes (SPEC §11.2) ─────────────────────────────────────────────────────────────────────────
+# `link <fragment>:1 <host>:<line>` says that a page fragment is included by a host page at that line, where the web
+# graph found no include reference or could not resolve one. It is kept in axiomcode-web-links.tsv at the repository
+# root (fragment, host, line, by, at), which the web graph reads when it is built: the fragment is then matched inside
+# the host, under the host's sheets, and every row that comes of it is labelled [asserted]. `link <fragment>:1 -`
+# removes the fragment's links; `link` alone lists them with whether the graph took each one.
+WEB_FILE = 'axiomcode-web-links.tsv'
+WEB_HEADER = '# axiomcode web links: page fragments asserted to be included by a host page. Written by `axiomcode link`; one per line, tab-separated: fragment host line by at'
+WEB_PAGE = re.compile(r'\.(?:html?|shtml?|xhtml)$', re.I)
+
+
+def web_links_path(repo):
+    return os.environ.get('AXIOMCODE_WEB_LINKS') or os.path.join(repo, WEB_FILE)
+
+
+def read_web_links(repo):
+    try:
+        with open(web_links_path(repo), encoding='utf-8', errors='replace') as fh: rows = fh.read().split('\n')
+    except OSError: return []
+    out = []
+    for raw in rows:
+        if not raw.strip() or raw.lstrip().startswith('#'): continue
+        p = (raw.split('\t') + [''] * 5)[:5]
+        out.append(dict(fragment=p[0], host=p[1], line=p[2], by=p[3], at=p[4]))
+    return out
+
+
+def write_web_links(repo, links):
+    p = web_links_path(repo); tmp = f"{p}.{os.getpid()}.tmp"
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        fh.write(WEB_HEADER + '\n')
+        for l in links: fh.write('\t'.join(str(l.get(k) or '') for k in ('fragment', 'host', 'line', 'by', 'at')) + '\n')
+    os.replace(tmp, p)
+
+
+def web_graph(repo):
+    for db, _r, live in graph_dbs(repo):
+        if not live: continue
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            lang = con.execute("SELECT value FROM run WHERE key = 'language'").fetchone()
+            has = con.execute("SELECT 1 FROM sqlite_master WHERE name = 'web_includes'").fetchone()
+            con.close()
+            if lang and lang[0] == 'web' and has: return db
+        except sqlite3.Error: pass
+    return None
+
+
+def web_verdicts(repo):
+    """{(fragment, host, line): (taken, reason)} from the web graph's asserted include rows"""
+    db = web_graph(repo); out = {}
+    if not db: return out
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        for frag, host, line, status, reason in con.execute(
+                "SELECT i.url_as_written, coalesce(h.file, i.file), i.line, i.status, i.reason FROM web_includes i LEFT JOIN web_pages h ON h.uid = i.host_page_uid WHERE i.kind = 'asserted'"):
+            out[(frag, host, str(line))] = (status == 'asserted', reason)
+    finally: con.close()
+    return out
+
+
+def web_rebuild(repo):
+    """the web graph rebuilt now with the links file as it stands (the build reads it); False when the build failed"""
+    import ax_fresh
+    t = ax_fresh.load_table(repo) or ax_fresh.legacy_params(repo) or {}
+    env = ax_fresh.rebuild_env(t, AXIOMCODE_REFRESH_REASON='an asserted web include')
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build'), repo],
+                       env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return r.returncode == 0
+
+
+def web_link(repo, args, as_json=False):
+    """`link <fragment>:1 <host>:<line>` / `link <fragment>:1 -`; None when the arguments are not a web include"""
+    f, _l, _c = site_arg(repo, args[0]) if args else (None, None, None)
+    if not f or not WEB_PAGE.search(f) or len(args) < 2: return None
+    links = read_web_links(repo)
+    if args[1] == '-':
+        keep = [l for l in links if l['fragment'] != f]
+        if len(keep) == len(links): return None                 # not a web link: the call-link removal handles it
+        write_web_links(repo, keep)
+        ok = web_rebuild(repo)
+        print(f"removed {len(links) - len(keep)} asserted include(s) of {f}" + ('' if ok else ' (the web graph rebuild failed; see .axiomcode/build.log)'))
+        return 0
+    h, hl, _hc = site_arg(repo, args[1])
+    if not h or not WEB_PAGE.search(h) or not hl: return None
+    if not web_graph(repo):
+        print("axiomcode link: no web graph here to take an asserted include (index with --lang web first)", file=sys.stderr); return 2
+    for x in (f, h):
+        if not os.path.isfile(os.path.join(repo, x)):
+            print(f"axiomcode link: rejected — {x} is not a file in this repository", file=sys.stderr); return 1
+    new = dict(fragment=f, host=h, line=hl, by=os.environ.get('AXIOMCODE_LINK_BY') or os.environ.get('USER') or 'agent', at=time.strftime('%Y-%m-%dT%H:%M:%S'))
+    links = [l for l in links if not (l['fragment'] == f and l['host'] == h)] + [new]
+    write_web_links(repo, links)
+    t0 = time.time(); ok = web_rebuild(repo)
+    taken, why = web_verdicts(repo).get((f, h, str(hl)), (False, 'the web graph did not read the link (rebuild failed?)' if not ok else 'not read'))
+    if as_json:
+        print(json.dumps(dict(fragment=f, host=h, line=hl, taken=taken, reason=why))); return 0 if taken else 1
+    if taken:
+        print(f"linked {f} → included by {h}:{hl} [asserted]: its elements are now matched in {h} under its sheets  — web graph rebuilt in {time.time() - t0:.0f} s")
+        return 0
+    print(f"axiomcode link: recorded but not taken — {why}", file=sys.stderr)
+    return 1
+
+
+def list_web_links(repo):
+    links = read_web_links(repo)
+    if not links: return []
+    v = web_verdicts(repo)
+    rows = []
+    for l in links:
+        taken, why = v.get((l['fragment'], l['host'], str(l['line'])), (False, 'the web graph has not read it yet (next refresh)'))
+        rows.append(dict(fragment=l['fragment'], host=f"{l['host']}:{l['line']}", taken='yes' if taken else 'no', reason=why, by=l['by'], at=l['at']))
+    return rows
 
 
 def _restore_bad(repo, bad):

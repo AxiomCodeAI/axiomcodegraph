@@ -74,7 +74,7 @@ NAMES = {
     'javascript': ('package.json',),
     'python': ('pyproject.toml', 'setup.cfg', 'setup.py'),
     'csharp': ('global.json', 'Directory.Build.props'),
-    'web': (),
+    'web': ('axiomcode-web-links.tsv',),            # asserted includes (ax_links.web_link): the web graph reads it
 }
 # EXTENSION CASE (#1771). The JavaScript parser matches an extension whatever its case (jsExtensionOf lower-cases the
 # name, so Main.JS and Up.VUE are read) and the C# parser reads *.CS (discoverCsFiles); the others match it exactly.

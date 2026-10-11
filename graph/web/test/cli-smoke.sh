@@ -17,7 +17,11 @@ cat > "$T/site/sub/about.html" <<'H'
 <!doctype html>
 <html><head><link rel="stylesheet" href="../style.css"></head><body><p class="menu">x</p></body></html>
 H
-printf '.menu{color:red}\n#top{--gap:4px;margin:var(--gap)}\n.never{color:blue}\n' > "$T/site/style.css"
+printf '.menu{color:red}\n#top{--gap:4px;margin:var(--gap)}\n.never{color:blue}\n.slot > .card{color:green}\n' > "$T/site/style.css"
+# a fragment no include reference names, for `link` (SPEC §11.2, Q36): asserted into host.html at line 4
+mkdir -p "$T/site/parts"
+printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></head><body>\n<div class="slot">\n  <!-- the card goes here -->\n</div></body></html>\n' > "$T/site/host.html"
+printf '<p class="card">c</p>\n' > "$T/site/parts/card.html"
 pass=0; fail=0
 check(){ # name, expected substring, command...
   local name="$1" want="$2"; shift 2; local out
@@ -32,5 +36,9 @@ check impact-var '--gap' "$AX" impact --gap
 check impact-handler 'onclick' "$AX" impact index.html
 check context 'menu' "$AX" context "menu colour"
 check path 'about.html' "$AX" path index.html sub/about.html
+check impact-before-link 'elements it styles: 0' "$AX" impact '.slot > .card' --in host.html
+check link-include '[asserted]' "$AX" link parts/card.html:1 host.html:4
+check impact-asserted 'parts/card.html:1: p.card [match] (included in host.html) [asserted]' "$AX" impact '.slot > .card' --in host.html
+check link-list 'parts/card.html → host.html:4  taken yes' "$AX" link
 echo "web cli smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

@@ -158,7 +158,14 @@ export const WEB_TABLES: readonly TableSpec[] = [
     description: 'selector -> element: the rule applies to the element on that page (only through sheets the page loads). `reason` lists every condition, sorted, \';\'-joined. Cascade order fields per SPEC §3.3: sort by (important_count>0, layer_rank, spec_a, spec_b, spec_c, sheet_order, rule_order). `pseudo_element` set when the rule styles a ::before/::after/… of the element.',
     columns: [id('selector_uid'), id('rule_uid'), id('stylesheet_uid'), id('element_uid'), id('page_uid'), t('status'), t('reason'), t('conditions'), t('pseudo_element'),
       i('spec_a'), i('spec_b'), i('spec_c'), i('layer_rank'), i('sheet_order'), i('rule_order'), i('important_count'),
-      id('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element')],
+      id('scope_root', 'inside @scope: the scope root element'), i('scope_proximity', 'generations from the scope root to the element'),
+      id('host_page_uid', 'set when the element is a fragment\'s, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own')],
+  },
+  {
+    name: 'web_includes',
+    description: 'A page that includes a fragment at build or serve time (SPEC §11.2, G22): SSI `<!--#include virtual|file -->`, posthtml `<include src>`, gulp `@@include`, Jinja `{% include %}` / `{% extends %}` / `{% import %}`, or an include the agent asserted with `link` (kind and status `asserted`). `kind` is the flavour; `host_element_uid` the element the include sits in (for `<include src>` the include element\'s parent; NULL at the top level), `position` the sibling index the fragment\'s top-level elements take there. For `jinja:extends` the host is the layout extended and the fragment the extending page, whose blocks are matched at the layout\'s blocks. status match | ambiguous (two template roots hold the name; one row each) | unknown (reason unresolved_url, template_url, not_indexed, include_cycle) | asserted.',
+    columns: [id('host_page_uid'), id('fragment_page_uid'), t('kind'), id('host_element_uid'), i('position'), id('reference_uid'), t('url_as_written'), id('file'), i('line'), i('col'),
+      t('args'), t('status'), t('reason')],
   },
   {
     name: 'web_var_def',
@@ -195,7 +202,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   // ── [iter2] SPEC §9 conversion layer ──────────────────────────────────────
   {
     name: 'web_components',
-    description: 'A shared structure (component candidate, SPEC §9.1): every written element (not inert, not html/head/body) with one signature, at a `level` — exact (tag, static class tokens, attribute names, children) or shape (tag and children only) — kept when it occurs >= 2 times with >= 3 elements, and maximal (a group only ever found as the direct part of one other group is folded into it). `display` <tag>.<first 3 classes sorted> (#n when shared); `size` elements in one occurrence; `parent_component_uid` the group whose occurrences contain every occurrence of this one; `rules_styling_root` rules with a styles row on the first occurrence.',
+    description: 'A shared structure (component candidate, SPEC §9.1): level `include` (§11): a fragment page included by >= 2 hosts, one occurrence per include site (element_uid the element the include sits in). Otherwise every written element (not inert, not html/head/body) with one signature, at a `level` — exact (tag, static class tokens, attribute names, children) or shape (tag and children only) — kept when it occurs >= 2 times with >= 3 elements, and maximal (a group only ever found as the direct part of one other group is folded into it). `display` <tag>.<first 3 classes sorted> (#n when shared); `size` elements in one occurrence; `parent_component_uid` the group whose occurrences contain every occurrence of this one; `rules_styling_root` rules with a styles row on the first occurrence.',
     columns: [id('uid'), t('level'), t('signature'), t('root_tag'), t('root_classes'), id('display'), i('size'), i('occurrences'), i('pages'), id('parent_component_uid'), i('slot_count'), i('rules_styling_root')],
   },
   {
@@ -216,7 +223,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_computed',
     description: 'The cascade winner per (element, pseudo-element, written property) with >= 1 contender (SPEC §9.2): contenders are the declarations of the property in every rule with a styles row for the element and pseudo-element, plus its style attribute, sorted by importance, origin/layer, specificity, sheet order, rule order, position. `winner_status` match | conditional_only (no exact contender) | unknown (an unknown contender sorts above the winner) | shorthand_override (a shorthand declaration sorts above this longhand\'s winner: `override_decl_uid`; values are not expanded, LIMIT L5). Inherited and initial values are not filled (L6). `winner_key` is the sort key the view web_cascade compares against.',
-    columns: [id('element_uid'), id('page_uid'), t('pseudo'), id('property'), id('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), id('override_decl_uid'), t('winner_key')],
+    columns: [id('element_uid'), id('page_uid'), id('host_page_uid', 'a fragment element resolved where that host includes it (§11); NULL on its own page'), t('pseudo'), id('property'), id('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), id('override_decl_uid'), t('winner_key')],
   },
   {
     name: 'web_tokens',
@@ -322,10 +329,11 @@ export const WEB_VIEWS: readonly string[] = [
      p.file AS page_file, 'no_static_carrier' AS unknown_reason
      FROM web_selectors s JOIN web_loads l ON l.stylesheet_uid = s.stylesheet_uid JOIN web_pages p ON p.uid = l.page_uid
      WHERE EXISTS (SELECT 1 FROM web_selector_required r0 WHERE r0.selector_uid = s.uid)
-       AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND w.page_uid = l.page_uid)
+       AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND (w.page_uid = l.page_uid OR w.host_page_uid = l.page_uid))
        AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)
        AND EXISTS (SELECT 1 FROM web_selector_required q WHERE q.selector_uid = s.uid AND NOT EXISTS (
-         SELECT 1 FROM web_elements e WHERE e.page_uid = l.page_uid AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
+         SELECT 1 FROM web_elements e WHERE (e.page_uid = l.page_uid OR e.page_uid IN (SELECT i.fragment_page_uid FROM web_includes i
+           WHERE i.host_page_uid = l.page_uid AND i.status IN ('match', 'asserted'))) AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
            (q.kind = 'id' AND (e.html_id = q.token OR (p.quirks = 1 AND lower(e.html_id) = lower(q.token))))
            OR (q.kind = 'class' AND EXISTS (SELECT 1 FROM web_class_tokens t WHERE t.element_uid = e.uid
                  AND (t.class_name = q.token OR (p.quirks = 1 AND lower(t.class_name) = lower(q.token))))))))`,
