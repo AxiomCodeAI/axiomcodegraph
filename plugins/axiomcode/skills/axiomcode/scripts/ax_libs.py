@@ -301,7 +301,8 @@ def compiled(src, engine, cache):
         return out
     log = out + '.log'
     os.makedirs(cache, exist_ok=True)
-    rc = subprocess.run([os.path.join(engine, 'bin', 'axiomcode'), 'parser', src, out, '--library'],
+    # bin/axiomcode is a bash script: run through bash, which Windows cannot do for it (WinError 193)
+    rc = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(engine, 'bin', 'axiomcode'), 'parser', src, out, '--library'],
                         stdout=open(log, 'w'), stderr=subprocess.STDOUT).returncode
     if rc != 0 or not is_ir(out):
         note(f'{src} did not compile (rc {rc}, see {log}); not staged')
