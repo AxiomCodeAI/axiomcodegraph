@@ -85,6 +85,8 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_attributes.file, .line          -> attr_at <element> <name> <file:line>               (V2-01 via_at)
   web_styles.loads (sheet orders)     -> styles_loads <selector> <element> <page> <orders>  (V2-22, > 1 load only)
   web_tokens.unused                   -> last column of token                               (V2-06)
+  web_rules.prelude_text/_bytes/_truncated, web_declarations.value_text/_bytes/_truncated
+                                      -> prelude_text|value_text <key> <bytes> <truncated> |<first 1,000 chars>  (V2-12)
   web_form_controls(element_uid, form_uid, tag, type, name, required, label_uid, label_via)
   web_icon_classes(class_name, rule_uid, content, font_family, used_elements)
   web_outline(uid, element_uid, page_uid, kind, name, level, parent_outline_uid, ordinal)
@@ -217,6 +219,9 @@ def main():
         for uid, _s, _p, f, ln, col, *_ in rules:
             key[uid] = f'{f}:{ln}:{col}'
         kf_parent = {uid for uid, *_r, rk, at, _pre in rules if rk == 'AT_RULE' and (at or '').lower().endswith('keyframes')}
+        if want('prelude_text') and g.has('web_rules', 'prelude_bytes'):
+            for uid, pre, pb, pt in g.rows('web_rules', ['uid', 'prelude_text', 'prelude_bytes', 'prelude_truncated']):
+                emit('prelude_text', key[uid], pb, 1 if str(pt).lower() in ('1', 'true') else 0, '|' + (pre or '')[:1000])
         for uid, _s, par, f, ln, col, rk, at, pre in rules:
             kind = f'@{(at or "").lower()}' if rk == 'AT_RULE' else ('keyframe' if par in kf_parent else 'style')
             emit('rule', key[uid], kind, ' '.join((pre or '').split()), key.get(par) if par else None)
@@ -250,8 +255,14 @@ def main():
         attr_owner = {uid: e for uid, e, _n, _v in attrs}
         decls = g.rows('web_declarations', ['uid', 'rule_uid', 'attribute_uid', 'file', 'line', 'col', 'property', 'value_text', 'is_important'])
         custom = set()
+        vt = {}
+        if want('value_text') and g.has('web_declarations', 'value_bytes'):
+            vt = {u: (v, vb, vtr) for u, v, vb, vtr in g.rows('web_declarations', ['uid', 'value_text', 'value_bytes', 'value_truncated'])}
         for uid, r, a, f, ln, col, prop, val, imp in decls:
             key[uid] = f'{f}:{ln}:{col}'
+            if uid in vt:
+                v, vb, vtr = vt[uid]
+                emit('value_text', key[uid], vb, 1 if str(vtr).lower() in ('1', 'true') else 0, '|' + (v or '')[:1000])
             owner = key.get(r) if r else f'attr@{key.get(attr_owner.get(a))}'
             emit('declaration', key[uid], owner, prop, (val or '').strip(), 1 if str(imp).lower() in ('1', 'true') else 0)
             if (prop or '').startswith('--'):

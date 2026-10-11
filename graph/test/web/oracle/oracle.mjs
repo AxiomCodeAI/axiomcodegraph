@@ -240,6 +240,17 @@ function emitRef(page, el, attr, url) {
   (page.refs ??= []).push({ el, attr, url, r, resolved });
 }
 
+// [iter3 orchestrator, V2-12] prelude / value text in full, whitespace as written (comments out, as postcss reads
+// the value), with its UTF-8 size; past 64 KiB the text is cut (truncated 1) and a web_unknown `limit` row lists it.
+// The row carries the first 1,000 characters (`|`-prefixed) so a cut text compares by its head.
+const LIMIT_BYTES = 64 * 1024;
+function textRow(kind, key, text, reason, page) {
+  const bytes = Buffer.byteLength(text, 'utf8');
+  const cut = bytes > LIMIT_BYTES ? 1 : 0;
+  emit(kind, key, bytes, cut, `|${text.slice(0, 1000)}`);
+  if (cut) emit('unknown', reason, key, page ?? '-');
+}
+
 // ── <style> sheets and style="" declarations ─────────────────────────────────────────────────
 for (const page of pages) {
   let styleN = 0;
@@ -258,7 +269,7 @@ for (const page of pages) {
       const useRaw = raw && raw.text === a.value;
       const s = parseStyleAttr(a.value, page.rel, useRaw ? { line: raw.line, col: raw.col } : { line: a.line, col: a.col }, `attr@${el.key}`);
       el.styleDecls = s.decls; el.styleRefs = s.refs;
-      for (const d of s.decls) emit('declaration', d.key, `attr@${el.key}`, d.prop, d.value, d.important ? 1 : 0);
+      for (const d of s.decls) { emit('declaration', d.key, `attr@${el.key}`, d.prop, d.value, d.important ? 1 : 0); textRow('value_text', d.key, d.rawValue ?? d.value, 'value_truncated', page.rel); }
       for (const r of s.refs) emitValueRef(r, page.rel);
     }
   }
@@ -271,6 +282,7 @@ for (const s of sheets.values()) {
   if (s.gap) emit('css_gap', s.key, s.gap);
   for (const r of s.rules) {
     emit('rule', r.key, r.kind, r.prelude, r.parent);
+    textRow('prelude_text', r.key, r.rawPrelude ?? '', 'prelude_truncated', s.source === 'FILE' ? '-' : s.page?.rel);
     for (const sel of r.selectors) {
       emit('selector', sel.key, sel.text, sel.spec);
       for (const [k, n] of sel.parts) emit('selector_part', sel.key, k, n);
@@ -284,6 +296,7 @@ for (const s of sheets.values()) {
   }
   for (const d of s.decls) {
     emit('declaration', d.key, d.owner, d.prop, d.value, d.important ? 1 : 0);
+    textRow('value_text', d.key, d.rawValue ?? d.value, 'value_truncated', s.source === 'FILE' ? '-' : s.page?.rel);
     if (d.custom) customProps.set(d.prop, true);
   }
   for (const r of s.refs) {

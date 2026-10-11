@@ -189,8 +189,14 @@ export function computed(pages, emit, contenderLoads, unlayeredRank) {
   const reasonVs = (w, l) => (w.imp !== l.imp ? 'importance' : w.inline !== l.inline ? 'origin' : w.layer !== l.layer ? 'layer'
     : (w.a !== l.a || w.b !== l.b || w.c !== l.c) ? 'specificity' : 'source_order');
   const winners = new Map();
-  for (const [k, list] of byEl) {
-    list.sort(cmp);
+  for (const [k, raw] of byEl) {
+    raw.sort(cmp);
+    // [iter3 orchestrator, V2-13] one contender per DECLARATION (reached through two selectors it counts once, at its
+    // best-ranked application: an exact one sorts with its own key, so keep the first after sorting, preferring match)
+    const seen = new Map();
+    for (const x of raw) { const p = seen.get(x.decl.key); if (!p || (p.status !== 'match' && x.status === 'match')) seen.set(x.decl.key, x); }
+    const list = raw.filter((x) => seen.get(x.decl.key) === x);
+    byEl.set(k, list);
     const winner = list.find((x) => x.status === 'match');
     winners.set(k, { winner, list });
   }
@@ -206,8 +212,10 @@ export function computed(pages, emit, contenderLoads, unlayeredRank) {
       }
       if (override) status = 'shorthand_override';
     }
-    const condAbove = winner ? list.filter((x) => x.status === 'conditional' && cmp(x, winner) < 0).length : list.filter((x) => x.status === 'conditional').length;
-    emit('computed', elKey, pseudo, prop, winner ? winner.decl.key : '-', status, list.length, condAbove, override ? override.decl.key : '-');
+    // [V2-13] contenders = every applying declaration, winner included; conditional_overrides = every conditional one
+    // among them, those ranked below the winner too
+    const condAll = list.filter((x) => x.status === 'conditional').length;
+    emit('computed', elKey, pseudo, prop, winner ? winner.decl.key : '-', status, list.length, condAll, override ? override.decl.key : '-');
     for (const x of list) {
       const outcome = x === winner ? 'won' : x.status === 'conditional' && (!winner || cmp(x, winner) < 0) ? 'conditional' : 'lost';
       const reason = outcome !== 'lost' ? '-' : override && x !== override ? reasonVs(winner, x) : winner ? reasonVs(winner, x) : '-';
