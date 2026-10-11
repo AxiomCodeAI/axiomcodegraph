@@ -61,7 +61,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_handlers',
     description: 'One handler-bearing attribute or javascript: URL on an HTML tag (SPEC §10; view web_handler), in page order (`handler_index`): `attr_as_written` (original case, read from the source), `event` (lower-case DOM event; `htmx:x` for hx-on::x; `navigate` for a javascript: URL), `modifiers` (comma list), `source_kind` (on_attribute | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | stimulus; one row per Stimulus descriptor), `code` as the attribute value reads (for javascript: the text after it; for Stimulus the descriptor) and `code_bytes`. Look-alikes (data-on*, onboarding, once, @x on a page with no Vue/Alpine, ng-if, data-action without #) are not rows. No JavaScript is parsed.',
-    columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), id('tag'), t('attr_as_written'), id('event'), t('modifiers'), t('source_kind'),
+    columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), id('tag'), t('attr_as_written'), id('event'), t('event_source', 'written | stimulus_default (a data-action descriptor with no event: Stimulus\'s default for the tag) | stimulus_default_unknown (no default for the tag; event NULL)'), t('modifiers'), t('source_kind'),
       t('code'), i('code_bytes'), i('line'), i('col'), i('handler_index'), i('known_event', '1 when the event is in the DOM/HTML event-handler list')],
   },
   {
@@ -84,15 +84,20 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_rules',
-    description: 'One rule: a style rule or an at-rule. `rule_order` is its 1-based pre-order position in its sheet; `layer` the dotted cascade layer it sits in (empty: unlayered); `conditions` the enclosing @media/@supports/@container/@scope/@starting-style/@document preludes, outermost first, joined by \' && \'; `in_keyframes` = 1 for a block inside @keyframes/@font-face/@page… (its selectors style no element).',
+    description: 'One rule: a style rule or an at-rule. `rule_order` is its 1-based pre-order position in its sheet; `layer` the dotted cascade layer it sits in (empty: unlayered); `conditions` `usage` the best of its selectors\' usage (matched > conditional_only > unknown_only > unmatched_static > not_loaded; NULL without element selectors); the enclosing @media/@supports/@container/@scope/@starting-style/@document preludes, outermost first, joined by \' && \'; `in_keyframes` = 1 for a block inside @keyframes/@font-face/@page… (its selectors style no element).',
     columns: [id('uid'), id('stylesheet_uid'), id('parent_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'), t('rule_kind'), t('at_rule_name'), id('name'),
-      t('prelude_text'), i('nesting_depth'), i('position'), i('rule_order'), t('layer'), t('conditions'), i('in_keyframes'), i('important_count')],
+      t('prelude_text'), i('nesting_depth'), i('position'), i('rule_order'), t('layer'), t('conditions'), i('in_keyframes'), i('important_count'), t('usage')],
   },
   {
     name: 'web_selectors',
-    description: 'One complex selector of a style rule. `decidability`: exact, conditional (a state pseudo-class or an at-rule condition), unknown (with `reason`), none (a keyframe offset). spec_* is the specificity after nesting is resolved.',
+    description: 'One complex selector of a style rule. `decidability`: exact, conditional (a state pseudo-class or an at-rule condition), unknown (with `reason`), none (a keyframe offset). spec_* is the specificity after nesting is resolved. Per page (SPEC §3.5 [iter2] grain, §9.9): `pages_loading` pages whose loads reach its sheet, `pages_matched` pages with any styles row, `pages_unmatched` pages with none and no whole-selector unknown (the list: view web_selector_unmatched_pages), `unknown_reason` = no_static_carrier when on some page a required class/id is carried by no element statically; `usage` matched | conditional_only | unknown_only | unmatched_static (loaded, no styles row anywhere) | not_loaded (NULL for a keyframe offset). Never "dead": classes added at run time are outside this layer.',
     columns: [id('uid'), id('rule_uid'), id('stylesheet_uid'), id('file'), i('line'), i('col'), i('position'), id('selector_text'), i('spec_a'), i('spec_b'), i('spec_c'),
-      i('compound_count'), i('has_nesting'), i('has_pseudo_element'), t('decidability'), t('reason'), i('pages_loading'), i('pages_matched'), i('elements_matched')],
+      i('compound_count'), i('has_nesting'), i('has_pseudo_element'), t('decidability'), t('reason'), i('pages_loading'), i('pages_matched'), i('elements_matched'), i('pages_unmatched'), t('unknown_reason'), t('usage')],
+  },
+  {
+    name: 'web_selector_required',
+    description: 'The class and id tokens a selector REQUIRES of its subject chain (nesting resolved; never inside :not()/:is() alternatives), written only for selectors with unknown_reason no_static_carrier: what view web_selector_unmatched_pages tests against each loading page\'s carriers.',
+    columns: [id('selector_uid'), t('kind', 'class | id'), id('token')],
   },
   {
     name: 'web_selector_parts',
@@ -120,7 +125,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_gaps',
     description: 'What a grammar could not read: `lang` html or css, the gap kind, and the page/sheet and rule/element it covers.',
-    columns: [id('uid'), t('lang'), t('kind'), t('detail'), id('owner_uid', 'page (html) or sheet (css)'), id('related_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col')],
+    columns: [id('uid'), t('lang'), t('gap_kind'), t('detail'), id('owner_uid', 'page (html) or sheet (css)'), id('related_uid', 'the element (html) or rule (css) it covers'), id('element_uid', 'the element an html gap covers (= related_uid for html)'), id('file'), i('line'), i('col'), i('end_line'), i('end_col')],
   },
   // ── edges ────────────────────────────────────────────────────────────────
   {
@@ -195,11 +200,31 @@ export const WEB_TABLES: readonly TableSpec[] = [
 ];
 
 /** Views: the edges a reader expects by name that are a projection of a node table. */
+/** run after the indexes: values that need every table written (web_rules.usage from its selectors) */
+export const WEB_FINALIZE: readonly string[] = [
+  `UPDATE web_rules SET usage = (SELECT CASE min(CASE s.usage WHEN 'matched' THEN 1 WHEN 'conditional_only' THEN 2 WHEN 'unknown_only' THEN 3
+     WHEN 'unmatched_static' THEN 4 WHEN 'not_loaded' THEN 5 END) WHEN 1 THEN 'matched' WHEN 2 THEN 'conditional_only' WHEN 3 THEN 'unknown_only'
+     WHEN 4 THEN 'unmatched_static' WHEN 5 THEN 'not_loaded' END FROM web_selectors s WHERE s.rule_uid = web_rules.uid)`,
+];
+
 export const WEB_VIEWS: readonly string[] = [
+  // SPEC §3.5 [iter2]: the pages behind web_selectors.pages_unmatched — pages loading the selector's sheet with no styles row
+  // for it and no whole-selector unknown row
+  `CREATE VIEW web_selector_unmatched_pages AS SELECT DISTINCT s.uid AS selector_uid, s.selector_text, s.file AS sheet_file, s.line, l.page_uid,
+     p.file AS page_file, s.unknown_reason
+     FROM web_selectors s JOIN web_loads l ON l.stylesheet_uid = s.stylesheet_uid JOIN web_pages p ON p.uid = l.page_uid
+     WHERE s.unknown_reason = 'no_static_carrier'
+       AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND w.page_uid = l.page_uid)
+       AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)
+       AND EXISTS (SELECT 1 FROM web_selector_required q WHERE q.selector_uid = s.uid AND NOT EXISTS (
+         SELECT 1 FROM web_elements e WHERE e.page_uid = l.page_uid AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
+           (q.kind = 'id' AND (e.html_id = q.token OR (p.quirks = 1 AND lower(e.html_id) = lower(q.token))))
+           OR (q.kind = 'class' AND EXISTS (SELECT 1 FROM web_class_tokens t WHERE t.element_uid = e.uid
+                 AND (t.class_name = q.token OR (p.quirks = 1 AND lower(t.class_name) = lower(q.token))))))))`,
   `CREATE VIEW web_script AS SELECT uid, page_uid, element_uid, file, order_on_page AS ordinal, type_as_written, script_type, lower(script_kind) AS kind,
      attributes, src, resolved_file, body_start_line AS body_line, body_start_col AS body_col, body_end_line, body_end_col, body, body_bytes, body_lines, inline_index
      FROM web_scripts`,
-  `CREATE VIEW web_handler AS SELECT uid, page_uid, element_uid, file, line, col, attr_as_written, event, modifiers, source_kind, code, code_bytes, tag, handler_index
+  `CREATE VIEW web_handler AS SELECT uid, page_uid, element_uid, file, line, col, attr_as_written, event, event_source, modifiers, source_kind, code, code_bytes, tag, handler_index
      FROM web_handlers`,
   `CREATE VIEW web_event_handlers AS SELECT uid, element_uid, attr_as_written AS attribute_name,
      CASE source_kind WHEN 'on_attribute' THEN 'EVENT_ATTRIBUTE' WHEN 'javascript_url' THEN 'JAVASCRIPT_URL' ELSE 'TEMPLATE_EVENT' END AS handler_source,

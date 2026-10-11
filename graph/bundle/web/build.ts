@@ -454,37 +454,57 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // without a # descriptor) are the SPEC's table, applied to the attribute name as written, case-insensitively.
   {
     const ANGULARJS = /^(?:data-)?ng-(click|dblclick|submit|change|blur|focus|keydown|keyup|keypress|mousedown|mouseup|mouseenter|mouseleave|mouseover|mousemove|copy|cut|paste)$/i;
-    const STIMULUS_DEFAULT: Record<string, string> = { a: 'click', button: 'click', details: 'toggle', form: 'submit', input: 'input', select: 'change', textarea: 'input' };
     const dialectsOf = new Map<string, Set<string>>();
-    for (const r of T.doc.rows) dialectsOf.set(g(T.doc, r, 'htmlDocumentUniqueHash'), new Set(g(T.doc, r, 'templateDialects').split(',').filter(Boolean)));
+    // a page's Vue/Alpine dialect, from its template expressions other than bare `@x` attributes: a stray `@media="…"` must not
+    // make its own page a Vue page (SPEC §10 look-alikes)
+    const atAttr = new Set<string>();
+    for (const r of T.attr.rows) if (g(T.attr, r, 'name').startsWith('@')) atAttr.add(g(T.attr, r, 'htmlAttributeUniqueHash'));
+    for (const r of T.tpl.rows) {
+      const a = g(T.tpl, r, 'attributeLinkHash'); if (a && atAttr.has(a)) continue;
+      const d = g(T.tpl, r, 'documentLinkHash'); let ds = dialectsOf.get(d); if (!ds) { ds = new Set(); dialectsOf.set(d, ds); }
+      ds.add(g(T.tpl, r, 'dialect').toUpperCase());
+    }
     const alpineScope = (e: El | undefined): boolean => { for (let a = e ?? null; a; a = a.parent) if (a.attrs.has('x-data')) return true; return false; };
     const mods = (s: string, sep: string): string => s.split(sep).filter(Boolean).join(',');
-    interface H { kind: string; event: string; modifiers: string; code?: string }
-    const classify = (name: string, value: string, e: El | undefined, page: string): H[] => {
-      const n = name.toLowerCase();
+    interface H { kind: string; event: string; modifiers: string; code?: string; source?: string }
+    // Stimulus's default event per tag (SPEC §10 ruling): used when a descriptor names none; event_source says so
+    const stimulusDefault = (e: El | undefined): string | null => {
+      const t = e?.tagLower ?? ''; const type = (e?.attrs.get('type')?.value ?? '').toLowerCase();
+      if (t === 'a' || t === 'button') return 'click';
+      if (t === 'input') return ['submit', 'button', 'reset'].includes(type) ? 'click' : 'input';
+      return ({ textarea: 'input', select: 'change', form: 'submit', details: 'toggle' } as Record<string, string>)[t] ?? null;
+    };
+    const classify = (written: string, value: string, e: El | undefined, page: string): H[] => {
+      // match on the lowercased name, read events and modifiers from the name as written (same length, same positions)
+      const n = written.toLowerCase();
+      const W = (re: RegExp): RegExpExecArray | null => (re.exec(n) ? re.exec(written) : null);
       let m: RegExpExecArray | null;
       const dial = dialectsOf.get(page) ?? new Set<string>();
       if ((m = /^on([a-z][a-z0-9]*)$/.exec(n))) return KNOWN_EVENTS.has(m[1]!) ? [{ kind: 'on_attribute', event: m[1]!, modifiers: '' }] : [];
-      if ((m = /^v-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) return [{ kind: 'vue', event: m[1]!, modifiers: mods(m[2]!, '.') }];
-      if ((m = /^x-on:([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) return [{ kind: 'alpine', event: m[1]!, modifiers: mods(m[2]!, '.') }];
-      if ((m = /^@([\w-]+(?::[\w-]+)?)((?:\.[\w-]+)*)$/.exec(n))) {
+      const ev = (x: string): string => (x.startsWith('[') ? x : x.toLowerCase());
+      if ((m = W(/^v-on:([\w-]+(?::[\w-]+)?|\[[^\]]+\])((?:\.[\w-]+)*)$/i))) return [{ kind: 'vue', event: ev(m[1]!), modifiers: mods(m[2]!, '.') }];
+      if ((m = W(/^x-on:([\w-]+(?::[\w-]+)?|\[[^\]]+\])((?:\.[\w-]+)*)$/i))) return [{ kind: 'alpine', event: ev(m[1]!), modifiers: mods(m[2]!, '.') }];
+      if ((m = W(/^@([\w-]+(?::[\w-]+)?|\[[^\]]+\])((?:\.[\w-]+)*)$/i))) {
         const vue = dial.has('VUE'), alpine = dial.has('ALPINE');
         if (!vue && !alpine) return [];
-        return [{ kind: vue && alpine ? (alpineScope(e) ? 'alpine' : 'vue') : alpine ? 'alpine' : 'vue', event: m[1]!, modifiers: mods(m[2]!, '.') }];
+        return [{ kind: vue && alpine ? (alpineScope(e) ? 'alpine' : 'vue') : alpine ? 'alpine' : 'vue', event: ev(m[1]!), modifiers: mods(m[2]!, '.') }];
       }
-      if ((m = /^\(([\w-]+)((?:\.[\w-]+)*)\)$/.exec(n))) return [{ kind: 'angular', event: m[1]!, modifiers: mods(m[2]!, '.') }];
+      if ((m = W(/^\(([\w-]+)((?:\.[\w-]+)*)\)$/i))) return [{ kind: 'angular', event: ev(m[1]!), modifiers: mods(m[2]!, '.') }];
       if ((m = /^on-([a-z][\w-]*)$/.exec(n))) return KNOWN_EVENTS.has(m[1]!) ? [{ kind: 'angular', event: m[1]!, modifiers: '' }] : [];
       if ((m = ANGULARJS.exec(n))) return [{ kind: 'angularjs', event: m[1]!.toLowerCase(), modifiers: '' }];
-      if ((m = /^on:([\w-]+)((?:\|[\w-]+)*)$/.exec(n))) return [{ kind: 'svelte', event: m[1]!, modifiers: mods(m[2]!, '|') }];
+      if ((m = W(/^on:([\w-]+)((?:\|[\w-]+)*)$/i))) return [{ kind: 'svelte', event: ev(m[1]!), modifiers: mods(m[2]!, '|') }];
       if ((m = /^hx-on::([\w:.-]+)$/.exec(n))) return [{ kind: 'htmx', event: `htmx:${m[1]}`, modifiers: '' }];
       if ((m = /^hx-on:([\w:.-]+)$/.exec(n)) || (m = /^hx-on-([\w-]+)$/.exec(n))) return [{ kind: 'htmx', event: m[1]!, modifiers: '' }];
       if (n === 'data-action' && value.includes('#')) {
         return value.trim().split(/\s+/).filter((d) => d.includes('#')).map((d) => {
           const dm = /^(?:([\w:.@-]+)->)?(.+)$/.exec(d)!;
-          let ev = dm[1];
-          if (!ev) { const type = e?.attrs.get('type')?.value.toLowerCase(); ev = e?.tagLower === 'input' && type === 'submit' ? 'click' : (STIMULUS_DEFAULT[e?.tagLower ?? ''] ?? 'click'); }
-          const evParts = ev.split('.');
-          return { kind: 'stimulus', event: evParts[0]!.toLowerCase(), modifiers: evParts.slice(1).join(','), code: dm[2]! };
+          // the event as written, else the tag's default (event_source stimulus_default / _unknown);
+          // `keydown.esc@window` -> event keydown, modifiers esc,@window
+          const evw = dm[1];
+          if (!evw) { const dflt = stimulusDefault(e); return { kind: 'stimulus', event: dflt ?? '', modifiers: '', code: dm[2]!, source: dflt ? 'stimulus_default' : 'stimulus_default_unknown' }; }
+          const at = evw.indexOf('@'); const head = at >= 0 ? evw.slice(0, at) : evw; const glob = at >= 0 ? evw.slice(at) : '';
+          const evParts = head.split('.');
+          return { kind: 'stimulus', event: evParts[0]!.toLowerCase(), modifiers: [...evParts.slice(1), ...(glob ? [glob] : [])].filter(Boolean).join(','), code: dm[2]! };
         });
       }
       return [];
@@ -506,15 +526,16 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       if (e?.inert === 'iframe_text') continue;
       const d = g(T.attr, r, 'documentLinkHash');
       const value = unesc(g(T.attr, r, 'value'));
-      const hs = classify(name, value, e, d);
-      if (hs.length === 0) continue;
       const line = num(g(T.attr, r, 'startLine')), col = num(g(T.attr, r, 'startColumn'));
+      if (!/^(?:on|v-on:|x-on:|@|\(|(?:data-)?ng-|hx-on|data-action$)/i.test(name)) continue;
       const written = writtenName(d, line, col, name);
+      const hs = classify(written, value, e, d);
+      if (hs.length === 0) continue;
       hs.forEach((h, i) => {
         const code = h.code ?? value;
         push(handlersByPage, d, { uid: hs.length > 1 ? `${g(T.attr, r, 'htmlAttributeUniqueHash')}#${i + 1}` : g(T.attr, r, 'htmlAttributeUniqueHash'),
           element_uid: elId, attribute_uid: g(T.attr, r, 'htmlAttributeUniqueHash'), page_uid: d, file: fileOfPage(d), tag: e?.tag ?? null, attr_as_written: written,
-          event: h.event, modifiers: h.modifiers, source_kind: h.kind, code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null,
+          event: h.event, event_source: h.source ?? 'written', modifiers: h.modifiers, source_kind: h.kind, code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null,
           known_event: KNOWN_EVENTS.has(h.event) ? 1 : 0 });
       });
     }
@@ -527,7 +548,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const code = g(T.ref, r, 'urlAsWritten').replace(/^\s*javascript:/i, '');
       const line = num(g(T.ref, r, 'startLine')), col = num(g(T.ref, r, 'startColumn'));
       push(handlersByPage, d, { uid: g(T.ref, r, 'htmlReferenceUniqueHash'), element_uid: elId, attribute_uid: nz(g(T.ref, r, 'attributeLinkHash')), page_uid: d,
-        file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: writtenName(d, line, col, attr), event: 'navigate', modifiers: '',
+        file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: writtenName(d, line, col, attr), event: 'navigate', event_source: 'written', modifiers: '',
         source_kind: 'javascript_url', code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null, known_event: null });
     }
     for (const rows of handlersByPage.values()) {
@@ -558,8 +579,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   }
   for (const r of T.hgap.rows) {
     const d = g(T.hgap, r, 'documentLinkHash');
-    out('web_gaps').push({ uid: g(T.hgap, r, 'htmlParseGapUniqueHash'), lang: 'html', kind: g(T.hgap, r, 'gapKind'), detail: nz(g(T.hgap, r, 'detail')), owner_uid: d,
-      related_uid: nz(g(T.hgap, r, 'relatedElementLinkHash')), file: fileOfPage(d), line: num(g(T.hgap, r, 'startLine')), col: num(g(T.hgap, r, 'startColumn')),
+    out('web_gaps').push({ uid: g(T.hgap, r, 'htmlParseGapUniqueHash'), lang: 'html', gap_kind: g(T.hgap, r, 'gapKind'), detail: nz(g(T.hgap, r, 'detail')), owner_uid: d,
+      related_uid: nz(g(T.hgap, r, 'relatedElementLinkHash')), element_uid: nz(g(T.hgap, r, 'relatedElementLinkHash')), file: fileOfPage(d), line: num(g(T.hgap, r, 'startLine')), col: num(g(T.hgap, r, 'startColumn')),
       end_line: num(g(T.hgap, r, 'endLine')), end_col: num(g(T.hgap, r, 'endColumn')) });
   }
 
@@ -673,7 +694,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const r of T.cgap.rows) {
     const s = g(T.cgap, r, 'stylesheetLinkHash');
     if (g(T.cgap, r, 'relatedRuleLinkHash')) gapRules.add(g(T.cgap, r, 'relatedRuleLinkHash'));
-    out('web_gaps').push({ uid: g(T.cgap, r, 'cssParseGapUniqueHash'), lang: 'css', kind: g(T.cgap, r, 'gapKind'), detail: nz(g(T.cgap, r, 'detail')), owner_uid: s,
+    out('web_gaps').push({ uid: g(T.cgap, r, 'cssParseGapUniqueHash'), lang: 'css', gap_kind: g(T.cgap, r, 'gapKind'), detail: nz(g(T.cgap, r, 'detail')), owner_uid: s,
       related_uid: nz(g(T.cgap, r, 'relatedRuleLinkHash')), file: sheetFile(s), line: num(g(T.cgap, r, 'startLine')), col: num(g(T.cgap, r, 'startColumn')),
       end_line: num(g(T.cgap, r, 'endLine')), end_col: num(g(T.cgap, r, 'endColumn')) });
   }
@@ -826,7 +847,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     return own.map((s) => s.cx);
   };
   for (const n of rules.values()) if (n.kind === 'STYLE_RULE' && n.matchable) resolveSelectors(n);
-  const selStats = new Map<string, { loading: number; matched: number; elements: number }>();
+  // per selector over every page (SPEC §3.5 [iter2] grain, §9.9 usage): pages loading it, pages with any styles row, pages with
+  // none (and no whole-selector unknown), pages where a required class/id has no static carrier; statuses seen
+  type SelStat = { loading: number; matched: number; elements: number; unmatched: number; missing: number; wholeUnk: number; m: number; c: number; u: number };
+  const selStats = new Map<string, SelStat>();
 
   // layer ranks of one page (SPEC §3.3 R7): first declaration, walking the page's sheets in load order and each
   // in source order (into an @import where it is written); a layer's sublayers rank before its own rules
@@ -933,11 +957,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const scope = n.inScope ? scopeOf(n) : null;
         for (const s of sels) {
           let st = selStats.get(s.id);
-          if (!st) { st = { loading: 0, matched: 0, elements: 0 }; selStats.set(s.id, st); }
-          st.loading++;
+          if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0 }; selStats.set(s.id, st); }
+          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); st.loading++; }
           const unk = s.unknown || scope?.spec.unknown || '';
-          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
-          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
+          if (unk) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
+          if (s.root && !page.hasHtml && !scope) { if (!seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
           if (l.disabled) base.add('alternate_sheet');
@@ -954,7 +978,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             u!.any = true;
             if (seen.has(`s|${s.id}|${e.id}`)) return;
             seen.add(`s|${s.id}|${e.id}`); styleRows++;
-            if (status === 'match') st!.elements++;
+            if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else st!.u++;
             let prox: number | null = null;
             if (root) { prox = 0; for (let a: El | null = e; a && a !== root; a = a.parent) prox++; }
             out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: e.id, page_uid: pageId, status, reason: reason || null,
@@ -1021,7 +1045,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     for (const [sid, u] of unmatched) {
       if (u.any) { const st = selStats.get(sid); if (st) st.matched++; continue; }
-      if (u.missing) unknownRow('no_static_carrier', sid, pageId, 'no_static_carrier', null, null, null);
+      // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
+      // web_selector_unmatched_pages
+      const st = selStats.get(sid); if (!st || seen.has(`u|${sid}`)) continue;
+      st.unmatched++; if (u.missing) st.missing++;
     }
   }
   log(`  web styles: ${styleRows} selector->element rows over ${loadsOf.size} page(s) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -1030,11 +1057,17 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const dec = !n || !n.matchable ? { d: 'none', r: n?.inKeyframes ? 'keyframe_selector' : 'not_an_element_selector' }
       : s.unknown ? { d: 'unknown', r: s.unknown }
       : (s.reasons.length || (n.condNames.length > 0)) ? { d: 'conditional', r: [...s.reasons, ...n.condNames.map((c) => `at_rule:${c}`)].join(';') } : { d: 'exact', r: null };
+    if (st && st.missing > 0) {
+      for (const c of new Set(s.req.classes)) out('web_selector_required').push({ selector_uid: s.id, kind: 'class', token: c });
+      for (const c of new Set(s.req.ids)) out('web_selector_required').push({ selector_uid: s.id, kind: 'id', token: c });
+    }
     out('web_selectors').push({ uid: s.id, rule_uid: s.rule, stylesheet_uid: g(T.sel, r, 'stylesheetLinkHash'), file: sheetFile(g(T.sel, r, 'stylesheetLinkHash')),
       line: num(g(T.sel, r, 'startLine')), col: num(g(T.sel, r, 'startColumn')), position: num(g(T.sel, r, 'position')), selector_text: unesc(g(T.sel, r, 'selectorText')),
       spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], compound_count: num(g(T.sel, r, 'compoundCount')), has_nesting: bool(g(T.sel, r, 'hasNesting')),
       has_pseudo_element: bool(g(T.sel, r, 'hasPseudoElement')), decidability: dec.d, reason: dec.r, pages_loading: st?.loading ?? 0, pages_matched: st?.matched ?? 0,
-      elements_matched: st?.elements ?? 0 });
+      elements_matched: st?.elements ?? 0, pages_unmatched: st?.unmatched ?? 0, unknown_reason: st && st.missing > 0 ? 'no_static_carrier' : null,
+      usage: dec.d === 'none' ? null : !st || st.loading === 0 ? 'not_loaded' : st.m > 0 ? 'matched' : st.c > 0 ? 'conditional_only'
+        : st.u > 0 || st.wholeUnk > 0 ? 'unknown_only' : 'unmatched_static' });
   }
 
   // ── value-level edges per page: var, keyframes, fonts, containers (SPEC §3.4, §3.4a) ──

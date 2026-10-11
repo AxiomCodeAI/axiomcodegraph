@@ -3,7 +3,7 @@
  * front, each row inserted as the builder makes it (batched), then the views, a catalog row per table and column so
  * `schema_tables` documents them like the core tables, and an index on every id column.
  */
-import { WEB_TABLES, WEB_VIEWS } from '@/bundle/web/schema';
+import { WEB_FINALIZE, WEB_TABLES, WEB_VIEWS } from '@/bundle/web/schema';
 
 type Stmt = { run(...a: (string | number | null)[]): unknown };
 type Db = { exec(sql: string): void; prepare(sql: string): Stmt; close(): void };
@@ -74,6 +74,8 @@ export class WebDb {
       for (const t of WEB_TABLES) for (const c of t.columns) if (c.indexed) db.exec(`CREATE INDEX idx_${t.name}_${c.name} ON ${t.name}("${c.name}");`);
       db.exec('CREATE INDEX idx_web_elements_file_line ON web_elements(file, line);');
       db.exec('CREATE INDEX idx_web_styles_page_element ON web_styles(page_uid, element_uid);');
+      db.exec('CREATE INDEX idx_web_styles_selector_page ON web_styles(selector_uid, page_uid);');
+      for (const f of WEB_FINALIZE) db.exec(f + ';');
       db.exec('COMMIT;');
     } finally {
       db.close();

@@ -456,7 +456,7 @@ class Web:
                               ORDER BY sel.line""", sid)
         urls = self.q("""SELECT v.name, v.resolved_file, v.line, v.file FROM web_value_refs v
                          WHERE v.stylesheet_uid = ? AND v.reference_kind = 'URL' ORDER BY v.line""", sid)
-        gaps = self.q("SELECT kind, detail, line FROM web_gaps WHERE owner_uid = ? ORDER BY line", sid)
+        gaps = self.q("SELECT gap_kind, detail, line FROM web_gaps WHERE owner_uid = ? ORDER BY line", sid)
         seen_pages = {}
         for l in loads: seen_pages.setdefault(l['file'], l)
         rows = [self.row(p, 'page', 'loaded_by', l['status'], l['reason'], via=l['via'], import_depth=l['import_depth'], load_order=l['load_order']) for p, l in seen_pages.items()]
