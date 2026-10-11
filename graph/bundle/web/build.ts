@@ -349,7 +349,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     if (p.kind === 'FRAGMENT') unknownRow('fragment_no_host', p.id, p.id, 'fragment_no_host', 'a fragment page is matched only in a host page that includes it', p.file, 1);
   }
 
-  // attributes; on* numbering per page in document order (`<page>#on-<n>`, as the JavaScript front end numbers them)
+  // attributes; on* attributes numbered per page in document order (handler_index)
   const onIndex = new Map<string, number>();
   {
     const byPage = new Map<string, string[][]>();
@@ -382,17 +382,18 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       url_as_written: g(T.ref, r, 'urlAsWritten'), url_kind: g(T.ref, r, 'urlKind'), path: nz(g(T.ref, r, 'path')), query: nz(g(T.ref, r, 'query')),
       fragment: nz(g(T.ref, r, 'fragment')), resolved_file: onDisk(abs) ? rel(abs) : null, is_resolved: bool(g(T.ref, r, 'isResolved')) });
   }
-  // scripts: inline classic/module bodies numbered in document order -> `<page>#script-<n>`
+  // scripts: inline bodies numbered in document order (`inline_index`), with their body range and line count
   {
     const inlineByPage = new Map<string, string[][]>();
     for (const r of T.script.rows) {
-      const kind = g(T.script, r, 'scriptKind'), type = g(T.script, r, 'scriptType');
-      if (kind === 'INLINE' && (type === 'CLASSIC' || type === 'MODULE')) push(inlineByPage, g(T.script, r, 'documentLinkHash'), r);
+      const kind = g(T.script, r, 'scriptKind');
+      if (kind === 'INLINE') push(inlineByPage, g(T.script, r, 'documentLinkHash'), r);
     }
     const modPath = new Map<string, string>();
     for (const [d, rows] of inlineByPage) {
       rows.sort((a, b) => { const sa = startOf(g(T.script, a, 'ownerElementLinkHash')), sb = startOf(g(T.script, b, 'ownerElementLinkHash')); return (sa[0] - sb[0]) || (sa[1] - sb[1]); });
-      rows.forEach((r, i) => modPath.set(g(T.script, r, 'htmlScriptUniqueHash'), `${fileOfPage(d)}#script-${i + 1}`));
+      void d;
+      rows.forEach((r, i) => modPath.set(g(T.script, r, 'htmlScriptUniqueHash'), String(i + 1)));
     }
     for (const r of T.script.rows) {
       const d = g(T.script, r, 'documentLinkHash'), id = g(T.script, r, 'htmlScriptUniqueHash');
@@ -404,7 +405,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')), is_nomodule: bool(g(T.script, r, 'isNoModule')),
         body_line: num(g(T.script, r, 'bodyStartLine')), body_col: num(g(T.script, r, 'bodyStartColumn')), body_end_line: num(g(T.script, r, 'bodyEndLine')),
         body_end_col: num(g(T.script, r, 'bodyEndColumn')), body_length: num(g(T.script, r, 'bodyLength')),
-        js_module_path: modPath.get(id) ?? (g(T.script, r, 'scriptKind') === 'EXTERNAL' ? resolved : null) });
+        body_lines: g(T.script, r, 'scriptKind') === 'INLINE' && num(g(T.script, r, 'bodyStartLine')) !== null ? (num(g(T.script, r, 'bodyEndLine'))! - num(g(T.script, r, 'bodyStartLine'))! + 1) : null,
+        inline_index: modPath.has(id) ? Number(modPath.get(id)) : null });
     }
   }
   for (const r of T.handler.rows) {
@@ -418,7 +420,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       page_uid: d, file: fileOfPage(d), line: num(g(T.handler, r, 'startLine')), col: num(g(T.handler, r, 'startColumn')), handler_source: src,
       event: nz(g(T.handler, r, 'eventName')), callee_name: nz(g(T.handler, r, 'calleeName')), receiver: nz(g(T.handler, r, 'receiverText')),
       callee_text: nz(g(T.handler, r, 'calleeText')), argument_count: num(g(T.handler, r, 'argumentCount')), is_new: bool(g(T.handler, r, 'isNew')),
-      js_module_path: src === 'EVENT_ATTRIBUTE' && n !== undefined ? `${fileOfPage(d)}#on-${n}` : null });
+      handler_index: src === 'EVENT_ATTRIBUTE' && n !== undefined ? n : null });
   }
   for (const r of T.tpl.rows) {
     const d = g(T.tpl, r, 'documentLinkHash');

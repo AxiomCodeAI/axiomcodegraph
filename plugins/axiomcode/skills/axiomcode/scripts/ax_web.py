@@ -16,9 +16,9 @@ var() reaches (graph/bundle/web/schema.ts). Every verb script hands a web graph 
 
 --json answers carry rows {at, kind, role, status, reason, rank, …} (SPEC §6.2): `at` is "file:line" or a file.
 
-Per language: nothing here reads another language's graph. A script's resolved file, an inline script's module path
-(`page.html#script-2`) and a handler's callee name are printed as the JavaScript graph's names for them; the
-JavaScript graph, asked by the same fan-out (ax_langs.py), answers for its own nodes, including its DOM-touch rows.
+Per language: nothing here reads another language's graph, and no script text is read as JavaScript. A script's
+resolved file and a handler's callee name are printed as written; the
+JavaScript graph, asked by the same fan-out (ax_langs.py), answers for its own nodes.
 """
 import json, os, re, sqlite3, sys
 from collections import deque
@@ -61,85 +61,9 @@ def maybe_answer(verb, argv):
     db = graph_db(repo)
     if not os.path.isfile(db): return
     lang = language_of(db)
-    if lang == 'javascript' and verb == 'impact' and not os.environ.get('AXIOMCODE_WEBJS_INNER'):
-        r = js_page_answer(db, repo, argv)
-        if r is not None: sys.exit(r)
-        return
     if lang != 'web': return
     if '--warm' in argv: print("a web graph has no impact facts to precompute"); sys.exit(0)
     sys.exit(Web(db, repo).run(verb, argv))
-
-
-# ── the JavaScript graph's own answer about markup (per language: its rows, never a web node) ───────────────────
-
-def js_page_answer(db, repo, argv):
-    """impact on a JavaScript graph for what names markup: a page (the functions of its inline scripts and on*
-    bodies, and its DOM touches), a .class / #id (the DOM touches naming that token), a .js file (its usual answer plus
-    the DOM touches it makes). None when the target is none of these: the verb answers as always."""
-    args = [a for a in argv if not a.startswith('-')]
-    as_json = '--json' in argv
-    targets = [a for a in args if not os.path.isdir(a)]
-    if len(targets) != 1: return None
-    t = targets[0]
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True); con.row_factory = sqlite3.Row
-    have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
-    if 'ext_dom_touch' not in have: return None
-    rows = []; prose = []
-    def touches(where, *a):
-        out = []
-        for r in con.execute(f"SELECT file, line, api, arg_index, literal, literal_kind, tokens, status FROM ext_dom_touch WHERE {where} ORDER BY file, line", a):
-            out.append({'at': at_of(r['file'], r['line']), 'kind': 'dom_touch', 'role': 'dom_touch', 'status': 'match' if r['status'] == 'literal' else 'unknown',
-                        'reason': None if r['status'] == 'literal' else 'non_literal', 'api': r['api'], 'arg_index': r['arg_index'], 'literal': r['literal'],
-                        'literal_kind': r['literal_kind'], 'tokens': r['tokens']})
-        return out
-    if re.match(r'^[^\s]+\.(html?|xhtml)$', t, re.I):
-        page = t[2:] if t.startswith('./') else t
-        names = {r[0]: r[1] for r in con.execute("SELECT method_id, name FROM ext_method_name")} if 'ext_method_name' in have else {}
-        for m in con.execute("SELECT id, name, qualified_name, file_path, start_line, kind FROM methods WHERE file_path = ? AND kind != 'MODULE_INITIALIZER' ORDER BY start_line", (page,)):
-            qn = m['qualified_name'] or ''
-            mod = next((qn[:qn.index(k)] + k + re.match(r'\d+', qn[qn.index(k) + len(k):]).group(0) for k in ('#script-', '#on-') if k in qn and re.match(r'\d+', qn[qn.index(k) + len(k):])), None)
-            nm = names.get(m['id'], m['name'])
-            rows.append({'at': at_of(m['file_path'], m['start_line']), 'kind': 'function', 'role': 'inline_script', 'status': 'match', 'reason': None,
-                         'name': None if (nm or '').startswith('<') else nm, 'module': mod, 'qualified_name': qn})
-        rows += touches("file = ?", page)
-        if not rows: return None
-        prose.append(f"javascript: {page}")
-        prose.append(f"functions in its inline scripts and on* bodies: {sum(1 for r in rows if r['role'] == 'inline_script')}")
-        for r in rows:
-            if r['role'] == 'inline_script': prose.append(f"  {r['at']}: {r['name'] or '(anonymous)'}  [{r['module']}]")
-    elif re.match(r'^[.#][^\s.#\[:>+~]+$', t):
-        tok = t
-        rows += touches("(',' || tokens || ',') LIKE ?", f'%,{tok},%')
-        if not rows: return None
-        prose.append(f"javascript: DOM touches naming {tok}")
-    elif re.match(r'^[^\s]+\.(m?js|cjs|jsx)$', t, re.I):
-        f = t[2:] if t.startswith('./') else t
-        tt = touches("file = ? OR file LIKE ?", f, '%/' + f)
-        if not tt: return None
-        # the verb's own answer, with the DOM touches beside it
-        import subprocess
-        env = dict(os.environ, AXIOMCODE_WEBJS_INNER='1')
-        argv2 = list(argv) if as_json else list(argv) + ['--json']
-        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-impact')] + argv2, env=env, capture_output=True, text=True)
-        try: doc = json.loads(r.stdout)
-        except ValueError: doc = {}
-        if not isinstance(doc, dict): doc = {'answer': doc}
-        doc['dom_touch'] = tt
-        doc.setdefault('language', 'javascript')
-        if as_json: print(json.dumps(doc, indent=1, default=str))
-        else:
-            sys.stdout.write(subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-impact')] + list(argv), env=env, capture_output=True, text=True).stdout)
-            print(f"\nDOM touches in {f}: {len(tt)}")
-            for x in tt[:ROWS]: print(f"  {x['at']}: {x['api']} {x['literal'] if x['literal'] is not None else '(not a literal)'}")
-        return 0
-    else:
-        return None
-    for r in rows:
-        if r['role'] == 'dom_touch': prose.append(f"  {r['at']}: {r['api']} {r['literal'] if r['literal'] is not None else '(not a literal)'}")
-    doc = {'found': True, 'language': 'javascript', 'target': t, 'rows': rows, 'prose': prose, 'more': 0}
-    if as_json: print(json.dumps(doc, indent=1, default=str))
-    else: print('\n'.join(prose))
-    return 0
 
 
 def split_web(doc):
@@ -352,7 +276,6 @@ class Web:
         self.section(prose, f"selectors naming .{name}", [r for r in rows if r['role'] == 'selectors'],
                      lambda r: f"{r['at']}: {r['selector']}  [loaded by {r['pages_loading']} page(s), matches on {r['pages_matched']}]")
         if unknown: self.section(prose, "unknown (the bound)", unknown, lambda r: f"{r['at']}: {r['reason']}" + (f" {r.get('display', '')}" if r.get('display') else ''))
-        prose.append("(the JavaScript graph lists its DOM-touch sites naming this class in its own section)")
         return self.finish({'found': True, 'kind': 'class', 'target': '.' + name, 'prose': prose}, rows)
 
     def impact_id(self, value):
@@ -526,17 +449,17 @@ class Web:
             else:
                 rows.append(self.row(l['file'] if l['source_kind'] == 'FILE' else l['display'], 'stylesheet', 'loads', l['status'], l['reason'], rank=l['load_order'], via=l['via'],
                                      import_depth=l['import_depth'], media=l['media'], display=l['display']))
-        for s in self.q("""SELECT s.script_kind, s.script_type, s.src, s.resolved_file, s.js_module_path, s.line, r.url_kind FROM web_scripts s
+        for s in self.q("""SELECT s.script_kind, s.script_type, s.src, s.resolved_file, s.inline_index, s.body_lines, s.line, r.url_kind FROM web_scripts s
                            LEFT JOIN web_references r ON r.element_uid = s.element_uid AND r.attribute_name = 'src' WHERE s.page_uid = ? ORDER BY s.line""", pid):
             if s['script_kind'] == 'EXTERNAL' and not s['resolved_file']:
                 reason = 'external_url' if s['url_kind'] in ('ABSOLUTE', 'PROTOCOL_RELATIVE', 'OTHER_SCHEME') else 'template_url' if s['url_kind'] == 'TEMPLATE_EXPRESSION' else 'unresolved_url'
                 rows.append(self.row(at_of(pf, s['line']), 'script', 'unknown', 'unknown', reason, url=s['src']))
-            rows.append(self.row(at_of(pf, s['line']), 'script', 'scripts', script_kind=s['script_kind'], script_type=s['script_type'], src=s['src'], js_module_path=s['js_module_path']))
-        for h in self.q("""SELECT h.event, h.callee_name, h.callee_text, h.js_module_path, h.handler_source, e.file, e.line, e.display FROM web_handler_calls h
+            rows.append(self.row(at_of(pf, s['line']), 'script', 'scripts', script_kind=s['script_kind'], script_type=s['script_type'], src=s['src'], inline_index=s['inline_index'], body_lines=s['body_lines']))
+        for h in self.q("""SELECT h.event, h.callee_name, h.callee_text, h.handler_source, e.file, e.line, e.display FROM web_handler_calls h
                            LEFT JOIN web_elements e ON e.uid = h.element_uid WHERE h.page_uid = ? ORDER BY e.line, h.line, h.col""", pid):
             role = 'handler' if h['handler_source'] in ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL') else 'template_expr'
             rows.append(self.row(at_of(h['file'], h['line']), 'handler_call', role, calleeName=h['callee_name'], callee_text=h['callee_text'], event=h['event'],
-                                 source=h['handler_source'], js_module_path=h['js_module_path'], display=h['display']))
+                                 source=h['handler_source'], display=h['display']))
         tpl = self.q("""SELECT t.dialect, t.directive, t.expression_text, t.callee_names, e.file, e.line FROM web_template_exprs t
                         LEFT JOIN web_elements e ON e.uid = t.element_uid WHERE t.page_uid = ? ORDER BY e.line""", pid)
         have_tpl = {(r['at'], r.get('calleeName')) for r in rows if r['role'] == 'template_expr'}
@@ -566,8 +489,8 @@ class Web:
         R = lambda role: [r for r in rows if r['role'] == role]
         self.section(prose, "pages linking to it", R('linked_from'), lambda r: f"{r['at']}: {r['display']} [{r['attribute']}]")
         self.section(prose, "stylesheets it loads, in cascade order", R('loads'), lambda r: f"{r['rank']}. {r['display']}  [{r['via']}{', import depth ' + str(r['import_depth']) if r.get('import_depth') else ''}{', ' + r['media'] if r.get('media') else ''}{', ' + r['reason'] if r['reason'] else ''}]")
-        self.section(prose, "scripts", R('scripts'), lambda r: f"{r['at']}: {r['script_kind'].lower()} {r['script_type'].lower()}" + (f" src={r['src']}" if r.get('src') else '') + (f" → JS module {r['js_module_path']}" if r.get('js_module_path') else ''))
-        if R('handler'): self.section(prose, "inline event handlers", R('handler'), lambda r: f"{r['at']}: {r.get('display') or ''} on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName')}" + (f"  [JS module {r['js_module_path']}]" if r.get('js_module_path') else ''))
+        self.section(prose, "scripts", R('scripts'), lambda r: f"{r['at']}: {r['script_kind'].lower()} {r['script_type'].lower()}" + (f" src={r['src']}" if r.get('src') else '') + (f" ({r['body_lines']} line(s) inline)" if r.get('body_lines') else ''))
+        if R('handler'): self.section(prose, "inline event handlers", R('handler'), lambda r: f"{r['at']}: {r.get('display') or ''} on{r.get('event') or ''} → {r.get('callee_text') or r.get('calleeName')}" + '')
         if R('template_expr'): self.section(prose, "template directives and the names they call", R('template_expr'), lambda r: f"{r['at']}: {r.get('directive') or r.get('source') or ''} → {r.get('calleeName')}")
         if tpl: prose.append(f"template expressions: {len(tpl)} ({', '.join(sorted({t['dialect'] for t in tpl}))})")
         if R('inline_style'): self.section(prose, "inline styles", R('inline_style'), lambda r: f"{r['at']}: {r['display']} {{ {r['property']}: {r.get('value')} }}")
@@ -576,16 +499,19 @@ class Web:
         if R('uses_resource'): self.section(prose, "link resources (icon, preload, manifest)", R('uses_resource'), lambda r: f"{r['url']} → {r['at']} [{r['status']}]")
         if R('inert'): self.section(prose, "inert elements (inside <template>/<noscript>/<iframe> text)", R('inert'), lambda r: f"{r['at']}: {r['display']} [{r['reason']}]")
         if R('unknown'): self.section(prose, "unknown (what the page names that lands nowhere)", R('unknown'), lambda r: f"{r['at']}: {r['reason']}" + (f" {r['url']}" if r.get('url') else ''))
-        inl = [r['js_module_path'] for r in R('scripts') if r.get('script_kind') == 'INLINE' and r.get('js_module_path')]
-        if inl: prose.append("(the JavaScript graph answers for the functions in " + ', '.join(inl) + ")")
         return self.finish({'found': True, 'kind': 'page', 'target': pf, 'prose': prose}, rows)
 
     def impact_script(self, a):
-        page = a.partition('#')[0]
-        r = self.q1("SELECT line FROM web_scripts WHERE js_module_path = ?", a) or self.q1("SELECT line FROM web_handler_calls WHERE js_module_path = ?", a)
+        page, _, frag = a.partition('#')
+        m = re.match(r'(script|on)-(\d+)$', frag)
+        pg = self.page_by_file(page)
+        r = None
+        if m and pg:
+            if m.group(1) == 'script': r = self.q1("SELECT line, body_lines FROM web_scripts WHERE page_uid = ? AND inline_index = ?", pg[0]['uid'], int(m.group(2)))
+            else: r = self.q1("SELECT line, NULL body_lines FROM web_handler_calls WHERE page_uid = ? AND handler_index = ? ORDER BY line", pg[0]['uid'], int(m.group(2)))
         if not r: return {'found': False, 'kind': 'script', 'target': a, 'refusal': f"web graph: no inline script {a}"}
-        rows = [self.row(at_of(page, r['line']), 'script', 'script', js_module_path=a)]
-        return self.finish({'found': True, 'kind': 'script', 'target': a, 'prose': [f"web: {a} — {page}:{r['line']}", "(its functions are the JavaScript graph's: that graph answers in its own section)"]}, rows)
+        rows = [self.row(at_of(pg[0]['file'], r['line']), 'script', 'script', body_lines=r['body_lines'])]
+        return self.finish({'found': True, 'kind': 'script', 'target': a, 'prose': [f"web: {a} — {pg[0]['file']}:{r['line']}"]}, rows)
 
     def impact_keyframes(self, name):
         defs = self.q("SELECT file, line, at_rule_name, uid FROM web_rules WHERE at_rule_name LIKE '%keyframes' AND (name = ? OR trim(prelude_text, '\"''') = ?) ORDER BY file, line", name, name)
@@ -868,7 +794,7 @@ def index(db, repo, version):
         S.append((r[1], r[0], f"@container {r[0]}", 'container', r[0], None, r[2], r[3], r[4], None, 0, None, None))
     for r in c.execute("SELECT uid, selector_text, file, line, line, rule_uid FROM web_selectors WHERE decidability != 'none'"):
         S.append((r[0], r[1], r[1], 'selector', r[1], None, r[2], r[3], r[4], r[5], 0, None, None))
-    for r in c.execute("SELECT uid, js_module_path, file, line FROM web_scripts WHERE js_module_path LIKE '%#script-%'"):
+    for r in c.execute("SELECT uid, file || '#script-' || inline_index, file, line FROM web_scripts WHERE inline_index IS NOT NULL"):
         S.append((r[0], r[1], r[1], 'script', r[1], None, r[2], r[3], r[3], None, 0, None, None))
     for r in c.execute("SELECT uid, display, file, line, end_line FROM web_elements WHERE html_id IS NULL AND class_names IS NOT NULL"):
         S.append((r[0], r[1], r[1], 'element', f"{r[2]}:{r[3]}", None, r[2], r[3], r[4], None, 0, None, None))

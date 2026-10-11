@@ -53,15 +53,15 @@ export const WEB_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'web_scripts',
-    description: 'One <script>. `js_module_path` is the JavaScript graph\'s module for it: `<page>#script-<n>` for an inline classic or module script (n counts those scripts in document order), the resolved file for an external one. A join key, never an edge.',
+    description: 'One <script> element as markup: its src and the file it resolves to (an external script), its type, and for an inline one the body range, its line count and `inline_index` (its place among the page\'s inline scripts, document order). The body is not read as JavaScript here.',
     columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), t('script_kind', 'EXTERNAL or INLINE'), t('script_type'), t('src'), id('resolved_file'),
-      i('is_async'), i('is_defer'), i('is_nomodule'), i('body_line'), i('body_col'), i('body_end_line'), i('body_end_col'), i('body_length'), id('js_module_path')],
+      i('is_async'), i('is_defer'), i('is_nomodule'), i('body_line'), i('body_col'), i('body_end_line'), i('body_end_col'), i('body_length'), i('body_lines'), i('inline_index')],
   },
   {
     name: 'web_handler_calls',
-    description: 'One call written in an on* attribute, a javascript: URL or a template event directive. `callee_name` and `js_module_path` (`<page>#on-<n>` for an on* attribute) are join keys into the JavaScript graph, never edges.',
+    description: 'One call the parser read in an on* attribute, a javascript: URL or a template event directive, by the name written (`callee_name`); `handler_index` is the on* attribute\'s place among the page\'s on* attributes. The attribute itself, with its raw text, is a web_attributes row of kind EVENT_HANDLER.',
     columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), i('line'), i('col'), t('handler_source'), t('event'), id('callee_name'),
-      t('receiver'), t('callee_text'), i('argument_count'), i('is_new'), id('js_module_path')],
+      t('receiver'), t('callee_text'), i('argument_count'), i('is_new'), i('handler_index')],
   },
   {
     name: 'web_template_exprs',

@@ -125,8 +125,8 @@ case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC=
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
-read -r ja ts py js cs wb wjs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0 0 0)"
-wb="${wb:-0}"; wjs="${wjs:-0}"
+read -r ja ts py js cs wb <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0 0)"
+wb="${wb:-0}"
 LANG_ARG="${AXIOMCODE_LANG:-}"
 # EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
 # without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
@@ -138,14 +138,12 @@ if [ -z "$LANG_ARG" ]; then
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
   # WEB (HTML + CSS, #1908) is the main language only when no other language has a file: an older reader of the main
-  # graph expects a call graph there. Pages whose inline scripts are JavaScript give the javascript graph its files even
-  # where no .js file exists (the parser reads them as modules of their page).
+  # graph expects a call graph there.
   [ "$best" -eq 0 ] && [ "$wb" -gt 0 ] && { LANG_ARG=web; best=$wb; }
   LANGS="$LANG_ARG"
   for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs web:$wb; do
     [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
   done
-  if [ "$wjs" -gt 0 ] && [ "$js" -eq 0 ] && [ "$ts" -eq 0 ]; then LANGS="$LANGS,javascript"; js=$wjs; fi
   export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
 else
   LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
