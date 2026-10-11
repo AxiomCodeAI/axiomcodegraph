@@ -110,7 +110,7 @@ const VENDOR_PATH = /(^|\/)(vendors?|plugins|bower_components|node_modules|lib|l
 const DYNAMIC_CLASS_ATTR = /^(:class|v-bind:class|x-bind:class|\[class(\.[^\]]+)?\]|\[ngclass\]|ng-class|th:class|th:classappend|bind:class|class:.+)$/i;
 const DYNAMIC_ID_ATTR = /^(:id|v-bind:id|x-bind:id|\[id\]|\[attr\.id\]|th:id|bind:id)$/i;
 const TEMPLATE_IN_VALUE = /\{\{|\{%|<%|\$\{|\{\$|@\{|\[\[/;
-const HTML_EXT = /\.(html?|xhtml)$/i;
+const HTML_EXT = /\.(html?|xhtml|shtml?)$/i;
 /** WHATWG GlobalEventHandlers, WindowEventHandlers and DocumentAndElementEventHandlers, plus touch* and mousewheel */
 const KNOWN_EVENTS = new Set(('abort auxclick beforeinput beforematch beforetoggle blur cancel canplay canplaythrough change click close contextlost '
   + 'contextmenu contextrestored copy cuechange cut dblclick drag dragend dragenter dragleave dragover dragstart drop durationchange emptied ended error '
@@ -1504,7 +1504,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const v = unesc(g(T.decl, ct, 'valueText')).trim();
       const m = /^(["'])(.*)\1$/s.exec(v); if (!m) continue;
       const inner = m[2]!;
-      if (!(/^\\[0-9a-fA-F]{1,6} ?$/.test(inner) || [...inner].length <= 2)) continue;
+      // ruling: <= 2 characters or exactly one CSS escape, as written; an empty string is no icon
+      if (inner === '' || !(/^\\[0-9a-fA-F]{1,6} ?$/.test(inner) || [...inner].length <= 2)) continue;
       let ff: string | null = null;
       const own = declOf(s.rule, 'font-family'); if (own) ff = unesc(g(T.decl, own, 'valueText')).trim();
       const els = carriers.get(oc.cls) ?? [];

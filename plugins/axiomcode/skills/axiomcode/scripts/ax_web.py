@@ -111,6 +111,7 @@ class Web:
         self.repo = repo
         self.IN = None
         self.limit = ROWS
+        self.WHY = False
 
     def q(self, sql, *a):
         return self.con.execute(sql, a).fetchall()
@@ -120,7 +121,7 @@ class Web:
 
     # ── dispatch ──
     def run(self, verb, argv):
-        args = list(argv); as_json = '--json' in args
+        args = list(argv); as_json = '--json' in args; self.WHY = '--why' in args
         args = [a for a in args if a not in ('--json', '--tests', '--why', '--fresh', '--no-refresh', '--every', '--all', '--grep')]
         for flag in ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds'):
             while flag in args:
@@ -163,6 +164,9 @@ class Web:
         out = []; i = 0
         while i < len(args):
             a = args[i]
+            if a == '@media' and i + 1 < len(args): out.append(('media', ' '.join(args[i + 1:]))); break
+            mm = re.match(r'^@media\s+(.+)$', a, re.S)
+            if mm: out.append(('media', mm.group(1).strip())); i += 1; continue
             if a in ('@keyframes', '@font-face', '@layer', '@container') and i + 1 < len(args):
                 k = {'@font-face': 'font'}.get(a, a[1:])
                 if a == '@font-face': out.append((k, ' '.join(args[i + 1:]))); break
@@ -174,10 +178,15 @@ class Web:
 
     def kind_of(self, a):
         if a.startswith('--') and len(a) > 2: return ('var', a)
-        if re.match(r'^.+\.(?:html?|xhtml)#(?:script|on)-\d+$', a, re.I): return ('script', a)
-        m = re.match(r'^(.+\.(?:html?|xhtml|css)):(\d+)$', a, re.I)
+        if a.startswith('component:'): return ('component', a[len('component:'):])
+        if a.startswith('token:'): return ('token', a[len('token:'):])
+        if re.match(r'^#[0-9a-fA-F]{3,8}$', a) and not self.q1("SELECT 1 FROM web_elements WHERE html_id = ? LIMIT 1", a[1:]) and self.q1("SELECT 1 FROM web_tokens WHERE value = ? LIMIT 1", self.norm_color(a)):
+            return ('token', a)
+        if re.match(r'^(rgba?|hsla?)\(', a, re.I): return ('token', a)
+        if re.match(r'^.+\.(?:html?|xhtml|shtml?)#(?:script|on)-\d+$', a, re.I): return ('script', a)
+        m = re.match(r'^(.+\.(?:html?|xhtml|shtml?|css)):(\d+)$', a, re.I)
         if m: return ('line', (m.group(1), int(m.group(2))))
-        if re.match(r'^[^\s]+\.(html?|xhtml)$', a, re.I): return ('page', a)
+        if re.match(r'^[^\s]+\.(html?|xhtml|shtml?)$', a, re.I): return ('page', a)
         if re.match(r'^[^\s]+\.css$', a, re.I): return ('sheet', a)
         if self.q1("SELECT 1 FROM web_selectors WHERE selector_text = ? LIMIT 1", a) and (' ' in a or not re.match(r'^[.#][\w-]+$', a)): return ('selector', a)
         if re.match(r'^\.[^\s.#\[:>+~]+$', a): return ('class', a[1:])
@@ -313,7 +322,14 @@ class Web:
                                 LEFT JOIN web_pages p ON p.uid = u.page_uid WHERE u.node_uid IN ({ph}){pf3}""", *(ids + pp3)):
                 unknown.append(self.row(at_of(u['file'], u['line']), 'selector', 'unknown', 'unknown', u['reason'], page=u['page']))
         rows += unknown
+        wc = self.q1("SELECT * FROM web_classes WHERE class_name = ?", name)
+        ic = self.q1("SELECT i.content, i.font_family, r.file, r.line FROM web_icon_classes i JOIN web_rules r ON r.uid = i.rule_uid WHERE i.class_name = ?", name)
+        if wc:
+            why = None if wc['styled'] else ('no rule names it' if not wc['selectors_naming'] else 'rules name it but none matches an element carrying it')
+            rows.append(self.row(f".{name}", 'class', 'class', 'match' if wc['styled'] else 'unknown', why, name=name, styled=wc['styled'], elements=wc['elements'],
+                                 selectors_naming=wc['selectors_naming'], selectors_matching=wc['selectors_matching'], icon=wc['icon']))
         prose = [f"web: class .{name}"]
+        if wc: prose.append(f"styled: {'yes' if wc['styled'] else 'no — ' + why}" + (f"; icon: content {ic['content']}, font {ic['font_family'] or '-'} ({ic['file']}:{ic['line']})" if ic else ''))
         self.section(prose, f"elements carrying .{name}", [r for r in rows if r['role'] == 'carries'], lambda r: f"{r['at']}: {r['display']}" + (f" [{r['reason']}]" if r['reason'] else ''))
         self.section(prose, f"selectors naming .{name}", [r for r in rows if r['role'] == 'selectors'],
                      lambda r: f"{r['at']}: {r['selector']}  [loaded by {r['pages_loading']} page(s), matches on {r['pages_matched']}]")
@@ -370,12 +386,105 @@ class Web:
             el_scripts = self.script_rows('s.element_uid = ?', e['uid'], full=True)   # a script element: its whole body
             el_handlers = self.handler_rows('h.element_uid = ?', e['uid'])
             rows += el_scripts + el_handlers
+            comp = self.computed_rows(e['uid'])
+            rows += comp
             prose.append(f"web: element {e['display']} at {e['file']}:{e['line']}" + (f" (inert: {e['inert']})" if e['inert'] else ''))
             self.section(prose, "rules styling it in cascade order (last wins)", cas, self.cascade_line)
+            self.section(prose, "computed: the winning declaration per property (inherited values are not filled; conditional-only properties marked)", [r for r in comp if r['role'] in ('computed', 'computed_conditional')],
+                         lambda r: f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: {r.get('value')}  ← {r['at']} [{r['origin']}{', ' + r['status'] if r['status'] != 'match' else ''}{', overridden by shorthand at ' + r['override'] if r.get('override') else ''}]")
+            if self.WHY: self.section(prose, "cascade: every contender and why it lost", [r for r in comp if r['role'] == 'cascade'],
+                                      lambda r: f"{(r.get('pseudo') and '::' + r['pseudo'] + ' ') or ''}{r['property']}: {r['at']} {r['outcome']}{' (' + r['lost_reason'] + ')' if r.get('lost_reason') else ''}")
             if inline: self.section(prose, "inline style (wins over every rule but !important)", inline,
                                     lambda d: f"{e['file']}:{d['line']}: {d['property']}: {d['value_text']}{' !important' if d['is_important'] else ''}")
             self.code_prose(prose, el_scripts, el_handlers)
         return self.finish({'found': True, 'kind': 'element', 'target': f"{f}:{n}", 'prose': prose}, rows)
+
+    @staticmethod
+    def norm_color(v):
+        v = v.strip().lower()
+        m = re.match(r'^#([0-9a-f]{3,8})$', v)
+        if m:
+            h = m.group(1)
+            return '#' + (''.join(c + c for c in h) if len(h) in (3, 4) else h)
+        return re.sub(r'\s+', '', v) if '(' in v else v
+
+    def decl_at(self, uid):
+        d = self.q1("SELECT file, line FROM web_declarations WHERE uid = ?", uid)
+        return at_of(d['file'], d['line']) if d else uid
+
+    def computed_rows(self, element_uid):
+        out = []
+        for c in self.q("""SELECT c.*, d.file, d.line FROM web_computed c LEFT JOIN web_declarations d ON d.uid = c.winner_decl_uid
+                           WHERE c.element_uid = ? ORDER BY c.pseudo IS NOT NULL, c.pseudo, c.property""", element_uid):
+            st = {'match': 'match', 'shorthand_override': 'conditional', 'conditional_only': 'conditional'}.get(c['winner_status'], 'unknown')
+            out.append(self.row(at_of(c['file'], c['line']), 'declaration', 'computed' if c['winner_status'] in ('match', 'shorthand_override', 'unknown') else 'computed_conditional', st, None if c['winner_status'] == 'match' else c['winner_status'], property=c['property'],
+                                pseudo=c['pseudo'], value=c['value_text'], origin=c['winner_origin'], important=c['important'], contenders=c['contenders'],
+                                conditional_overrides=c['conditional_overrides'], override=self.decl_at(c['override_decl_uid']) if c['override_decl_uid'] else None))
+        if self.WHY:
+            for c in self.q("""SELECT w.*, d.file, d.line FROM web_cascade w JOIN web_declarations d ON d.uid = w.decl WHERE w.element = ?
+                               ORDER BY w.pseudo IS NOT NULL, w.pseudo, w.property, w.rank""", element_uid):
+                out.append(self.row(at_of(c['file'], c['line']), 'declaration', 'cascade', c['status'], c['lost_reason'], property=c['property'], pseudo=c['pseudo'],
+                                    outcome=c['outcome'], lost_reason=c['lost_reason'], rank=c['rank'], conditions=c['conditions']))
+        return out
+
+    def impact_component(self, display):
+        cs = self.q("SELECT * FROM web_components WHERE display = ? ORDER BY level = 'shape'", display) or \
+            self.q("SELECT * FROM web_components WHERE display LIKE ? ORDER BY level = 'shape', occurrences DESC", display + '%')
+        if not cs: return {'found': False, 'kind': 'component', 'target': display, 'refusal': f"web graph: no component candidate {display} (impact <page> lists a page's components)"}
+        c = cs[0]
+        occ = self.q("SELECT file, line, col, page_uid FROM web_component_occurrences WHERE component_uid = ? ORDER BY file, line, col", c['uid'])
+        slots = self.q("SELECT * FROM web_component_slots WHERE component_uid = ? ORDER BY path, kind", c['uid'])
+        rows = [self.row(at_of(o['file'], o['line']), 'element', 'occurrences') for o in occ]
+        for sl in slots:
+            kind = 'attr' if sl['kind'].startswith('attr:') else sl['kind']
+            # the row's kind is the slot kind: text | attr | class
+            rows.append(self.row(f"{occ[0]['file']}:{occ[0]['line']}" if occ else None, kind, 'slots', path=sl['path'] or '.', attribute_name=sl['attribute_name'] or '-',
+                                 distinct_values=sl['distinct_values'], samples=json.loads(sl['samples'] or '[]')))
+        styl = []
+        if occ:
+            root = self.q1("SELECT element_uid FROM web_component_occurrences WHERE component_uid = ? ORDER BY file, line, col LIMIT 1", c['uid'])
+            styl = self.cascade_rows(root['element_uid'], role='styled_by')
+            rows += styl
+        rel = self.q("""SELECT display, level, 'contains' rel FROM web_components WHERE uid = ? UNION ALL
+                         SELECT display, level, 'part' FROM web_components WHERE parent_component_uid = ?""", c['parent_component_uid'] or '', c['uid'])
+        prose = [f"web: component candidate {c['display']} ({c['level']} level: {c['size']} elements, {c['occurrences']} occurrences on {c['pages']} page(s))"]
+        self.section(prose, "occurrences", [r for r in rows if r['role'] == 'occurrences'], lambda r: r['at'])
+        self.section(prose, "slots (what varies between occurrences: the props)", [r for r in rows if r['role'] == 'slots'],
+                     lambda r: f"{r['path']} {r['kind']}{' ' + r['attribute_name'] if r.get('attribute_name') else ''}: {r['distinct_values']} values, e.g. {', '.join(map(str, r['samples'][:3]))}")
+        if styl: self.section(prose, "rules styling the root (first occurrence), in cascade order", styl, self.cascade_line)
+        for r in rel: prose.append(f"{'inside' if r['rel'] == 'contains' else 'contains'}: component {r['display']} ({r['level']})")
+        return self.finish({'found': True, 'kind': 'component', 'target': c['display'], 'prose': prose}, rows)
+
+    def impact_token(self, value):
+        v = self.norm_color(value)
+        toks = self.q("SELECT * FROM web_tokens WHERE value = ? OR value = ?", v, value.strip())
+        if not toks: return {'found': False, 'kind': 'token', 'target': value, 'refusal': f"web graph: no declaration holds the value {value}"}
+        rows = []; prose = []
+        for t in toks:
+            uses = self.q("""SELECT d.file, d.line, d.property, d.value_text, d.rule_uid, s.selector_text FROM web_token_uses u JOIN web_declarations d ON d.uid = u.declaration_uid
+                             LEFT JOIN web_selectors s ON s.rule_uid = d.rule_uid AND s.position = 0 WHERE u.token_uid = ? ORDER BY d.file, d.line""", t['uid'])
+            rows += [self.row(at_of(u['file'], u['line']), 'declaration', 'uses', property=u['property'], value=u['value_text'], selector=u['selector_text']) for u in uses]
+            prose.append(f"web: {t['kind']} token {t['value']} — {t['uses']} use(s), {t['project_uses']} outside vendor sheets" + (f"; held by {t['vars']}" if t['vars'] else ''))
+            self.section(prose, "used", [r for r in rows if r['role'] == 'uses'], lambda r: f"{r['at']}: {r.get('selector') or INLINE} {{ {r['property']}: {r.get('value')} }}")
+        return self.finish({'found': True, 'kind': 'token', 'target': value, 'prose': prose}, rows)
+
+    def impact_media(self, prelude):
+        m = prelude.strip().lower()
+        m = re.sub(r'\s+', ' ', m); m = re.sub(r'\(\s+', '(', m); m = re.sub(r'\s+\)', ')', m); m = re.sub(r'\s*:\s*', ':', m); m = re.sub(r'\s*,\s*', ',', m)
+        b = self.q1("SELECT * FROM web_breakpoints WHERE media = ?", m)
+        if not b: return {'found': False, 'kind': 'breakpoint', 'target': prelude, 'refusal': f"web graph: no @media {m}"}
+        pf, pp = self.in_page('s.page_uid')
+        els = self.q(f"""SELECT DISTINCT e.file, e.line, e.display, s.status FROM web_rule_breakpoints rb JOIN web_styles s ON s.rule_uid = rb.rule_uid
+                          JOIN web_elements e ON e.uid = s.element_uid WHERE rb.breakpoint_uid = ? AND s.status != 'unknown'{pf} ORDER BY e.file, e.line""", b['uid'], *pp)
+        rules = self.q("""SELECT r.file, r.line, r.prelude_text, rb.depth FROM web_rule_breakpoints rb JOIN web_rules r ON r.uid = rb.rule_uid
+                           WHERE rb.breakpoint_uid = ? AND r.rule_kind = 'STYLE_RULE' ORDER BY r.file, r.line""", b['uid'])
+        rows = [self.row(at_of(e['file'], e['line']), 'element', 'elements', 'conditional', 'at_rule:media', display=e['display']) for e in els]
+        rows += [self.row(at_of(r['file'], r['line']), 'rule', 'rules', selector=r['prelude_text'], depth=r['depth']) for r in rules]
+        rng = ', '.join(x for x in ((f"min {b['min_px']}px" if b['min_px'] is not None else ''), (f"max {b['max_px']}px" if b['max_px'] is not None else '')) if x)
+        prose = [f"web: @media {b['media']}" + (f" ({rng}{', written in ' + b['unit'] if b['unit'] and b['unit'] != 'px' else ''})" if rng else '')]
+        self.section(prose, "elements whose styles change under it", [r for r in rows if r['role'] == 'elements'], lambda r: f"{r['at']}: {r['display']}")
+        self.section(prose, "rules under it", [r for r in rows if r['role'] == 'rules'], lambda r: f"{r['at']}: {r['selector']}")
+        return self.finish({'found': True, 'kind': 'breakpoint', 'target': b['media'], 'prose': prose}, rows)
 
     def impact_selector(self, text, sel_ids=None):
         pf, pp = self.in_page('s.page_uid')
@@ -449,11 +558,8 @@ class Web:
         nrules = self.q1("SELECT count(*) n FROM web_rules WHERE stylesheet_uid = ?", sid)['n']
         per_page = self.q("""SELECT p.file, count(DISTINCT s.element_uid) n FROM web_styles s JOIN web_pages p ON p.uid = s.page_uid
                              WHERE s.stylesheet_uid = ? AND s.status != 'unknown' GROUP BY p.file ORDER BY p.file""", sid)
-        unmatched = self.q("""SELECT sel.selector_text, sel.line, sel.file FROM web_selectors sel
-                              WHERE sel.stylesheet_uid = ? AND sel.pages_loading > 0 AND sel.pages_matched = 0 AND sel.decidability != 'none'
-                                AND NOT EXISTS (SELECT 1 FROM web_styles st WHERE st.selector_uid = sel.uid)
-                                AND NOT EXISTS (SELECT 1 FROM web_unknown u WHERE u.node_uid = sel.uid AND u.reason != 'no_static_carrier')
-                              ORDER BY sel.line""", sid)
+        unmatched = self.q("""SELECT sel.selector_text, sel.line, sel.file, sel.unknown_reason FROM web_selectors sel
+                              WHERE sel.stylesheet_uid = ? AND sel.usage = 'unmatched_static' ORDER BY sel.line""", sid)
         urls = self.q("""SELECT v.name, v.resolved_file, v.line, v.file FROM web_value_refs v
                          WHERE v.stylesheet_uid = ? AND v.reference_kind = 'URL' ORDER BY v.line""", sid)
         gaps = self.q("SELECT gap_kind, detail, line FROM web_gaps WHERE owner_uid = ? ORDER BY line", sid)
@@ -462,10 +568,10 @@ class Web:
         rows = [self.row(p, 'page', 'loaded_by', l['status'], l['reason'], via=l['via'], import_depth=l['import_depth'], load_order=l['load_order']) for p, l in seen_pages.items()]
         rows += [self.row(i['file'] or i['url_as_written'], 'stylesheet', 'imports', i['status'], i['reason']) for i in imports]
         rows += [self.row(r['file'], 'stylesheet', 'imported_by') for r in imported_by]
-        rows += [self.row(at_of(u['file'], u['line']), 'selector', 'unmatched', 'unknown', 'no_element_matches', selector=u['selector_text']) for u in unmatched]
+        rows += [self.row(at_of(u['file'], u['line']), 'selector', 'unmatched', 'unknown', u['unknown_reason'] or 'no_element_matches', selector=u['selector_text'], usage='unmatched_static') for u in unmatched]
         rows += [self.row(u['resolved_file'] or u['name'], 'file', 'uses_resource', 'match' if u['resolved_file'] else 'unknown', None if u['resolved_file'] else 'unresolved_url',
                           url=u['name'], line=u['line']) for u in urls if not (u['name'] or '').startswith('data:')]
-        rows += [self.row(at_of(s['file'], g['line']), 'gap', 'gaps', 'unknown', g['kind'], detail=g['detail']) for g in gaps]
+        rows += [self.row(at_of(s['file'], g['line']), 'gap', 'gaps', 'unknown', g['gap_kind'], detail=g['detail']) for g in gaps]
         prose = [f"web: stylesheet {s['file']} ({nrules} rules{', vendor' if s['vendor'] else ''}{', minified' if s['minified'] else ''})"]
         self.section(prose, "pages that load it" + ('' if loads else ' — none: an orphan sheet'), [r for r in rows if r['role'] == 'loaded_by'],
                      lambda r: f"{r['at']}  [{r['via']}{', import depth ' + str(r['import_depth']) if r.get('import_depth') else ''}{'; ' + r['status'] + ' ' + (r['reason'] or '') if r['status'] != 'match' else ''}]")
@@ -474,7 +580,7 @@ class Web:
         if per_page:
             prose.append("elements it styles, per page:")
             for p in per_page[:self.limit]: prose.append(f"  {p['file']}: {p['n']}")
-        self.section(prose, "selectors that match nothing on any page loading it", [r for r in rows if r['role'] == 'unmatched'], lambda r: f"{r['at']}: {r['selector']}")
+        self.section(prose, "selectors that match nothing on any page loading it (unmatched_static: classes added at run time are outside the graph, so never 'dead')", [r for r in rows if r['role'] == 'unmatched'], lambda r: f"{r['at']}: {r['selector']}  [{r['reason']}]")
         if urls: self.section(prose, "url() references", [r for r in rows if r['role'] == 'uses_resource'], lambda r: f"{s['file']}:{r.get('line')}: {r['url']} → {r['at'] if r['status'] == 'match' else 'unresolved'}")
         if gaps: self.section(prose, "parse gaps", [r for r in rows if r['role'] == 'gaps'], lambda r: f"{r['at']}: {r['reason']} {r.get('detail') or ''}")
         return self.finish({'found': True, 'kind': 'stylesheet', 'target': s['file'], 'prose': prose}, rows)
@@ -540,6 +646,31 @@ class Web:
             rows.append(self.row(at_of(e['file'], e['line']), 'element', 'inert', 'conditional', f"inert:{e['inert']}", display=e['display']))
         for u in self.q("SELECT kind, reason, detail, line FROM web_unknown WHERE page_uid = ? AND node_uid = ?", pid, pid):
             rows.append(self.row(pf, 'page', 'unknown', 'unknown', u['reason']))
+        # §9: what the page is built from
+        comps = self.q("""SELECT c.uid, c.display, c.level, c.size, c.occurrences, c.pages, min(o.line) line FROM web_component_occurrences o JOIN web_components c ON c.uid = o.component_uid
+                          WHERE o.page_uid = ? GROUP BY c.uid ORDER BY c.pages * c.size DESC""", pid)
+        covered = set()
+        for c in sorted(comps, key=lambda c: c['level'] != 'exact'):
+            occ = {r['element_uid'] for r in self.q("SELECT element_uid FROM web_component_occurrences WHERE component_uid = ? AND page_uid = ?", c['uid'], pid)}
+            if c['level'] == 'shape' and occ <= covered: continue  # its occurrences here are an exact group's: listed once
+            if c['level'] == 'exact': covered |= occ
+            rows.append(self.row(at_of(pf, c['line']), 'component', 'components', display=c['display'], level=c['level'], size=c['size'], occurrences=c['occurrences'], pages=c['pages']))
+        for c in self.q("""SELECT c.*, e.line, e.display, l.display label_display FROM web_form_controls c JOIN web_elements e ON e.uid = c.element_uid
+                          LEFT JOIN web_elements l ON l.uid = c.label_uid WHERE c.page_uid = ? ORDER BY e.line, e.col""", pid):
+            rows.append(self.row(at_of(pf, c['line']), 'element', 'forms' if c['label_via'] == 'none' else 'form_controls', 'match', 'no_label' if c['label_via'] == 'none' else None,
+                                 tag=c['tag'], type=c['type'], name=c['name'], required=c['required'], label_via=c['label_via'], label=c['label_text'], display=c['display']))
+        for o in self.q("""SELECT o.*, e.line FROM web_outline o JOIN web_elements e ON e.uid = o.element_uid WHERE o.page_uid = ? ORDER BY o.ordinal""", pid):
+            depth = 0; par = o['parent_outline_uid']
+            while par:
+                depth += 1; x = self.q1("SELECT parent_outline_uid FROM web_outline WHERE uid = ?", par); par = x['parent_outline_uid'] if x else None
+            rows.append(self.row(at_of(pf, o['line']), o['kind'], 'outline', rank=o['ordinal'], name=o['name'], level=o['level'], label=o['label'], text=o['text'], depth=depth))
+        for r in self.q("""SELECT r.*, p.line, p.display FROM web_repeats r JOIN web_elements p ON p.uid = r.parent_element_uid WHERE r.page_uid = ? ORDER BY p.line""", pid):
+            sl = self.q("SELECT path, kind FROM web_component_slots WHERE component_uid = ?", r['uid'])
+            rows.append(self.row(at_of(pf, r['line']), 'element', 'lists', count=r['count'], item_tag=r['item_tag'], item_classes=r['item_classes'], uniform=r['uniform'],
+                                 display=r['display'], slots=[f"{x['path'] or '.'} {x['kind']}" for x in sl]))
+        for b in self.q("""SELECT b.media, count(DISTINCT s.element_uid) n FROM web_breakpoints b JOIN web_rule_breakpoints rb ON rb.breakpoint_uid = b.uid
+                           JOIN web_styles s ON s.rule_uid = rb.rule_uid WHERE s.page_uid = ? AND s.status != 'unknown' GROUP BY b.uid ORDER BY b.media""", pid):
+            rows.append(self.row(pf, 'breakpoint', 'breakpoints', media=b['media'], elements=b['n']))
         prose = [f"web: page {pf}" + (f" — \"{p['title']}\"" if p['title'] else '') + (f" [{p['document_kind']}]" if p['document_kind'] != 'DOCUMENT' else '')]
         R = lambda role: [r for r in rows if r['role'] == role]
         self.section(prose, "pages linking to it", R('linked_from'), lambda r: f"{r['at']}: {r['display']} [{r['attribute']}]")
@@ -554,6 +685,11 @@ class Web:
         if R('uses_resource'): self.section(prose, "link resources (icon, preload, manifest)", R('uses_resource'), lambda r: f"{r['url']} → {r['at']} [{r['status']}]")
         if R('inert'): self.section(prose, "inert elements (inside <template>/<noscript>/<iframe> text)", R('inert'), lambda r: f"{r['at']}: {r['display']} [{r['reason']}]")
         if R('unknown'): self.section(prose, "unknown (what the page names that lands nowhere)", R('unknown'), lambda r: f"{r['at']}: {r['reason']}" + (f" {r['url']}" if r.get('url') else ''))
+        if R('components'): self.section(prose, "components it is built from (impact component:<name> for slots)", R('components'), lambda r: f"{r['at']}: {r['display']} ({r['level']}, {r['size']} elements, {r['occurrences']}x on {r['pages']} page(s))")
+        if R('outline'): self.section(prose, "outline (landmarks and headings, in order)", R('outline'), lambda r: f"{'  ' * r['depth']}{r['at']}: {r['name']}{' h' + str(r['level']) if r.get('level') else ''}{QUOTED(r.get('label') or r.get('text'))}")
+        if R('forms') or R('form_controls'): self.section(prose, "form controls without a label", R('forms'), lambda r: f"{r['at']}: {r['display']} ({r['tag']}{' ' + r['type'] if r.get('type') else ''}{' name=' + r['name'] if r.get('name') else ''})")
+        if R('lists'): self.section(prose, "repeated lists (a loop in a component)", R('lists'), lambda r: f"{r['at']}: {r['display']} > {r['count']} x {r['item_tag']}{'.' + r['item_classes'].replace(' ', '.') if r.get('item_classes') else ''}{'' if r['uniform'] else ' (items differ in classes)'}{'; varies: ' + ', '.join(r['slots']) if r.get('slots') else ''}")
+        if R('breakpoints'): self.section(prose, "breakpoints styling it", R('breakpoints'), lambda r: f"@media {r['media']}: {r['elements']} element(s)")
         return self.finish({'found': True, 'kind': 'page', 'target': pf, 'prose': prose}, rows)
 
     def impact_script(self, a):
@@ -745,6 +881,16 @@ class Web:
             for r in self.q("""SELECT p.file, count(t.uid) n FROM web_pages p LEFT JOIN web_template_exprs t ON t.page_uid = p.uid AND upper(t.dialect) = ?
                                WHERE upper(COALESCE(p.template_dialects, '')) LIKE ? GROUP BY p.file ORDER BY n DESC, p.file""", d, '%' + d + '%'):
                 rows.append(self.row(r['file'], 'page', 'template_pages', expressions=r['n']))
+        if re.search(r'\b(theme|colou?rs?|palette|tokens?|design tokens?)\b', low):
+            kind = 'color' if re.search(r'colou?r|palette', low) else None
+            for r in self.q("SELECT kind, value, uses, project_uses, vars FROM web_tokens WHERE (? IS NULL OR kind = ?) ORDER BY project_uses DESC, uses DESC, value LIMIT 50", kind, kind):
+                rows.append(self.row(r['value'], 'token', 'tokens', token_kind=r['kind'], value=r['value'], uses=r['uses'], project_uses=r['project_uses'], vars=r['vars']))
+        if re.search(r'\bcomponents?\b|\bsplit\b', low):
+            for r in self.q("SELECT display, level, size, occurrences, pages FROM web_components ORDER BY pages * size DESC, occurrences DESC LIMIT 30"):
+                rows.append(self.row(f"component:{r['display']}", 'component', 'components', display=r['display'], level=r['level'], size=r['size'], occurrences=r['occurrences'], pages=r['pages']))
+        if re.search(r'\b(unused|dead|unmatched)\b', low) and re.search(r'\bcss\b|selectors?|rules?|styles?', low):
+            for r in self.q("SELECT file, line, selector_text, unknown_reason FROM web_selectors WHERE usage = 'unmatched_static' ORDER BY file, line LIMIT 200"):
+                rows.append(self.row(at_of(r['file'], r['line']), 'selector', 'unmatched', 'unknown', r['unknown_reason'] or 'no_element_matches', selector=r['selector_text']))
         if re.search(r'\bduplicate[d]? ids?\b', low):
             for r in self.q("SELECT e.file, e.line, e.html_id FROM web_elements e JOIN (SELECT page_uid, html_id FROM web_elements WHERE html_id IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1) d ON d.page_uid = e.page_uid AND d.html_id = e.html_id ORDER BY e.file, e.line"):
                 rows.append(self.row(at_of(r['file'], r['line']), 'element', 'duplicate_id', 'ambiguous', 'duplicate_id', id=r['html_id']))
@@ -772,7 +918,7 @@ class Web:
                 scores[r['file']] = scores.get(r['file'], 0) + 2
                 rows.append(self.row(r['file'], 'page', 'pages', title=r['title'], score=2))
         # places, best first: a file's rows ordered by the file's total score
-        lead = [r for r in rows if r['role'] in ('orphan_sheet', 'template_pages', 'duplicate_id')]
+        lead = [r for r in rows if r['role'] in ('orphan_sheet', 'template_pages', 'duplicate_id', 'tokens', 'components', 'unmatched')]
         rest = sorted([r for r in rows if r not in lead], key=lambda r: (-scores.get(r['at'].rsplit(':', 1)[0] if ':' in r['at'] else r['at'], 0), -r.get('score', 0), r['at']))
         rows = lead + rest
         for i, r in enumerate(rows): r['rank'] = i + 1
@@ -787,6 +933,10 @@ class Web:
             prose.append(f"    {r['at']}: {r['kind']} {r.get('selector') or r.get('name') or r.get('reason') or ''}".rstrip())
         prose.append("(impact on any of them: what styles it, what loads it, what it reaches)")
         return {'found': True, 'task': task, 'rows': rows, 'places': files, 'prose': prose, 'more': 0}
+
+
+def QUOTED(v):
+    return f' "{v}"' if v else ''
 
 
 STOP = {'the', 'and', 'for', 'with', 'where', 'which', 'what', 'how', 'does', 'this', 'that', 'page', 'pages', 'from', 'into', 'are',
