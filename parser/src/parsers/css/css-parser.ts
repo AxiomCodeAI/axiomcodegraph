@@ -32,6 +32,8 @@ export interface CssOrigin {
   /** The file a relative `url()` resolves against, and the project root for a root-relative one. */
   readonly filePath: string;
   readonly projectRoot: string;
+  /** The repository root: a relative url may climb out of projectRoot up to it (V1-05). */
+  readonly repoRoot?: string;
   readonly serviceVersionLinkHash: string;
   /** The page's `<base href>`, when the CSS sits in a page that has one: relative URLs resolve against it, as in a browser. */
   readonly baseHref?: BaseUrl;
@@ -45,6 +47,7 @@ export interface CssDeclarationListOrigin {
   readonly baseHref?: BaseUrl;
   readonly filePath: string;
   readonly projectRoot: string;
+  readonly repoRoot?: string;
   readonly serviceVersionLinkHash: string;
 }
 
@@ -252,6 +255,7 @@ interface Sheet {
   readonly host: Pos;
   readonly filePath: string;
   readonly projectRoot: string;
+  readonly repoRoot?: string;
   readonly version: string;
   readonly stylesheetLinkHash: string;
   /** The host page's `<base href>`, for CSS written in a page. */
@@ -325,7 +329,7 @@ export class CssParser {
     };
     const sheet: Sheet = {
       text, lines: new LineIndex(text), host: { line: origin.line, column: origin.column }, filePath: origin.filePath,
-      projectRoot: origin.projectRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: origin.stylesheet.getHash(),
+      projectRoot: origin.projectRoot, repoRoot: origin.repoRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: origin.stylesheet.getHash(),
       baseHref: origin.baseHref,
     };
     const gaps = new GapCollector(out.parseGaps);
@@ -358,7 +362,7 @@ export class CssParser {
     const out: CssDeclarationListExtraction = { declarations: [], valueReferences: [], errors: [] };
     const sheet: Sheet = {
       text, lines: new LineIndex(text), host: { line: origin.line, column: origin.column }, filePath: origin.filePath,
-      projectRoot: origin.projectRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: '', baseHref: origin.baseHref,
+      projectRoot: origin.projectRoot, repoRoot: origin.repoRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: '', baseHref: origin.baseHref,
     };
     const collected: CssExtraction = {
       rules: [], selectors: [], selectorParts: [], declarations: [], valueReferences: [], comments: [], parseGaps: [],
@@ -857,7 +861,7 @@ export class CssParser {
       if (url !== undefined) {
         const written = classifyUrl(url);
         urlKind = written.kind;
-        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot);
+        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot, sheet.repoRoot);
       }
       refs.push(new CssValueReference({
         referenceKind: kind, name, fallbackText: fallback, urlKind, resolvedFilePath: resolved, isResolved: resolved !== '',
@@ -940,7 +944,7 @@ export class CssParser {
       if (url !== undefined) {
         const written = classifyUrl(url);
         urlKind = written.kind;
-        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot);
+        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot, sheet.repoRoot);
       }
       out.valueReferences.push(new CssValueReference({
         referenceKind: kind, name: value, fallbackText: '', urlKind, resolvedFilePath: resolved, isResolved: resolved !== '',

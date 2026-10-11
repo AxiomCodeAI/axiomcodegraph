@@ -116,7 +116,13 @@ function split(url: string): { base: string; query: string; fragment: string } {
 export function resolveUrlToFile(
   url: ClassifiedUrl,
   fromFile: string,
-  projectRoot: string
+  projectRoot: string,
+  /**
+   * The repository the walk read (V1-05): a RELATIVE url may climb out of the sub-project the file belongs to
+   * (`../shared.css` from a page in a folder that holds its own main.js) as a browser serving the repository would.
+   * A root-relative url still resolves inside `projectRoot`. Defaults to `projectRoot`.
+   */
+  repoRoot?: string
 ): string {
   if (url.path === '') {
     return '';
@@ -141,7 +147,10 @@ export function resolveUrlToFile(
   };
   if (url.kind === WebUrlKind.RELATIVE) {
     const candidate = path.resolve(path.dirname(fromFile), decoded);
-    return inside(candidate) && isFile(candidate) ? candidate : '';
+    const repo = path.resolve(repoRoot ?? projectRoot);
+    const rel = path.relative(repo, candidate);
+    const insideRepo = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+    return (inside(candidate) || insideRepo) && isFile(candidate) ? candidate : '';
   }
   if (url.kind === WebUrlKind.ROOT_RELATIVE) {
     const hits: string[] = [];

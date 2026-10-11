@@ -15,6 +15,7 @@
  *   keyframe-lists    a minified keyframe selector list is one block; a quoted @keyframes name is an @keyframes.
  *   odd-custom-value  `:root{--x:.}` (a custom property's value need not be an ordinary value) keeps every later
  *                     rule top-level (V1-04, #1909).
+ *   climb-out         `../shared.css` from a page in a sub-project folder resolves inside the repository (V1-05).
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -158,8 +159,24 @@ async function oddCustomValue(): Promise<void> {
   else ok('odd-custom-value: `--x:.` keeps its value and the rules after it stay top-level');
 }
 
+async function climbOutOfSubProject(): Promise<void> {
+  // V1-05: a page in a folder that is its own sub-project (it holds main.js) links ../shared.css beside that folder
+  const root = tree({
+    'dir/page/index.html': '<!doctype html><html><head><link rel="stylesheet" href="../shared.css"></head><body><p class="a">x</p></body></html>\n',
+    'dir/page/main.js': 'console.log(1);\n',
+    'dir/page/package.json': '{"name":"page","version":"1.0.0"}\n',
+    'dir/shared.css': '.a{color:red}\n',
+  });
+  const ir = await parse(root);
+  const refs = readCsv(path.join(ir, 'web', 'all-html-references.csv')).filter((r) => r.urlAsWritten === '../shared.css');
+  ran++;
+  if (refs.length !== 1) fail(`climb-out: ${refs.length} reference rows for ../shared.css`);
+  else if (refs[0]!.isResolved !== 'true' || !(refs[0]!.resolvedFilePath ?? '').endsWith(path.join('dir', 'shared.css'))) fail(`climb-out: ../shared.css resolved=${refs[0]!.isResolved} to '${refs[0]!.resolvedFilePath}'`);
+  else ok('climb-out: a relative url from a page in a sub-project resolves to a sheet outside it, inside the repository');
+}
+
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }

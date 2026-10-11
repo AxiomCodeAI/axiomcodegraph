@@ -94,6 +94,8 @@ export class WebProjectAnalyzer {
   private cssSeen = 0;
   private analysed = 0;
 
+  private repoRoot = '';
+
   constructor(outputDir?: string) {
     this.css = new CssParser();
     this.html = new HtmlParser(this.css);
@@ -111,6 +113,8 @@ export class WebProjectAnalyzer {
     const serviceVersionHash = EntityUtils.generateEntityHash(ENTITY_IDENTIFIERS.SERVICE_VERSION, serviceVersionLink);
     await fs.mkdir(this.outputDir, { recursive: true });
 
+    // the outermost scan target: a relative url may climb out of a sub-project up to it (V1-05)
+    this.repoRoot = projects.map((p) => p.path).sort((a, b) => a.length - b.length)[0] ?? '';
     const owners = await resolveFileOwners(projects, (root) => this.findWebFiles(root));
     for (const [project, files] of groupOwnedFiles(owners)) {
       await this.analyzeProject(project, files.sort(), serviceVersionHash);
@@ -159,7 +163,7 @@ export class WebProjectAnalyzer {
         continue;
       }
       try {
-        const x = this.html.parse(content, filePath, project.path, serviceVersionHash);
+        const x = this.html.parse(content, filePath, project.path, serviceVersionHash, this.repoRoot || project.path);
         // Committed only once the whole file has parsed, and appended in a loop: `push(...rows)`
         // passes every row as an argument and overflows the stack past ~100k of them, which on
         // a generated page threw AFTER half the relations were already extended — rows of a
@@ -206,7 +210,7 @@ export class WebProjectAnalyzer {
           serviceVersionLinkHash: serviceVersionHash,
         });
         const x = this.css.parseStylesheet(content, {
-          stylesheet: sheet, line: 1, column: 1, filePath, projectRoot: project.path,
+          stylesheet: sheet, line: 1, column: 1, filePath, projectRoot: project.path, repoRoot: this.repoRoot || project.path,
           serviceVersionLinkHash: serviceVersionHash,
         });
         this.rows.CSS_STYLESHEETS.push(sheet);

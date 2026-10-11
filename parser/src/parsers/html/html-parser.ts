@@ -160,7 +160,7 @@ export class HtmlParser {
     this.parser.setLanguage(Html);
   }
 
-  parse(content: string, filePath: string, baseMservPath: string, serviceVersionLinkHash: string): HtmlExtraction {
+  parse(content: string, filePath: string, baseMservPath: string, serviceVersionLinkHash: string, repoRoot: string = baseMservPath): HtmlExtraction {
     const lines = new LineIndex(content);
     const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(content)).rootNode;
     const top = namedChildrenThroughErrors(root);
@@ -197,7 +197,7 @@ export class HtmlParser {
       serviceVersionLinkHash,
     });
 
-    const walk = new Walk(this.css, content, lines, document, filePath, baseMservPath, serviceVersionLinkHash, dialects, flavour);
+    const walk = new Walk(this.css, content, lines, document, filePath, baseMservPath, serviceVersionLinkHash, dialects, flavour, repoRoot);
     const roots = new Map<string, number>();
     top.filter((n) => ELEMENT_TYPES.has(n.type)).forEach((child, index) => walk.element(child, '', '', 0, roots, index, HtmlNamespace.HTML));
     walk.recordSyntaxErrors(root);
@@ -253,7 +253,8 @@ class Walk {
     private readonly projectRoot: string,
     private readonly version: string,
     private readonly dialects: Set<HtmlTemplateDialect>,
-    private readonly flavour: TemplateFlavour
+    private readonly flavour: TemplateFlavour,
+    private readonly repoRoot: string
   ) {
     // An XML document (`.xhtml`) keeps every name as written; an HTML document's tokenizer
     // lowercases tag and attribute names, foreign content included.
@@ -770,7 +771,7 @@ class Walk {
     }
     // A `<base href>` is what every later relative URL resolves against, as in a browser.
     const effective = kind === HtmlReferenceKind.BASE ? classified : applyBase(classified, this.baseHref);
-    const resolved = resolveUrlToFile(effective, this.filePath, this.projectRoot);
+    const resolved = resolveUrlToFile(effective, this.filePath, this.projectRoot, this.repoRoot);
     if (kind === HtmlReferenceKind.STYLESHEET) {
       this.stylesheetReferenceCount += 1;
     }
@@ -885,7 +886,7 @@ class Walk {
     this.out.stylesheets.push(sheet);
     const extracted = this.css.parseStylesheet(body.text, {
       stylesheet: sheet, line: body.start.line, column: body.start.column, filePath: this.filePath,
-      projectRoot: this.projectRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
+      projectRoot: this.projectRoot, repoRoot: this.repoRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
     });
     // Loops, not `push(...rows)`: a spread passes every row as an argument and overflows
     // the stack on a <style> of tens of thousands of rules.
@@ -909,7 +910,7 @@ class Walk {
     }
     const extracted = this.css.parseDeclarationList(value, {
       htmlAttributeLinkHash: attribute.getHash(), line: at.line, column: at.column, filePath: this.filePath,
-      projectRoot: this.projectRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
+      projectRoot: this.projectRoot, repoRoot: this.repoRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
     });
     for (const d of extracted.declarations as CssDeclaration[]) this.out.css.declarations.push(d);
     for (const v of extracted.valueReferences as CssValueReference[]) this.out.css.valueReferences.push(v);
