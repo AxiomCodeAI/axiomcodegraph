@@ -22,7 +22,7 @@ const id = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT'
 /**
  * An id column with no index of its own (C-05): on the three largest tables the per-column indexes were half the file
  * (853 of 1,655 MB on a dev project), and these columns are never a query's lookup key (they are read with their row,
- * or a composite index in write.ts leads with them). A column that becomes a lookup key goes back to id().
+ * or write.ts gives them an index of its own). A column that becomes a lookup key goes back to id().
  */
 const ref = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT', description, nullable: true });
 
@@ -114,7 +114,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_declarations',
     description: 'One declaration, in a rule (`rule_uid`) or a style="" attribute (`attribute_uid`, `element_uid`).',
-    columns: [id('uid'), id('rule_uid'), id('attribute_uid'), id('element_uid'), id('stylesheet_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'),
+    columns: [id('uid'), id('rule_uid'), id('attribute_uid'), id('element_uid'), ref('stylesheet_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('end_line'), i('end_col'),
       id('property'), t('value_text'), i('is_important'), i('is_custom'), t('vendor_prefix'), i('position')],
   },
   {
@@ -181,7 +181,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_var_visible',
     description: 'Page-independent: a var() use (the using declaration and its value reference) sees the definitions of its name held by an OWNER (`def_owner_kind` sheet: a stylesheet some page loads with the use; page: style attributes of a page that loads the use) — one row per (use, owner), `defs` = how many definitions of the name that owner holds, `def_uid` set when it is exactly one (V1-22 grain; the per-definition rows are the view web_var_visible_defs). A use no definition reaches: one row, def_owner_uid NULL, reason no_definition_in_scope / fallback_only.',
-    columns: [id('use_uid'), id('value_ref_uid'), id('name'), id('def_owner_uid'), t('def_owner_kind'), i('defs'), id('def_uid'), t('status'), t('reason')],
+    columns: [ref('use_uid'), ref('value_ref_uid'), id('name'), ref('def_owner_uid'), t('def_owner_kind'), i('defs'), id('def_uid'), t('status'), t('reason')],
   },
   {
     name: 'web_var_scope',
@@ -338,8 +338,10 @@ export const WEB_VIEWS: readonly string[] = [
        AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND (w.page_uid = l.page_uid OR w.host_page_uid = l.page_uid))
        AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)
        AND EXISTS (SELECT 1 FROM web_selector_required q WHERE q.selector_uid = s.uid AND NOT EXISTS (
-         SELECT 1 FROM web_elements e WHERE (e.page_uid = l.page_uid OR e.page_uid IN (SELECT i.fragment_page_uid FROM web_includes i
-           WHERE i.host_page_uid = l.page_uid AND i.status IN ('match', 'asserted'))) AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
+         SELECT 1 FROM web_elements e WHERE (e.page_uid = l.page_uid OR e.page_uid IN (WITH RECURSIVE inc(p) AS (
+             SELECT i.fragment_page_uid FROM web_includes i WHERE i.host_page_uid = l.page_uid AND i.status IN ('match', 'asserted') AND i.kind != 'jinja:import'
+             UNION SELECT i.fragment_page_uid FROM web_includes i JOIN inc ON i.host_page_uid = inc.p WHERE i.status IN ('match', 'asserted') AND i.kind != 'jinja:import')
+           SELECT p FROM inc)) AND (e.inert IS NULL OR e.inert != 'iframe_text') AND (
            (q.kind = 'id' AND (e.html_id = q.token OR (p.quirks = 1 AND lower(e.html_id) = lower(q.token))))
            OR (q.kind = 'class' AND EXISTS (SELECT 1 FROM web_class_tokens t WHERE t.element_uid = e.uid
                  AND (t.class_name = q.token OR (p.quirks = 1 AND lower(t.class_name) = lower(q.token))))))))`,

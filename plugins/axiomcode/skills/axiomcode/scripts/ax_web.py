@@ -715,8 +715,18 @@ class Web:
         for b in self.q("""SELECT b.media, count(DISTINCT s.element_uid) n FROM web_breakpoints b JOIN web_rule_breakpoints rb ON rb.breakpoint_uid = b.uid
                            JOIN web_styles s ON s.rule_uid = rb.rule_uid WHERE s.page_uid = ? AND s.status != 'unknown' GROUP BY b.uid ORDER BY b.media""", pid):
             rows.append(self.row(pf, 'breakpoint', 'breakpoints', media=b['media'], elements=b['n']))
+        # §11 fragment hosts (Q49, Q50): what the page includes, where; and, for a fragment, the hosts including it
+        if self.has_col('web_includes', 'host_page_uid'):
+            for r in self.q("""SELECT i.file, i.line, i.kind, i.status, i.reason, f.file frag FROM web_includes i LEFT JOIN web_pages f ON f.uid = i.fragment_page_uid
+                               WHERE i.host_page_uid = ? AND i.kind != 'jinja:extends' ORDER BY i.line, i.col""", pid):
+                rows.append(self.row(at_of(r['file'], r['line']), 'include', 'includes', r['status'], r['reason'], fragment=r['frag'], include_kind=r['kind']))
+            for r in self.q("""SELECT i.file, i.line, i.kind, i.status, i.reason, h.file host FROM web_includes i LEFT JOIN web_pages h ON h.uid = i.host_page_uid
+                               WHERE i.fragment_page_uid = ? ORDER BY i.file, i.line""", pid):
+                rows.append(self.row(at_of(r['file'], r['line']), 'include', 'included_by', r['status'], r['reason'], host=r['host'], include_kind=r['kind']))
         prose = [f"web: page {pf}" + (f" — \"{p['title']}\"" if p['title'] else '') + (f" [{p['document_kind']}]" if p['document_kind'] != 'DOCUMENT' else '')]
         R = lambda role: [r for r in rows if r['role'] == role]
+        if R('includes'): self.section(prose, "fragments it includes", R('includes'), lambda r: f"{r['at']}: {r.get('fragment') or '-'} [{r['include_kind']}, {r['status']}{' ' + r['reason'] if r['reason'] else ''}]")
+        if R('included_by'): self.section(prose, "included by", R('included_by'), lambda r: f"{r['at']}: {r.get('host') or '-'} [{r['include_kind']}, {r['status']}{' ' + r['reason'] if r['reason'] else ''}]")
         self.section(prose, "pages linking to it", R('linked_from'), lambda r: f"{r['at']}: {r['display']} [{r['attribute']}]")
         self.section(prose, "stylesheets it loads, in cascade order", R('loads'), lambda r: f"{r['rank']}. {r['display']}  [{r['via']}{', import depth ' + str(r['import_depth']) if r.get('import_depth') else ''}{', ' + r['media'] if r.get('media') else ''}{', ' + r['reason'] if r['reason'] else ''}]")
         self.code_prose(prose, R('scripts'), R('handlers'))

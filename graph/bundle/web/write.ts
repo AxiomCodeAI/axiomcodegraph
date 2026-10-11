@@ -87,10 +87,14 @@ export class WebDb {
       db.exec('BEGIN;');
       for (const t of WEB_TABLES) for (const c of t.columns) if (c.indexed) db.exec(`CREATE INDEX idx_${t.name}_${c.name} ON ${t.name}("${c.name}");`);
       db.exec('CREATE INDEX idx_web_elements_file_line ON web_elements(file, line);');
-      db.exec('CREATE INDEX idx_web_styles_page_element ON web_styles(page_uid, element_uid);');
-      db.exec('CREATE INDEX idx_web_styles_selector_page ON web_styles(selector_uid, page_uid);');
+      // web_styles is looked up by selector (impact "X", the per-page unmatched view, which then reads that selector's few
+      // rows for the page) and by element (its own index); no query leads with the page alone, so the (page, element)
+      // and (selector, page) composites, a quarter of a styles-heavy file, are not kept (C-05)
+      db.exec('CREATE INDEX idx_web_styles_selector ON web_styles(selector_uid);');
       for (const f of WEB_FINALIZE) db.exec(f + ';');
       db.exec('COMMIT;');
+      // sqlite_stat1 for the planner: with an index on most id columns and none on others, it otherwise guesses (V2-07)
+      db.exec('ANALYZE;');
     } finally {
       db.close();
     }

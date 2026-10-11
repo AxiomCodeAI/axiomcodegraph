@@ -399,6 +399,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const d = g(T.ref, r, 'documentLinkHash');
     const id = g(T.ref, r, 'htmlReferenceUniqueHash');
     refById.set(id, r); push(refsOfPage, d, r);
+    if (g(T.ref, r, 'referenceKind') === 'INCLUDE') continue; // written once its include is resolved (§11)
     const abs = g(T.ref, r, 'resolvedFilePath');
     out('web_references').push({ uid: id, element_uid: g(T.ref, r, 'ownerElementLinkHash'), page_uid: d, file: fileOfPage(d),
       line: num(g(T.ref, r, 'startLine')), col: num(g(T.ref, r, 'startColumn')), reference_kind: g(T.ref, r, 'referenceKind'), attribute_name: nz(g(T.ref, r, 'attributeName')),
@@ -439,13 +440,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const topOf = (pageId: string): El[] => (pages.get(pageId)?.elements ?? []).filter((e) => e.parent === null).sort((a, b) => a.position - b.position);
   const positionAt = (pageId: string, hostEl: El | null, at: [number, number]): number =>
     (hostEl ? hostEl.children : topOf(pageId)).filter((c) => before(posOf(c), at)).length;
+  // the page paths are as the walk wrote them, which may be the root's real path (a symlinked temporary directory)
+  const underRoot = (d: string): boolean => d === root || d === rootReal || d.startsWith(root + path.sep) || d.startsWith(rootReal + path.sep);
   // Jinja resolves a template name against its template directories: every directory named `templates` under the root
   const templateRoots = (() => {
     const set = new Set<string>();
     for (const p of pages.values()) {
-      for (let d = path.dirname(p.abs); d.startsWith(root) && d !== path.dirname(d); d = path.dirname(d)) {
+      for (let d = path.dirname(p.abs); underRoot(d) && d !== path.dirname(d); d = path.dirname(d)) {
         if (path.basename(d) === 'templates') set.add(d);
-        if (d === root) break;
+        if (d === root || d === rootReal) break;
       }
     }
     return [...set].sort();
@@ -461,9 +464,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     } else if (flavour === 'ssi:virtual') {
       // the site root is the nearest ancestor directory of the page that holds the path; else the repository root
       const rp = p0.replace(/^\/+/, ''); cands = [path.join(root, rp)];
-      for (let d = path.dirname(page.abs); d.startsWith(root); d = path.dirname(d)) {
+      for (let d = path.dirname(page.abs); underRoot(d); d = path.dirname(d)) {
         if (onDisk(path.join(d, rp))) { cands = [path.join(d, rp)]; break; }
-        if (d === root || d === path.dirname(d)) break;
+        if (d === root || d === rootReal || d === path.dirname(d)) break;
       }
     } else {
       const abs = g(T.ref, r, 'resolvedFilePath');
@@ -500,6 +503,29 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     out('web_includes').push({ host_page_uid: host, fragment_page_uid: frag, kind, host_element_uid: hostEl?.id ?? null, position, reference_uid: refId, url_as_written: url,
       file: fileOfPage(host), line, col, args, status, reason });
   };
+  // the args an include passes, as written: gulp's second argument, posthtml's `locals`
+  const includeArgs = (page: Page, r: string[], flavour: string, owner: El | null): string | null => {
+    if (flavour === 'posthtml:include') return owner?.attrs.get('locals')?.value || null;
+    if (flavour !== 'gulp:@@include') return null;
+    const pt = textOfPage(page.id); if (!pt) return null;
+    const off = offsetOf(pt, num(g(T.ref, r, 'startLine')) ?? 0, num(g(T.ref, r, 'startColumn')) ?? 0);
+    const m = /^@@include\(\s*(?:"[^"]*"|'[^']*')/.exec(pt.text.slice(off)); if (!m) return null;
+    let depth = 0; let q = ''; let j = off + m[0].length;
+    for (; j < pt.text.length; j++) {
+      const c = pt.text[j]!;
+      if (q) { if (c === '\\') { j++; continue; } if (c === q) q = ''; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '{' || c === '[' || c === '(') depth++; else if (c === '}' || c === ']') depth--;
+      else if (c === ')') { if (depth === 0) break; depth--; }
+    }
+    const a = /^\s*,([\s\S]*)$/.exec(pt.text.slice(off + m[0].length, j));
+    return a ? a[1]!.trim() || null : null;
+  };
+  // phase 1: every include reference resolved; the composing ones (match, not import/extends) kept as edges
+  interface Edge { host: string; frag: string; flavour: string; refId: string; url: string; at: [number, number]; hostEl: El | null; position: number; args: string | null; replaced: El | null; cut: string }
+  const edges: Edge[] = [];
+  const extendsPending: { page: Page; layout: string; refId: string; url: string; at: [number, number] }[] = [];
+  const includeResolved = new Map<string, string>(); // reference -> the page file it resolved to (web_references.resolved_file)
   for (const page of pages.values()) {
     for (const r of refsOfPage.get(page.id) ?? []) {
       if (g(T.ref, r, 'referenceKind') !== 'INCLUDE') continue;
@@ -507,45 +533,92 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const at: [number, number] = [num(g(T.ref, r, 'startLine')) ?? 0, num(g(T.ref, r, 'startColumn')) ?? 0];
       const owner = elById.get(g(T.ref, r, 'ownerElementLinkHash')) ?? null;
       const res = resolveInclude(page, r, flavour);
+      if (res.status === 'match') includeResolved.set(refId, pages.get(res.targets[0]!)!.abs);
       if (flavour === 'jinja:extends') {
-        // the extending page (this one) is the fragment; the layout it names is the host its blocks are matched in
-        for (const layout of res.targets) {
-          includeRow(layout, page.id, flavour, null, null, refId, url, at[0], at[1], null, res.status, res.reason);
-          if (res.status !== 'match') continue;
-          hosted.add(page.id);
-          const lb = blocksOf(layout); const cb = blocksOf(page.id); const inserts: Insert[] = [];
-          for (const [name, [cs, ce]] of cb) {
-            const span = lb.get(name); if (!span) continue;
-            const hostEl = innermostAt(layout, span[0]);
-            const lpt = textOfPage(layout)!;
-            const removes = new Set((hostEl ? hostEl.children : topOf(layout)).filter((e) => { const o = offsetOfEl(e); return o > span[0] && o < span[1]; }).map((e) => e.id));
-            const blockAt = lpt ? (() => { const lineIdx = lpt.starts.findIndex((_st0, i) => (lpt.starts[i + 1] ?? Infinity) > span[0]); return [lineIdx + 1, span[0] - lpt.starts[lineIdx]! + 1] as [number, number]; })() : at;
-            const elems = (pages.get(page.id)?.elements ?? []).filter((e) => { const o = offsetOfEl(e); if (o <= cs || o >= ce) return false; const po = e.parent ? offsetOfEl(e.parent) : -1; return !e.parent || po <= cs || po >= ce; })
-              .sort((a, b) => offsetOfEl(a) - offsetOfEl(b));
-            inserts.push({ hostEl, at: blockAt, position: (hostEl ? hostEl.children : topOf(layout)).filter((c) => before(posOf(c), blockAt)).length, frag: page.id, elems, removes });
-          }
-          extendsComps.push({ layout, child: page.id, inserts });
+        // the extending page (this one) is the fragment; the layout it names is the host its blocks are matched in. The
+        // row sits where the extends tag is written, in the extending page.
+        if (res.status === 'match') { extendsPending.push({ page, layout: res.targets[0]!, refId, url, at }); continue; }
+        for (const layout of res.targets.length ? res.targets : [null]) {
+          out('web_includes').push({ host_page_uid: layout, fragment_page_uid: page.id, kind: flavour, host_element_uid: null, position: null, reference_uid: refId,
+            url_as_written: url, file: page.file, line: at[0], col: at[1], args: null, status: res.status, reason: res.reason });
         }
-        if (res.targets.length === 0) includeRow(page.id, null, flavour, null, null, refId, url, at[0], at[1], null, res.status, res.reason);
-        if (res.status !== 'match') unknownRow('include', refId, page.id, res.reason ?? res.status, url, page.file, at[0]);
+        unknownRow('include', refId, page.id, res.reason ?? res.status, url, page.file, at[0]);
         continue;
       }
       // `<include src>` is replaced by the fragment: the include element's parent hosts it, at the include element's place
       const replaced = flavour === 'posthtml:include' && owner && owner.tagLower === 'include' ? owner : null;
       const hostEl = replaced ? replaced.parent : owner;
       const position = replaced ? (replaced.parent ? replaced.parent.children : topOf(page.id)).indexOf(replaced) : positionAt(page.id, hostEl, at);
-      if (res.targets.length === 0) { includeRow(page.id, null, flavour, hostEl, position, refId, url, at[0], at[1], null, res.status, res.reason); unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]); continue; }
-      for (const frag of res.targets) {
-        includeRow(page.id, frag, flavour, hostEl, position, refId, url, at[0], at[1], null, res.status, res.reason);
-        if (res.status !== 'match') continue;
-        hosted.add(frag);
-        if (flavour === 'jinja:import') continue; // macros are listed, not composed
-        push(hostsOfFragment, frag, { host: page.id, hostEl, line: at[0], col: at[1] });
-        const ins = includeInserts.get(page.id) ?? []; includeInserts.set(page.id, ins);
-        ins.push({ hostEl, at, position, frag, elems: null, removes: new Set(replaced ? [replaced.id] : []) });
+      const args = includeArgs(page, r, flavour, owner);
+      if (res.targets.length === 0) { includeRow(page.id, null, flavour, hostEl, position, refId, url, at[0], at[1], args, res.status, res.reason); unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]); continue; }
+      if (res.status !== 'match' || flavour === 'jinja:import') {
+        // listed, never composed: an ambiguous name (one row per candidate), a macro import (it gives no host either)
+        for (const frag of res.targets) includeRow(page.id, frag, flavour, hostEl, position, refId, url, at[0], at[1], args, res.status, res.reason);
+        if (res.status === 'ambiguous') unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]);
+        continue;
       }
-      if (res.status === 'ambiguous') unknownRow('include', refId, page.id, res.reason!, url, page.file, at[0]);
+      edges.push({ host: page.id, frag: res.targets[0]!, flavour, refId, url, at, hostEl, position, args, replaced, cut: '' });
     }
+  }
+  // phase 2: cycles and over-deep chains are cut where they close on the expansion stack, walking from every document
+  // page and then from every fragment nothing includes, includes in source order; the cut include is unknown
+  {
+    const out2 = new Map<string, Edge[]>(); for (const e of edges) push(out2, e.host, e);
+    for (const es of out2.values()) es.sort((a, b) => (a.at[0] - b.at[0]) || (a.at[1] - b.at[1]));
+    const targeted = new Set(edges.map((e) => e.frag));
+    const roots = [...pages.values()].filter((p) => p.kind !== 'FRAGMENT').concat([...pages.values()].filter((p) => p.kind === 'FRAGMENT' && !targeted.has(p.id)))
+      .map((p) => p.id);
+    const dfs = (pid: string, stack: string[]) => {
+      for (const e of out2.get(pid) ?? []) {
+        if (e.cut) continue;
+        if (stack.includes(e.frag)) { e.cut = 'include_cycle'; continue; }
+        if (stack.length > 8) { e.cut = 'include_depth'; continue; }
+        dfs(e.frag, [...stack, e.frag]);
+      }
+    };
+    for (const r0 of roots) dfs(r0, [r0]);
+    // a cycle no root reaches (fragments that only include each other) is cut from its first page in file order
+    for (const p of [...pages.values()].sort((a, b) => (a.file < b.file ? -1 : 1))) dfs(p.id, [p.id]);
+  }
+  // phase 3: the rows, and what each host composes
+  for (const e of edges) {
+    if (e.cut) {
+      includeRow(e.host, e.frag, e.flavour, e.hostEl, e.position, e.refId, e.url, e.at[0], e.at[1], e.args, 'unknown', e.cut);
+      unknownRow('include', e.refId, e.host, e.cut, e.url, fileOfPage(e.host), e.at[0]);
+      continue;
+    }
+    includeRow(e.host, e.frag, e.flavour, e.hostEl, e.position, e.refId, e.url, e.at[0], e.at[1], e.args, 'match', null);
+    hosted.add(e.frag);
+    push(hostsOfFragment, e.frag, { host: e.host, hostEl: e.hostEl, line: e.at[0], col: e.at[1] });
+    const ins = includeInserts.get(e.host) ?? []; includeInserts.set(e.host, ins);
+    ins.push({ hostEl: e.hostEl, at: e.at, position: e.position, frag: e.frag, elems: null, removes: new Set(e.replaced ? [e.replaced.id] : []) });
+  }
+  for (const r of T.ref.rows) {
+    if (g(T.ref, r, 'referenceKind') !== 'INCLUDE') continue;
+    const d = g(T.ref, r, 'documentLinkHash'); const id = g(T.ref, r, 'htmlReferenceUniqueHash');
+    const abs = includeResolved.get(id) ?? g(T.ref, r, 'resolvedFilePath');
+    out('web_references').push({ uid: id, element_uid: nz(g(T.ref, r, 'ownerElementLinkHash')), page_uid: d, file: fileOfPage(d),
+      line: num(g(T.ref, r, 'startLine')), col: num(g(T.ref, r, 'startColumn')), reference_kind: 'INCLUDE', attribute_name: nz(g(T.ref, r, 'attributeName')),
+      url_as_written: g(T.ref, r, 'urlAsWritten'), url_kind: g(T.ref, r, 'urlKind'), path: nz(g(T.ref, r, 'path')), query: nz(g(T.ref, r, 'query')),
+      fragment: nz(g(T.ref, r, 'fragment')), resolved_file: onDisk(abs) ? rel(abs) : null, is_resolved: abs ? 1 : 0 });
+  }
+  for (const x of extendsPending) {
+    const { page, layout } = x;
+    out('web_includes').push({ host_page_uid: layout, fragment_page_uid: page.id, kind: 'jinja:extends', host_element_uid: null, position: null, reference_uid: x.refId,
+      url_as_written: x.url, file: page.file, line: x.at[0], col: x.at[1], args: null, status: 'match', reason: null });
+    hosted.add(page.id);
+    const lb = blocksOf(layout); const cb = blocksOf(page.id); const inserts: Insert[] = [];
+    for (const [name, [cs, ce]] of cb) {
+      const span = lb.get(name); if (!span) continue;
+      const hostEl = innermostAt(layout, span[0]);
+      const lpt = textOfPage(layout)!;
+      const removes = new Set((hostEl ? hostEl.children : topOf(layout)).filter((e) => { const o = offsetOfEl(e); return o > span[0] && o < span[1]; }).map((e) => e.id));
+      const blockAt = lpt ? (() => { const lineIdx = lpt.starts.findIndex((_st0, i) => (lpt.starts[i + 1] ?? Infinity) > span[0]); return [lineIdx + 1, span[0] - lpt.starts[lineIdx]! + 1] as [number, number]; })() : x.at;
+      const elems = (pages.get(page.id)?.elements ?? []).filter((e) => { const o = offsetOfEl(e); if (o <= cs || o >= ce) return false; const po = e.parent ? offsetOfEl(e.parent) : -1; return !e.parent || po <= cs || po >= ce; })
+        .sort((a, b) => offsetOfEl(a) - offsetOfEl(b));
+      inserts.push({ hostEl, at: blockAt, position: (hostEl ? hostEl.children : topOf(layout)).filter((c) => before(posOf(c), blockAt)).length, frag: page.id, elems, removes });
+    }
+    extendsComps.push({ layout, child: page.id, inserts });
   }
   // ASSERTED INCLUDES (`axiomcode link <fragment>:1 <host>:<line>`, SPEC §11.2): where no include reference exists or it
   // does not resolve, the agent says where the fragment goes. They are read from axiomcode-web-links.tsv (the source
@@ -585,13 +658,16 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     if (p.kind === 'FRAGMENT' && !hosted.has(p.id)) unknownRow('fragment_no_host', p.id, p.id, 'fragment_no_host', 'a fragment page is matched only in a host page that includes it', p.file, 1);
   }
   // the composed tree of a host: its elements cloned, each fragment's (composed in turn) inserted where it is included
-  type CEl = El & { origId: string; origPage: string };
+  type CEl = El & { origId: string; origPage: string; viaExtends?: boolean };
   let cloneSeq = 0;
   const cycleSeen = new Set<string>();
   const compose = (rootPage: string, extra: Insert[]): CEl[] => {
     const insertsOf = (pageId: string, depthPages: string[]): Insert[] => [...(includeInserts.get(pageId) ?? []), ...(depthPages.length === 1 ? extra : [])];
-    const clone = (e: El, pageId: string, parent: CEl | null, stack: string[]): CEl => {
-      const c: CEl = { ...e, id: `${e.id}@${++cloneSeq}`, origId: e.id, origPage: pageId, parent: parent as El | null, children: [], idx: 0 };
+    const clone = (e: El, pageId: string, parent: CEl | null, stack: string[], viaExtends = false): CEl => {
+      // an element placed under a <template>/<noscript> (or inside an inert subtree) of its host is inert there too
+      const hostInert = parent ? (parent.inert || ((parent.tagLower === 'template' || parent.tagLower === 'noscript') && (parent.ns === 'HTML' || parent.ns === '') ? parent.tagLower : '')) : '';
+      const c: CEl = { ...e, id: `${e.id}@${++cloneSeq}`, origId: e.id, origPage: pageId, parent: parent as El | null, children: [], idx: 0,
+        inert: e.inert || hostInert, viaExtends: viaExtends || parent?.viaExtends || false };
       c.children = place(e.children, e, pageId, c, stack);
       c.childCount = c.children.length;
       return c;
@@ -606,7 +682,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const at = (x: Insert): number => orig.slice(0, x.position).filter((e) => !removes.has(e.id)).length;
       const out2: CEl[] = [];
       const addFrag = (x: Insert) => {
-        if (x.elems) { for (const e of x.elems) out2.push(clone(e, x.frag, parent, [...stack, x.frag])); return; }
+        if (x.elems) { for (const e of x.elems) out2.push(clone(e, x.frag, parent, [...stack, x.frag], true)); return; }
         if (stack.includes(x.frag) || stack.length > 8) {
           const k = `${stack[stack.length - 1]}>${x.frag}`;
           if (!cycleSeen.has(k)) { cycleSeen.add(k); unknownRow('include', x.frag, stack[stack.length - 1]!, 'include_cycle', stack.map((s0) => fileOfPage(s0)).join(' > '), fileOfPage(stack[stack.length - 1]!), x.at[0]); }
@@ -1228,11 +1304,19 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const pageMatches = new Map<string, Map<string, Map<string, number>>>(); // page -> rule -> element -> best status
   let styleRows = 0;
   const t0 = Date.now();
+  // page-level tallies per (selector, page), merged over the runs of a page matched more than once: a layout that an
+  // extending page is matched in (its own run, then each extends run). Every other page is counted at once.
+  const multiRun = new Set(extendsComps.map((x) => x.layout));
+  const pageTally = new Map<string, Map<string, { any: boolean; missing: boolean; unk: boolean }>>();
+  const emittedComposed = new Set<string>(); // a fragment's row is written once, whichever composition reached it
   /**
-   * One page's selector -> element rows. With `comp` the tree is a host's composed one (§11): only the fragments'
-   * elements get rows (page_uid their own page, host_page_uid the host), and the page-level tallies are left alone.
+   * One page's selector -> element rows. With `comp` the tree is a host's composed one (§11):
+   * - mode `host`: the host is matched only in this form, its own elements with no host, the fragments' with
+   *   host_page_uid (page_uid their own page); the host's tallies and resolved style come from this run;
+   * - mode `extends`: the layout's tree with an extending page's blocks; only the extending page's elements (and what it
+   *   includes) get rows, the layout having its own.
    */
-  const runPage = (pageId: string, loads: Load[], comp?: { live: CEl[] }): void => {
+  const runPage = (pageId: string, loads: Load[], comp?: { live: CEl[]; mode: 'host' | 'extends' }): void => {
     const page = pages.get(pageId)!;
     const cands = new Map<string, Map<string, Cand>>();
     if (!comp && (page.kind === 'FRAGMENT' || page.elements.length === 0)) return;
@@ -1240,12 +1324,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const ctx = pageCtx(live, page.quirks, page.lang);
     const m = new Matcher(ctx, false);
     const md = ctx.dynamicClassEls.length ? new Matcher(ctx, true) : null;
-    const ruleEls = new Map<string, Map<string, number>>();
-    if (!comp) pageMatches.set(pageId, ruleEls);
-    // in a composed tree: the element a row is for, and its page; null for the host's own (it has its rows already)
-    const targetOf = (e: El): { el: string; page: string } | null => {
-      if (!comp) return { el: e.id, page: pageId };
-      const c = e as CEl; return c.origPage === pageId ? null : { el: c.origId, page: c.origPage };
+    const ruleEls = pageMatches.get(pageId) ?? new Map<string, Map<string, number>>();
+    if (!comp || comp.mode === 'host') pageMatches.set(pageId, ruleEls);
+    // the element a row is for, its page, and the host it was matched in (null: its own page)
+    const targetOf = (e: El): { el: string; page: string; host: string | null } | null => {
+      if (!comp) return { el: e.id, page: pageId, host: null };
+      const c = e as CEl;
+      if (comp.mode === 'extends' && !c.viaExtends) return null;
+      return c.origPage === pageId ? { el: c.origId, page: pageId, host: null } : { el: c.origId, page: c.origPage, host: pageId };
     };
     const candsByPage = new Map<string, Map<string, Map<string, Cand>>>();
     const rank = layerRanks(loads);
@@ -1265,10 +1351,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         for (const s of sels) {
           let st = selStats.get(s.id);
           if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0, ur: '' }; selStats.set(s.id, st); }
-          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (!comp) st.loading++; }
+          const tallies = !comp || comp.mode === 'host';
+          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (tallies) st.loading++; }
           const unk = s.unknown || scope?.spec.unknown || '';
-          if (unk) { if (!comp && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
-          if (s.root && !page.hasHtml && !scope) { if (!comp && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
+          if (unk) { if (tallies && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
+          if (s.root && !page.hasHtml && !scope) { if (tallies && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
           if (l.disabled) base.add('alternate_sheet');
@@ -1282,14 +1369,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             const sc = status === 'match' ? EXACT : status === 'conditional' ? COND : UNKNOWN;
             if (sc !== UNKNOWN || reason !== 'lang_unknown') {
               let pm = ruleEls;
-              if (comp) { pm = pageMatches.get(tg.page) ?? new Map(); pageMatches.set(tg.page, pm); }
+              if (tg.page !== pageId) { pm = pageMatches.get(tg.page) ?? new Map(); pageMatches.set(tg.page, pm); }
               let re = pm.get(n.id); if (!re) { re = new Map(); pm.set(n.id, re); }
               if ((re.get(eid) ?? NO) < sc) re.set(eid, sc);
             }
             u!.any = true;
             // §9.2 contenders: per (element, pseudo, rule) the best styles row (status, then the cascade key)
             {
-              const cmap = comp ? (candsByPage.get(tg.page) ?? (candsByPage.set(tg.page, new Map()), candsByPage.get(tg.page)!)) : cands;
+              const cmap = tg.host ? (candsByPage.get(tg.page) ?? (candsByPage.set(tg.page, new Map()), candsByPage.get(tg.page)!)) : cands;
               const ck = `${s.pe}|${n.id}`; let em = cmap.get(eid); if (!em) { em = new Map(); cmap.set(eid, em); }
               const prev = em.get(ck); const stc = status === 'match' ? 0 : status === 'conditional' ? 1 : 2;
               const cand = { pe: s.pe, rule: n.id, st: stc, a: s.spec[0], b: s.spec[1], c: s.spec[2], so: l.order, ro: n.order, lr: layerRank };
@@ -1298,7 +1385,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             }
             // one row per LOAD (V1-07): a sheet linked twice is in the cascade twice, the later load's sheet_order winning
             if (seen.has(`s|${s.id}|${eid}|${l.order}`)) return;
-            seen.add(`s|${s.id}|${eid}|${l.order}`); styleRows++;
+            seen.add(`s|${s.id}|${eid}|${l.order}`);
+            if (tg.host) { const k = `${s.id}|${eid}|${tg.host}|${l.order}`; if (emittedComposed.has(k)) return; emittedComposed.add(k); }
+            styleRows++;
             if (!seen.has(`s|${s.id}|${eid}|${status}`)) {
               seen.add(`s|${s.id}|${eid}|${status}`);
               if (status === 'match') { st!.elements++; st!.m++; } else if (status === 'conditional') st!.c++; else { st!.u++; st!.ur ||= reason; }
@@ -1308,7 +1397,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             out('web_styles').push({ selector_uid: s.id, rule_uid: n.id, stylesheet_uid: l.sheet, element_uid: eid, page_uid: tg.page, status, reason: reason || null,
               conditions, pseudo_element: nz(s.pe), spec_a: s.spec[0], spec_b: s.spec[1], spec_c: s.spec[2], layer_rank: layerRank,
               sheet_order: l.order, rule_order: n.order, important_count: n.important, scope_root: root ? ((root as CEl).origId ?? root.id) : null, scope_proximity: prox,
-              host_page_uid: comp ? pageId : null });
+              host_page_uid: tg.host });
           };
           const statusOf = (rs: { s: number; r: string }, e: El): [string, string] => {
             const reasons = new Set(base);
@@ -1368,21 +1457,31 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         }
       }
     }
-    if (comp) {
-      // the fragments' resolved style, as matched in this host (one set of web_computed rows per host)
-      for (const [fp, cm] of candsByPage) computedOf(fp, cm, { host: pageId, els: comp.live.filter((e) => e.origPage === fp).map((e) => e.origId) });
-      return;
-    }
+    // the fragments' resolved style, as matched in this host (one set of web_computed rows per host)
+    for (const [fp, cm] of candsByPage) computedOf(fp, cm, { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) });
+    // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
+    // web_selector_unmatched_pages. A page in several runs (its own composition, a layout an extending page is
+    // matched in) is matched when any run matched; a token is missing only when every run missed it.
     for (const [sid, u] of unmatched) {
-      if (u.any) { const st = selStats.get(sid); if (st) st.matched++; continue; }
-      // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
-      // web_selector_unmatched_pages
-      const st = selStats.get(sid); if (!st || seen.has(`u|${sid}`)) continue;
-      st.unmatched++; if (u.missing) st.missing++;
+      if (!multiRun.has(pageId)) {
+        // one run for this page (the common case): counted at once, never held per (selector, page)
+        const st = selStats.get(sid); if (!st) continue;
+        if (u.any) st.matched++; else if (!seen.has(`u|${sid}`)) { st.unmatched++; if (u.missing) st.missing++; }
+        continue;
+      }
+      let byPage = pageTally.get(sid); if (!byPage) { byPage = new Map(); pageTally.set(sid, byPage); }
+      const t = byPage.get(pageId);
+      const unk = seen.has(`u|${sid}`);
+      if (!t) byPage.set(pageId, { any: u.any, missing: u.missing, unk });
+      else { t.any ||= u.any; t.missing &&= u.missing; t.unk ||= unk; }
     }
-    computedOf(pageId, cands);
+    if (!comp || comp.mode === 'host') computedOf(pageId, cands);
   };
-  for (const [pageId, loads] of loadsOf) runPage(pageId, loads);
+  // §11: a page whose includes resolve is matched only as composed (below), as the browser sees it
+  const targetedPages = new Set([...includeInserts.values()].flatMap((xs) => xs.map((x) => x.frag)));
+  const composedRoots = [...includeInserts.keys()].filter((h) => pages.get(h)!.kind !== 'FRAGMENT' || !targetedPages.has(h)).filter((h) => pages.get(h)!.kind !== 'FRAGMENT');
+  const composedRootSet = new Set(composedRoots);
+  for (const [pageId, loads] of loadsOf) if (!composedRootSet.has(pageId)) runPage(pageId, loads);
   // §11 compositions: every host with resolved includes, and every (layout, extending page) pair; the sheets are the
   // host's, then those the fragments load themselves
   const composedLoads = (host: string, frags: string[]): Load[] => {
@@ -1391,15 +1490,18 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     return ls;
   };
   let composedRuns = 0;
-  for (const host of includeInserts.keys()) {
+  for (const host of composedRoots) {
     const live = compose(host, []);
-    if (!live.some((e) => e.origPage !== host)) continue;
-    runPage(host, composedLoads(host, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== host)), { live }); composedRuns++;
+    runPage(host, composedLoads(host, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== host)), { live, mode: 'host' }); composedRuns++;
   }
   for (const x of extendsComps) {
     const live = compose(x.layout, x.inserts);
-    if (!live.some((e) => e.origPage !== x.layout)) continue;
-    runPage(x.layout, composedLoads(x.layout, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== x.layout)), { live }); composedRuns++;
+    if (!live.some((e) => e.viaExtends)) continue;
+    runPage(x.layout, composedLoads(x.layout, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== x.layout)), { live, mode: 'extends' }); composedRuns++;
+  }
+  for (const [sid, byPage] of pageTally) {
+    const st = selStats.get(sid); if (!st) continue;
+    for (const t of byPage.values()) { if (t.any) st.matched++; else if (!t.unk) { st.unmatched++; if (t.missing) st.missing++; } }
   }
   for (const pageId of pages.keys()) if (!loadsOf.has(pageId)) computedOf(pageId, new Map());
   log(`  web styles: ${styleRows} selector->element rows over ${loadsOf.size} page(s)${composedRuns ? ` and ${composedRuns} composed host(s)` : ''} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
