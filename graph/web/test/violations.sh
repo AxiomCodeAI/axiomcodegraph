@@ -339,5 +339,89 @@ H
     "$(sqlite3 "$db" "SELECT contenders || '/' || conditional_overrides || '/' || value_text FROM web_computed WHERE property = 'background'")" "3/1/#ddd"
 fi
 
+if want V3-01; then
+  # a root-relative URL resolves against the NEAREST ancestor of the page that holds the path, the root last; `/` from
+  # a page in src/ is src/index.html when src/ holds one
+  put "$T/v301/src/public/a.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="/css/x.css"></head><body><p class="x">x</p><a href="/">home</a></body></html>
+H
+  printf '.x { color: red }\n' | put "$T/v301/src/public/css/x.css"
+  printf '.x { color: blue }\n' | put "$T/v301/src/css/x.css"
+  echo '<!doctype html><title>root</title>' > "$T/v301/src/index.html"
+  echo '<!doctype html><title>public</title>' > "$T/v301/src/public/index.html"
+  db=$(build v301) && {
+    eq "V3-01 /css/x.css from public/a.html loads public/css/x.css" "$(sqlite3 "$db" "SELECT group_concat(s.file) FROM web_styles w JOIN web_stylesheets s ON s.uid = w.stylesheet_uid JOIN web_pages p ON p.uid = w.page_uid WHERE p.file = 'public/a.html'")" "public/css/x.css"
+    eq "V3-01 href=/ links to public/index.html" "$(sqlite3 "$db" "SELECT group_concat(coalesce(t.file, l.status || ':' || l.reason)) FROM web_links l LEFT JOIN web_pages t ON t.uid = l.to_page_uid WHERE l.url_as_written = '/'")" "public/index.html"
+  }
+fi
+
+if want V3-02; then
+  # a URL naming a directory resolves to its index file in web_references.resolved_file too (index.html, index.htm,
+  # index.shtml, default.htm, in that order)
+  put "$T/v302/src/a.html" <<'H'
+<!doctype html><html><body><a href="/firefox/">f</a><a href="docs/">d</a><a href="old/">o</a></body></html>
+H
+  echo '<!doctype html><p>f</p>' | put "$T/v302/src/firefox/index.html"
+  echo '<!doctype html><p>d</p>' | put "$T/v302/src/docs/index.htm"
+  echo '<!doctype html><p>d2</p>' | put "$T/v302/src/docs/default.htm"
+  echo '<!doctype html><p>o</p>' | put "$T/v302/src/old/index.shtml"
+  db=$(build v302) && {
+    eq "V3-02 directory URLs resolve to index files in resolved_file" "$(sqlite3 "$db" "SELECT group_concat(url_as_written || '=' || coalesce(resolved_file, '-'), ' ') FROM (SELECT * FROM web_references WHERE reference_kind = 'ANCHOR' ORDER BY line, col)")" "/firefox/=firefox/index.html docs/=docs/index.htm old/=old/index.shtml"
+    eq "V3-02 and links_to agrees" "$(sqlite3 "$db" "SELECT group_concat(t.file, ' ') FROM (SELECT * FROM web_links ORDER BY rowid) l JOIN web_pages t ON t.uid = l.to_page_uid")" "firefox/index.html docs/index.htm old/index.shtml"
+  }
+fi
+
+if want V3-03; then
+  # a Jinja directive inside {# #}, {% comment %} or an HTML comment includes nothing; an uncommented one still does
+  put "$T/v303/src/templates/child.html" <<'H'
+{% comment %} {% extends 'base.html' %} {% endcomment %}
+{# {% include 'nav.html' %} #}
+<!-- {% include 'foot.html' %} -->
+{% block content %}<link rel=stylesheet href=/s.css><p class=x>x</p>{% include 'real.html' %}{% endblock %}
+H
+  echo '<!doctype html><html><body>{% block content %}{% endblock %}</body></html>' > "$T/v303/src/templates/base.html"
+  for f in nav foot real; do echo "<div class=\"$f\">$f</div>" > "$T/v303/src/templates/$f.html"; done
+  printf '.x { color: red }\n' > "$T/v303/src/s.css"
+  db=$(build v303) && {
+    eq "V3-03 only the uncommented include is a reference" "$(sqlite3 "$db" "SELECT group_concat(attribute_name || ' ' || url_as_written) FROM web_references WHERE reference_kind = 'INCLUDE'")" "jinja:include real.html"
+    eq "V3-03 no extends composition" "$(sqlite3 "$db" "SELECT count(*) || ':' || sum(kind = 'jinja:include') FROM web_includes")" "1:1"
+  }
+fi
+
+if want V3-10; then
+  # (a) attribute values as the DOM reads them, value_raw as written when they differ; a script body verbatim
+  # (b) an SSI directive is no template expression: #include is an INCLUDE reference, #set/#echo/#if are ssi rows
+  put "$T/v310/src/index.shtml" <<'H'
+<!doctype html><html><body>
+<script src="t.js?form=a&amp;lang=b"></script>
+<a href="#" onclick="go('a&amp;b')">x</a><a href="javascript:f('&lt;')">y</a>
+<script>if (a &amp;&amp; b) {}</script>
+<div><!--#set var="x" value="1" --><!--#echo var="x" --><!--#if expr="$x" --><!--#endif --><!--#include virtual="/inc.html" --></div>
+</body></html>
+H
+  echo '<p>inc</p>' > "$T/v310/src/inc.html"; echo '' > "$T/v310/src/t.js"
+  db=$(build v310) && {
+    eq "V3-10a script attributes decoded, attributes_raw as written" "$(sqlite3 "$db" "SELECT json_extract(attributes, '$.src') || ' | ' || json_extract(attributes_raw, '$.src') FROM web_scripts WHERE script_kind = 'EXTERNAL'")" "t.js?form=a&lang=b | t.js?form=a&amp;lang=b"
+    eq "V3-10a an attribute that decodes the same has no value_raw" "$(sqlite3 "$db" "SELECT count(*) FROM web_attributes WHERE name = 'href' AND value = '#' AND value_raw IS NULL")" "1"
+    eq "V3-10a handler code decoded, code_raw as written" "$(sqlite3 "$db" "SELECT group_concat(code || ' | ' || code_raw, ' ; ') FROM (SELECT * FROM web_handler ORDER BY handler_index)")" "go('a&b') | go('a&amp;b') ; f('<') | f('&lt;')"
+    eq "V3-10a an inline script body is verbatim" "$(sqlite3 "$db" "SELECT body FROM web_scripts WHERE script_kind = 'INLINE'")" "if (a &amp;&amp; b) {}"
+    eq "V3-10b no SSI template expressions" "$(sqlite3 "$db" "SELECT count(*) FROM web_template_exprs")" "0"
+    eq "V3-10b ssi directives" "$(sqlite3 "$db" "SELECT group_concat(directive, ',') FROM (SELECT * FROM web_ssi_directives ORDER BY line, col)")" "set,echo,if,endif"
+    eq "V3-10b #include is an include" "$(sqlite3 "$db" "SELECT kind || ':' || status FROM web_includes")" "ssi:virtual:match"
+  }
+fi
+
+if want V3-11; then
+  # template text before the doctype: a page when it writes <html> or a doctype anywhere, else a fragment
+  put "$T/v311/src/templates/page.html" <<'H'
+{% load static %}
+{% load i18n %}
+<!DOCTYPE html>
+<html><head><title>t</title></head><body><p>x</p></body></html>
+H
+  printf '{%% load i18n %%}\n<div class="card">c</div>\n' > "$T/v311/src/templates/part.html"
+  db=$(build v311) && eq "V3-11 page kinds" "$(sqlite3 "$db" "SELECT group_concat(file || '=' || document_kind, ' ') FROM (SELECT * FROM web_pages ORDER BY file)")" "templates/page.html=DOCUMENT templates/part.html=FRAGMENT"
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

@@ -91,9 +91,9 @@ eq "unknowns: the cycle cut, the unresolved and template-expression includes, fr
 eq "web_computed carries the host for a composed fragment element" \
   "$(q "SELECT count(*) FROM web_computed c JOIN web_elements e ON e.uid = c.element_uid WHERE e.display = 'aside.side' AND c.property = 'color' AND c.value_text = 'green' AND $(pf c.host_page_uid) = 'index.html'")" "1"
 
-eq "SSI echo and set are template expressions of dialect SSI" \
-  "$(q "SELECT group_concat(x, ' | ') FROM (SELECT dialect || ' ' || directive || ' ' || expression_kind AS x FROM web_template_exprs WHERE dialect = 'SSI' ORDER BY 1)")" \
-  "SSI echo INTERPOLATION | SSI include REFERENCE | SSI include REFERENCE | SSI include REFERENCE | SSI include REFERENCE | SSI include REFERENCE | SSI set BINDING"
+eq "SSI echo and set are ssi directives, #include an include, none a template expression (V3-10b)" \
+  "$(q "SELECT (SELECT count(*) FROM web_template_exprs WHERE dialect = 'SSI') || ' | ' || (SELECT group_concat(x, ' | ') FROM (SELECT directive || ' ' || expression_kind AS x FROM web_ssi_directives ORDER BY 1))")" \
+  "0 | echo INTERPOLATION | set BINDING"
 
 eq "a partial's @click takes its Alpine hosts' dialect" \
   "$(q "SELECT group_concat(DISTINCT source_kind) FROM web_handlers WHERE attr_as_written = '@click'")" "alpine"

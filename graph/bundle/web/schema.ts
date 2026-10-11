@@ -44,7 +44,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_attributes',
     description: 'One attribute (html_attribute). `kind` is what it does: ID, CLASS, STYLE, EVENT_HANDLER, URL, SRCSET, DATA, ARIA, FOR, ID_REFERENCE, NAME, TYPE, REL, TEMPLATE_DIRECTIVE, …',
-    columns: [ref('uid'), id('element_uid'), ref('page_uid'), ref('file'), i('line'), i('col'), id('name'), t('prefix'), t('value', 'cut at 4,096 chars'), t('kind'), i('has_value')],
+    columns: [ref('uid'), id('element_uid'), ref('page_uid'), ref('file'), i('line'), i('col'), id('name'), t('prefix'), t('value', 'cut at 4,096 chars; entity-decoded, as the DOM reads it'), t('value_raw', 'the value as written, only when entity decoding changed it (V3-10a)'), t('kind'), i('has_value')],
   },
   {
     name: 'web_class_tokens',
@@ -61,14 +61,14 @@ export const WEB_TABLES: readonly TableSpec[] = [
     name: 'web_scripts',
     description: 'One <script> element (SPEC §10; view web_script), in page order (`order_on_page`): type as classified and as written, `attributes` (JSON of every attribute), module / nomodule / async / defer, src and the file it resolves to, or for an inline one the body range, `body` (the exact source text between the tags, sliced from the file: no entity decoding, CRLF kept, nothing trimmed; NULL with a web_unknown stale_source row when the file changed since parsing), `body_lines`, `body_bytes` and `inline_index`. Non-JavaScript types (JSON, importmap, templates) are rows too. Nothing here reads a body as JavaScript.',
     columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), i('order_on_page'), t('script_kind', 'EXTERNAL or INLINE'), t('script_type'),
-      t('type_as_written'), t('attributes'), t('src'), id('resolved_file'), i('is_module'), i('is_async'), i('is_defer'), i('is_nomodule'), i('body_start_line'), i('body_start_col'),
+      t('type_as_written'), t('attributes', 'JSON, values entity-decoded'), t('attributes_raw', 'JSON of the values as written, only when entity decoding changed one (V3-10a)'), t('src'), id('resolved_file'), i('is_module'), i('is_async'), i('is_defer'), i('is_nomodule'), i('body_start_line'), i('body_start_col'),
       i('body_end_line'), i('body_end_col'), i('body_length'), i('body_lines'), i('body_bytes'), t('body'), i('inline_index')],
   },
   {
     name: 'web_handlers',
     description: 'One handler-bearing attribute or javascript: URL on an HTML tag (SPEC §10; view web_handler), in page order (`handler_index`): `attr_as_written` (original case, read from the source), `event` (lower-case DOM event; `htmx:x` for hx-on::x; `navigate` for a javascript: URL), `modifiers` (comma list), `source_kind` (on_attribute | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | stimulus; one row per Stimulus descriptor), `code` as the attribute value reads (for javascript: the text after it; for Stimulus the descriptor) and `code_bytes`. Look-alikes (data-on*, onboarding, once, @x on a page with no Vue/Alpine, ng-if, data-action without #) are not rows. No JavaScript is parsed.',
     columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), id('tag'), t('attr_as_written'), id('event'), t('event_source', 'written | stimulus_default (a data-action descriptor with no event: Stimulus\'s default for the tag) | stimulus_default_unknown (no default for the tag; event NULL)'), t('modifiers'), t('source_kind'),
-      t('code'), i('code_bytes'), i('line'), i('col'), i('handler_index'), i('known_event', '1 when the event is in the DOM/HTML event-handler list')],
+      t('code'), t('code_raw', 'the code as written, only when entity decoding changed it (V3-10a)'), i('code_bytes'), i('line'), i('col'), i('handler_index'), i('known_event', '1 when the event is in the DOM/HTML event-handler list')],
   },
   {
     name: 'web_handler_calls',
@@ -81,6 +81,11 @@ export const WEB_TABLES: readonly TableSpec[] = [
     description: 'One template-dialect expression (Vue, Alpine, Angular, Jinja, Handlebars, ERB, …): a directive value or an interpolation (`attribute_uid` NULL: element text).',
     columns: [id('uid'), id('element_uid'), id('attribute_uid'), id('page_uid'), id('file'), i('line'), i('col'), t('dialect'), t('expression_kind'), t('directive'),
       t('argument'), t('modifiers'), t('expression_text'), t('callee_names'), t('identifiers'), t('declares')],
+  },
+  {
+    name: 'web_ssi_directives',
+    description: 'One server-side include directive other than `#include` (V3-10b): `<!--#set -->`, `#echo`, `#if`/`#elif`/`#else`/`#endif`, `#config`, `#exec`, … with its arguments as written. `#include` is a reference of kind INCLUDE and a web_includes row; neither is a template expression.',
+    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), t('directive'), t('expression_kind'), t('args')],
   },
   {
     name: 'web_stylesheets',
@@ -350,9 +355,9 @@ export const WEB_VIEWS: readonly string[] = [
        AND NOT EXISTS (SELECT 1 FROM web_styles w WHERE w.selector_uid = s.uid AND (w.page_uid = l.page_uid OR w.host_page_uid = l.page_uid))
        AND NOT EXISTS (SELECT 1 FROM web_unknown k WHERE k.node_uid = s.uid AND k.page_uid = l.page_uid)`,
   `CREATE VIEW web_script AS SELECT uid, page_uid, element_uid, file, order_on_page AS ordinal, type_as_written, script_type, lower(script_kind) AS kind,
-     attributes, src, resolved_file, body_start_line AS body_line, body_start_col AS body_col, body_end_line, body_end_col, body, body_bytes, body_lines, inline_index
+     attributes, attributes_raw, src, resolved_file, body_start_line AS body_line, body_start_col AS body_col, body_end_line, body_end_col, body, body_bytes, body_lines, inline_index
      FROM web_scripts`,
-  `CREATE VIEW web_handler AS SELECT uid, page_uid, element_uid, file, line, col, attr_as_written, event, event_source, modifiers, source_kind, code, code_bytes, tag, handler_index
+  `CREATE VIEW web_handler AS SELECT uid, page_uid, element_uid, file, line, col, attr_as_written, event, event_source, modifiers, source_kind, code, code_raw, code_bytes, tag, handler_index
      FROM web_handlers`,
   `CREATE VIEW web_event_handlers AS SELECT uid, element_uid, attr_as_written AS attribute_name,
      CASE source_kind WHEN 'on_attribute' THEN 'EVENT_ATTRIBUTE' WHEN 'javascript_url' THEN 'JAVASCRIPT_URL' ELSE 'TEMPLATE_EVENT' END AS handler_source,

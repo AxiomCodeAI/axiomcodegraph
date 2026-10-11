@@ -224,8 +224,20 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const onDiskReason = (reason: string, fromAbs: string, urlPath: string, urlKind: string): string => {
     if (reason !== 'unresolved_url' || !urlPath || !fromAbs || (urlKind !== 'RELATIVE' && urlKind !== 'ROOT_RELATIVE')) return reason;
     const p0 = urlPath.split(/[?#]/)[0]!;
-    const cand = urlKind === 'ROOT_RELATIVE' ? path.join(root, p0) : path.join(path.dirname(fromAbs), p0);
+    const cand = urlKind === 'ROOT_RELATIVE' ? rootRelative(fromAbs, p0) : path.join(path.dirname(fromAbs), p0);
     return onDisk(cand) ? 'not_indexed' : reason;
+  };
+  /** a root-relative path against the nearest ancestor of the referring file that holds it (file or directory), else the root (V3-01) */
+  const rootRelative = (fromAbs: string, p0: string): string => {
+    const rp = p0.replace(/^\/+/, '');
+    if (fromAbs) {
+      for (let d = path.dirname(fromAbs); d === root || d === rootReal || d.startsWith(root + path.sep) || d.startsWith(rootReal + path.sep); d = path.dirname(d)) {
+        const c = path.join(d, rp);
+        try { fs.statSync(c); return c; } catch { /* not here */ }
+        if (d === root || d === rootReal || d === path.dirname(d)) break;
+      }
+    }
+    return path.join(root, rp);
   };
   const onDisk = (abs: string): boolean => { try { return abs !== '' && fs.statSync(abs).isFile(); } catch { return false; } };
   const unknownRow = (kind: string, node: string | null, page: string | null, reason: string, detail: string | null, file: string | null, line: number | null) =>
@@ -266,14 +278,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const elPage = new Map<string, Page>();
   for (const r of T.el.rows) {
     const id = g(T.el, r, 'htmlElementUniqueHash');
-    const attrs = new Map<string, { value: string; hasValue: boolean }>();
+    const attrs = new Map<string, { value: string; hasValue: boolean; raw: string | null }>();
     const ns = g(T.el, r, 'namespace');
     const html = ns === 'HTML' || ns === '';
     let dyn: Set<string> | '*' | null = null; let dynId = false; const dynAttrs = new Set<string>();
     for (const a of attrsOf.get(id) ?? []) {
       const name = g(T.attr, a, 'name'), prefix = g(T.attr, a, 'prefix');
       const full = prefix ? `${prefix}:${name}` : name;
-      const v = { value: unesc(g(T.attr, a, 'value')), hasValue: g(T.attr, a, 'hasValue') === 'true' };
+      const v = { value: unesc(g(T.attr, a, 'value')), hasValue: g(T.attr, a, 'hasValue') === 'true', raw: nz(unesc(g(T.attr, a, 'valueRaw'))) as string | null };
       attrs.set(html ? full.toLowerCase() : full, v);
       if (prefix) attrs.set(html ? name.toLowerCase() : name, v);
       if (DYNAMIC_CLASS_ATTR.test(full) || (full.toLowerCase() === 'class' && TEMPLATE_IN_VALUE.test(v.value))) {
@@ -380,7 +392,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const d = g(T.attr, r, 'documentLinkHash');
       out('web_attributes').push({ uid: g(T.attr, r, 'htmlAttributeUniqueHash'), element_uid: g(T.attr, r, 'ownerElementLinkHash'), page_uid: d, file: fileOfPage(d),
         line: num(g(T.attr, r, 'startLine')), col: num(g(T.attr, r, 'startColumn')), name: g(T.attr, r, 'name'), prefix: nz(g(T.attr, r, 'prefix')),
-        value: unesc(g(T.attr, r, 'value')), kind: g(T.attr, r, 'attributeKind'), has_value: bool(g(T.attr, r, 'hasValue')) });
+        value: unesc(g(T.attr, r, 'value')), value_raw: nz(unesc(g(T.attr, r, 'valueRaw'))), kind: g(T.attr, r, 'attributeKind'), has_value: bool(g(T.attr, r, 'hasValue')) });
       if (g(T.attr, r, 'attributeKind') === 'EVENT_HANDLER') push(byPage, d, r);
     }
     for (const rows of byPage.values()) {
@@ -473,7 +485,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       }
     } else {
       const abs = g(T.ref, r, 'resolvedFilePath');
-      cands = [abs || (uk === 'ROOT_RELATIVE' ? path.join(root, p0) : path.join(path.dirname(page.abs), p0))];
+      cands = [abs || (uk === 'ROOT_RELATIVE' ? rootRelative(page.abs, p0) : path.join(path.dirname(page.abs), p0))];
     }
     const hits = [...new Set(cands)].filter((c) => pageByAbs.has(c));
     if (hits.length === 1) return { targets: [pageByAbs.get(hits[0]!)!.id], status: 'match', reason: null };
@@ -753,6 +765,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           is_module: g(T.script, r, 'scriptType') === 'MODULE' ? 1 : 0, is_async: bool(g(T.script, r, 'isAsync')), is_defer: bool(g(T.script, r, 'isDefer')),
           is_nomodule: bool(g(T.script, r, 'isNoModule')), body_start_line: sl, body_start_col: sc, body_end_line: el, body_end_col: ec,
           attributes: JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? v.value : '']))),
+          // V3-10a: the attributes as written, only when entity decoding changed one of them
+          attributes_raw: [...(elById.get(owner)?.attrs ?? new Map()).values()].some((v) => v.raw !== null)
+            ? JSON.stringify(Object.fromEntries([...(elById.get(owner)?.attrs ?? new Map())].map(([k, v]) => [k, v.hasValue ? (v.raw ?? v.value) : '']))) : null,
           body_length: num(g(T.script, r, 'bodyLength')), body_lines: body === null ? null : body === '' ? 0 : body.split(/\r\n|\r|\n/).length,
           body_bytes: body === null ? null : Buffer.byteLength(body, 'utf8'), body, inline_index: inlineIndex });
       });
@@ -842,7 +857,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const elId = g(T.attr, r, 'ownerElementLinkHash'); const e = elById.get(elId);
       if (e?.inert === 'iframe_text') continue;
       const d = g(T.attr, r, 'documentLinkHash');
-      const value = unesc(g(T.attr, r, 'value'));
+      const value = unesc(g(T.attr, r, 'value')); const raw = nz(unesc(g(T.attr, r, 'valueRaw')));
       const line = num(g(T.attr, r, 'startLine')), col = num(g(T.attr, r, 'startColumn'));
       if (!/^(?:on|v-on:|x-on:|@|\(|(?:data-)?ng-|hx-on|data-action$)/i.test(name)) continue;
       const written = writtenName(d, line, col, name);
@@ -852,7 +867,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         const code = h.code ?? value;
         push(handlersByPage, d, { uid: hs.length > 1 ? `${g(T.attr, r, 'htmlAttributeUniqueHash')}#${i + 1}` : g(T.attr, r, 'htmlAttributeUniqueHash'),
           element_uid: elId, attribute_uid: g(T.attr, r, 'htmlAttributeUniqueHash'), page_uid: d, file: fileOfPage(d), tag: e?.tag ?? null, attr_as_written: written,
-          event: h.event, event_source: h.source ?? 'written', modifiers: h.modifiers, source_kind: h.kind, code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null,
+          event: h.event, event_source: h.source ?? 'written', modifiers: h.modifiers, source_kind: h.kind, code, code_raw: h.code === undefined ? raw : null, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null,
           known_event: KNOWN_EVENTS.has(h.event) ? 1 : 0 });
       });
     }
@@ -863,10 +878,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const d = g(T.ref, r, 'documentLinkHash'); const elId = g(T.ref, r, 'ownerElementLinkHash');
       if (elById.get(elId)?.inert === 'iframe_text') continue;
       const code = g(T.ref, r, 'urlAsWritten').replace(/^\s*javascript:/i, '');
+      const rawAttr = attrRow.get(g(T.ref, r, 'attributeLinkHash')); const raw = rawAttr ? nz(unesc(g(T.attr, rawAttr, 'valueRaw'))) : null;
       const line = num(g(T.ref, r, 'startLine')), col = num(g(T.ref, r, 'startColumn'));
       push(handlersByPage, d, { uid: g(T.ref, r, 'htmlReferenceUniqueHash'), element_uid: elId, attribute_uid: nz(g(T.ref, r, 'attributeLinkHash')), page_uid: d,
         file: fileOfPage(d), tag: elById.get(elId)?.tag ?? null, attr_as_written: writtenName(d, line, col, attr), event: 'navigate', event_source: 'written', modifiers: '',
-        source_kind: 'javascript_url', code, code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null, known_event: null });
+        source_kind: 'javascript_url', code, code_raw: raw === null ? null : raw.replace(/^\s*javascript:/i, ''), code_bytes: Buffer.byteLength(code, 'utf8'), line, col, handler_index: null, known_event: null });
     }
     for (const rows of handlersByPage.values()) {
       rows.sort((a, b) => ((a.line as number) - (b.line as number)) || ((a.col as number) - (b.col as number)));
@@ -888,6 +904,16 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   }
   for (const r of T.tpl.rows) {
     const d = g(T.tpl, r, 'documentLinkHash');
+    // V3-10b: an SSI directive is not a template expression. `#include` is an INCLUDE reference (web_includes); the rest
+    // (#set, #echo, #if, #config, ...) are web_ssi_directives rows
+    if (g(T.tpl, r, 'dialect') === 'SSI') {
+      if (g(T.tpl, r, 'directive') !== 'include') {
+        out('web_ssi_directives').push({ uid: g(T.tpl, r, 'htmlTemplateExpressionUniqueHash'), element_uid: nz(g(T.tpl, r, 'ownerElementLinkHash')), page_uid: d,
+          file: fileOfPage(d), line: num(g(T.tpl, r, 'startLine')), col: num(g(T.tpl, r, 'startColumn')), directive: g(T.tpl, r, 'directive'),
+          expression_kind: g(T.tpl, r, 'expressionKind'), args: nz(unesc(g(T.tpl, r, 'expressionText'))) });
+      }
+      continue;
+    }
     out('web_template_exprs').push({ uid: g(T.tpl, r, 'htmlTemplateExpressionUniqueHash'), element_uid: nz(g(T.tpl, r, 'ownerElementLinkHash')),
       attribute_uid: nz(g(T.tpl, r, 'attributeLinkHash')), page_uid: d, file: fileOfPage(d), line: num(g(T.tpl, r, 'startLine')), col: num(g(T.tpl, r, 'startColumn')),
       dialect: g(T.tpl, r, 'dialect'), expression_kind: g(T.tpl, r, 'expressionKind'), directive: nz(g(T.tpl, r, 'directive')), argument: nz(g(T.tpl, r, 'argument')),
@@ -1792,13 +1818,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     let absRaw = g(T.ref, r, 'resolvedFilePath');
     if (!absRaw && (uk === 'RELATIVE' || uk === 'ROOT_RELATIVE') && g(T.ref, r, 'path')) {
       const pg = pages.get(page);
-      const cand = uk === 'ROOT_RELATIVE' ? path.join(root, g(T.ref, r, 'path')) : pg ? path.join(path.dirname(pg.abs), g(T.ref, r, 'path')) : '';
+      const cand = uk === 'ROOT_RELATIVE' ? rootRelative(pg?.abs ?? '', g(T.ref, r, 'path')) : pg ? path.join(path.dirname(pg.abs), g(T.ref, r, 'path')) : '';
       if (cand && isDir(cand)) absRaw = cand;
     }
     // `?p=1` (a query with no path) is the page itself with other parameters (V1-06)
     if (!absRaw && uk === 'RELATIVE' && !g(T.ref, r, 'path') && g(T.ref, r, 'query')) absRaw = pages.get(page)?.abs ?? '';
     // a URL naming a directory (`docs/`) serves its index page
-    const abs = absRaw && !pageByAbs.has(absRaw) && isDir(absRaw) ? (['index.html', 'index.htm'].map((f) => path.join(absRaw, f)).find((f) => pageByAbs.has(f)) ?? absRaw) : absRaw;
+    const abs = absRaw && !pageByAbs.has(absRaw) && isDir(absRaw) ? (['index.html', 'index.htm', 'index.shtml', 'default.htm'].map((f) => path.join(absRaw, f)).find((f) => pageByAbs.has(f)) ?? absRaw) : absRaw;
     const target = abs ? pageByAbs.get(abs) : undefined;
     if (!target) {
       const exists = onDisk(abs);
