@@ -106,7 +106,8 @@ const ID_REF_ATTRS = new Set(['for', 'list', 'form', 'headers', 'popovertarget',
 const TOKEN_LIST_ID_ATTRS = new Set(['headers', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-flowto', 'itemref', 'aria-details']);
 /** which attribute of which element is a page link (the oracle's LINK_ATTRS) */
 const LINK_ATTRS: Record<string, string> = { a: 'href', area: 'href', form: 'action', iframe: 'src', frame: 'src', button: 'formaction', input: 'formaction', meta: 'content' };
-const VENDOR_PATH = /(^|\/)(vendors?|plugins|bower_components|node_modules|lib|libs|third[-_]party)\//i;
+/** SPEC D3's vendor path list, exactly (the `vendor` flag and project_uses): vendor(s)/, plugins/, bower_components/, lib/ */
+const D3_VENDOR = /(^|\/)(vendors?|plugins|bower_components|lib)\//;
 const DYNAMIC_CLASS_ATTR = /^(:class|v-bind:class|x-bind:class|\[class(\.[^\]]+)?\]|\[ngclass\]|ng-class|th:class|th:classappend|bind:class|class:.+)$/i;
 const DYNAMIC_ID_ATTR = /^(:id|v-bind:id|x-bind:id|\[id\]|\[attr\.id\]|th:id|bind:id)$/i;
 const TEMPLATE_IN_VALUE = /\{\{|\{%|<%|\$\{|\{\$|@\{|\[\[/;
@@ -902,6 +903,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       callee_text: nz(g(T.handler, r, 'calleeText')), argument_count: num(g(T.handler, r, 'argumentCount')), is_new: bool(g(T.handler, r, 'isNew')),
       handler_index: src === 'EVENT_ATTRIBUTE' && n !== undefined ? n : null });
   }
+  /** an SSI directive as written, `<!--#…-->`, sliced from the page */
+  const ssiText = (pageId: string, line: number | null, col: number | null): string | null => {
+    const pt = line !== null && col !== null ? textOfPage(pageId) : null; if (!pt) return null;
+    const at = offsetOf(pt, line!, col!); const end = pt.text.indexOf('-->', at);
+    return pt.text.startsWith('<!--', at) && end >= 0 ? pt.text.slice(at, end + 3) : null;
+  };
   for (const r of T.tpl.rows) {
     const d = g(T.tpl, r, 'documentLinkHash');
     // V3-10b: an SSI directive is not a template expression. `#include` is an INCLUDE reference (web_includes); the rest
@@ -910,7 +917,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       if (g(T.tpl, r, 'directive') !== 'include') {
         out('web_ssi_directives').push({ uid: g(T.tpl, r, 'htmlTemplateExpressionUniqueHash'), element_uid: nz(g(T.tpl, r, 'ownerElementLinkHash')), page_uid: d,
           file: fileOfPage(d), line: num(g(T.tpl, r, 'startLine')), col: num(g(T.tpl, r, 'startColumn')), directive: g(T.tpl, r, 'directive'),
-          expression_kind: g(T.tpl, r, 'expressionKind'), args: nz(unesc(g(T.tpl, r, 'expressionText'))) });
+          expression_kind: g(T.tpl, r, 'expressionKind'), args: nz(unesc(g(T.tpl, r, 'expressionText'))), text: ssiText(d, num(g(T.tpl, r, 'startLine')), num(g(T.tpl, r, 'startColumn'))) });
       }
       continue;
     }
@@ -1131,7 +1138,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const r of T.sheet.rows) {
     const id = g(T.sheet, r, 'cssStylesheetUniqueHash'); const s = sheets.get(id)!;
     out('web_stylesheets').push({ uid: id, file: s.file, name: g(T.sheet, r, 'name'), source_kind: s.kind, owner_element_uid: nz(s.owner), page_uid: nz(s.page),
-      minified: g(T.sheet, r, 'sourceProvenance') === 'MINIFIED' ? 1 : 0, vendor: s.kind === 'FILE' && (VENDOR_PATH.test(s.file) || /\.min\.css$/i.test(s.file)) ? 1 : 0,
+      minified: g(T.sheet, r, 'sourceProvenance') === 'MINIFIED' ? 1 : 0, vendor: s.kind === 'FILE' && (D3_VENDOR.test(s.file) || /\.min\.css$/i.test(s.file)) ? 1 : 0,
       rule_count: num(g(T.sheet, r, 'ruleCount')), declaration_count: num(g(T.sheet, r, 'declarationCount')), gap_count: num(g(T.sheet, r, 'parseGapCount')),
       line: num(g(T.sheet, r, 'startLine')), end_line: num(g(T.sheet, r, 'endLine')), display: s.display, loaded_by_pages: loadedBy.get(id)?.size ?? 0 });
   }
@@ -1517,7 +1524,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     stylesBuf.clear();
     // the fragments' resolved style, as matched in this host (one set of web_computed rows per host)
-    for (const [fp, cm] of candsByPage) computedOf(fp, cm, { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) });
+    // V3-05: a composed fragment no rule matches still has its style attributes' rows, per host
+    const fragPages = new Set(candsByPage.keys());
+    if (comp?.mode === 'host') for (const e of comp.live) if (e.origPage !== pageId && inlineDecls.has(e.origId)) fragPages.add(e.origPage);
+    for (const fp of fragPages) computedOf(fp, candsByPage.get(fp) ?? new Map(), { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) });
     // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
     // web_selector_unmatched_pages. A page in several runs (its own composition, a layout an extending page is
     // matched in) is matched when any run matched; a token is missing only when every run missed it.
@@ -1808,6 +1818,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         reason: ex ? null : (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || uk === 'OTHER_SCHEME' ? 'external_url' : uk === 'TEMPLATE_EXPRESSION' ? 'template_url' : 'unresolved_url') });
     }
     if (!e || LINK_ATTRS[e.tagLower] !== attr.toLowerCase()) continue;
+    if (e.inert === 'iframe_text') continue; // V3-08: markup inside <iframe> is text (G11): no link
     if (uk === 'FRAGMENT') { const f = g(T.ref, r, 'fragment') || url.replace(/^#/, ''); if (f) idRef(elId, page, attr, decodeSafe(f)); continue; }
     if (uk === 'EMPTY' || uk === 'DATA_URI' || uk === 'JAVASCRIPT_URI' || uk === 'OTHER_SCHEME') continue;
     if (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || uk === 'TEMPLATE_EXPRESSION') {
@@ -1876,7 +1887,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       out('web_components').push({ uid, level: 'include', signature: `include:${fp.file}`, root_tag: root0?.tagLower ?? null,
         root_classes: root0 ? [...root0.classes].sort().join(' ') || null : null, display: `include:${fp.file}`, size: fp.elements.length, occurrences: hs.length,
         pages: hostPages.size, parent_component_uid: null, slot_count: 0, rules_styling_root: null });
-      for (const h of hs) out('web_component_occurrences').push({ component_uid: uid, element_uid: h.hostEl?.id ?? null, page_uid: h.host, file: fileOfPage(h.host), line: h.line, col: h.col });
+      // V3-07: an include at the top level (outside any element) names the host's root element, flagged at_top_level
+      for (const h of hs) out('web_component_occurrences').push({ component_uid: uid, element_uid: h.hostEl?.id ?? topOf(h.host)[0]?.id ?? null, page_uid: h.host,
+        file: fileOfPage(h.host), line: h.line, col: h.col, at_top_level: h.hostEl ? 0 : 1 });
     }
     // §9.7 / §9.5
     const actionRef = new Map<string, string>(); // form element -> resolved abs path of its action
@@ -1889,8 +1902,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     // §9.3 tokens
     const sheetFiles = new Set([...sheets.values()].filter((x) => x.kind === 'FILE').map((x) => x.file));
     const notProject = (sheetId: string): boolean => {
-      const sh = sheets.get(sheetId); if (!sh) return false;
-      if (VENDOR_PATH.test(sh.file)) return true;
+      // D3 / V3-09: a <style> element is the project's; a file sheet is vendor by the D3 path list or as a .min.css
+      const sh = sheets.get(sheetId); if (!sh || sh.kind !== 'FILE') return false;
+      if (D3_VENDOR.test(sh.file) || /\.min\.css$/i.test(sh.file)) return true;
       const twin = sh.file.replace(/\.min\.css$/i, '.css');
       return twin !== sh.file && sheetFiles.has(twin);
     };

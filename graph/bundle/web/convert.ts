@@ -329,9 +329,14 @@ export function valueTokens(property: string, value: string): { kind: string; va
     if (m[0].includes('(') && /var\(/i.test(s.slice(m.index, m.index! + m[0].length))) continue;
     const c = normColor(m[0]); if (c) add('color', c);
   }
+  // a hex colour inside a quoted string is still a colour (an IE gradient filter's startColorstr='#ff449d44'); a named
+  // colour inside a string is not (a file or font name)
+  for (const q of val.matchAll(/"[^"]*"|'[^']*'/g)) for (const m of q[0].matchAll(/#[0-9a-fA-F]{3,8}\b/g)) { const c = normColor(m[0]); if (c) add('color', c); }
   if (prop === 'font-size') add('font_size', val.replace(/\s+/g, ' ').toLowerCase());
   else if (/^border(-[a-z]+)*-radius$/.test(prop)) add('radius', val.replace(/\s+/g, ' ').toLowerCase());
-  else if (prop === 'box-shadow' || prop === 'text-shadow') add('shadow', val.replace(/\s+/g, ' ').replace(/\(\s*([^()]*?)\s*\)/g, (_m, x: string) => `(${x.replace(/\s*,\s*/g, ',').replace(/\s+/g, ' ')})`).toLowerCase());
+  // SPEC 9.3 / V3-09: a shadow is the whole value as written (comment-free, whitespace collapsed, lower-cased); only a
+  // colour token loses the spaces inside rgba()
+  else if (prop === 'box-shadow' || prop === 'text-shadow') add('shadow', val.toLowerCase());
   else if (prop === 'z-index') add('z_index', val.trim());
   else if (SPACING.test(prop)) {
     for (const t of noVar.split(/[\s,/]+/)) if (t && LENGTH.test(t) && !/^\(/.test(t)) add('spacing', t.toLowerCase());

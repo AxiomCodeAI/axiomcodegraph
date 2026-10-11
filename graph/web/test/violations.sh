@@ -423,5 +423,60 @@ H
   db=$(build v311) && eq "V3-11 page kinds" "$(sqlite3 "$db" "SELECT group_concat(file || '=' || document_kind, ' ') FROM (SELECT * FROM web_pages ORDER BY file)")" "templates/page.html=DOCUMENT templates/part.html=FRAGMENT"
 fi
 
+if want V3-05; then
+  # a composed fragment element that no rule matches keeps its style attribute's computed rows, per host
+  put "$T/v305/src/page.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><include src="partials/menu.html"></include></body></html>
+H
+  printf '<div style="max-height: 16rem">m</div>\n' | put "$T/v305/src/partials/menu.html"
+  printf '.other { color: red }\n' > "$T/v305/src/s.css"
+  db=$(build v305) && eq "V3-05 inline-only fragment element has a computed row with its host" \
+    "$(sqlite3 "$db" "SELECT c.property || '=' || c.value_text || ' ' || c.winner_origin || ' host ' || h.file FROM web_computed c JOIN web_pages h ON h.uid = c.host_page_uid WHERE c.property = 'max-height'")" "max-height=16rem inline host page.html"
+fi
+
+if want V3-07; then
+  # an include outside any element: the occurrence names the host's root element, at_top_level = 1
+  put "$T/v307/src/templates/a.html" <<'H'
+{% load i18n %}
+{% include 'tags.html' %}
+<div class="a">a</div>
+H
+  sed 's/class="a"/class="b"/' "$T/v307/src/templates/a.html" | put "$T/v307/src/templates/b.html"
+  echo '<span class="t">t</span>' | put "$T/v307/src/templates/tags.html"
+  db=$(build v307) && eq "V3-07 top-level include occurrences name a root element" \
+    "$(sqlite3 "$db" "SELECT count(*) || ':' || sum(o.element_uid IS NOT NULL) || ':' || sum(o.at_top_level) FROM web_component_occurrences o JOIN web_components c ON c.uid = o.component_uid WHERE c.level = 'include'")" "2:2:2"
+fi
+
+if want V3-08; then
+  # (a) markup inside <iframe> is inert text: no links_to row
+  put "$T/v308/src/index.html" <<'H'
+<!doctype html><html><head><title>t</title>
+<<<<<<< HEAD
+<link rel="stylesheet" href="s.css">
+</head>
+<body class="nav-md"><iframe src="x.html"><a href="/slides/a.htm">link</a></iframe><p class="p">p</p></body></html>
+H
+  echo '<!doctype html><p>x</p>' > "$T/v308/src/x.html"; mkdir -p "$T/v308/src/slides"; echo '<p>a</p>' > "$T/v308/src/slides/a.htm"
+  printf '.nav-md { color: red }\n' > "$T/v308/src/s.css"
+  db=$(build v308) && {
+    eq "V3-08a no link from iframe text" "$(sqlite3 "$db" "SELECT count(*) FROM web_links WHERE url_as_written = '/slides/a.htm'")" "0"
+  }
+fi
+
+if want V3-09; then
+  # shadows keep their value as written (two spellings, two tokens); a .min.css is vendor for project_uses even with no
+  # twin (D3); a hex colour inside a quoted IE filter string is a colour token
+  put "$T/v309/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="a.css"><link rel="stylesheet" href="b.min.css"></head><body><p class="a b">x</p></body></html>
+H
+  printf ".a { box-shadow: 0 -1px 0 rgba(0,0,0,.25); color: #000 }\n.f { filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#ff449d44', GradientType=0) }\n" > "$T/v309/src/a.css"
+  printf '.b { box-shadow: 0 -1px 0 rgba(0, 0, 0, .25); color: #000000 }\n' > "$T/v309/src/b.min.css"
+  db=$(build v309) && {
+    eq "V3-09 two shadow spellings, two tokens" "$(sqlite3 "$db" "SELECT group_concat(value, ' | ') FROM (SELECT value FROM web_tokens WHERE kind = 'shadow' ORDER BY value)")" "0 -1px 0 rgba(0, 0, 0, .25) | 0 -1px 0 rgba(0,0,0,.25)"
+    eq "V3-09 #000000: 2 uses, 1 outside vendor sheets" "$(sqlite3 "$db" "SELECT uses || '/' || project_uses FROM web_tokens WHERE kind = 'color' AND value = '#000000'")" "2/1"
+    eq "V3-09 a hex in a quoted filter string is a colour" "$(sqlite3 "$db" "SELECT count(*) FROM web_tokens WHERE kind = 'color' AND value = '#ff449d44'")" "1"
+  }
+fi
+
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

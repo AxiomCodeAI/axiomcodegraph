@@ -85,7 +85,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_ssi_directives',
     description: 'One server-side include directive other than `#include` (V3-10b): `<!--#set -->`, `#echo`, `#if`/`#elif`/`#else`/`#endif`, `#config`, `#exec`, … with its arguments as written. `#include` is a reference of kind INCLUDE and a web_includes row; neither is a template expression.',
-    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), t('directive'), t('expression_kind'), t('args')],
+    columns: [id('uid'), id('element_uid'), id('page_uid'), id('file'), i('line'), i('col'), t('directive'), t('expression_kind'), t('args'), t('text', 'the directive as written, <!--#…-->')],
   },
   {
     name: 'web_stylesheets',
@@ -219,7 +219,7 @@ export const WEB_TABLES: readonly TableSpec[] = [
   {
     name: 'web_component_occurrences',
     description: 'One occurrence (root element) of a component candidate.',
-    columns: [id('component_uid'), id('element_uid'), id('page_uid'), ref('file'), i('line'), i('col')],
+    columns: [id('component_uid'), id('element_uid'), id('page_uid'), ref('file'), i('line'), i('col'), i('at_top_level', '1 for an include outside any element: element_uid is then the host\'s root element (V3-07)')],
   },
   {
     name: 'web_component_slots',
