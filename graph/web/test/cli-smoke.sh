@@ -35,6 +35,9 @@ check impact-page '1. style.css' "$AX" impact index.html
 # C-04: a single-class selector asked for on a page answers the selector->element role too, not only the class lookup
 check impact-class-styled 'elements the selector .menu styles: 1' "$AX" impact .menu --in index.html
 check impact-var '--gap' "$AX" impact --gap
+# --json with a name that starts with -- (a custom property): a name, not a flag, so not the "your edits" answer
+check impact-var-json '"--gap"' "$AX" impact --gap --json
+check impact-var-json-in '"--gap"' "$AX" impact --gap --in index.html --json
 check impact-handler 'onclick' "$AX" impact index.html
 check context 'menu' "$AX" context "menu colour"
 check path 'about.html' "$AX" path index.html sub/about.html

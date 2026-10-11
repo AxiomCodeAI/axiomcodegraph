@@ -220,8 +220,11 @@ case "$cmd" in
               if [ -n "$sk" ]; then sk=""; FL+=("$a"); continue; fi
               case "$a" in
                 --json) hasj=1 ;;
-                --depth|--in|--limit|--page|--budget|--tests-in|--kind) sk=1; FL+=("$a") ;;
+                --depth|--in|--limit|--page|--budget|--page-budget|--tests-in|--kind|--top) sk=1; FL+=("$a") ;;
                 --warm|--from-text|--delete|-h|--help) named=1 ;;
+                --tests|--tests-only|--why|--unknown|--depends|--*=*) FL+=("$a") ;;
+                # any other --name is a name, not a flag: a CSS custom property (impact --brand) is asked by its own name
+                --*) named=1 ;;
                 -*) FL+=("$a") ;;
                 *) [ -d "$a" ] || named=1 ;;
               esac
