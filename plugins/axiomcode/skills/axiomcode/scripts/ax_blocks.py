@@ -44,13 +44,27 @@ class Graphs:
     def enclosing(self, f, n):
         best = None
         for c in self.cons:
-            try:
-                r = c.execute("SELECT display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? "
-                              "AND method_id IS NOT NULL AND display NOT LIKE '%<module>%' ORDER BY end_line - line LIMIT 1",
-                              (f, '%/' + f, n, n)).fetchone()
-            except sqlite3.Error:
-                continue
+            r = self._enclosing(c, f, n)
             if r and (best is None or r[2] - r[1] < best[2] - best[1]): best = r
+        return best
+
+    # THE CALLABLES OF A FILE ARE READ ONCE PER FILE, not once per place: `file LIKE '%/f'` can use no index, so each
+    # place scanned the whole symbols table (an answer has up to ~130 places; a large graph has 10^5 symbols). The rows
+    # come in table order, and the narrowest span holding the line is taken, the first of equal ones, as the
+    # `ORDER BY end_line - line LIMIT 1` over the same scan returned it
+    def _enclosing(self, c, f, n):
+        cache = self.__dict__.setdefault('_by_file', {})
+        k = (id(c), f)
+        if k not in cache:
+            try:
+                cache[k] = [r for r in c.execute("SELECT display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) "
+                                                 "AND method_id IS NOT NULL AND display NOT LIKE '%<module>%'", (f, '%/' + f))
+                            if isinstance(r[1], int) and isinstance(r[2], int)]
+            except sqlite3.Error:
+                cache[k] = []
+        best = None
+        for r in cache[k]:
+            if r[1] <= n <= r[2] and (best is None or r[2] - r[1] < best[2] - best[1]): best = r
         return best
 
 
@@ -227,14 +241,50 @@ def statement(repo, f, n):
     return '\n'.join(out)
 
 
+def _grep_cmd(names): return ['git', 'grep', '-nw'] + sum((['-e', nm] for nm in names), [])
+
+
+# THE WORD GREP STARTS WITH THE QUERY, not after it: the names impact is asked about are, as written, nearly always the
+# names its answer's targets carry (target_names), so the grep runs while the verb does. Used only when the answer's
+# names are exactly these, from the same repository; otherwise it is stopped and the grep runs as before
+_EARLY = {}
+def grep_early(repo, cmd):
+    i = next((k for k, a in enumerate(cmd) if os.path.basename(a) == 'axiomcode-impact'), None)
+    if i is None: return
+    names = []
+    for a in cmd[i + 1:]:
+        if a.startswith('-'): continue
+        if os.path.isdir(a): continue
+        nm = re.split(r'[.#:]', a.split(' (')[0].strip())[-1].split('(')[0].strip()
+        if not re.fullmatch(r'[A-Za-z_$][\w$]*', nm or ''): return
+        if nm not in names: names.append(nm)
+    if not names: return
+    try: _EARLY.update(repo=repo, names=names, proc=subprocess.Popen(_grep_cmd(names), cwd=repo, stdout=subprocess.PIPE,
+                                                                       stderr=subprocess.DEVNULL, text=True))
+    except OSError: _EARLY.clear()
+
+
+def grep_early_stop():
+    p = _EARLY.pop('proc', None)
+    if p is not None and p.poll() is None:
+        try: p.kill(); p.wait(timeout=5)
+        except (OSError, subprocess.SubprocessError): pass
+
+
 def grep_others(repo, names, confirmed):
     """how many lines a word grep for the name matches that are neither a confirmed place nor a declaration of it"""
     try:
-        r = subprocess.run(['git', 'grep', '-nw'] + sum((['-e', nm] for nm in names), []), cwd=repo, capture_output=True, text=True, timeout=10)
+        if _EARLY.get('proc') is not None and _EARLY.get('names') == names and _EARLY.get('repo') == repo:
+            p = _EARLY.pop('proc')
+            try: out = p.communicate(timeout=10)[0]
+            except subprocess.TimeoutExpired:
+                p.kill(); p.communicate(); return 0
+        else:
+            out = subprocess.run(_grep_cmd(names), cwd=repo, capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
         return 0
     n = 0
-    for ln in r.stdout.splitlines():
+    for ln in out.splitlines():
         m = re.match(r'([^:]+):(\d+):(.*)', ln)
         if not m or (m.group(1), int(m.group(2))) in confirmed: continue
         if re.search(r'\b(def|function|class|interface|async|public|private|protected|static|const|let|var)\b[^=(]*\b(' + '|'.join(map(re.escape, names)) + r')\b', m.group(3)): continue
@@ -298,6 +348,12 @@ def main(argv):
     if verb == 'edits': return edits(repo)
     if verb == 'edits-json': return edits_json(repo, argv[3:] if argv[2:3] == ['--'] else argv[2:])
     cmd = argv[3:] if len(argv) > 2 and argv[2] == '--' else argv[2:]
+    if verb == 'impact' and os.environ.get('AXIOMCODE_GREP_AID', '1').lower() not in ('0', 'off', 'false'): grep_early(repo, cmd)
+    try: return _main(verb, repo, cmd)
+    finally: grep_early_stop()
+
+
+def _main(verb, repo, cmd):
     r, doc = verb_json(cmd)
     if not isinstance(doc, dict):
         sys.stdout.write(r.stdout); return r.returncode
@@ -311,6 +367,11 @@ def main(argv):
     return 0
 
 
+def cli(argv):
+    """the command line, argv as sys.argv: run as a script, or called by ax_fresh.py query in its own process"""
+    if len(argv) < 3 or (argv[1] not in ('edits', 'edits-json') and len(argv) < 4): sys.exit(__doc__)
+    return main(argv[1:])
+
+
 if __name__ == '__main__':
-    if len(sys.argv) < 3 or (sys.argv[1] not in ('edits', 'edits-json') and len(sys.argv) < 4): sys.exit(__doc__)
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(cli(sys.argv))
