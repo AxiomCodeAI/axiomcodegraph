@@ -660,8 +660,15 @@ def at_stop(transcript, root, session):
         return ''
     led = {c['answer'] for c in found}
     now = [i for t, i in q if t == last]
-    return receipt(fresh, totals(recorded + [dict(c, session=session) for c in fresh], session),
-                   turn=(len(now), len(led & set(now)), now), session=(len(q), len(led)))
+    msg = receipt(fresh, totals(recorded + [dict(c, session=session) for c in fresh], session),
+                  turn=(len(now), len(led & set(now)), now), session=(len(q), len(led)))
+    try:
+        # the page is rebuilt whenever the ledger grows, so it is current without anyone asking for it
+        page, _ = report(root)
+        msg += f'\n  report: file://{page}'
+    except Exception:
+        pass
+    return msg
 
 
 # ---- the report -----------------------------------------------------------------------------------------------------

@@ -303,6 +303,7 @@ h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=jso
 msg = json.loads(h.stdout).get('systemMessage', '') if h.stdout.strip() else ''
 check('the Stop hook prints the receipt as a message for the user', h.returncode == 0 and msg.startswith('◆ AxiomCode') and 'Helped' in msg,
       (h.returncode, h.stdout, h.stderr))
+check('the Stop hook rebuilds the report and links it', 'report: file://' in msg and os.path.isfile(os.path.join(r, '.axiomcode', 'assists.html')), msg)
 check('it counts the answers that led the work, never those that did not', 'acted on 1 answer' in msg and ' of ' not in msg.splitlines()[0], msg)
 
 # --- two answers, one acted on: the count says so; a later turn that only grows an earlier chain says that instead

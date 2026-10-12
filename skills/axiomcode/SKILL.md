@@ -128,7 +128,8 @@ not found this way.
 At the end of each turn the plugin prints, under your reply, where an answer verifiably led your work: a file the
 answer showed first that you then read or edited, or the tests it picked that you ran (Redirected / Helped / Useful).
 It is read from the session's tool calls, not from what you write, so there is nothing to claim yourself.
-`axiomcode report` renders every recorded chain as one page, `.axiomcode/assists.html`.
+Each repository keeps its own record (`.axiomcode/assists.jsonl` at its root) and its own page,
+`.axiomcode/assists.html`, rebuilt whenever a turn adds to the record; `axiomcode report` rebuilds it by hand.
 
 ## What it cannot see — say so instead of guessing
 
