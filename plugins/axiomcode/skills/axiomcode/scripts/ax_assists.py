@@ -390,15 +390,28 @@ def chains(ss, root, diff=None):
     edits_at = {j for j, k, fs in acts if k == 'edit'}
     ids = lambda js: [ss[j]['id'] for j in js]
     out = []
-    claimed = set()                           # (test run, test file): a run is credited to the first answer that picked it
-    for i, (verb, arg) in sorted(answers.items()):
-        shown = sorted(f for f, j in first.items() if j == i)
-        named = paths_in(ss[i]['result'], root)
+    def picked(i):
         # the tests an answer picked: every test file a test verb names (picking them is its job); for the other verbs
         # only a test file first seen in it, since a test the agent already knew of was not picked by the answer
-        tests_named = {f for f in named if TEST_FILE.search(f) and (verb in ('tests', 'test-impact') or f in shown)}
+        verb = answers[i][0]
+        t = {f for f in paths_in(ss[i]['result'], root)
+             if TEST_FILE.search(f) and (verb in ('tests', 'test-impact') or first.get(f) == i)}
         # one file named twice (`test_x.py` in a run line, `tests/test_x.py` in a row) is one test file
-        tests_named = {f for f in tests_named if not any(g != f and g.endswith('/' + f) for g in tests_named)}
+        return {f for f in t if not any(g != f and g.endswith('/' + f) for g in t)}
+    picks = {i: picked(i) for i in answers}
+    # (test run, test file) -> the answer it is credited to: the latest one that picked the file before the run
+    owner = {}
+    for j, k, fs in acts:
+        if k == 'test':
+            for i in sorted(answers):
+                if sent_after(j, i):
+                    for t in picks[i]:
+                        if _hit(t, fs):
+                            owner[(j, t)] = i
+    for i, (verb, arg) in sorted(answers.items()):
+        shown = sorted(f for f, j in first.items() if j == i)
+        tests_named = picks[i]
+        named = paths_in(ss[i]['result'], root)
         read, edited, ev_read, ev_edit = [], [], [], []
         for f in shown:
             r = [j for j, k, fs in acts if k == 'read' and sent_after(j, i) and _hit(f, fs)]
@@ -412,8 +425,7 @@ def chains(ss, root, diff=None):
         ran, passed, ev_test = set(), set(), []
         for j, k, fs in acts:
             if k == 'test' and sent_after(j, i):
-                hit = {t for t in tests_named if _hit(t, fs) and (j, t) not in claimed}
-                claimed |= {(j, t) for t in hit}
+                hit = {t for t in tests_named if _hit(t, fs) and owner.get((j, t)) == i}
                 if hit:
                     ev_test.append(j)
                 ran |= hit

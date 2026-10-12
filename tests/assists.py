@@ -172,6 +172,13 @@ check('a test file passes when its latest run does: failed, then fixed', [x['lab
 t = (PICK(repo()).call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '3 passed')
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 failed, 2 passed'))
 check('passed, then broken, is no pass', [x['label'] for x in found(t, t.root)] == ['Useful'], found(t, t.root))
+TA = 'mcp__plugin_axiomcode_axiomcode__tests'
+t = (PICK(repo()).prompt('one more change').call(TA, {}, TESTS_A).call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '3 passed'))
+c = found(t, t.root)
+check('a run goes to the latest answer that picked its tests', [(x['answer'], x['label']) for x in c] == [('toolu_002', 'Helped')], c)
+t = PICK(repo()).call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '3 passed').prompt('again').call(TA, {}, TESTS_A)
+c = found(t, t.root)
+check('control: a run before the second answer stays with the first', [(x['answer'], x['label']) for x in c] == [('toolu_001', 'Helped')], c)
 
 # --- a test file named twice in one answer (bare, and with its directory) is one test file
 r = repo()
