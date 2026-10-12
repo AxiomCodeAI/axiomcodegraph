@@ -374,7 +374,7 @@ first = A.at_stop(t.save(), r, 's4')
 t.prompt('now fix it').edit('src/pkg/alpha.py')
 later = A.at_stop(t.save(), r, 's4')
 check('one of two answers acted on counts only the one', 'acted on 1 answer' in first and ' of 2' not in first, first)
-check('a turn that only grows an earlier chain names it as earlier', 'earlier answer went further' in later and 'Helped' in later, later)
+check('a turn that only grows an earlier chain names it as earlier', 'acted on 1 answer from an earlier turn' in later.splitlines()[0] and 'Helped' in later, later)
 page = open(A.report(r)[0]).read()
 check('the report has no unfilled template text', '\\1' not in page and "{'" not in page and "'}" not in page and ' if ' not in page, page[:300])
 check('the report counts answers asked and the files and tests behind them', ' of 2' not in page and 'Previously unseen files edited' in page and '<span class=k>edited</span>' in page

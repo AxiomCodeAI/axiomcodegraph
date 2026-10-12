@@ -620,11 +620,15 @@ def receipt(fresh, totals=None, turn=None, session=None):
         if l not in said:
             said.append(l)
     head = '◆ AxiomCode this turn'
-    if turn and turn[1]:
-        head += f" · the agent acted on {turn[1]} answer{'s' if turn[1] > 1 else ''}"
-    earlier = len({c['answer'] for c in fresh} - set(turn[2] if turn and len(turn) > 2 else []))
-    if turn and earlier:
-        head += (', and ' if turn[1] else ' · ') + f"{earlier} earlier answer{'s' if earlier > 1 else ''} went further"
+    now = turn[1] if turn else 0
+    # an answer from an earlier turn the agent acted on only now (it read a file then, and edits it in this turn)
+    earlier = len({c['answer'] for c in fresh} - set(turn[2] if turn and len(turn) > 2 else [])) if turn else 0
+    if now and earlier:
+        head += f" · the agent acted on {now} answer{'s' if now > 1 else ''} from this turn and {earlier} from an earlier turn"
+    elif now:
+        head += f" · the agent acted on {now} answer{'s' if now > 1 else ''}"
+    elif earlier:
+        head += f" · the agent acted on {earlier} answer{'s' if earlier > 1 else ''} from an earlier turn"
     lines = [head] + [f'  • {l}' for l in said[:5]]
     if len(said) > 5:
         lines.append(f'  • and {len(said) - 5} more (axiomcode report)')
