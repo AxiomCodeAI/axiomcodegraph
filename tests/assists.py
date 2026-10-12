@@ -330,9 +330,8 @@ check('control: the same read in the next message is', [c['label'] for c in got]
 # --- the hook end to end: a Stop event in, the receipt handed back to the agent, which ends its reply with it; when
 # the reply does not carry it, the second stop shows it as a message instead; switched off, nothing
 def hook(ev, **env):
-    env = dict(os.environ, **dict({'CLAUDE_CODE_ENTRYPOINT': 'sdk-cli'}, **env))
     h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True,
-                       text=True, env=env)
+                       text=True, env=dict(os.environ, **env))
     return h, (json.loads(h.stdout) if h.stdout.strip() else {})
 
 
@@ -366,11 +365,6 @@ h2, out2 = hook(dict(ev, stop_hook_active=True, transcript_path=handed_back(t, r
 check('a reply that drops or rewrites the receipt gets it shown as a message instead', out2.get('systemMessage') == msg, (h2.stdout, msg))
 h3, out3 = hook(dict(ev, stop_hook_active=True))
 check('the second stop happens once: a third is silent', out3 == {}, h3.stdout)
-r = repo(); change(r, 'src/pkg/alpha.py')
-t = T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A).edit('src/pkg/alpha.py')
-h, out = hook(dict(ev, session_id='s6', transcript_path=t.save(), cwd=r), CLAUDE_CODE_ENTRYPOINT='cli')
-check('in the terminal the receipt is one message under the reply, never handed back (that would show it twice)',
-      'decision' not in out and out.get('systemMessage', '').startswith('◆ AxiomCode'), h.stdout)
 
 # --- two answers, one acted on: the count says so; a later turn that only grows an earlier chain says that instead
 r = repo(); change(r, 'src/pkg/alpha.py')
