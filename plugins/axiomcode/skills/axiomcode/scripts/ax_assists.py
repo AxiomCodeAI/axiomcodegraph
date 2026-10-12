@@ -58,6 +58,10 @@ TEST_RUN = re.compile(r'(?:^|[\s;&|(])(?:pytest|py\.test|tox|nox|jest|vitest|moc
                       r'dotnet\s+test|mvn\b[^;&|]*\b(?:test|verify)\b|mvnw\b[^;&|]*\b(?:test|verify)\b|gradlew?\b[^;&|]*\btest\b|'
                       r'(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|python3?\s+-m\s+(?:pytest|unittest))')
 FAILED = re.compile(r'\b[1-9]\d* (?:failed|failing)\b|Tests:\s+[1-9]\d* failed|\bFAIL\s')
+# a pass is the runner saying so (pytest, jest, vitest, mocha, unittest, go, dotnet, maven); an exit 0 alone is not one,
+# since a test line often ends in `| tail` or `; ruff check`, and a run that never started exits 0 there too
+PASSED = re.compile(r'\b[1-9]\d* (?:passed|passing)\b|^\s*PASS\s|^OK\b|^ok\s|\bPassed!|Tests run: [1-9]\d*, Failures: 0, Errors: 0', re.M)
+BROKE = re.compile(r'\b[1-9]\d* errors?\b|\bno tests ran\b|ERROR collecting|ModuleNotFoundError|ImportError while')
 SHELL_READ = re.compile(r'(?:^|[;&|(]|\n|&&)\s*(?:cat|sed\s+-n\s+\S+|head(?:\s+-n?\s*\d+)?|tail(?:\s+-n?\s*\d+)?|less|bat|nl|'
                         r'grep\s+-n\S*\s+\S+|rg\s+-n\S*\s+\S+)\s+([^;&|<>\n]+)')     # the command, then its file arguments
 EDIT_TOOLS = {'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'replace', 'write_file'}
@@ -413,8 +417,11 @@ def chains(ss, root, diff=None):
                 if hit:
                     ev_test.append(j)
                 ran |= hit
-                if not ss[j]['error'] and not FAILED.search(ss[j]['result'] or ''):
-                    passed |= hit             # a run that exits 0 but reports failures (a before/after script) is no pass
+                said = ss[j]['result'] or ''
+                if not ss[j]['error'] and PASSED.search(said) and not FAILED.search(said) and not BROKE.search(said):
+                    passed |= hit
+                else:
+                    passed -= hit             # a test file passes when its latest run does
         passed_all = bool(ran) and ran == passed
         if edited or (ran and passed_all and verb in ('tests', 'test-impact')):
             label = 'Helped'

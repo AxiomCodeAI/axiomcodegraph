@@ -160,6 +160,18 @@ t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axio
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q; echo done'}, '1 failed, 3 passed\ndone'))
 check('a run that exits 0 but reports failures is not a pass', [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
 check('picked tests that failed are only Useful', [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
+PICK = lambda r: T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axiomcode__tests', {}, TESTS_A)
+r = repo()
+t = PICK(r).call('Bash', {'command': 'pytest tests/test_alpha.py -q 2>&1 | tail -3; ruff check .'},
+                 "ModuleNotFoundError: No module named 'trio'\nAll checks passed!")
+check('a run that never started is no pass, though the line exits 0 and something else says passed',
+      [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
+t = (PICK(repo()).call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 failed, 2 passed')
+     .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '3 passed'))
+check('a test file passes when its latest run does: failed, then fixed', [x['label'] for x in found(t, t.root)] == ['Helped'], found(t, t.root))
+t = (PICK(repo()).call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '3 passed')
+     .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 failed, 2 passed'))
+check('passed, then broken, is no pass', [x['label'] for x in found(t, t.root)] == ['Useful'], found(t, t.root))
 
 # --- a test file named twice in one answer (bare, and with its directory) is one test file
 r = repo()
