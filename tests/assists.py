@@ -51,6 +51,15 @@ class T:
     def edit(self, rel):
         return self.call('Edit', {'file_path': os.path.join(self.root, rel), 'old_string': 'a', 'new_string': 'b'}, 'ok')
 
+    def note(self, text, kind='hook_additional_context', event='PostToolUse', stdout=None):
+        """a hook's output put in front of the agent, as the host records it"""
+        self.n += 1
+        a = {'type': kind, 'hookName': event, 'hookEvent': event, 'content': [text] if kind == 'hook_additional_context' else text}
+        if stdout is not None:
+            a['stdout'] = stdout
+        self.lines.append({'type': 'attachment', 'uuid': f'u{self.n:03d}', 'attachment': a})
+        return self
+
     def save(self):
         p = os.path.join(self.root, '..', f'transcript-{id(self)}.jsonl')
         with open(p, 'w') as f:
@@ -218,6 +227,47 @@ check('a bare file name in an answer is not credited', found(t, r) == [], found(
 r = repo(); change(r, 'src/pkg/alpha.py')
 t = (T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A, side=True).edit('src/pkg/alpha.py'))
 check('an answer inside a subagent is not credited to the session', found(t, r) == [], found(t, r))
+
+# --- the plugin's own hooks: a graph note put in front of the agent is an answer
+NOTE = 'graph: after that command, 1 declaration(s) changed —\n  reads / uses it (1): [resolved] Beta.go src/pkg/beta.py:3'
+r = repo(); change(r, 'src/pkg/beta.py')
+t = T(r).prompt('add a flag to run').edit('src/pkg/alpha.py').note(NOTE).edit('src/pkg/beta.py')
+c = found(t, r)
+check('the after-edit note that named a caller, then edited, is Helped', [(x['verb'], x['label'], x['edited']) for x in c]
+      == [('note', 'Helped', ['src/pkg/beta.py'])] and "after-edit check" in A.line(c[0]), c)
+r = repo(); change(r, 'src/pkg/beta.py')
+t = T(r).prompt('add a flag to run').note(NOTE, kind='hook_success', stdout=json.dumps({'additionalContext': NOTE})) \
+    .note(NOTE).edit('src/pkg/beta.py')
+check('the hook_success copy of a note does not make its files seen before the note', [x['verb'] for x in found(t, r)] == ['note'], found(t, r))
+r = repo(); change(r, 'src/pkg/beta.py')
+t = T(r).prompt('add a flag to run').note('graph: where this task lands —\n  src/pkg/beta.py  (4 symbols)').edit('src/pkg/beta.py')
+check('a note naming a file without a line (a summary) is not credited', found(t, r) == [], found(t, r))
+r = repo(); change(r, 'src/pkg/beta.py')
+t = T(r).prompt('add a flag to run').note('reminder: src/pkg/beta.py:3 was opened').edit('src/pkg/beta.py')
+check('an attachment that is not a graph note is no answer', found(t, r) == [], found(t, r))
+
+# --- the task already named what a row is about: that row is the task's lead, not the answer's
+ROWS = '1. src/pkg/beta.py:3  [resolved · Beta.go]\n2. src/pkg/gamma.py:7  [resolved · Gamma.stop]'
+r = repo(); change(r, 'src/pkg/beta.py'); change(r, 'src/pkg/gamma.py')
+t = (T(r).prompt('fix `Beta.go` so it stops').call(MCP, {'name': 'Alpha.run'}, ROWS)
+     .edit('src/pkg/beta.py').edit('src/pkg/gamma.py'))
+check('a row about a name the task gave is not credited; the other row is', [x['edited'] for x in found(t, r)] == [['src/pkg/gamma.py']], found(t, r))
+r = repo(); change(r, 'src/pkg/beta.py')
+t = (T(r).prompt('add a flag to `Alpha.run`').call(MCP, {'name': 'Alpha.run'},
+                                                    '1. src/pkg/beta.py:3  [resolved · Beta.go]\n   → 3  self.run()  # Alpha.run')
+     .edit('src/pkg/beta.py'))
+check('the name asked about, on its callers\' lines, does not hide them', [x['edited'] for x in found(t, r)] == [['src/pkg/beta.py']], found(t, r))
+
+# --- an edit in a shell line that also asks the graph, and an edit through a helper the script defines
+r = repo(); change(r, 'src/pkg/alpha.py')
+t = (T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A)
+     .call('Bash', {'command': "sed -i '' 's/a/b/' src/pkg/alpha.py; axiomcode tests"}, '1. tests/test_alpha.py:5  [test]'))
+check('an edit in a line that also runs axiomcode is still an edit', [x['label'] for x in found(t, r) if x['verb'] == 'impact'] == ['Helped'], found(t, r))
+HELPER = ("python3 - <<'EOF'\nimport pathlib\ndef sub(path, old, new):\n    p = pathlib.Path(path); s = p.read_text()\n"
+          "    p.write_text(s.replace(old, new))\nsub('src/pkg/alpha.py', 'x', 'y')\nprint(open('src/pkg/gamma.py').read())\nEOF")
+r = repo(); change(r, 'src/pkg/alpha.py'); change(r, 'src/pkg/gamma.py')
+check('a helper that writes its path argument writes the files it is called with, not the ones only read',
+      A.written(HELPER, r) == {'src/pkg/alpha.py'}, A.written(HELPER, r))
 
 # --- the ledger: printed once; printed again only when it grows
 r = repo(); change(r, 'src/pkg/alpha.py')

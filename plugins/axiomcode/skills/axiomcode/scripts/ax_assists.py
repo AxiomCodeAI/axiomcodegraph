@@ -81,6 +81,18 @@ def _unwrap(t):
     return t
 
 
+HOOK = 'axiomcode-hook'
+
+
+def _graph_note(a):
+    """the hook event when this attachment is a graph answer the plugin's hooks gave the agent, else ''"""
+    if a.get('type') == 'hook_additional_context' or (a.get('type') == 'hook_success'
+                                                       and a.get('hookEvent') == 'UserPromptSubmit'):
+        if _text(a.get('content')).lstrip().startswith('graph:'):
+            return str(a.get('hookEvent') or a.get('hookName') or '').split(':')[0]
+    return ''
+
+
 def steps(transcript):
     """the session in order: prompts, replies and tool calls with their results. Side chains (subagents) are left out:
     what a subagent saw, the agent saw only as the subagent's reply."""
@@ -98,6 +110,18 @@ def steps(transcript):
             if not isinstance(e, dict) or e.get('isSidechain'):
                 continue
             if e.get('type') in ('attachment', 'system'):
+                a = e.get('attachment') if isinstance(e.get('attachment'), dict) else {}
+                hook = _graph_note(a)
+                if hook:
+                    # the plugin's own hooks put a graph answer in front of the agent: after an edit, the callers it
+                    # reaches; on a prompt, where the task lands. That is an answer like a tool call's.
+                    out.append({'kind': 'call', 'id': 'hook:' + str(e.get('uuid') or len(out)), 'name': HOOK,
+                                'input': {'event': hook}, 'result': _text(a.get('content')), 'error': False,
+                                'ts': e.get('timestamp') or ''})
+                    continue
+                if a.get('type') == 'hook_success' and 'graph:' in str(a.get('stdout') or '') and \
+                        str(a.get('hookEvent')) != 'UserPromptSubmit':
+                    continue                  # the same text as the hook_additional_context that follows it
                 # a hook's context, a mentioned file, a reminder: the agent saw it, so what it names is not first seen later
                 t = json.dumps(e.get('attachment') or e.get('content') or '', ensure_ascii=False)
                 if PATH.search(t):
@@ -163,6 +187,9 @@ def _seen_text(s):
     return json.dumps(s['input'], ensure_ascii=False) + '\n' + (s['result'] or '') + '\n' + s.get('extra', '')
 
 
+# a code name as a task writes it: snake_case, CamelCase or Owner.member — not a plain word (find, where, define)
+IDENT = re.compile(r'(?<![\w/.])(?:_*[a-z0-9]+(?:_[a-z0-9]+)+_*|_+[A-Za-z]\w*|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+|'
+                   r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)(?![\w/])')
 PLACE = re.compile(r'/|:\d')           # an answer names a file as a place: a path, or file:line
 SEGMENTS = re.compile(r'\s*(?:;|&&|\|\||\n)\s*')
 QUIET = re.compile(r'^(?:cd|echo|printf|export|set|true|:)\b|^$')
@@ -186,6 +213,8 @@ def answer_of(s):
     """(verb, argument) when this step is an AxiomCode answer, else None"""
     if s['kind'] != 'call' or s['error']:
         return None
+    if s['name'] == HOOK:
+        return 'note', s['input'].get('event') or ''
     m = MCP.match(s['name'])
     if m:
         args = ' '.join(str(v) for v in s['input'].values() if isinstance(v, str) and v.strip())
@@ -229,6 +258,11 @@ def written(cmd, root):
         v = m.group(1) or m.group(2)
         if v in vars_:
             out.add(vars_[v])
+    for m in re.finditer(r'^([ \t]*)def\s+(\w+)\s*\(\s*(\w+)[^)]*\)\s*:(.*(?:\n\1[ \t]+.*)*)', cmd, re.M):
+        name, param, body = m.group(2), m.group(3), m.group(4)
+        if re.search(r'open\(\s*' + param + r'\s*,\s*[\'"][wa]|Path\(\s*' + param + r'\s*\)|\.write_(?:text|bytes)\(', body) and \
+                re.search(r'\.write_(?:text|bytes)\(|open\([^)]*[\'"][wa]', body):
+            out |= {g.group(1) for g in re.finditer(r'(?<![\w.])' + name + r'\(\s*' + _Q, cmd)}
     for m in SED_I.finditer(cmd):
         out |= {g.group(1) for g in PATH.finditer(m.group(1))}
     return {f for f in (_source(x, root) for x in out) if f}
@@ -249,11 +283,11 @@ def touched(s, root):
     out = []
     if name in ('Bash', 'run_shell_command', 'Shell'):
         cmd = str(inp.get('command') or '')
-        if answer_of(s):
-            return []
         w = written(cmd, root)
         if w:
             out.append(('edit', w))
+        if answer_of(s):
+            return out                        # the rest of its output is the answer's, not a read or a test run
         if TEST_RUN.search(cmd):
             out.append(('test', {f for f in paths_in(cmd, root) if not f.startswith(('/', '..'))}))
         r = {f for m in SHELL_READ.finditer(cmd) for f in (_source(g.group(1), root) for g in PATH.finditer(m.group(1))) if f}
@@ -276,6 +310,7 @@ def chains(ss, root, diff=None):
     """every chain the session holds. `diff`: the files changed in the working tree now (None: not known, an edit
     counts as kept)."""
     seen_full, seen_base = set(), set()
+    asked_for = set()                         # identifiers the prompts so far name: a row about one was the task's lead
     first = {}                                # file -> index of the answer that first showed it
     answers = {}                              # index -> (verb, arg)
     turn_of = []
@@ -283,19 +318,34 @@ def chains(ss, root, diff=None):
     for i, s in enumerate(ss):
         if s['kind'] == 'prompt':
             turn += 1
+            asked_for |= set(IDENT.findall(s['text'])) | {w for c in re.findall(r'`([^`\n]{1,80})`', s['text'])
+                                                          for w in re.findall(r'[A-Za-z_]\w{2,}', c)}
         turn_of.append(turn)
         a = answer_of(s)
         if a:
             answers[i] = a
+            verb = a[0]
             for f in paths_in(json.dumps(s['input'], ensure_ascii=False), root):
                 seen_full.add(f)
                 seen_base.add(f.rsplit('/', 1)[-1])
+            res = s['result'] or ''
+            # the name asked about is on every caller's line by construction; the task naming it is no lead to its callers
+            lead = asked_for - {w for x in re.findall(r'[\w.]+', a[1]) for w in (x, *x.split('.'))}
+            led = set()
+            for ln in res.splitlines():
+                if lead & {w for x in IDENT.findall(ln) for w in (x, *x.split('.'))}:
+                    led |= {norm(g.group(1), root) for g in PATH.finditer(ln)}
             for m in (ROW.finditer(s['result'] or '') if mixed(s) else PATH.finditer(s['result'] or '')):
-                if not PLACE.search(m.group(0) + (s['result'] or '')[m.end():m.end() + 2]):
+                after = (s['result'] or '')[m.end():m.end() + 2]
+                if not PLACE.search(m.group(0) + after):
                     continue                      # a bare file name (a listing, prose) is not a place the answer gave
+                if verb == 'note' and not re.match(r':\d', after):
+                    continue                      # a note nobody asked for credits a place (file:line), not a file summary
                 f = norm(m.group(1), root)
                 if not f:
                     continue
+                if f in led:
+                    continue                  # the task already named what a row on this file is about: its lead
                 b = f.rsplit('/', 1)[-1]
                 if f in seen_full or f in first or (not GENERIC.match(b) and b in seen_base):
                     continue
@@ -395,7 +445,12 @@ def working_diff(root):
 
 # ---- what is printed ------------------------------------------------------------------------------------------------
 
+NOTES = {'PostToolUse': "AxiomCode's after-edit check", 'UserPromptSubmit': "AxiomCode's note on the task"}
+
+
 def _q(c):
+    if c['verb'] == 'note':
+        return NOTES.get(c['arg'], 'an AxiomCode note')
     # what was asked, without flags or paths (--json, an output file), and a shell loop's variable says nothing
     arg = ' '.join(w for w in c['arg'].split() if not w.startswith(('-', '/', '$', '~')))
     v = c['verb'] + (f" {arg}" if arg else '')
