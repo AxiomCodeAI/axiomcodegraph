@@ -126,9 +126,10 @@ not found this way.
 ## report
 
 At the end of a turn where an answer verifiably led your work (a file the answer showed first that you then read or
-edited, or the tests it picked that you ran: Redirected / Helped / Useful), the plugin hands you a receipt once. End
-your reply with it exactly as written. It is read from the session's tool calls, not from what you write, so there is
-nothing to claim yourself; if the reply does not carry it, the user is shown it anyway.
+edited, or the tests it picked that you ran: Redirected / Helped / Useful), the plugin shows the user a receipt. In
+the terminal it appears under your reply; elsewhere (headless, an IDE) it is handed to you once: end your reply with
+it exactly as written. It is read from the session's tool calls, not from what you write, so there is nothing to claim
+yourself.
 Each repository keeps its own record (`.axiomcode/assists.jsonl` at its root) and its own page,
 `.axiomcode/assists.html`, rebuilt whenever a turn adds to the record; `axiomcode report` rebuilds it by hand.
 

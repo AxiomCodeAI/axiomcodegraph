@@ -13,10 +13,12 @@ Rules it holds itself to:
     calls and their results, and a link that was not checked is not printed.
   · SILENT unless an answer led somewhere: no query, or a query nobody acted on, prints nothing. Only what helped is
     counted; the answers that led nowhere are never shown.
-  · THE AGENT QUOTES IT. In Claude Code the receipt goes back to the agent once (decision "block"), which ends its
-    reply with it word for word, so it is part of the answer in every client (`-p`, the SDK, an IDE). The second stop
-    (stop_hook_active) checks the reply carries every line; when it does not, the receipt is shown as a message
-    instead. Cursor and Gemini cannot hand it back, so they get the message.
+  · SHOWN ONCE. In the terminal (CLAUDE_CODE_ENTRYPOINT=cli) it is a message under the reply: the terminal shows
+    a Stop hook's message, and would also show a hand-back's reason, so handing it back there prints it twice.
+    Elsewhere (`-p`, the SDK, an IDE) a hook's message may never reach the user, so the receipt goes back to the
+    agent once (decision "block"), which ends its reply with it word for word. The second stop (stop_hook_active)
+    checks the reply carries every line; when it does not, the receipt is shown as a message instead. Gemini gets
+    the message.
 AXIOMCODE_ASSISTS=off turns it off.
 """
 import json, os, subprocess, sys, time
@@ -89,7 +91,7 @@ except Exception:
     sys.exit(0)                               # a receipt is never worth a failed turn
 if not msg:
     sys.exit(0)
-if _host.GEMINI:
+if _host.GEMINI or os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'cli':
     print(json.dumps({'systemMessage': msg}))
     sys.exit(0)
 try:
