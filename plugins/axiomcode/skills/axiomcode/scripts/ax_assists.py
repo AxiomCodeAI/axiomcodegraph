@@ -372,7 +372,8 @@ def chains(ss, root, diff=None):
                 frm, ev_from = [], []
         out.append({'answer': ss[i]['id'], 'turn': turn_of[i], 'ts': ss[i]['ts'], 'verb': verb, 'arg': arg[:160],
                     'label': label, 'shown': len(shown), 'edited': edited, 'read': read, 'from': frm,
-                    'tests_ran': len(ran), 'tests_passed': len(passed),
+                    'tests_ran': len(ran), 'tests_passed': len(passed), 'tests': sorted(ran),
+                    'tests_failed': sorted(ran - passed),
                     # the tool calls each link stands on, by the host's id, so every chain can be checked by hand
                     'evidence': {'answer': ss[i]['id'], 'from': ids(ev_from), 'read': ids(sorted(set(ev_read))),
                                  'edit': ids(sorted(set(ev_edit))), 'test': ids(ev_test)}})
@@ -404,29 +405,45 @@ def _names(fs, n=3):
     return ', '.join(b[:n]) + (f' +{len(b) - n}' if len(b) > n else '')
 
 
-def _picked(c):
-    n, p = c['tests_ran'], c['tests_passed']
-    res = ({1: 'it passes', 2: 'both pass'}.get(n, f'all {n} pass') if p == n else f'{p} of {n} pass')
-    return f"{_q(c)} picked {n} test file{'s' if n > 1 else ''}; {res}"
+def _tests(c):
+    """the effect of the tests an answer picked: which ran, and whether they pass"""
+    n, t = c['tests_ran'], c.get('tests') or []
+    if not n:
+        return ''
+    names = f" ({_names(t)})" if t else ''
+    if c['tests_passed'] == n:
+        return f" → {({1: 'its', 2: 'both'}.get(n, f'all {n}'))} picked test file{'s' if n > 1 else ''}{names} {'passes' if n == 1 else 'pass'}"
+    ok = [f for f in t if f not in (c.get('tests_failed') or [])]
+    return f" → picked test file{'s' if len(ok) > 1 else ''} {_names(ok)} {'pass' if len(ok) > 1 else 'passes'}" if ok else ""
 
 
 def line(c):
-    tests, n = '', c['tests_ran']
-    if n:
-        every = {1: 'the picked test file passes', 2: 'both picked test files pass'}.get(n, f'all {n} picked test files pass')
-        tests = f'; {every}' if c['tests_passed'] == n else f"; {c['tests_passed']} of {n} picked test files pass"
+    """one chain as cause → action → effect, naming the files and tests it stands on"""
+    q, ed, rd = _q(c), c['edited'], c['read']
+    them = lambda fs: 'it' if len(fs) == 1 else 'them'
     if c['label'] == 'Redirected':
-        return (f"Redirected: the agent was in {_names(c['from'])}; {_q(c)} showed {_names(c['edited'])} "
-                f"(first seen there), and the change landed there{tests}")
-    if c['label'] == 'Helped':
-        if c['edited']:
-            extra = f", read {_names(c['read'])}" if c['read'] else ''
-            return (f"Helped: {_q(c)} showed {_names(c['edited'])} (first seen there); "
-                    f"edited {'it' if len(c['edited']) == 1 else 'them'}{extra}{tests}")
-        return f"Helped: {_picked(c)}"
-    if not c['read']:
-        return f"Useful: {_picked(c)}"
-    return f"Useful: {_q(c)} showed {_names(c['read'])} (first seen there); read {'them' if len(c['read']) > 1 else 'it'}{tests}"
+        return (f"Redirected: the agent was in {_names(c['from'])} → {q} showed {_names(ed)} (new to it) "
+                f"→ it left those and edited {them(ed)}{_tests(c)}")
+    if ed:
+        extra = f", read {_names(rd)}" if rd else ''
+        return f"{c['label']}: {q} showed {_names(ed)} (new to the agent) → it edited {them(ed)}{extra}{_tests(c)}"
+    if rd:
+        return f"{c['label']}: {q} showed {_names(rd)} (new to the agent) → it read {them(rd)}{_tests(c)}"
+    n = c['tests_ran']
+    ok = 'all pass' if c['tests_passed'] == n else ''
+    return (f"{c['label']}: {q} picked {n} test file{'s' if n > 1 else ''} ({_names(c.get('tests') or [])}) "
+            f"→ the agent ran {'it' if n == 1 else 'them'}" + (f" → {'it passes' if n == 1 else ok}" if ok else ''))
+
+
+def asked(ss):
+    """the answers the session holds: [(turn, step id)]"""
+    out, turn = [], -1
+    for s in ss:
+        if s['kind'] == 'prompt':
+            turn += 1
+        elif answer_of(s):
+            out.append((turn, s['id']))
+    return out
 
 
 def _load(root):
@@ -436,9 +453,11 @@ def _load(root):
         with open(p, encoding='utf-8') as f:
             for l in f:
                 try:
-                    out.append(json.loads(l))
+                    r = json.loads(l)
                 except ValueError:
-                    pass
+                    continue
+                if 'answer' in r:
+                    out.append(r)
     except OSError:
         pass
     return out
@@ -448,7 +467,7 @@ def new_chains(found, recorded, session):
     """the chains not printed before, or grown since: a stronger label, or a file edited that was not"""
     best = {}
     for r in recorded:
-        if r.get('session') == session:
+        if r.get('session') == session and 'answer' in r:
             best[r['answer']] = r
     out = []
     for c in found:
@@ -459,7 +478,8 @@ def new_chains(found, recorded, session):
     return out
 
 
-def receipt(fresh, totals=None):
+def receipt(fresh, totals=None, turn=None, session=None):
+    """`turn` / `session`: (answers asked, answers that led to work), for the count lines"""
     if not fresh:
         return ''
     fresh = sorted(fresh, key=lambda c: -RANK[c['label']])
@@ -468,11 +488,21 @@ def receipt(fresh, totals=None):
         l = line(c)
         if l not in said:
             said.append(l)
-    lines = ['◆ AxiomCode this turn'] + [f'  • {l}' for l in said[:5]]
+    head = '◆ AxiomCode this turn'
+    if turn and turn[1]:
+        head += f" · {turn[1]} answer{'s' if turn[1] > 1 else ''} led the agent's work"
+    earlier = len({c['answer'] for c in fresh} - set(turn[2] if turn and len(turn) > 2 else []))
+    if turn and earlier:
+        head += (', and ' if turn[1] else ' · ') + f"{earlier} earlier answer{'s' if earlier > 1 else ''} went further"
+    lines = [head] + [f'  • {l}' for l in said[:5]]
     if len(said) > 5:
         lines.append(f'  • and {len(said) - 5} more (axiomcode report)')
-    if totals and sum(totals.values()) > len(fresh):
-        lines.append('  session: ' + ' · '.join(f'{totals[k]} {k}' for k in ('Redirected', 'Helped', 'Useful') if totals.get(k)))
+    if totals and session and session[1] > len({c['answer'] for c in fresh}):
+        t = totals
+        lines.append(f"  session: {session[1]} answer{'s' if session[1] > 1 else ''} led the work · " + ', '.join(
+            f'{t[k]} {k}' for k in ('Redirected', 'Helped', 'Useful') if t.get(k))
+            + (f" · {t['_edited']} file{'s' if t['_edited'] > 1 else ''} edited from them" if t.get('_edited') else '')
+            + (f" · {t['_tests']} picked test file{'s' if t['_tests'] > 1 else ''} run" if t.get('_tests') else ''))
     return '\n'.join(lines)
 
 
@@ -487,27 +517,48 @@ def record(root, session, fresh):
         pass
 
 
-def totals(recorded, session):
+def _best(recorded, session=None):
+    """each answer's strongest recorded chain"""
     best = {}
     for r in recorded:
-        if r.get('session') == session:
-            if RANK.get(r['label'], 0) >= RANK.get(best.get(r['answer'], ''), 0):
-                best[r['answer']] = r['label']
-    t = {}
-    for l in best.values():
-        t[l] = t.get(l, 0) + 1
+        if 'answer' in r and (session is None or r.get('session') == session):
+            k = (r.get('session'), r['answer'])
+            if k not in best or RANK.get(r['label'], 0) >= RANK.get(best[k]['label'], 0):
+                best[k] = r
+    return best
+
+
+def totals(recorded, session):
+    """labels per answer, plus `_edited` (files edited from an answer) and `_tests` (picked test files run)"""
+    t, edited, tests = {}, set(), set()
+    for r in _best(recorded, session).values():
+        t[r['label']] = t.get(r['label'], 0) + 1
+    for r in recorded:
+        if r.get('session') == session and 'answer' in r:
+            edited |= set(r.get('edited') or [])
+            tests |= set(r.get('tests') or [])
+    if edited:
+        t['_edited'] = len(edited)
+    if tests:
+        t['_tests'] = len(tests)
     return t
 
 
 def at_stop(transcript, root, session):
     """the receipt for the turn that just ended, recorded; '' when there is nothing new"""
-    found = chains(steps(transcript), root, working_diff(root))
+    ss = steps(transcript)
+    found = chains(ss, root, working_diff(root))
     recorded = _load(root)
     fresh = new_chains(found, recorded, session)
+    q = asked(ss)
+    last = sum(1 for s in ss if s['kind'] == 'prompt') - 1
+    record(root, session, fresh)
     if not fresh:
         return ''
-    record(root, session, fresh)
-    return receipt(fresh, totals(recorded + [dict(c, session=session) for c in fresh], session))
+    led = {c['answer'] for c in found}
+    now = [i for t, i in q if t == last]
+    return receipt(fresh, totals(recorded + [dict(c, session=session) for c in fresh], session),
+                   turn=(len(now), len(led & set(now)), now), session=(len(q), len(led)))
 
 
 # ---- the report -----------------------------------------------------------------------------------------------------
@@ -524,39 +575,62 @@ h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 24px}
 .s{margin:28px 0 8px;color:var(--mut);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
 .c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0}
 .l{font-weight:600;font-size:13px}.Redirected{color:var(--r)}.Helped{color:var(--h)}.Useful{color:var(--u)}
-.c p{margin:4px 0 0}.c small{color:var(--mut)}code{font:13px ui-monospace,Menlo,monospace}
+.c p{margin:4px 0 0}.c ol{margin:6px 0 0;padding-left:20px;color:var(--mut);font-size:13px}.c ol b{color:var(--fg);font-weight:600}.tile small{font-size:14px;color:var(--mut)}.c small{color:var(--mut)}code{font:13px ui-monospace,Menlo,monospace}
 """
 
 
+def _steps_html(r):
+    """a chain as its links, each one checkable: what the answer gave, what the agent did, what came of it"""
+    e = html.escape
+    out = [f"<li><b>asked</b> <code>{e(_q(r).strip('`'))}</code></li>"]
+    if r.get('from'):
+        out.append(f"<li><b>before</b> the agent was in {e(', '.join(r['from']))}</li>")
+    gave = (r.get('edited') or []) + (r.get('read') or [])
+    if gave:
+        out.append(f"<li><b>showed</b> {e(', '.join(gave))}, new to the agent</li>")
+    if r.get('edited'):
+        out.append(f"<li><b>edited</b> {e(', '.join(r['edited']))} (kept in the working tree)</li>")
+    if r.get('read'):
+        out.append(f"<li><b>read</b> {e(', '.join(r['read']))}</li>")
+    if r.get('tests_ran'):
+        t = ', '.join(r.get('tests') or []) or f"{r['tests_ran']} file(s)"
+        ok = r['tests_passed'] == r['tests_ran']
+        out.append(f"<li><b>ran</b> the picked tests {e(t)}" + (" → all pass" if ok else '') + "</li>")
+    return '<ol>' + ''.join(out) + '</ol>'
+
+
 def report(root):
-    rec = _load(root)
-    best = {}
-    for r in rec:
-        k = (r.get('session'), r['answer'])
-        if k not in best or RANK.get(r['label'], 0) >= RANK.get(best[k]['label'], 0):
-            best[k] = r
-    rows = sorted(best.values(), key=lambda r: r.get('at') or '', reverse=True)
+    rows = sorted(_best(_load(root)).values(), key=lambda r: r.get('at') or '', reverse=True)
     t = {}
     for r in rows:
         t[r['label']] = t.get(r['label'], 0) + 1
     sessions = {}
     for r in rows:
         sessions.setdefault(r.get('session') or '?', []).append(r)
+    edited = {(r.get('session'), f) for r in _load(root) for f in r.get('edited') or []}
+    tests = {(r.get('session'), f) for r in _load(root) for f in r.get('tests') or [] if f not in (r.get('tests_failed') or [])}
     e = html.escape
     body = [f"<h1>Where AxiomCode helped</h1><p class=sub>{e(os.path.basename(os.path.abspath(root)))} · "
-            f"{len(rows)} verified chain(s) over {len(sessions)} session(s). Every chain is read from the session record: "
-            "an answer showed a file first, and the agent then read or changed it.</p><div class=tiles>"]
+            f"{len(sessions)} session(s). Every line is read from the session record, not from what the agent wrote: "
+            "an answer named a file the agent had not seen, and the agent then read or changed it, or ran the tests it "
+            "picked.</p><div class=tiles>"]
+    for v, k in ((len(rows), 'answers that led the agent\'s work'),
+                 (len({f for _, f in edited}), 'files edited that an answer showed first'),
+                 (len({f for _, f in tests}), 'test files it picked, run and passing')):
+        if v:
+            body.append(f"<div class=tile><b>{v}</b><span>{k}</span></div>")
+    body.append('</div><div class=tiles>')
     for k in ('Redirected', 'Helped', 'Useful'):
-        body.append(f"<div class=tile><b class={k}>{t.get(k, 0)}</b><span>{k}</span></div>")
+        if t.get(k):                              # only what happened: a label no chain earned is not shown
+            body.append(f"<div class=tile><b class={k}>{t[k]}</b><span>{k}</span></div>")
     body.append('</div>')
     for s, rs in sessions.items():
-        body.append(f"<div class=s>session {e(s[:8])} · {e((rs[-1].get('at') or '')[:16].replace('T', ' '))}</div>")
+        body.append(f"<div class=s>session {e(s[:8])} · {e((rs[-1].get('at') or '')[:16].replace('T', ' '))}"
+                    + f" · {len(rs)} answer{'s' if len(rs) > 1 else ''} led the work</div>")
         for r in rs:
             body.append(f"<div class=c><span class='l {r['label']}'>{r['label']}</span>"
                         f"<p>{re.sub(r'`([^`]+)`', r'<code>\1</code>', e(line(r).split(': ', 1)[1]))}</p>"
-                        + (f"<small>edited: {e(', '.join(r['edited']))}</small><br>" if r.get('edited') else '')
-                        + (f"<small>read: {e(', '.join(r['read']))}</small><br>" if r.get('read') else '')
-                        + (f"<small>left: {e(', '.join(r['from']))}</small>" if r.get('from') else '') + '</div>')
+                        f"{_steps_html(r)}</div>")
     page = (f"<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>AxiomCode assists</title><style>{CSS}</style></head><body><main>{''.join(body)}</main></body></html>")
     out = os.path.join(root, '.axiomcode', 'assists.html')
@@ -575,7 +649,10 @@ def replay(transcript, root):
         n += 1
         fresh = new_chains(chains(ss[:e], root, None), recorded, 'replay')
         recorded += [dict(c, session='replay') for c in fresh]
-        r = receipt(fresh, totals(recorded, 'replay'))
+        q = asked(ss[:e])
+        led = {c['answer'] for c in recorded}
+        now = [i for t, i in q if t == n - 1]
+        r = receipt(fresh, totals(recorded, 'replay'), turn=(len(now), len(led & set(now)), now), session=(len(q), len(led)))
         if r:
             print(f'--- turn {n}\n{r}')
     return recorded

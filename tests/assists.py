@@ -140,6 +140,7 @@ t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axio
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 passed'))
 c = found(t, r)
 check('picked tests that ran and passed are Helped', [x['label'] for x in c] == ['Helped'] and c[0]['tests_passed'] == 1, c)
+check('the line names the picked test file and its result', 'test_alpha.py' in A.line(c[0]) and 'it passes' in A.line(c[0]), A.line(c[0]))
 r = repo()
 t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axiomcode__tests', {}, TESTS_A)
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, 'Exit code 1\n1 failed', error=True))
@@ -234,6 +235,19 @@ h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=jso
 msg = json.loads(h.stdout).get('systemMessage', '') if h.stdout.strip() else ''
 check('the Stop hook prints the receipt as a message for the user', h.returncode == 0 and msg.startswith('◆ AxiomCode') and 'Helped' in msg,
       (h.returncode, h.stdout, h.stderr))
+check('it counts the answers that led the work, never those that did not', '1 answer led' in msg and ' of ' not in msg.splitlines()[0], msg)
+
+# --- two answers, one acted on: the count says so; a later turn that only grows an earlier chain says that instead
+r = repo(); change(r, 'src/pkg/alpha.py')
+t = (T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A)
+     .call(MCP, {'name': 'Gamma.go'}, 'no callers found').read('src/pkg/alpha.py'))
+first = A.at_stop(t.save(), r, 's4')
+t.prompt('now fix it').edit('src/pkg/alpha.py')
+later = A.at_stop(t.save(), r, 's4')
+check('one of two answers acted on counts only the one', '1 answer led' in first and ' of 2' not in first, first)
+check('a turn that only grows an earlier chain names it as earlier', 'earlier answer went further' in later and 'Helped' in later, later)
+page = open(A.report(r)[0]).read()
+check('the report counts answers asked and the files and tests behind them', ' of 2' not in page and '<b>edited</b>' in page, page[:300])
 ev['session_id'] = 's3'
 h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True, text=True,
                    env=dict(os.environ, AXIOMCODE_ASSISTS='off'))

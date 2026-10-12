@@ -5,13 +5,14 @@ Agents finish with and without the graph, and they rarely credit the answer they
 it did. At the end of each turn this reads the session's transcript and prints, for each chain new in that turn, one
 line the user can check (skills/axiomcode/scripts/ax_assists.py holds the rules):
 
-    ◆ AxiomCode this turn
-      • Redirected: the agent was in OrderService.cs, Cart.cs; `path handleOrder PriceCalc` showed PriceCalc.cs …
+    ◆ AxiomCode this turn · 1 answer led the agent's work
+      • Helped: `impact total` showed pricing.py (new to the agent) → it edited it → both picked test files (…) pass
 
 Rules it holds itself to:
   · NOTHING FROM THE AGENT'S TEXT. The reply has already been shown when this runs; every link is read from the tool
     calls and their results, and a link that was not checked is not printed.
-  · SILENT unless an answer led somewhere: no query, or a query nobody acted on, prints nothing.
+  · SILENT unless an answer led somewhere: no query, or a query nobody acted on, prints nothing. Only what helped is
+    counted; the answers that led nowhere are never shown.
   · NEVER BLOCKS. It prints a message for the user and exits 0; the agent's turn is over.
 AXIOMCODE_ASSISTS=off turns it off.
 """
