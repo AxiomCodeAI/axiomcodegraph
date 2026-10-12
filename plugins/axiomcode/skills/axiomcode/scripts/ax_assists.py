@@ -41,11 +41,23 @@ EXT = (r'py|pyi|ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|astro|java|kt|kts|scala
        r'php|swift|m|mm|c|cc|cpp|cxx|h|hpp|sql|proto|graphql|gql')
 PATH = re.compile(r'(?<![\w@.+-])((?:/|\.{1,2}/)?(?:[\w@.+-]+/)*[\w@+-][\w@.+-]*\.(?:' + EXT + r'))(?=$|[^\w/-])')
 GENERIC = re.compile(r'^(?:index|main|__init__|__main__|mod|lib|app|setup|conftest|init|util|utils|types|constants)\.\w+$')
-TEST_FILE = re.compile(r'(?:^|/)(?:tests?|__tests__|spec|specs)/|(?:^|/)test_[^/]+$|_test\.\w+$|\.(?:test|spec)\.\w+$|'
+CONFIG = re.compile(r'\.config\.[cm]?[jt]s$|(?:^|/)(?:jest|vitest|karma|babel|tsconfig)[\w.-]*\.(?:[cm]?[jt]s|json)$')
+TEST_FILE_ = re.compile(r'(?:^|/)(?:tests?|__tests__|spec|specs)/|(?:^|/)test_[^/]+$|_test\.\w+$|\.(?:test|spec)\.\w+$|'
                        r'Tests?\.(?:java|kt|cs|scala)$|IT\.java$')
+
+
+class _TestFile:
+    """a test file by its path; a runner's config next to the tests (test/jest.config.js) is not one"""
+    @staticmethod
+    def search(f):
+        return None if CONFIG.search(f) else TEST_FILE_.search(f)
+
+
+TEST_FILE = _TestFile
 TEST_RUN = re.compile(r'(?:^|[\s;&|(])(?:pytest|py\.test|tox|nox|jest|vitest|mocha|ava|tap|go\s+test|cargo\s+test|'
                       r'dotnet\s+test|mvn\b[^;&|]*\b(?:test|verify)\b|mvnw\b[^;&|]*\b(?:test|verify)\b|gradlew?\b[^;&|]*\btest\b|'
                       r'(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|python3?\s+-m\s+(?:pytest|unittest))')
+FAILED = re.compile(r'\b[1-9]\d* (?:failed|failing)\b|Tests:\s+[1-9]\d* failed|\bFAIL\s')
 SHELL_READ = re.compile(r'(?:^|[;&|(]|\n|&&)\s*(?:cat|sed\s+-n\s+\S+|head(?:\s+-n?\s*\d+)?|tail(?:\s+-n?\s*\d+)?|less|bat|nl|'
                         r'grep\s+-n\S*\s+\S+|rg\s+-n\S*\s+\S+)\s+([^;&|<>\n]+)')     # the command, then its file arguments
 EDIT_TOOLS = {'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'replace', 'write_file'}
@@ -139,7 +151,10 @@ def steps(transcript):
                     if not t:
                         continue
                     real = not e.get('isMeta') and not t.startswith(HARNESS)
-                    out.append({'kind': 'prompt' if real else 'note', 'text': t, 'ts': ts})
+                    k = len(out)
+                    while real and k and out[k - 1].get('name') == HOOK and out[k - 1]['input'].get('event') == 'UserPromptSubmit':
+                        k -= 1                # the host records a prompt's own hook note before the prompt; it answers it
+                    out.insert(k, {'kind': 'prompt' if real else 'note', 'text': t, 'ts': ts})
                     continue
                 for x in content:
                     if isinstance(x, dict) and x.get('type') == 'tool_result':
@@ -187,8 +202,9 @@ def _seen_text(s):
     return json.dumps(s['input'], ensure_ascii=False) + '\n' + (s['result'] or '') + '\n' + s.get('extra', '')
 
 
-# a code name as a task writes it: snake_case, CamelCase or Owner.member — not a plain word (find, where, define)
+# a code name as a task writes it: snake_case, CamelCase, camelCase or Owner.member — not a plain word (find, where, define)
 IDENT = re.compile(r'(?<![\w/.])(?:_*[a-z0-9]+(?:_[a-z0-9]+)+_*|_+[A-Za-z]\w*|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+|'
+                   r'[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+|'
                    r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)(?![\w/])')
 PLACE = re.compile(r'/|:\d')           # an answer names a file as a place: a path, or file:line
 SEGMENTS = re.compile(r'\s*(?:;|&&|\|\||\n)\s*')
@@ -387,8 +403,8 @@ def chains(ss, root, diff=None):
                 if hit:
                     ev_test.append(j)
                 ran |= hit
-                if not ss[j]['error']:
-                    passed |= hit
+                if not ss[j]['error'] and not FAILED.search(ss[j]['result'] or ''):
+                    passed |= hit             # a run that exits 0 but reports failures (a before/after script) is no pass
         passed_all = bool(ran) and ran == passed
         if edited or (ran and passed_all and verb in ('tests', 'test-impact')):
             label = 'Helped'
@@ -428,8 +444,37 @@ def chains(ss, root, diff=None):
                     'tests_failed': sorted(ran - passed),
                     # the tool calls each link stands on, by the host's id, so every chain can be checked by hand
                     'evidence': {'answer': ss[i]['id'], 'from': ids(ev_from), 'read': ids(sorted(set(ev_read))),
-                                 'edit': ids(sorted(set(ev_edit))), 'test': ids(ev_test)}})
+                                 'edit': ids(sorted(set(ev_edit))), 'test': ids(ev_test)},
+                    # the same links as the session shows them, in order, for a reader to inspect
+                    'trail': _trail(ss, root, i, edited + read, ev_from, ev_read, ev_edit, ev_test)})
     return out
+
+
+def _trail(ss, root, i, files, ev_from, ev_read, ev_edit, ev_test):
+    """[{n, kind, text, out}]: the answer (with its rows on the credited files) and each later call a link stands on"""
+    def brief(s, kind=''):
+        inp = s['input']
+        if kind == 'edit' and s['name'] not in EDIT_TOOLS:
+            w = written(str(inp.get('command') or ''), root)
+            return 'shell edit of ' + ', '.join(sorted(w)) if w else 'shell edit'
+        if s['name'] in EDIT_TOOLS or s['name'] in READ_TOOLS:
+            return f"{s['name']} {_source(inp.get('file_path') or inp.get('path') or '', root)}"
+        c = str(inp.get('command') or json.dumps(inp, ensure_ascii=False))
+        return re.sub(r'^cd \S+\s*(?:&&|;)\s*', '', c).strip().splitlines()[0][:160] if c.strip() else s['name']
+    res = ss[i]['result'] or ''
+    rows = [l.rstrip() for l in res.splitlines() if any(f.rsplit('/', 1)[-1] in l for f in files) or
+            (l.lstrip()[:4] == 'run:')][:8]
+    v, a = answer_of(ss[i]) or ('', '')
+    out = [{'n': i, 'kind': 'answer', 'text': _q({'verb': v, 'arg': a}).strip('`'),
+            'out': '\n'.join(rows)}]
+    for kind, js in (('before', ev_from), ('read', ev_read), ('edit', ev_edit), ('test', ev_test)):
+        for j in sorted(set(js)):
+            tail = ''
+            if kind == 'test':
+                m = re.findall(r'(?:Tests?:|Test Files|=+)?[^\n]*\b\d+ (?:passed|failed)[^\n]*', ss[j]['result'] or '')
+                tail = m[-1].strip(' =')[:160] if m else ('passed' if not ss[j]['error'] else 'failed')
+            out.append({'n': j, 'kind': kind, 'text': brief(ss[j], kind), 'out': tail})
+    return sorted(out, key=lambda x: x['n'])
 
 
 def working_diff(root):
@@ -479,13 +524,13 @@ def line(c):
     q, ed, rd = _q(c), c['edited'], c['read']
     them = lambda fs: 'it' if len(fs) == 1 else 'them'
     if c['label'] == 'Redirected':
-        return (f"Redirected: the agent was in {_names(c['from'])} → {q} showed {_names(ed)} (new to it) "
+        return (f"Redirected: the agent was in {_names(c['from'])} → {q} pointed it to {_names(ed)} directly "
                 f"→ it left those and edited {them(ed)}{_tests(c)}")
     if ed:
         extra = f", read {_names(rd)}" if rd else ''
-        return f"{c['label']}: {q} showed {_names(ed)} (new to the agent) → it edited {them(ed)}{extra}{_tests(c)}"
+        return f"{c['label']}: {q} pointed the agent to {_names(ed)} directly, before it had come across {them(ed)} → it edited {them(ed)}{extra}{_tests(c)}"
     if rd:
-        return f"{c['label']}: {q} showed {_names(rd)} (new to the agent) → it read {them(rd)}{_tests(c)}"
+        return f"{c['label']}: {q} pointed the agent to {_names(rd)} directly, before it had come across {them(rd)} → it read {them(rd)}{_tests(c)}"
     n = c['tests_ran']
     ok = 'all pass' if c['tests_passed'] == n else ''
     return (f"{c['label']}: {q} picked {n} test file{'s' if n > 1 else ''} ({_names(c.get('tests') or [])}) "
@@ -547,7 +592,7 @@ def receipt(fresh, totals=None, turn=None, session=None):
             said.append(l)
     head = '◆ AxiomCode this turn'
     if turn and turn[1]:
-        head += f" · {turn[1]} answer{'s' if turn[1] > 1 else ''} led the agent's work"
+        head += f" · the agent acted on {turn[1]} answer{'s' if turn[1] > 1 else ''}"
     earlier = len({c['answer'] for c in fresh} - set(turn[2] if turn and len(turn) > 2 else []))
     if turn and earlier:
         head += (', and ' if turn[1] else ' · ') + f"{earlier} earlier answer{'s' if earlier > 1 else ''} went further"
@@ -556,7 +601,7 @@ def receipt(fresh, totals=None, turn=None, session=None):
         lines.append(f'  • and {len(said) - 5} more (axiomcode report)')
     if totals and session and session[1] > len({c['answer'] for c in fresh}):
         t = totals
-        lines.append(f"  session: {session[1]} answer{'s' if session[1] > 1 else ''} led the work · " + ', '.join(
+        lines.append(f"  session: the agent acted on {session[1]} answer{'s' if session[1] > 1 else ''} · " + ', '.join(
             f'{t[k]} {k}' for k in ('Redirected', 'Helped', 'Useful') if t.get(k))
             + (f" · {t['_edited']} file{'s' if t['_edited'] > 1 else ''} edited from them" if t.get('_edited') else '')
             + (f" · {t['_tests']} picked test file{'s' if t['_tests'] > 1 else ''} run" if t.get('_tests') else ''))
@@ -569,7 +614,8 @@ def record(root, session, fresh):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, 'a', encoding='utf-8') as f:
             for c in fresh:
-                f.write(json.dumps(dict(c, session=session, at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))) + '\n')
+                f.write(json.dumps(dict(c, session=session, repo=os.path.basename(root.rstrip('/')),
+                                        at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))) + '\n')
     except OSError:
         pass
 
@@ -621,76 +667,198 @@ def at_stop(transcript, root, session):
 # ---- the report -----------------------------------------------------------------------------------------------------
 
 CSS = """
-:root{--bg:#fbfbfa;--fg:#1d1d1b;--mut:#6b6a66;--card:#fff;--line:#e6e4df;--r:#7a3df0;--h:#127a55;--u:#8a6d1f}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--mut:#a3a29c;--card:#1d1d1b;--line:#33322f;--r:#b394ff;--h:#4fd1a1;--u:#e0c063}}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif}
-main{max-width:860px;margin:0 auto;padding:32px 16px}
-h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 24px}
-.tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}
-.tile{flex:1;min-width:140px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-.tile b{display:block;font-size:28px}.tile span{color:var(--mut);font-size:13px}
-.s{margin:28px 0 8px;color:var(--mut);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
-.c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0}
-.l{font-weight:600;font-size:13px}.Redirected{color:var(--r)}.Helped{color:var(--h)}.Useful{color:var(--u)}
-.c p{margin:4px 0 0}.c ol{margin:6px 0 0;padding-left:20px;color:var(--mut);font-size:13px}.c ol b{color:var(--fg);font-weight:600}.tile small{font-size:14px;color:var(--mut)}.c small{color:var(--mut)}code{font:13px ui-monospace,Menlo,monospace}
+:root{--bg:#fafaf8;--fg:#1b1b19;--mut:#66655f;--card:#fff;--line:#e5e3dd;--soft:#f2f1ec;--acc:#2f6fed;--ok:#127a55;--r:#7a3df0;--u:#8a6d1f}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#121211;--fg:#ecebe6;--mut:#a3a29c;--card:#1b1b1a;--line:#302f2c;--soft:#22221f;--acc:#7aa5ff;--ok:#4fd1a1;--r:#b394ff;--u:#e0c063}}
+:root[data-theme=dark]{--bg:#121211;--fg:#ecebe6;--mut:#a3a29c;--card:#1b1b1a;--line:#302f2c;--soft:#22221f;--acc:#7aa5ff;--ok:#4fd1a1;--r:#b394ff;--u:#e0c063}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,system-ui,sans-serif}
+main{max-width:940px;margin:0 auto;padding:40px 16px 80px}
+code,pre{font:12.5px/1.5 ui-monospace,Menlo,monospace}pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;padding:8px 10px;background:var(--soft);border-radius:6px}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);font-weight:700}
+h1{font-size:34px;line-height:1.15;margin:8px 0 12px;letter-spacing:-.01em}h2{font-size:21px;margin:0 0 4px}
+.sec{margin-top:56px}.num{color:var(--mut);font-size:13px;font-weight:600;letter-spacing:.06em}
+.lede{font-size:18px;color:var(--fg);max-width:720px;margin:0 0 24px}.sub{color:var(--mut);margin:0 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}.tile b{display:block;font-size:34px;line-height:1.1}
+.tile span{color:var(--mut);font-size:13.5px}.verified{margin-top:14px;font-size:13.5px;color:var(--ok);font-weight:600}
+.cap{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}.cap b{font-size:26px;color:var(--acc)}
+.cap h3{margin:4px 0 6px;font-size:16px}.cap p{margin:0;color:var(--mut);font-size:14px}
+.case{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:14px 0}
+.case .top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.case .repo{font-size:18px;font-weight:700}.case .q{color:var(--mut);font-size:13.5px}
+.badge{font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--soft);color:var(--ok);white-space:nowrap}
+.tl{list-style:none;margin:14px 0 0;padding:0;counter-reset:s}.tl li{position:relative;padding:0 0 14px 34px;counter-increment:s}
+.tl li:before{content:counter(s);position:absolute;left:0;top:0;width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tl li:after{content:"";position:absolute;left:10.5px;top:24px;bottom:2px;width:1px;background:var(--line)}.tl li:last-child:after{display:none}
+.tl .t{font-weight:600}.tl .d{color:var(--mut);font-size:13.5px}.files{margin:4px 0 0;padding:0;list-style:none}.files li{padding:0!important;counter-increment:none}.files li:before,.files li:after{display:none}
+.pass{color:var(--ok);font-weight:600;font-size:13px}.outcome{margin-top:6px;padding:12px 14px;border-left:3px solid var(--ok);background:var(--soft);border-radius:0 8px 8px 0;font-size:14.5px}
+details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:8px 0}summary{cursor:pointer;padding:12px 14px;list-style:none}
+summary::-webkit-details-marker{display:none}summary .l{font-size:12px;font-weight:700;margin-right:8px}.Redirected{color:var(--r)}.Helped{color:var(--ok)}.Useful{color:var(--u)}
+details .body{padding:0 14px 14px}.ev{border-top:1px solid var(--line);padding:8px 0}.ev .k{display:inline-block;min-width:74px;font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase}
+.ev .n{color:var(--mut);font-size:12px;margin-right:6px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.filters button{font:inherit;font-size:13px;padding:5px 12px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+.filters button.on{background:var(--acc);border-color:var(--acc);color:#fff}.method{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.method h3{font-size:15px;margin:14px 0 4px}.method h3:first-child{margin-top:0}.method ul{margin:4px 0;padding-left:20px}.method p{margin:4px 0}
+@media (max-width:560px){h1{font-size:27px}.tile b{font-size:28px}}
 """
 
+KIND = {'answer': 'asked', 'before': 'before', 'read': 'read', 'edit': 'edited', 'test': 'ran tests'}
 
-def _steps_html(r):
-    """a chain as its links, each one checkable: what the answer gave, what the agent did, what came of it"""
+
+def _caps(r):
+    """which of the three ways a chain shows: found files first, connected a change across files, tests run"""
+    c = set()
+    if r.get('edited') or r.get('read'):
+        c.add('found')
+    if r['verb'] in ('impact', 'path') and len((r.get('edited') or []) + (r.get('read') or [])) > 1 or \
+            (r['verb'] == 'note' and r.get('arg') == 'PostToolUse') or r.get('from'):
+        c.add('connected')
+    if r.get('tests_passed'):
+        c.add('tests')
+    return c
+
+
+def _score(r):
+    return 4 * len(r.get('edited') or []) + len(r.get('read') or []) + min(r.get('tests_passed', 0), 3) + \
+        (6 if r['label'] == 'Redirected' else 0)
+
+
+def _story(r):
+    """the featured timeline: what was asked, what the answer named first, what the agent then did, and what came of it"""
     e = html.escape
-    out = [f"<li><b>asked</b> <code>{e(_q(r).strip('`'))}</code></li>"]
+    ed, rd, n = r.get('edited') or [], r.get('read') or [], len(r.get('edited') or []) + len(r.get('read') or [])
+    fl = lambda fs: '<ul class=files>' + ''.join(f'<li><code>{e(f)}</code></li>' for f in fs) + '</ul>'
+    st = []
     if r.get('from'):
-        out.append(f"<li><b>before</b> the agent was in {e(', '.join(r['from']))}</li>")
-    gave = (r.get('edited') or []) + (r.get('read') or [])
-    if gave:
-        out.append(f"<li><b>showed</b> {e(', '.join(gave))}, new to the agent</li>")
-    if r.get('edited'):
-        out.append(f"<li><b>edited</b> {e(', '.join(r['edited']))} (kept in the working tree)</li>")
-    if r.get('read'):
-        out.append(f"<li><b>read</b> {e(', '.join(r['read']))}</li>")
+        st.append(f"<li><div class=t>The agent was working in other files</div>{fl(r['from'])}</li>")
+    st.append(f"<li><div class=t>The agent queried AxiomCode</div><code>{e(_q(r).strip('`'))}</code></li>")
+    if n:
+        word = {1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five'}.get(n, str(n))
+        st.append(f"<li><div class=t>AxiomCode identified {word} file{'s' if n > 1 else ''} the agent had not yet "
+                  f"come across</div>{fl(ed + rd)}</li>")
+    if ed:
+        whole = len(ed) == n
+        st.append(f"<li><div class=t>The agent edited {('all ' + str(len(ed)) + ' of them' if len(ed) > 2 else ('both' if len(ed) == 2 else 'it')) if whole else _names(ed)}"
+                  f"{' and read ' + _names(rd) if rd else ''}</div><div class=d>The edits remained in the working tree.</div></li>")
+    elif rd:
+        st.append(f"<li><div class=t>The agent read {'them' if len(rd) > 1 else 'it'}</div></li>")
     if r.get('tests_ran'):
-        t = ', '.join(r.get('tests') or []) or f"{r['tests_ran']} file(s)"
-        ok = r['tests_passed'] == r['tests_ran']
-        out.append(f"<li><b>ran</b> the picked tests {e(t)}" + (" → all pass" if ok else '') + "</li>")
-    return '<ol>' + ''.join(out) + '</ol>'
+        ok = set(r.get('tests') or []) - set(r.get('tests_failed') or [])
+        st.append("<li><div class=t>The agent ran the tests AxiomCode selected</div><ul class=files>" + ''.join(
+            f"<li><code>{e(f.rsplit('/', 1)[-1])}</code> <span class=pass>passed</span></li>" for f in sorted(ok)) + '</ul></li>')
+    out = []
+    if n:
+        out.append(f"AxiomCode identified {n} file{'s' if n > 1 else ''} before the agent encountered "
+                   f"{'them' if n > 1 else 'it'}")
+    if ed:
+        out.append(f"the agent edited {('all ' + str(len(ed)) if len(ed) > 2 else ('both' if len(ed) == 2 else 'it')) if len(ed) == n else _names(ed)}"
+                   + (f" and read {_names(rd)}" if rd else ''))
+    elif rd:
+        out.append('the agent read ' + ('them' if len(rd) > 1 else 'it'))
+    if r.get('tests_passed'):
+        k = r['tests_passed']
+        out.append(f"then ran {k} selected test file{'s' if k > 1 else ''} successfully")
+    txt = ', '.join(out)
+    return '<ol class=tl>' + ''.join(st) + '</ol>' + (f"<div class=outcome><b>Observed outcome.</b> {e(txt[0].upper() + txt[1:])}.</div>" if txt else '')
+
+
+def _evidence(r):
+    """every link as the session record shows it, by sequence number"""
+    e = html.escape
+    out = []
+    for x in r.get('trail') or []:
+        o = f"<pre>{e(x['out'])}</pre>" if x.get('out') else ''
+        out.append(f"<div class=ev><span class=n>#{x['n']}</span><span class=k>{KIND.get(x['kind'], x['kind'])}</span>"
+                   f"<code>{e(x['text'])}</code>{o}</div>")
+    return ''.join(out) or '<div class=ev>Evidence ids: ' + e(json.dumps(r.get('evidence'))) + '</div>'
 
 
 def report(root):
     rows = sorted(_best(_load(root)).values(), key=lambda r: r.get('at') or '', reverse=True)
-    t = {}
-    for r in rows:
-        t[r['label']] = t.get(r['label'], 0) + 1
+    e = html.escape
     sessions = {}
     for r in rows:
         sessions.setdefault(r.get('session') or '?', []).append(r)
     edited = {(r.get('session'), f) for r in _load(root) for f in r.get('edited') or []}
     tests = {(r.get('session'), f) for r in _load(root) for f in r.get('tests') or [] if f not in (r.get('tests_failed') or [])}
-    e = html.escape
-    body = [f"<h1>Where AxiomCode helped</h1><p class=sub>{e(os.path.basename(os.path.abspath(root)))} · "
-            f"{len(sessions)} session(s). Every line is read from the session record, not from what the agent wrote: "
-            "an answer named a file the agent had not seen, and the agent then read or changed it, or ran the tests it "
-            "picked.</p><div class=tiles>"]
-    ne, nt = len({f for _, f in edited}), len({f for _, f in tests})
-    for v, k in ((len(rows), f"answer{'s' if len(rows) != 1 else ''} that led the agent's work"),
-                 (ne, f"file{'s' if ne != 1 else ''} edited that an answer showed first"),
-                 (nt, f"test file{'s' if nt != 1 else ''} it picked, run and passing")):
+    ns, ne, nt = len(sessions), len({f for _, f in edited}), len({f for _, f in tests})
+    caps = {k: [r for r in rows if k in _caps(r)] for k in ('found', 'connected', 'tests')}
+    pl = lambda n, w: f"{n} {w}{'s' if n != 1 else ''}"
+    body = [f"<div class=num>01</div><div class=eyebrow>AxiomCode · agent impact report</div><h1>From code understanding to verified agent actions.</h1>"
+            f"<p class=lede>Across {pl(ns, 'coding session')}, AxiomCode identified files agents had not yet explored, "
+            f"guided the edits that followed, and selected tests the agents ran and passed.</p><div class=grid>"]
+    for v, k in ((ns, 'Coding sessions'), (len(rows), 'Answers the agent acted on'), (ne, 'Previously unseen files edited'),
+                 (nt, 'Selected test files passing')):
         if v:
             body.append(f"<div class=tile><b>{v}</b><span>{k}</span></div>")
-    body.append('</div><div class=tiles>')
-    for k in ('Redirected', 'Helped', 'Useful'):
-        if t.get(k):                              # only what happened: a label no chain earned is not shown
-            body.append(f"<div class=tile><b class={k}>{t[k]}</b><span>{k}</span></div>")
-    body.append('</div>')
+    body.append("</div><div class=verified>✓ Verified against recorded agent actions, not agent self-reports.</div>")
+
+    body.append("<section class=sec><div class=num>02</div><h2>How AxiomCode influenced agent behavior</h2>"
+                "<p class=sub>Each answer below is counted under every way it showed.</p><div class=grid>")
+    for k, t, d in (('found', 'Found relevant files before the agent discovered them',
+                     'AxiomCode named code locations the agent had not yet encountered; the agent then inspected or edited them.'),
+                    ('connected', 'Connected changes across the codebase',
+                     'Impact and path answers, and the check after each edit, named related implementation files and tests, '
+                     'moving the agent beyond where it started.'),
+                    ('tests', 'Turned analysis into test execution',
+                     'Agents ran the tests AxiomCode selected, and those runs passed.')):
+        if caps[k]:
+            body.append(f"<div class=cap><b>{len(caps[k])}</b><h3>{t}</h3><p>{d}</p></div>")
+    body.append('</div></section>')
+
+    feat, seen = [], set()
+    for r in sorted(rows, key=_score, reverse=True):
+        if r.get('session') in seen or not (r.get('edited') or r.get('read')):
+            continue
+        feat.append(r); seen.add(r.get('session'))
+        if len(feat) == 3:
+            break
+    if feat:
+        body.append("<section class=sec><div class=num>03</div><h2>Featured evidence</h2>"
+                    "<p class=sub>The strongest chains, each read step by step from the session record.</p>")
+        for r in feat:
+            badge = 'Observed edit + tests passed' if r.get('edited') and r.get('tests_passed') else (
+                'Observed edit' if r.get('edited') else 'Observed read')
+            body.append(f"<div class=case><div class=top><div><div class=repo>{e(r.get('repo') or '')}</div>"
+                        f"<div class=q>{e({'impact': 'Impact analysis', 'path': 'Call path', 'context': 'Code context', 'tests': 'Test selection', 'note': 'Graph note'}.get(r['verb'], r['verb']))}"
+                        f" · <code>{e(_q(r).strip('`'))}</code></div></div><span class=badge>{badge}</span></div>{_story(r)}"
+                        f"<details><summary>Show the recorded actions</summary><div class=body>{_evidence(r)}</div></details></div>")
+        body.append('</section>')
+
+    body.append("<section class=sec><div class=num>04</div><h2>All verified sessions</h2>"
+                "<p class=sub>Open any answer to see the query, AxiomCode's rows, and each later action with its sequence "
+                "number in the session.</p><div class=filters>"
+                "<button class=on data-f=all>All</button><button data-f=edited>Edits</button><button data-f=read>Reads</button>"
+                "<button data-f=tests>Tests passed</button></div>")
     for s, rs in sessions.items():
-        body.append(f"<div class=s>session {e(s[:8])} · {e((rs[-1].get('at') or '')[:16].replace('T', ' '))}"
-                    + f" · {len(rs)} answer{'s' if len(rs) > 1 else ''} led the work</div>")
         for r in rs:
-            body.append(f"<div class=c><span class='l {r['label']}'>{r['label']}</span>"
-                        f"<p>{re.sub(r'`([^`]+)`', r'<code>\1</code>', e(line(r).split(': ', 1)[1]))}</p>"
-                        f"{_steps_html(r)}</div>")
+            tags = ' '.join(t for t, ok in (('edited', r.get('edited')), ('read', r.get('read')), ('tests', r.get('tests_passed'))) if ok)
+            body.append(f"<details data-t='{tags}'><summary><span class='l {r['label']}'>{r['label']}</span>"
+                        f"<b>{e(r.get('repo') or s[:8])}</b> · "
+                        f"{re.sub(r'`([^`]+)`', r'<code>\1</code>', e(line(r).split(': ', 1)[1]))}</summary>"
+                        f"<div class=body>{_evidence(r)}</div></details>")
+    body.append('</section>')
+
+    body.append("""<section class=sec><div class=num>05</div><h2>Measured from agent actions, not agent claims</h2>
+<div class=method><h3>An answer is credited only when all of these hold in the session record</h3><ul>
+<li>The AxiomCode answer named a file (as a place: a path or <code>file:line</code>) before any earlier prompt, tool call,
+tool output or reply had named it.</li>
+<li>The task had not already named what that row is about; a function the issue names is the task's lead, not AxiomCode's.</li>
+<li>Afterwards the agent read or edited that file, or ran a test file the answer selected.</li>
+<li>Edits are confirmed in the working tree when the turn ends; test runs and their results come from the tool output.</li></ul>
+<h3>Labels are assigned mechanically</h3><ul>
+<li><b class=Helped>Helped</b>: a file the answer named first was edited and the edit was kept, or the tests a test-selection
+answer picked ran and passed.</li>
+<li><b class=Useful>Useful</b>: a file the answer named first was read, or tests it picked were run, without an edit from it.</li>
+<li><b class=Redirected>Redirected</b>: Helped, and before the answer the agent had been reading or editing two or more other files
+that it never returned to and did not change.</li></ul>
+<h3>Scope</h3><p>This report shows that AxiomCode's answers were followed by these agent actions. It does not measure what the
+agent would have done without them, or whether the edits were correct; a passing test supports only that the selected test
+run passed.</p></div></section>""")
+    js = ("<script>document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>{"
+          "document.querySelectorAll('.filters button').forEach(x=>x.classList.toggle('on',x===b));const f=b.dataset.f;"
+          "document.querySelectorAll('details[data-t]').forEach(d=>d.style.display=(f==='all'||d.dataset.t.split(' ').includes(f))?'':'none')})</script>")
     page = (f"<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>AxiomCode assists</title><style>{CSS}</style></head><body><main>{''.join(body)}</main></body></html>")
+            f"<title>Agent Impact Report</title><style>{CSS}</style></head><body><main>{''.join(body)}</main>{js}</body></html>")
     out = os.path.join(root, '.axiomcode', 'assists.html')
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, 'w', encoding='utf-8') as f:

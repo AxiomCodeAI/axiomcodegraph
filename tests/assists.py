@@ -153,6 +153,10 @@ check('the line names the picked test file and its result', 'test_alpha.py' in A
 r = repo()
 t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axiomcode__tests', {}, TESTS_A)
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, 'Exit code 1\n1 failed', error=True))
+r = repo()
+t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axiomcode__tests', {}, TESTS_A)
+     .call('Bash', {'command': 'pytest tests/test_alpha.py -q; echo done'}, '1 failed, 3 passed\ndone'))
+check('a run that exits 0 but reports failures is not a pass', [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
 check('picked tests that failed are only Useful', [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
 
 # --- a test file named twice in one answer (bare, and with its directory) is one test file
@@ -162,6 +166,9 @@ t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axio
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 passed'))
 c = found(t, r)
 check('a test file named twice is counted once', c and c[0]['tests_ran'] == 1 and c[0]['tests'] == ['tests/test_alpha.py'], c)
+
+check('a test runner config beside the tests is not a test file', not A.TEST_FILE.search('test/jest.config.js')
+      and A.TEST_FILE.search('test/registry.test.ts') and A.TEST_FILE.search('tests/test_alpha.py'))
 
 # --- a test file the agent already knew of is not picked by an impact answer; a tests answer picks what it names
 r = repo()
@@ -251,6 +258,9 @@ ROWS = '1. src/pkg/beta.py:3  [resolved · Beta.go]\n2. src/pkg/gamma.py:7  [res
 r = repo(); change(r, 'src/pkg/beta.py'); change(r, 'src/pkg/gamma.py')
 t = (T(r).prompt('fix `Beta.go` so it stops').call(MCP, {'name': 'Alpha.run'}, ROWS)
      .edit('src/pkg/beta.py').edit('src/pkg/gamma.py'))
+r2 = repo(); change(r2, 'src/pkg/beta.py')
+t2 = T(r2).prompt('`getBeta` returns the wrong value').call(MCP, {'name': 'Alpha.run'}, '1. src/pkg/beta.py:3  [resolved · getBeta]').edit('src/pkg/beta.py')
+check('a camelCase name the task gave is the task\'s lead too', found(t2, r2) == [], found(t2, r2))
 check('a row about a name the task gave is not credited; the other row is', [x['edited'] for x in found(t, r)] == [['src/pkg/gamma.py']], found(t, r))
 r = repo(); change(r, 'src/pkg/beta.py')
 t = (T(r).prompt('add a flag to `Alpha.run`').call(MCP, {'name': 'Alpha.run'},
@@ -293,7 +303,7 @@ h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=jso
 msg = json.loads(h.stdout).get('systemMessage', '') if h.stdout.strip() else ''
 check('the Stop hook prints the receipt as a message for the user', h.returncode == 0 and msg.startswith('◆ AxiomCode') and 'Helped' in msg,
       (h.returncode, h.stdout, h.stderr))
-check('it counts the answers that led the work, never those that did not', '1 answer led' in msg and ' of ' not in msg.splitlines()[0], msg)
+check('it counts the answers that led the work, never those that did not', 'acted on 1 answer' in msg and ' of ' not in msg.splitlines()[0], msg)
 
 # --- two answers, one acted on: the count says so; a later turn that only grows an earlier chain says that instead
 r = repo(); change(r, 'src/pkg/alpha.py')
@@ -302,10 +312,12 @@ t = (T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A
 first = A.at_stop(t.save(), r, 's4')
 t.prompt('now fix it').edit('src/pkg/alpha.py')
 later = A.at_stop(t.save(), r, 's4')
-check('one of two answers acted on counts only the one', '1 answer led' in first and ' of 2' not in first, first)
+check('one of two answers acted on counts only the one', 'acted on 1 answer' in first and ' of 2' not in first, first)
 check('a turn that only grows an earlier chain names it as earlier', 'earlier answer went further' in later and 'Helped' in later, later)
 page = open(A.report(r)[0]).read()
-check('the report counts answers asked and the files and tests behind them', ' of 2' not in page and '<b>edited</b>' in page, page[:300])
+check('the report has no unfilled template text', '\\1' not in page and "{'" not in page and "'}" not in page and ' if ' not in page, page[:300])
+check('the report counts answers asked and the files and tests behind them', ' of 2' not in page and 'Previously unseen files edited' in page and '<span class=k>edited</span>' in page
+      and 'Featured evidence' in page and 'Measured from agent actions' in page, page[:300])
 ev['session_id'] = 's3'
 h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True, text=True,
                    env=dict(os.environ, AXIOMCODE_ASSISTS='off'))
