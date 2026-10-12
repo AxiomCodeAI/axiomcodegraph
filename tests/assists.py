@@ -35,11 +35,13 @@ class T:
         self.lines.append({'type': 'user', 'message': {'role': 'user', 'content': text}})
         return self
 
-    def call(self, name, inp, result='', error=False, side=False):
+    def call(self, name, inp, result='', error=False, side=False, mid=None):
+        """mid: a message id shared with other calls, for calls sent together in one message"""
         self.n += 1
         tid = f'toolu_{self.n:03d}'
         self.lines.append({'type': 'assistant', 'isSidechain': side,
-                           'message': {'role': 'assistant', 'content': [{'type': 'tool_use', 'id': tid, 'name': name, 'input': inp}]}})
+                           'message': {'role': 'assistant', 'id': mid or f'msg_{self.n:03d}',
+                                       'content': [{'type': 'tool_use', 'id': tid, 'name': name, 'input': inp}]}})
         self.lines.append({'type': 'user', 'isSidechain': side,
                            'message': {'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': tid,
                                                                     'content': result, 'is_error': error}]}})
@@ -295,16 +297,55 @@ out, n = A.report(r)
 page = open(out).read()
 check('the report renders the session\'s chains', n == 1 and 'Helped' in page and '<code>impact Alpha.run</code>' in page, (out, n))
 
-# --- the hook end to end: a Stop event in, a message for the user out; switched off, nothing
+# --- calls sent in one message go out before any answer comes back: a file read alongside the query was not shown by it
+r = repo(); change(r, 'src/pkg/alpha.py')
+t = (T(r).prompt('fix the bug').call(MCP, {'name': 'Alpha.run'}, IMPACT_A, mid='m1')
+     .call('Bash', {'command': 'cat src/pkg/alpha.py'}, 'contents', mid='m1').edit('src/pkg/alpha.py'))
+got = A.chains(A.steps(t.save()), r)
+check('a file read in the same message as the query is not credited to its answer', not got, got)
+t = (T(r).prompt('fix the bug').call(MCP, {'name': 'Alpha.run'}, IMPACT_A, mid='m1')
+     .call('Bash', {'command': 'cat src/pkg/alpha.py'}, 'contents', mid='m2').edit('src/pkg/alpha.py'))
+got = A.chains(A.steps(t.save()), r)
+check('control: the same read in the next message is', [c['label'] for c in got] == ['Helped'], got)
+
+# --- the hook end to end: a Stop event in, the receipt handed back to the agent, which ends its reply with it; when
+# the reply does not carry it, the second stop shows it as a message instead; switched off, nothing
+def hook(ev, **env):
+    h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True,
+                       text=True, env=dict(os.environ, **env))
+    return h, (json.loads(h.stdout) if h.stdout.strip() else {})
+
+
+def handed_back(t, reason, reply):
+    t.lines.append({'type': 'user', 'isMeta': True, 'message': {'role': 'user', 'content': 'Stop hook feedback:\n' + reason}})
+    t.lines.append({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': reply}]}})
+    return t.save()
+
+
 r = repo(); change(r, 'src/pkg/alpha.py')
 t = T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A).edit('src/pkg/alpha.py')
 ev = {'hook_event_name': 'Stop', 'session_id': 's2', 'transcript_path': t.save(), 'cwd': r, 'stop_hook_active': False}
-h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True, text=True)
-msg = json.loads(h.stdout).get('systemMessage', '') if h.stdout.strip() else ''
-check('the Stop hook prints the receipt as a message for the user', h.returncode == 0 and msg.startswith('◆ AxiomCode') and 'Helped' in msg,
-      (h.returncode, h.stdout, h.stderr))
+h, out = hook(ev)
+reason = out.get('reason', '')
+msg = reason[reason.find('◆ AxiomCode'):]
+check('the Stop hook hands the receipt back to the agent to end its reply with', h.returncode == 0 and out.get('decision') == 'block'
+      and msg.startswith('◆ AxiomCode') and 'Helped' in msg and 'exactly as written' in reason, (h.returncode, h.stdout, h.stderr))
 check('the Stop hook rebuilds the report and links it', 'report: file://' in msg and os.path.isfile(os.path.join(r, '.axiomcode', 'assists.html')), msg)
 check('it counts the answers that led the work, never those that did not', 'acted on 1 answer' in msg and ' of ' not in msg.splitlines()[0], msg)
+h2, out2 = hook(dict(ev, stop_hook_active=True, transcript_path=handed_back(t, reason, 'Done.\n\n```\n' + msg + '\n```')))
+check('a reply that quotes the receipt ends the turn with nothing more', h2.returncode == 0 and out2 == {}, h2.stdout)
+check('the hand-back is not a prompt, so a later turn still credits by the task alone',
+      [s['kind'] for s in A.steps(t.save())].count('prompt') == 1, A.steps(t.save()))
+r = repo(); change(r, 'src/pkg/alpha.py')
+t = T(r).prompt('fix the bug in run').call(MCP, {'name': 'Alpha.run'}, IMPACT_A).edit('src/pkg/alpha.py')
+ev = dict(ev, session_id='s5', transcript_path=t.save(), cwd=r)
+h, out = hook(ev)
+reason = out.get('reason', '')
+msg = reason[reason.find('◆ AxiomCode'):]
+h2, out2 = hook(dict(ev, stop_hook_active=True, transcript_path=handed_back(t, reason, 'AxiomCode helped a lot here.')))
+check('a reply that drops or rewrites the receipt gets it shown as a message instead', out2.get('systemMessage') == msg, (h2.stdout, msg))
+h3, out3 = hook(dict(ev, stop_hook_active=True))
+check('the second stop happens once: a third is silent', out3 == {}, h3.stdout)
 
 # --- two answers, one acted on: the count says so; a later turn that only grows an earlier chain says that instead
 r = repo(); change(r, 'src/pkg/alpha.py')
@@ -319,9 +360,7 @@ page = open(A.report(r)[0]).read()
 check('the report has no unfilled template text', '\\1' not in page and "{'" not in page and "'}" not in page and ' if ' not in page, page[:300])
 check('the report counts answers asked and the files and tests behind them', ' of 2' not in page and 'Previously unseen files edited' in page and '<span class=k>edited</span>' in page
       and 'Featured evidence' in page and 'Measured from agent actions' in page, page[:300])
-ev['session_id'] = 's3'
-h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input=json.dumps(ev), capture_output=True, text=True,
-                   env=dict(os.environ, AXIOMCODE_ASSISTS='off'))
+h, _ = hook(dict(ev, session_id='s3'), AXIOMCODE_ASSISTS='off')
 check('AXIOMCODE_ASSISTS=off prints nothing', h.returncode == 0 and not h.stdout.strip(), h.stdout)
 h = subprocess.run([sys.executable, os.path.join(HOOKS, 'assist.py')], input='{"hook_event_name":"Stop"}', capture_output=True, text=True)
 check('a Stop event with no transcript is silent and never fails', h.returncode == 0 and not h.stdout.strip(), (h.returncode, h.stdout))

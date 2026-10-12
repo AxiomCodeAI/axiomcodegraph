@@ -170,8 +170,9 @@ def steps(transcript):
                 if x.get('type') == 'text' and x.get('text'):
                     out.append({'kind': 'reply', 'text': x['text'], 'ts': ts})
                 elif x.get('type') == 'tool_use':
+                    # mid: the calls of one message go out together, before any of their answers is seen
                     s = {'kind': 'call', 'id': x.get('id'), 'name': x.get('name') or '', 'input': x.get('input') or {},
-                         'result': '', 'error': False, 'ts': ts}
+                         'result': '', 'error': False, 'ts': ts, 'mid': msg.get('id')}
                     calls[s['id']] = s
                     out.append(s)
     return out
@@ -322,6 +323,12 @@ def _hit(f, files):
 
 # ---- the chains -----------------------------------------------------------------------------------------------------
 
+def _batch(ss, i):
+    """the call at i and the calls sent in the same message"""
+    m = ss[i].get('mid')
+    return [x for x in ss if x['kind'] == 'call' and x.get('mid') == m] if m else [ss[i]]
+
+
 def chains(ss, root, diff=None):
     """every chain the session holds. `diff`: the files changed in the working tree now (None: not known, an edit
     counts as kept)."""
@@ -341,7 +348,8 @@ def chains(ss, root, diff=None):
         if a:
             answers[i] = a
             verb = a[0]
-            for f in paths_in(json.dumps(s['input'], ensure_ascii=False), root):
+            # what this call and the calls sent with it name, the agent named before it saw the answer
+            for f in paths_in(' '.join(json.dumps(x['input'], ensure_ascii=False) for x in _batch(ss, i)), root):
                 seen_full.add(f)
                 seen_base.add(f.rsplit('/', 1)[-1])
             res = s['result'] or ''
@@ -373,6 +381,8 @@ def chains(ss, root, diff=None):
             seen_base.add(f.rsplit('/', 1)[-1])
 
     acts = [(i, k, fs) for i, s in enumerate(ss) for k, fs in touched(s, root)]
+    # j acted on the answer at i only when it was sent after i's answer came back, not alongside the call
+    sent_after = lambda j, i: j > i and not (ss[i].get('mid') and ss[j].get('mid') == ss[i].get('mid'))
     edits_at = {j for j, k, fs in acts if k == 'edit'}
     ids = lambda js: [ss[j]['id'] for j in js]
     out = []
@@ -387,8 +397,8 @@ def chains(ss, root, diff=None):
         tests_named = {f for f in tests_named if not any(g != f and g.endswith('/' + f) for g in tests_named)}
         read, edited, ev_read, ev_edit = [], [], [], []
         for f in shown:
-            r = [j for j, k, fs in acts if k == 'read' and j > i and _hit(f, fs)]
-            e = [j for j, k, fs in acts if k == 'edit' and j > i and _hit(f, fs)]
+            r = [j for j, k, fs in acts if k == 'read' and sent_after(j, i) and _hit(f, fs)]
+            e = [j for j, k, fs in acts if k == 'edit' and sent_after(j, i) and _hit(f, fs)]
             kept = diff is None or _hit(f, diff)
             if e and kept:
                 edited.append(f); ev_edit += e; ev_read += r
@@ -397,7 +407,7 @@ def chains(ss, root, diff=None):
         # the answer's picked tests: a later test command that names one of them
         ran, passed, ev_test = set(), set(), []
         for j, k, fs in acts:
-            if k == 'test' and j > i:
+            if k == 'test' and sent_after(j, i):
                 hit = {t for t in tests_named if _hit(t, fs) and (j, t) not in claimed}
                 claimed |= {(j, t) for t in hit}
                 if hit:
