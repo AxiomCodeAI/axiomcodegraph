@@ -146,6 +146,14 @@ t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axio
      .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, 'Exit code 1\n1 failed', error=True))
 check('picked tests that failed are only Useful', [x['label'] for x in found(t, r)] == ['Useful'], found(t, r))
 
+# --- a test file named twice in one answer (bare, and with its directory) is one test file
+r = repo()
+t = (T(r).prompt('which tests cover my change').call('mcp__plugin_axiomcode_axiomcode__tests', {},
+                                                      TESTS_A + '\nrun: pytest test_alpha.py')
+     .call('Bash', {'command': 'pytest tests/test_alpha.py -q'}, '1 passed'))
+c = found(t, r)
+check('a test file named twice is counted once', c and c[0]['tests_ran'] == 1 and c[0]['tests'] == ['tests/test_alpha.py'], c)
+
 # --- a test file the agent already knew of is not picked by an impact answer; a tests answer picks what it names
 r = repo()
 IMPACT_T = IMPACT_A + '\ntests:\n   tests/test_alpha.py:5  test_run  [test]'

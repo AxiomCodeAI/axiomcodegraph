@@ -317,6 +317,8 @@ def chains(ss, root, diff=None):
         # the tests an answer picked: every test file a test verb names (picking them is its job); for the other verbs
         # only a test file first seen in it, since a test the agent already knew of was not picked by the answer
         tests_named = {f for f in named if TEST_FILE.search(f) and (verb in ('tests', 'test-impact') or f in shown)}
+        # one file named twice (`test_x.py` in a run line, `tests/test_x.py` in a row) is one test file
+        tests_named = {f for f in tests_named if not any(g != f and g.endswith('/' + f) for g in tests_named)}
         read, edited, ev_read, ev_edit = [], [], [], []
         for f in shown:
             r = [j for j, k, fs in acts if k == 'read' and j > i and _hit(f, fs)]
@@ -614,9 +616,10 @@ def report(root):
             f"{len(sessions)} session(s). Every line is read from the session record, not from what the agent wrote: "
             "an answer named a file the agent had not seen, and the agent then read or changed it, or ran the tests it "
             "picked.</p><div class=tiles>"]
-    for v, k in ((len(rows), 'answers that led the agent\'s work'),
-                 (len({f for _, f in edited}), 'files edited that an answer showed first'),
-                 (len({f for _, f in tests}), 'test files it picked, run and passing')):
+    ne, nt = len({f for _, f in edited}), len({f for _, f in tests})
+    for v, k in ((len(rows), f"answer{'s' if len(rows) != 1 else ''} that led the agent's work"),
+                 (ne, f"file{'s' if ne != 1 else ''} edited that an answer showed first"),
+                 (nt, f"test file{'s' if nt != 1 else ''} it picked, run and passing")):
         if v:
             body.append(f"<div class=tile><b>{v}</b><span>{k}</span></div>")
     body.append('</div><div class=tiles>')
