@@ -123,6 +123,13 @@ With them, a call into a dependency resolves to its declaration and a chain is t
 types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is
 not found this way.
 
+## report
+
+At the end of each turn the plugin prints, under your reply, where an answer verifiably led your work: a file the
+answer showed first that you then read or edited, or the tests it picked that you ran (Redirected / Helped / Useful).
+It is read from the session's tool calls, not from what you write, so there is nothing to claim yourself.
+`axiomcode report` renders every recorded chain as one page, `.axiomcode/assists.html`.
+
 ## What it cannot see — say so instead of guessing
 
 Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library; what a

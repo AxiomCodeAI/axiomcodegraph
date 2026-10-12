@@ -17,6 +17,9 @@
 #       labelled [asserted]. Alone, lists every link and whether the graph took it; `link <file:line> -` removes one.
 #   axiomcode index [<repo>] [--lang <lang>[,<lang>…]] [--src <subdir>] [--library <root>[,<root>…]]
 #       build the graph (the first query builds it too). <repo> defaults to the current directory.
+#   axiomcode report [<repo>]
+#       where an answer verifiably helped: every Redirected / Helped / Useful chain the end-of-turn receipts recorded,
+#       as one HTML page (.axiomcode/assists.html).
 #
 # Names are written as in the code: Owner.method, function, Type, or file.py:123. `axiomcode help <verb>` for one verb.
 
@@ -114,7 +117,7 @@ public_verbs(){ helptext | sed -n 's/^  axiomcode \([a-z][a-z-]*\).*/\1/p'; }
 # leading comment block. The verb documents itself once, where it is implemented.
 verbhelp(){
   # a verb of the small surface is explained by its own entry in the help above: what it answers, no options
-  case "$1" in impact|path|tests|link)
+  case "$1" in impact|path|tests|link|report)
     helptext | awk -v v="$1" '$0 ~ "^  axiomcode "v"( |$)" {on=1; print; next} on && /^  axiomcode / {exit} on && /^$/ {exit} on {print}'
     return 0 ;;
   esac
@@ -234,6 +237,7 @@ case "$cmd" in
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   link) exec python3 "$H/axiomcode-link" ${ARGS[@]+"${ARGS[@]}"} ;;
+  report) exec python3 "$H/ax_assists.py" report ${ARGS[@]+"${ARGS[@]}"} ;;
   --verbs) verbs ;;                      # the dispatch table, internal verbs included; tests/surfaces.py audits it
   ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
   *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: $(public_verbs | tr '\n' ' ')" >&2
