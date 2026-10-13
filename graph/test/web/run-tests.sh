@@ -68,6 +68,8 @@ oracle_rows() {
 }
 
 mkdir -p "$WORK"
+# ask_words <ask step>: the step split into shell words, one per line; non-zero when it does not parse
+ask_words() { ( eval "set -- $1" 2>/dev/null || exit 2; printf '%s\n' "$@" ) ; }
 # Preflight: a fixture file git ignores is missing from every clone, and the case then passes or fails on a
 # tree nobody reviewed (the root .gitignore drops target/, dist/, lib/, oracle/ … by name). Refuse to run.
 if git -C "$HERE" rev-parse --git-dir >/dev/null 2>&1; then
@@ -107,6 +109,15 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
       [ $link_ok = 1 ] && node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/o" --walk=parser 2>>"$qd/log" && python3 "$HERE/tools/query_oracle.py" "$qd/o/rows.tsv" "$d/questions.tsv" "$qd/q" --link-rows="$qd" 2>>"$qd/log" \
         || { echo "FAIL (query oracle — see $qd/log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
       expd="$HERE/expected/$rel"; nq=0; bad=0
+      # self-check: every ask step parses as shell words (an unquoted `var(--x)` once failed the whole case)
+      while IFS=$'\t' read -r pq _t _g _s _r _f pask _d; do
+        case "$pq" in ''|'#'*) continue;; esac
+        while IFS= read -r pstep; do
+          [ -n "$pstep" ] || continue
+          ask_words "$pstep" >/dev/null 2>&1 || { bad=$((bad+1)); echo; printf '    %s: ask does not parse as shell words: %s' "$pq" "$pstep"; }
+        done < <(printf '%s\n' "$pask" | sed 's/ ;; /\
+/g')
+      done < "$d/questions.tsv"
       for qf in "$qd"/q/*.tsv; do
         qn=$(basename "$qf"); nq=$((nq+1))
         if [ "$BLESS" = "1" ]; then
@@ -196,7 +207,12 @@ for rel in "${CASES[@]}"; do
       rc=1; step=0; link_fail=""
       while IFS= read -r part; do
         [ -n "$part" ] || continue
-        step=$((step+1)); eval "set -- $part"
+        step=$((step+1))
+        # a step that does not parse as shell words is THIS question's FAIL, never the case's crash
+        if ! ask_words "$part" >/dev/null 2>"$w/$qid.parse"; then
+          echo "  ask does not parse: $part ($(head -1 "$w/$qid.parse"))" >"$w/$qid.grade"; rc=1; link_fail="$part"; break
+        fi
+        eval "set -- $part"
         if [ "$1" = link ]; then
           (cd "$repo" && AXIOMCODE_NO_REFRESH=1 bash "$ROOT/bin/axiomcode" "$@" --json </dev/null) >"$w/$qid.step$step.json" 2>"$w/$qid.step$step.err" || link_fail="$part"
           continue

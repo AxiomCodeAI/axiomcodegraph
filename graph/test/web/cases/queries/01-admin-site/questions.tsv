@@ -6,9 +6,9 @@ Q4	elements carrying class C	SET	web	carries	at	impact .card	carries_class card
 Q5	rules mentioning class C	SET	web	selectors	at	impact .card	rules_class card
 Q6	elements selector X matches on P	SET>=	web	styled	at	impact ".card .title" --in index.html	styled_by_selector index.html|.card .title
 Q7	selectors in S matching nothing	SET	web	unmatched	at	impact css/app.css	unmatched css/app.css
-Q8d	where --x is defined	SET	web	defines	at	impact var(--brand)	var_defines --brand
-Q8u	where --x is used	SET	web	uses	at	impact var(--brand)	var_uses --brand
-Q9	elements on P affected by --x	SET>=	web	affects	at	impact var(--gap) --in index.html	var_affects index.html|--gap
+Q8d	where --x is defined	SET	web	defines	at	impact 'var(--brand)'	var_defines --brand
+Q8u	where --x is used	SET	web	uses	at	impact 'var(--brand)'	var_uses --brand
+Q9	elements on P affected by --x	SET>=	web	affects	at	impact 'var(--gap)' --in index.html	var_affects index.html|--gap
 Q10d	where @keyframes k is defined	SET	web	defines	at	impact "@keyframes pulse"	keyframes_defines pulse
 Q10u	rules using @keyframes k (vendor forms too)	SET	web	uses	at	impact "@keyframes pulse"	keyframes_uses pulse
 Q11d	@font-face declaring family f	SET	web	defines	at	impact "@font-face Brand Sans"	font_defines Brand Sans
