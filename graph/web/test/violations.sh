@@ -648,6 +648,58 @@ H
   else fail=$((fail+1)); echo "FAIL R1-20 parser"; tail -5 "$T/r120/parse.log"; fi
 fi
 
+if want V4-; then
+  # iteration 5: the V4 violations
+  # V4-02: `<include … />` takes the element's place; what follows it is not inside it, so a later include composes
+  put "$T/v402/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><include src="./a.html" />
+<main><include src="./frag.html" /></main></body></html>
+H
+  printf '<p class="a">a</p>\n' | put "$T/v402/src/a.html"
+  printf '<div style="max-height:1rem">x</div><p class="x">y</p>\n' | put "$T/v402/src/frag.html"
+  printf '.x { color: red }\n' | put "$T/v402/src/s.css"
+  db=$(build v402) && {
+    eq "V4-02 the second include's fragment is styled in its host" "$(sqlite3 "$db" "SELECT count(*) FROM web_styles w JOIN web_pages p ON p.uid = w.page_uid WHERE p.file = 'frag.html' AND w.host_page_uid IS NOT NULL")" "1"
+    eq "V4-02 and its elements have computed rows (V3-05 too)" "$(sqlite3 "$db" "SELECT group_concat(property, ' ') FROM (SELECT c.property FROM web_computed c JOIN web_pages p ON p.uid = c.page_uid WHERE p.file = 'frag.html' AND c.host_page_uid IS NOT NULL ORDER BY 1)")" "color max-height"
+  }
+  # V4-01: every SSI directive is a row: top of file, several in one attribute, #comment
+  put "$T/v401/src/a.shtml" <<'H'
+<!--#set var="v" value="1" -->
+<html><body><meta content="x <!--#echo var="a" --> y <!--#echo var="b" -->"><!--#comment note --></body></html>
+H
+  db=$(build v401) && eq "V4-01 four directive rows, in order" "$(sqlite3 "$db" "SELECT group_concat(directive, ',') FROM (SELECT directive FROM web_ssi_directives ORDER BY line, col)")" "set,echo,echo,comment"
+  # V4-03: a no-op javascript: link is no handler
+  put "$T/v403/src/index.html" <<'H'
+<!doctype html><html><body><a href="javascript:;">a</a><a href="javascript:void(0)">b</a><a href="javascript:">c</a><a href="javascript:go()">d</a><button onclick="go()">e</button></body></html>
+H
+  db=$(build v403) && eq "V4-03 only javascript:go() and the onclick are handlers" "$(sqlite3 "$db" "SELECT group_concat(source_kind || ':' || code, ' ') FROM (SELECT * FROM web_handlers ORDER BY line, col)")" "javascript_url:go() on_attribute:go()"
+  # V4-04: a data: URI url() is kept whole in its value_ref
+  big=$(printf 'A%.0s' $(seq 1 1500)); pre='data:image/svg+xml;charset=US-ASCII,'
+  printf '.i { background: url("%s%s") }\n' "$pre" "$big" | put "$T/v404/src/s.css"
+  printf '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><p class="i">i</p></body></html>\n' | put "$T/v404/src/index.html"
+  db=$(build v404) && eq "V4-04 the data: URI name is whole" "$(sqlite3 "$db" "SELECT length(name) FROM web_value_refs WHERE reference_kind = 'URL'")" "$(( ${#pre} + ${#big} ))"
+  # V4-05 / V4-06: value_bytes counts value_text exactly; a font name before a comment is a font_family reference
+  printf '.n { font-family: Arial/*{ff}*/; left: .6em /*{r}*/; }\n@media screen /* c */ { .m { color: red } }\n' | put "$T/v405/src/s.css"
+  printf '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><p class="n m">n</p></body></html>\n' | put "$T/v405/src/index.html"
+  db=$(build v405) && {
+    eq "V4-05 value_bytes = bytes of value_text" "$(sqlite3 "$db" "SELECT group_concat(property || '=' || value_text || ':' || value_bytes, ' ') FROM (SELECT * FROM web_declarations WHERE property IN ('font-family', 'left') ORDER BY line, col)")" "font-family=Arial:5 left=.6em:4"
+    eq "V4-05 prelude_text is comment-free and prelude_bytes counts it" "$(sqlite3 "$db" "SELECT prelude_text || ':' || prelude_bytes FROM web_rules WHERE at_rule_name = 'media'")" "screen:6"
+    eq "V4-06 Arial before a comment is a FONT_FAMILY reference with a font_use row" "$(sqlite3 "$db" "SELECT (SELECT group_concat(name) FROM web_value_refs WHERE reference_kind = 'FONT_FAMILY') || ':' || (SELECT count(*) FROM web_font_use WHERE name = 'Arial')")" "Arial:1"
+  }
+  # V4-07: a directory named without a slash resolves to its index file, in the reference and in links_to
+  put "$T/v407/src/a.html" <<'H'
+<!doctype html><html><body><a href="docs">d</a><a href="/about">a</a></body></html>
+H
+  printf '<p>d</p>\n' | put "$T/v407/src/docs/index.html"; printf '<p>a</p>\n' | put "$T/v407/src/about/index.html"
+  db=$(build v407) && eq "V4-07 docs and /about resolve to their index files" "$(sqlite3 "$db" "SELECT group_concat(url_as_written || '=' || coalesce(resolved_file, '-'), ' ') FROM (SELECT * FROM web_references WHERE reference_kind = 'ANCHOR' ORDER BY line, col)")" "docs=docs/index.html /about=about/index.html"
+  # V4-08: target/ and env/ are read; node_modules/ is not
+  put "$T/v408/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="target/css/t.css"><link rel="stylesheet" href="env/css/e.css"><link rel="stylesheet" href="node_modules/x/n.css"></head><body><p class="t e n">p</p></body></html>
+H
+  for d in target/css/t env/css/e node_modules/x/n; do printf '.p { color: red }\n' | put "$T/v408/src/$d.css"; done
+  db=$(build v408) && eq "V4-08 target/ and env/ sheets are indexed and loaded; node_modules/ is not" "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT coalesce(s.file, l.url_as_written) || ':' || l.status AS x FROM web_loads l LEFT JOIN web_stylesheets s ON s.uid = l.stylesheet_uid ORDER BY coalesce(l.load_order, 99), x)")" "target/css/t.css:match env/css/e.css:match node_modules/x/n.css:unknown"
+fi
+
 # review #14: a build that failed is a failed check (its eq lines never ran), not a silently skipped one
 if [ -s "$T/.build_failures" ]; then fail=$((fail + $(wc -l < "$T/.build_failures"))); echo "FAIL builds: $(tr '\n' ' ' < "$T/.build_failures")"; fi
 echo "web violation checks: $pass passed, $fail failed"

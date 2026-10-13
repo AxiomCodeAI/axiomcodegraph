@@ -399,13 +399,21 @@ class Web:
         return self.finish({'found': True, 'kind': 'class', 'target': '.' + name, 'prose': prose}, rows)
 
     def styled_rows(self, sel_uids):
-        """role `styled`: the elements these selectors match (with --in: on the page, or included into it, §11)"""
+        """role `styled`: the elements these selectors match (with --in: on the page, or included into it, §11). [iter5 ruling]
+        one row per (element, rule) — per host for a composed fragment — with `rule_at` (the rule's file:line) and the
+        rule's BEST status on that element: a rule whose two selectors both match it counts once"""
         if not sel_uids: return []
         ph = ','.join('?' * len(sel_uids)); pf, pp = self.in_page('s.page_uid', 's.host_page_uid')
-        return [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display'],
-                         **({'host': r['host']} if r['host'] else {}), **({'tier': 'asserted'} if r['asserted'] else {}))
-                for r in self.q(f"""SELECT DISTINCT s.status, s.reason, e.file, e.line, e.display{self.host_cols()} FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid
-                                   WHERE s.selector_uid IN ({ph}){pf} ORDER BY e.file, e.line""", *(list(sel_uids) + pp))]
+        best = {}
+        rank = {'match': 0, 'conditional': 1, 'unknown': 2}
+        for r in self.q(f"""SELECT s.rule_uid, s.status, s.reason, e.uid AS el, e.file, e.line, e.display, ru.file AS rfile, ru.line AS rline{self.host_cols()}
+                           FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid LEFT JOIN web_rules ru ON ru.uid = s.rule_uid
+                           WHERE s.selector_uid IN ({ph}){pf}""", *(list(sel_uids) + pp)):
+            k = (r['el'], r['host'], r['rule_uid'])
+            if k not in best or rank.get(r['status'], 3) < rank.get(best[k]['status'], 3): best[k] = r
+        out = sorted(best.values(), key=lambda r: (r['file'] or '', r['line'] or 0, r['host'] or '', r['rfile'] or '', r['rline'] or 0))
+        return [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display'], rule_at=at_of(r['rfile'], r['rline']),
+                         **({'host': r['host']} if r['host'] else {}), **({'tier': 'asserted'} if r['asserted'] else {})) for r in out]
 
     @staticmethod
     def styled_line(r):
@@ -575,19 +583,17 @@ class Web:
             self.q("SELECT * FROM web_selectors WHERE selector_text = ? ORDER BY file, line", text)
         if not sels: return {'found': False, 'kind': 'selector', 'target': text, 'refusal': f"web graph: nothing named '{text}' (not a class, id, custom property, page, stylesheet, @-name or selector)"}
         ids = [s['uid'] for s in sels]; ph = ','.join('?' * len(ids))
-        styled = self.q(f"""SELECT DISTINCT s.status, s.reason, e.file, e.line, e.display{self.host_cols()} FROM web_styles s JOIN web_elements e ON e.uid = s.element_uid
-                            WHERE s.selector_uid IN ({ph}){pf} ORDER BY e.file, e.line""", *(ids + pp))
         rows = [self.row(at_of(s['file'], s['line']), 'selector', 'selectors', 'match' if s['decidability'] == 'exact' else 'conditional' if s['decidability'] == 'conditional' else 'unknown',
                          s['reason'], selector=s['selector_text'], specificity=f"{s['spec_a']},{s['spec_b']},{s['spec_c']}") for s in sels]
-        rows += [self.row(at_of(r['file'], r['line']), 'element', 'styled', r['status'], r['reason'], display=r['display'],
-                          **({'host': r['host']} if r['host'] else {}), **({'tier': 'asserted'} if r['asserted'] else {})) for r in styled]
+        rows += self.styled_rows(ids)
         pf2, pp2 = self.in_page('page_uid')
         rows += [self.row(None, 'selector', 'unknown', 'unknown', u['reason']) for u in self.q(f"SELECT DISTINCT reason FROM web_unknown WHERE node_uid IN ({ph}){pf2}", *(ids + pp2))]
         prose = [f"web: selector {text}"]
         self.section(prose, "defined at", [r for r in rows if r['role'] == 'selectors'], lambda r: f"{r['at']}: {r['selector']} ({r['specificity']}) [{r['status']}]")
         self.section(prose, "elements it styles", [r for r in rows if r['role'] == 'styled'],
                      lambda r: f"{r['at']}: {r['display']} [{r['status']}{' ' + r['reason'] if r['reason'] else ''}]"
-                               + (f" (included in {r['host']})" if r.get('host') else '') + (" [asserted]" if r.get('tier') == 'asserted' else ''))
+                               + (f" (included in {r['host']})" if r.get('host') else '') + (" [asserted]" if r.get('tier') == 'asserted' else '')
+                               + (f" — rule at {r['rule_at']}" if r.get('rule_at') else ''))
         for r in rows:
             if r['role'] == 'unknown': prose.append(f"  undecided on some page: {r['reason']}")
         return self.finish({'found': True, 'kind': 'selector', 'target': text, 'prose': prose}, rows)
@@ -703,22 +709,24 @@ class Web:
                 rows.append(self.row(at_of(pf, s['line']), 'script', 'unknown', 'unknown', reason, url=s['src']))
         rows += self.script_rows('s.page_uid = ?', pid)
         rows += self.handler_rows('h.page_uid = ?', pid)
+        # a template's event directive (Vue @click, Alpine x-on, …) keeps one template_expr row per call it makes
         for h in self.q("""SELECT h.event, h.callee_name, h.callee_text, h.handler_source, e.file, e.line, e.display FROM web_handler_calls h
-                           LEFT JOIN web_elements e ON e.uid = h.element_uid WHERE h.page_uid = ? ORDER BY e.line, h.line, h.col""", pid):
-            role = 'handler' if h['handler_source'] in ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL') else 'template_expr'
-            rows.append(self.row(at_of(h['file'], h['line']), 'handler_call', role, calleeName=h['callee_name'], callee_text=h['callee_text'], event=h['event'],
+                           LEFT JOIN web_elements e ON e.uid = h.element_uid
+                           WHERE h.page_uid = ? AND h.handler_source NOT IN ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL') ORDER BY e.line, h.line, h.col""", pid):
+            rows.append(self.row(at_of(h['file'], h['line']), 'handler_call', 'template_expr', calleeName=h['callee_name'], callee_text=h['callee_text'], event=h['event'],
                                  source=h['handler_source'], display=h['display']))
-        # V3-06: an on* attribute or javascript: URL whose code names no call (a template literal, an assignment) is still
-        # a `handler` row, at its element with its event, the code as written beside it
-        have_h = {(r['at'], r.get('event')) for r in rows if r['role'] == 'handler'}
-        for h in self.q("""SELECT h.event, h.code, h.source_kind, h.attr_as_written, e.file, e.line, e.display FROM web_handlers h
+        # [iter5 ruling] the `handler` role is ONE row per on* attribute or javascript: URL, the functions its code calls in
+        # `calls` (in written order; empty for code that calls nothing by name, V3-06), never one row per call
+        calls_of = {}
+        for c in self.q("""SELECT attribute_uid, callee_name FROM web_handler_calls WHERE page_uid = ? AND handler_source IN ('EVENT_ATTRIBUTE', 'JAVASCRIPT_URL')
+                           AND callee_name IS NOT NULL ORDER BY line, col""", pid):
+            calls_of.setdefault(c['attribute_uid'], []).append(c['callee_name'])
+        for h in self.q("""SELECT h.attribute_uid, h.event, h.code, h.source_kind, h.attr_as_written, e.file, e.line, e.display FROM web_handlers h
                            LEFT JOIN web_elements e ON e.uid = h.element_uid WHERE h.page_uid = ? AND h.source_kind IN ('on_attribute', 'javascript_url')
-                           ORDER BY h.handler_index""", pid):
-            ev = h['event'] if h['source_kind'] == 'on_attribute' else None
-            k = (at_of(h['file'], h['line']), ev)
-            if k in have_h: continue
-            have_h.add(k)
-            rows.append(self.row(k[0], 'handler_call', 'handler', calleeName=None, event=ev, attr=h['attr_as_written'], code=h['code'],
+                           ORDER BY e.line, h.line, h.col""", pid):
+            calls = calls_of.get(h['attribute_uid'], [])
+            rows.append(self.row(at_of(h['file'], h['line']), 'handler_call', 'handler', calleeName=calls[0] if calls else None, calls=calls,
+                                 event=h['event'] if h['source_kind'] == 'on_attribute' else None, attr=h['attr_as_written'], code=h['code'],
                                  source='EVENT_ATTRIBUTE' if h['source_kind'] == 'on_attribute' else 'JAVASCRIPT_URL', display=h['display']))
         tpl = self.q("""SELECT t.dialect, t.directive, t.expression_text, t.callee_names, e.file, e.line FROM web_template_exprs t
                         LEFT JOIN web_elements e ON e.uid = t.element_uid WHERE t.page_uid = ? ORDER BY e.line""", pid)

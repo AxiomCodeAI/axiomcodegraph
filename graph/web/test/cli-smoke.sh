@@ -81,6 +81,7 @@ printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></h
 printf '<!doctype html>\n<html><body><p>x</p></body></html>\n' > "$T/rev/blog/pageX1.html"
 printf '.menu { color: red }\n.card {\n  color: blue;\n}\n.ra { color: red !important }\n.rb { color: blue }\n' > "$T/rev/style.css"
 printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></head><body>\n<p class="ra rb">r</p></body></html>\n' > "$T/rev/order.html"
+printf '<!doctype html>\n<html><head><style>\n.h, .h { color: red }\n@media print { .h { color: blue } }\n</style></head><body>\n<button class="h k" onclick="openModal(\x27signup\x27); track()">b</button></body></html>\n' > "$T/rev/handler.html"
 if (cd "$T/rev" && "$AX" index "$T/rev" --lang web >"$T/index3.log" 2>&1); then
   # R1-10: an explicit repository wins over the graph of the directory asked from ($T/site, whose graph has no .card),
   # with the trailing option the front door appends
@@ -96,6 +97,10 @@ if (cd "$T/rev" && "$AX" index "$T/rev" --lang web >"$T/index3.log" 2>&1); then
   nocheck R1-26-top-value 'nothing named' "$AX" impact .card --top 5
   # R1-28: rules in cascade order, the winner last: a rule with one !important declaration does not sort last for all
   check R1-28-cascade-order '.ra .rb' bash -c "\"$AX\" impact order.html:3 --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\" \".join(r[\"selector\"] for r in d.get(\"rows\", []) if r.get(\"role\") == \"styled_by\"))'"
+  # [iter5 ruling] one `handler` row per on* attribute, the functions it calls in `calls`
+  check V5-handler-one-row '1:openModal,track' bash -c "\"$AX\" impact handler.html --json | python3 -c 'import json,sys; d=json.load(sys.stdin); h=[r for r in d.get(\"rows\", []) if r.get(\"role\") == \"handler\"]; print(len(h), \",\".join(h[0].get(\"calls\") or []) if h else \"-\", sep=\":\")'"
+  # [iter5 ruling] styled rows are one per (element, rule) with rule_at and the rule's best status: `.h, .h` counts once
+  check V5-styled-per-rule 'handler.html:6=handler.html:3=match handler.html:6=handler.html:4=conditional' bash -c "\"$AX\" impact .h --in handler.html --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\" \".join(r[\"at\"] + \"=\" + str(r.get(\"rule_at\")) + \"=\" + r[\"status\"] for r in d.get(\"rows\", []) if r.get(\"role\") == \"styled\"))'"
   # R1-23: link refuses a path outside the repository
   # (the site dir is a symlink to $T0/rev, so `../outside` from it is $T0/outside: a real file outside the repository)
   mkdir -p "$T0/outside"; printf '<p>o</p>\n' > "$T0/outside/frag.html"

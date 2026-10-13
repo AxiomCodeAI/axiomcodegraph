@@ -98,7 +98,9 @@ const num = (s: string | undefined): number | null => { if (s === undefined || s
 const nz = (s: string | undefined | null): string | null => (s === undefined || s === null || s === '' ? null : s);
 const bool = (s: string | undefined): number => (s === 'true' ? 1 : 0);
 /** The parser escapes a newline in a value as the two characters \n (EntityUtils.escapeTsv). */
-const unesc = (s: string): string => (s.includes('\\') ? s.replace(/\\n/g, '\n').replace(/\\t/g, '\t') : s);
+const unesc = (s: string): string => (s.includes('\\') ? s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r') : s);
+/** A value or prelude as stored (V4-05 ruling): comments removed, edges trimmed, inner whitespace as written; null if empty. */
+const storedText = (s: string): string | null => nz(unesc(s).replace(/\/\*[\s\S]*?\*\//g, '').trim());
 const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => { const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); };
 
 const CONDITION_AT = new Set(['media', 'supports', 'container', 'starting-style', 'document', '-moz-document']);
@@ -407,6 +409,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     let mended = false;
     for (const e of p.elements) {
       if (!(e.ns === 'HTML' || e.ns === '') || VOID_ELEMENTS.has(e.tagLower) || e.children.length > 0 || e.childCount > 0) continue;
+      // V4-02: `<include src="x" />` is a build-time directive the include tool closes where it is written, and the
+      // fragment replaces it: it never holds what follows (holding it hid every later include's composition)
+      if (e.tagLower === 'include') continue;
       const src = textOf(e.id);
       if (!/\/\s*>\s*$/.test(src) || src.includes('</')) continue;
       const sibs = (e.parent ? e.parent.children : p.elements.filter((x) => x.parent === null)).slice().sort((a, b) => a.position - b.position);
@@ -941,6 +946,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const d = g(T.ref, r, 'documentLinkHash'); const elId = g(T.ref, r, 'ownerElementLinkHash');
       if (elById.get(elId)?.inert === 'iframe_text') continue;
       const code = g(T.ref, r, 'urlAsWritten').replace(/^\s*javascript:/i, '');
+      // V4-03 ruling: `javascript:`, `javascript:;`, `javascript:void(0)` / `void 0` run nothing: a no-op link, no handler
+      if (/^\s*(?:;|void\s*\(\s*0\s*\)|void\s+0)?\s*;?\s*$/i.test(code)) continue;
       const rawAttr = attrRow.get(g(T.ref, r, 'attributeLinkHash')); const raw = rawAttr ? nz(unesc(g(T.attr, rawAttr, 'valueRaw'))) : null;
       const line = num(g(T.ref, r, 'startLine')), col = num(g(T.ref, r, 'startColumn'));
       push(handlersByPage, d, { uid: g(T.ref, r, 'htmlReferenceUniqueHash'), element_uid: elId, attribute_uid: nz(g(T.ref, r, 'attributeLinkHash')), page_uid: d,
@@ -1077,9 +1084,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     out('web_declarations').push({ uid: g(T.decl, r, 'cssDeclarationUniqueHash'), rule_uid: nz(g(T.decl, r, 'ruleLinkHash')), attribute_uid: nz(attrId),
       element_uid: attrId ? attrOwner.get(attrId) ?? null : null, stylesheet_uid: nz(sheetId), page_uid: page, file: attrId ? (page ? fileOfPage(page) : null) : sheetFile(sheetId),
       line: num(g(T.decl, r, 'startLine')), col: num(g(T.decl, r, 'startColumn')), end_line: num(g(T.decl, r, 'endLine')), end_col: num(g(T.decl, r, 'endColumn')),
-      property: g(T.decl, r, 'property'), value_text: nz(unesc(g(T.decl, r, 'valueText')).replace(/\/\*[\s\S]*?\*\//g, '').trim()), is_important: bool(g(T.decl, r, 'isImportant')),
+      property: g(T.decl, r, 'property'), value_text: storedText(g(T.decl, r, 'valueText')), is_important: bool(g(T.decl, r, 'isImportant')),
       is_custom: bool(g(T.decl, r, 'isCustomProperty')), vendor_prefix: nz(g(T.decl, r, 'vendorPrefix')), position: num(g(T.decl, r, 'position')),
-      value_bytes: num(g(T.decl, r, 'valueBytes')), value_truncated: bool(g(T.decl, r, 'valueTruncated')) });
+      // V4-05 ruling: value_bytes is exactly the UTF-8 length of value_text as stored (comments removed, edges trimmed); a
+      // value cut at 64 KiB (V2-12) keeps the length of the whole value written, which is what the cut lost
+      value_bytes: g(T.decl, r, 'valueTruncated') === 'true' ? num(g(T.decl, r, 'valueBytes')) : Buffer.byteLength(storedText(g(T.decl, r, 'valueText')) ?? '', 'utf8'),
+      value_truncated: bool(g(T.decl, r, 'valueTruncated')) });
     // V2-12: a value over 64 KiB is cut, a listed LIMIT
     if (g(T.decl, r, 'valueTruncated') === 'true') unknownRow('limit', g(T.decl, r, 'cssDeclarationUniqueHash'), page || null, 'value_truncated',
       `${g(T.decl, r, 'property')}: ${g(T.decl, r, 'valueBytes')} bytes`, attrId ? (page ? fileOfPage(page) : null) : sheetFile(sheetId), num(g(T.decl, r, 'startLine')));
@@ -1244,10 +1254,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const n of rules.values()) {
     const r = ruleRow.get(n.id)!;
     out('web_rules').push({ uid: n.id, stylesheet_uid: n.sheet, parent_uid: nz(n.parent), file: sheetFile(n.sheet), line: n.line, col: n.col,
-      end_line: num(g(T.rule, r, 'endLine')), end_col: num(g(T.rule, r, 'endColumn')), rule_kind: n.kind, at_rule_name: nz(n.at), name: nz(n.name), prelude_text: nz(n.prelude),
+      end_line: num(g(T.rule, r, 'endLine')), end_col: num(g(T.rule, r, 'endColumn')), rule_kind: n.kind, at_rule_name: nz(n.at), name: nz(n.name), prelude_text: storedText(n.prelude),
       nesting_depth: num(g(T.rule, r, 'nestingDepth')), position: num(g(T.rule, r, 'position')), rule_order: n.order, layer: nz(n.layer),
       conditions: n.conditions.length ? n.conditions.join(' && ') : null, in_keyframes: n.matchable ? 0 : 1, important_count: n.important,
-      prelude_bytes: num(g(T.rule, r, 'preludeBytes')), prelude_truncated: bool(g(T.rule, r, 'preludeTruncated')) });
+      prelude_bytes: g(T.rule, r, 'preludeTruncated') === 'true' ? num(g(T.rule, r, 'preludeBytes')) : Buffer.byteLength(storedText(n.prelude) ?? '', 'utf8'),
+      prelude_truncated: bool(g(T.rule, r, 'preludeTruncated')) });
     if (g(T.rule, r, 'preludeTruncated') === 'true') unknownRow('limit', n.id, null, 'prelude_truncated', `${g(T.rule, r, 'preludeBytes')} bytes`, sheetFile(n.sheet), n.line);
   }
   const partsOf = new Map<string, PartRow[]>();
