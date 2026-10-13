@@ -1,9 +1,12 @@
 // ============================================================================
-// WEB — what a page loads, and what links where. Pure joins over the parser's resolved
+// Resolution · LOADS
+//
+// What a page loads, and what links where. Pure joins over the parser's resolved
 // paths (html_reference.resolvedFilePath / css_value_reference.resolvedFilePath against
-// css_stylesheet.filePath / html_document.filePath, both absolute). Everything that needs
-// ordering, string folding or tree walking (cascade order, selector matching) is the
-// bundle's (graph/bundle/web/), over these relations and the IR.
+// css_stylesheet.filePath / html_document.filePath, both absolute). Structural selector
+// matching is resolution/selectors.dl; what needs ordering or string folding (cascade order,
+// pseudo-classes, quirks-mode case) is the bundle's (graph/bundle/web/), over these relations
+// and the IR.
 // Every reference that does NOT land on an indexed node is a row of an *_unknown relation
 // with its reason; nothing is dropped and nothing is guessed.
 // ============================================================================
@@ -61,3 +64,8 @@ web_links_to(elem, page, to, ref, kind) :-
   html_reference(kind, _, _, _, _, _, file, "true", _, _, _, _, elem, _, page, _, ref),
   html_document(_, _, file, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, to).
 
+// The sheets a page can load: linked, its own <style>, and what those @import, transitively.
+// (page, sheet) — a superset of the bundle's per-run load set, which also weighs conditions.
+web_page_sheet(page, sheet) :- web_link_sheet(page, sheet, _, _).
+web_page_sheet(page, sheet) :- css_stylesheet(_, _, _, _, _, _, _, _, page, _, _, _, _, _, _, _, sheet), page != "".
+web_page_sheet(page, sheet) :- web_page_sheet(page, from), web_import(from, sheet, _).

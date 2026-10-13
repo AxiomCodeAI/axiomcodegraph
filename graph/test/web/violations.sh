@@ -2,8 +2,8 @@
 # axiom-code-graph — web layer regression checks for measured violations (state/violations.jsonl ids). Each check
 # builds a tiny site with `bin/axiomcode <src> <out> --language web`, then asserts on graph.sqlite with a query that
 # must return the expected value; each check also asserts it looked at >= 1 row, so an empty table never passes.
-#   bash graph/web/test/violations.sh            all checks
-#   bash graph/web/test/violations.sh V1-07      the checks whose name contains any argument
+#   bash graph/test/web/violations.sh            all checks
+#   bash graph/test/web/violations.sh V1-07      the checks whose name contains any argument
 set -u
 ROOT="${AXIOM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 T=$(mktemp -d "${TMPDIR:-/tmp}/web-violations.XXXXXX"); trap 'rm -rf "$T"' EXIT

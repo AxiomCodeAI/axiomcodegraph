@@ -1,7 +1,11 @@
 // ============================================================================
-// WEB — which elements a selector matches, structurally. HTML <-> CSS linking as relations, the
+// Resolution · SELECTORS
+//
+// Which elements a selector matches, structurally. HTML <-> CSS linking as relations, the
 // way every other engine resolves: element tokens, the tree, and a selector's compounds joined
 // right to left, solved by the engine (in parallel) instead of walked by the bundle.
+//
+// Reads projections/elements.dl, projections/selectors.dl and containment/ownership.dl.
 //
 // The supported shape (web_selector_supported): compounds of type, class and id parts joined by a
 // descendant or child combinator, at the top level of a rule (no nesting, no @scope), every type name
@@ -13,31 +17,6 @@
 // Comparisons are exact: the bundle reads a match only on a page where exact is what it would do
 // (no quirks mode, no upper-case HTML tag, no mended tree).
 // ============================================================================
-
-// ── the tree ──
-// (element, page, parent or "")
-web_el(el, page, parent) :-
-  html_element(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, parent, page, _, el).
-// HTML elements only: the parser writes a type selector's name lower-cased, which decides an HTML tag (compared
-// case-insensitively) but not an SVG or MathML one (compared as written) — on a page with those the bundle keeps its own
-// matcher for every selector with a type part
-web_el_tag(el, tag) :- html_element(tag, "HTML", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
-web_el_tag(el, tag) :- html_element(tag, "", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
-web_el_id(el, id) :- html_element(_, _, _, _, id, _, _, _, _, _, _, _, _, _, _, _, _, _, el), id != "".
-web_el_class(el, c) :- html_class_reference(c, _, _, el, _, _, _, _).
-
-// ── the selector, one row per top-level part: (selector, compound, kind, name) ──
-web_sel_part(sel, k, kind, name) :-
-  css_selector_part(kind, name, _, _, _, _, ks, _, "0", _, _, _, _, sel, _, _, _), k = to_number(ks).
-// the combinator before compound k (k > 0), written on its first part
-web_sel_comb(sel, k, comb) :-
-  css_selector_part(_, _, _, _, _, comb, ks, _, "0", _, _, _, _, sel, _, _, _), comb != "NONE", k = to_number(ks), k > 0.
-web_sel_last(sel, n) :- web_sel_part(sel, _, _, _), n = max k : { web_sel_part(sel, k, _, _) }.
-
-// a rule nested in a style rule, at any depth: its selectors are relative to the parent's
-web_rule_parent(r, p) :- css_rule(_, _, _, _, _, _, _, _, _, _, _, _, _, p, _, _, _, _, r), p != "".
-web_rule_in_style(r) :- web_rule_parent(r, p), css_rule("STYLE_RULE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
-web_rule_in_style(r) :- web_rule_parent(r, p), web_rule_in_style(p).
 
 web_sel_unsupported(sel) :- web_sel_part(sel, _, kind, _), kind != "TYPE", kind != "CLASS", kind != "ID".
 web_sel_unsupported(sel) :- web_sel_part(sel, _, "TYPE", name), match(".*[A-Z|*].*", name).
@@ -73,9 +52,6 @@ web_sel_below(sel, k, el) :- web_sel_m(sel, k, a), web_sel_comb(sel, k + 1, "DES
 web_sel_below(sel, k, el) :- web_sel_below(sel, k, p), web_el(el, _, p).
 
 // ── the answer, per page that can load the selector's sheet (a superset of the bundle's load set) ──
-web_page_sheet(page, sheet) :- web_link_sheet(page, sheet, _, _).
-web_page_sheet(page, sheet) :- css_stylesheet(_, _, _, _, _, _, _, _, page, _, _, _, _, _, _, _, sheet), page != "".
-web_page_sheet(page, sheet) :- web_page_sheet(page, from), web_import(from, sheet, _).
 // (selector, page, element)
 web_selector_match(sel, page, el) :-
   web_sel_last(sel, n), web_sel_m(sel, n, el), web_el(el, page, _),

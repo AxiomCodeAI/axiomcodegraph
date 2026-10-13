@@ -4,7 +4,7 @@
 # import), a cycle, an unresolvable include, a template-expression path, two template roots holding one name, SSI
 # set/echo, an Alpine partial whose own markers look like Vue, and an asserted include read from the links file.
 # Each check asserts on graph.sqlite and counts >= 1 row, so an absent table or an empty relation fails.
-#   bash graph/web/test/includes.sh
+#   bash graph/test/web/includes.sh
 set -u
 ROOT="${AXIOM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 T=$(mktemp -d "${TMPDIR:-/tmp}/web-includes.XXXXXX"); trap 'rm -rf "$T"' EXIT

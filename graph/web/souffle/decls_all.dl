@@ -12,7 +12,8 @@
 .decl web_links_to(elem:symbol, page:symbol, to:symbol, ref:symbol, kind:symbol)
 .decl web_defines_var(decl:symbol, name:symbol)
 .decl web_uses_var(vref:symbol, name:symbol, decl:symbol)
-// match.dl: structural selector matching
+// projections/elements.dl, projections/selectors.dl, containment/ownership.dl, resolution/selectors.dl
+// (and web_page_sheet in resolution/loads.dl): structural selector matching
 .decl web_el(el:symbol, page:symbol, parent:symbol)
 .decl web_el_tag(el:symbol, tag:symbol)
 .decl web_el_id(el:symbol, id:symbol)
