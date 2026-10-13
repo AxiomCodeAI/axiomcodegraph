@@ -608,6 +608,28 @@ H
   }
 fi
 
+if want VIA-04; then
+  # iter4 ruling, url(): a relative url() in a fragment's own <style> and in a style attribute inside it resolves against
+  # each HOST's location, like the fragment's href and src; a page's own url() and a sheet file's resolve as written
+  put "$T/via4/src/a.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="css/s.css"></head><body style="background: url(img/p.png)"><include src="parts/w.html"></include></body></html>
+H
+  put "$T/via4/src/sub/b.html" <<'H'
+<!doctype html><html><body><include src="../parts/w.html"></include></body></html>
+H
+  put "$T/via4/src/parts/w.html" <<'H'
+<style>.w { background: url("img/a.png") } .z { background: url(/img/r.png) }</style><div class="w" style="border-image: url(img/a.png) 30">w</div>
+H
+  printf '.s { background: url(../img/a.png) }\n' | put "$T/via4/src/css/s.css"
+  for f in a p r; do printf 'png\n' | put "$T/via4/src/img/$f.png"; done
+  printf 'png\n' | put "$T/via4/src/parts/img/a.png"
+  db=$(build via4) && {
+    eq "VIA-04 a fragment's <style> and style-attribute url()s resolve against each host; a page's and a sheet's as written" \
+      "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT r.from_kind || ':' || coalesce(p.file, s.file) || ':' || r.url || '=' || coalesce(r.file, r.status) AS x FROM web_resources r LEFT JOIN web_pages p ON p.uid = r.owner_uid LEFT JOIN web_stylesheets s ON s.uid = r.owner_uid WHERE r.kind = 'URL' ORDER BY 1)")" \
+      "declaration:a.html:/img/r.png=img/r.png declaration:a.html:img/a.png=img/a.png declaration:a.html:img/a.png=img/a.png declaration:a.html:img/p.png=img/p.png declaration:css/s.css:../img/a.png=img/a.png declaration:sub/b.html:/img/r.png=img/r.png declaration:sub/b.html:img/a.png=unknown declaration:sub/b.html:img/a.png=unknown"
+  }
+fi
+
 if want R1-P3; then
   # review 1, P3 findings
   put "$T/r1p3/src/index.html" <<'H'

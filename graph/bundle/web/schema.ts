@@ -161,7 +161,7 @@ const WEB_TABLE_DEFS: readonly TableSpec[] = [
   },
   {
     name: 'web_resources',
-    description: 'element or declaration -> file: images, media, srcset candidates, link resources, scripts\' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is the page the URL is resolved for: an element of an included fragment gives one row per host, resolved against the host\'s location (iter4 ruling).',
+    description: 'element or declaration -> file: images, media, srcset candidates, link resources, scripts\' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is what the URL is resolved for: the page for an element and for a url() in a <style> or style attribute, the stylesheet for a url() in a sheet file (from_kind declaration, kind URL); an element or a <style>/style-attribute url() of an included fragment gives one row per host, resolved against the host\'s location (iter4 ruling).',
     columns: [id('from_uid'), t('from_kind'), id('owner_uid'), t('kind'), t('url'), id('file'), i('file_exists'), t('status'), t('reason')],
   },
   {

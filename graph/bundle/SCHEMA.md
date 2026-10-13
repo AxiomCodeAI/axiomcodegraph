@@ -1504,7 +1504,7 @@ Rows: = id references (href="#x", for=, aria-*, headers=).
 
 ### `web_resources`
 
-element or declaration -> file: images, media, srcset candidates, link resources, scripts' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is the page the URL is resolved for: an element of an included fragment gives one row per host, resolved against the host's location (iter4 ruling).
+element or declaration -> file: images, media, srcset candidates, link resources, scripts' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is what the URL is resolved for: the page for an element and for a url() in a <style> or style attribute, the stylesheet for a url() in a sheet file (from_kind declaration, kind URL); an element or a <style>/style-attribute url() of an included fragment gives one row per host, resolved against the host's location (iter4 ruling).
 
 Rows: = asset references (img, srcset candidates, url(), icons, fonts).
 

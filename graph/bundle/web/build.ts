@@ -1969,6 +1969,32 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     } else for (const c of carriers) out('web_id_refs').push({ from_element_uid: from, page_uid: page, attribute_name: attr, id_value: value, to_element_uid: c.id,
       status: carriers.length > 1 ? 'ambiguous' : 'match', reason: carriers.length > 1 ? 'duplicate_id' : null });
   };
+  // css url() -> file. The owner is what the URL resolves against: a stylesheet file for its own url()s, the page for a
+  // <style> or style attribute it holds. iter4 ruling: a relative url() in an included fragment's <style> or style
+  // attribute resolves against each HOST's location, as the browser loads the composed markup at the host's URL: one row
+  // per host, owned by that host, in place of the fragment-relative one (the same as a fragment's element src).
+  for (const r of T.vref.rows) {
+    if (g(T.vref, r, 'referenceKind') !== 'URL') continue;
+    const uk = g(T.vref, r, 'urlKind'); const url = g(T.vref, r, 'name');
+    if (uk === 'DATA_URI' || uk === 'FRAGMENT' || uk === 'JAVASCRIPT_URI' || !url) continue;
+    const declId = g(T.vref, r, 'ownerDeclarationLinkHash'); const d = declId ? declById.get(declId) : undefined;
+    const from = declId ? { from_uid: declId, from_kind: 'declaration' } : { from_uid: g(T.vref, r, 'ownerRuleLinkHash'), from_kind: 'rule' };
+    const sh = sheets.get(g(T.vref, r, 'stylesheetLinkHash') || (d ? g(T.decl, d, 'stylesheetLinkHash') : ''));
+    const page = d ? declPage(d) : sh && sh.kind === 'HTML_STYLE_ELEMENT' ? sh.page : null;
+    const owner = page ?? sh?.id ?? null;
+    const why = (ex: boolean) => (ex ? null : (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || uk === 'OTHER_SCHEME' ? 'external_url' : uk === 'TEMPLATE_EXPRESSION' ? 'template_url' : 'unresolved_url'));
+    let p0 = url.split(/[?#]/)[0]!; try { p0 = decodeURIComponent(p0); } catch { /* a bare % stays as written */ }
+    const hosts = page && pages.get(page)?.kind === 'FRAGMENT' && p0 && (uk === 'RELATIVE' || uk === 'ROOT_RELATIVE') ? hostsOfFragment.get(page) ?? [] : [];
+    if (hosts.length) {
+      for (const h of new Map(hosts.map((x) => [x.host, x])).values()) {
+        const hp = pages.get(h.host)!; const abs = uk === 'ROOT_RELATIVE' ? rootRelative(hp.abs, p0) : path.join(path.dirname(hp.abs), p0); const ex = onDisk(abs);
+        out('web_resources').push({ ...from, owner_uid: h.host, kind: 'URL', url, file: ex ? rel(abs) : null, file_exists: ex ? 1 : 0, status: ex ? 'match' : 'unknown', reason: why(ex) });
+      }
+    } else {
+      const abs = g(T.vref, r, 'resolvedFilePath'); const ex = onDisk(abs);
+      out('web_resources').push({ ...from, owner_uid: owner, kind: 'URL', url, file: ex ? rel(abs) : null, file_exists: ex ? 1 : 0, status: ex ? 'match' : 'unknown', reason: why(ex) });
+    }
+  }
   for (const r of T.ref.rows) {
     const page = g(T.ref, r, 'documentLinkHash'); const elId = g(T.ref, r, 'ownerElementLinkHash'); const e = elById.get(elId);
     const attr = g(T.ref, r, 'attributeName'); const uk = g(T.ref, r, 'urlKind'); const url = g(T.ref, r, 'urlAsWritten'); const id = g(T.ref, r, 'htmlReferenceUniqueHash');
