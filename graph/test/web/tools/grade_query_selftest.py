@@ -99,9 +99,22 @@ def main():
         bad.append('TOP-k: a stranger in the top 10 of 12 expected still passed')
     if grade_top(['other.css', 'css/app.css'], ['css/app.css']) != 0:
         bad.append('TOP-k: one expected place inside the top 10 was graded wrong')
+    # ABSENT: `impact --brand` must not return the custom property's rows
+    def grade_absent(payload):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            f.write(payload)
+        with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as e:
+            e.write('# reviewed: yes\n# grade=ABSENT section=web role=defines fields=at filter=-\ncss/base.css:1\n')
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'grade_query.py'), f.name, e.name], capture_output=True, text=True).returncode
+        os.unlink(f.name); os.unlink(e.name)
+        return rc
+    if grade_absent('') != 0 or grade_absent(json.dumps({'found': False, 'refusal': 'unknown flag'})) != 0:
+        bad.append('ABSENT: an empty or refusing answer was graded wrong')
+    if grade_absent(json.dumps({'rows': [{'at': 'css/base.css:1', 'role': 'defines'}]})) == 0:
+        bad.append('ABSENT: the custom property rows returned for a flag still passed')
     for b in bad:
         print(f'  {b}')
-    print(f'grade_query self-test: {18 - len(bad)}/18 checks')
+    print(f'grade_query self-test: {20 - len(bad)}/20 checks')
     return 1 if bad else 0
 
 

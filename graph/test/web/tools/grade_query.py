@@ -111,6 +111,23 @@ def main():
     if exp == [('skipped_not_built',)]:  # (no LINK question is skipped since iteration 3)
         print('  skipped_not_built (iteration-2 template)')
         return 5
+    if grade == 'ABSENT':
+        # owner rule (iter4): web queries add no flag-like syntax; `impact --name` is an unknown flag, so its answer
+        # (JSON or not) must hold none of the custom property's rows
+        if not exp:
+            print('  0 expected tuples: not gradable (a 0/0 is not a pass)')
+            return 1
+        try:
+            ans = json.load(open(ans_path, encoding='utf-8'))
+        except (OSError, ValueError):
+            print('  no JSON answer: nothing returned (as wanted)')
+            return 0
+        rows = []
+        walk(ans, rows)
+        hit = [r for r in rows if r.get('role') == role and (str(r.get('at')), ) in set(exp)]
+        if hit:
+            print(f'  role {role}: a flag-shaped target returned {len(hit)} row(s) of the custom property')
+        return 1 if hit else 0
     try:
         ans = json.load(open(ans_path, encoding='utf-8'))
     except (OSError, ValueError) as e:

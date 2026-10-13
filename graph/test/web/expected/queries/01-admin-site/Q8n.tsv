@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
+# Q8n: a bare --name is a flag, not a custom property (owner rule: no flag-like web syntax)
+# grade=ABSENT section=web role=defines fields=at filter=-
+# ask: impact --brand
+css/base.css:1
