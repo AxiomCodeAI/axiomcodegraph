@@ -34,7 +34,10 @@ name: nightly
 
 on:
   schedule:
-    - cron: '0 8 * * *'    # 08:00 UTC, after the US workday
+    # 08:31 UTC is about 1 AM Pacific: 1:31 AM in daylight time, 12:31 AM in standard time
+    # (cron is UTC only). Off the hour on purpose: GitHub queues schedules that fire at :00
+    # behind everyone else's, and at '0 8' the run started 5 to 9 hours late.
+    - cron: '31 8 * * *'
   workflow_dispatch:
     inputs:
       publish:
