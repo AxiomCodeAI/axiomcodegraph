@@ -271,6 +271,33 @@ def test_impact(d, code):
     return rows, {}, foot
 
 
+def head(verb, doc):
+    """what the question resolved to, before its places: a name that matched several declarations, and for a `'*'`
+    closure how much it reached by hop. The places are a capped page of the answer, so without this a start that named
+    22 declarations read as one, and a closure of thousands of methods as its first ten rows."""
+    docs = [(doc.get('language') or '', doc)] + [(l, d) for l, d in (doc.get('other_languages') or {}).items() if isinstance(d, dict)]
+    out = []
+    def say(line):
+        if line not in out: out.append(line)
+    for lang, d in docs:
+        c = d.get('closure')
+        if verb == 'path' and c:
+            word = 'everything that can reach ' if c.get('direction') == 'up' else 'everything reached from '
+            hops = ', '.join(f"{h}:{n}" for h, n in (c.get('by_hop') or {}).items())
+            # one closure per language graph that holds the name: each says which graph it is
+            say((f"[{lang}] " if len(docs) > 1 and lang else '') + f"{word}{c['label']}: {c['methods']} method(s) in {c['files']} file(s)"
+                + (f", {c['test']} of them test" if c.get('test') else '')
+                + (f" within {c['depth']} hop(s)" if c.get('depth') else '') + (f" · by hop: {hops}" if hops else ''))
+        ends = [t for t in (d.get('targets') or [])] if verb == 'impact' else \
+               ([c] if c else list((d.get('ends') or {}).values())) if verb == 'path' else []
+        for t in ends:
+            n = t.get('declarations') or 1
+            if n > 1:
+                say(f"`{str(t.get('label') or '').split(' (')[0]}` matches {n} declarations: the places below are for all of"
+                    " them — name one as Owner.method or file:line to ask about one")
+    return out
+
+
 def verified(v, hops=None):
     if v is True: return "verified: ✓" + (f" ({hops} edge(s) looked up again)" if hops else '')
     if v is False: return "verified: ✗ — an edge in this answer is not in the graph; do not use it"
@@ -315,7 +342,7 @@ def render(verb, doc, repo, cap=CAP):
         out.append(f"… +{sum(rest.values())} more not listed: " + ', '.join(f"{n} {k}" for k, n in rest.items()) + f" — {how}")
     if not rows: return None
     if left_out: out.append(f"also answered in the {', '.join(left_out)} graph(s), where fewer of the task's words land; --lang <language> asks one")
-    return out + foot
+    return head(verb, doc) + out + foot
 
 
 def main(argv):

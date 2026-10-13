@@ -5,7 +5,7 @@ The product's surface is `impact`, `path` and `tests` (plus `index`), each answe
 every place with the code of the function it sits in, in a fenced block. That shape is given at the front doors — the
 installed command (bin/axiomcode sets AXIOMCODE_FRONT) and the MCP server (AXIOMCODE_SURFACE=mcp) — when no flag is
 passed. Everything that calls the dispatcher directly (the hooks, the case suite, loops) or passes a flag gets the verb's
-own answer, unchanged; a verb outside the surface (find, context, graph, diff, install) is refused by the installed
+own answer, unchanged; a verb outside the surface (find, diff, install) is refused by the installed
 command.
 
   a. bin/axiomcode on a small repository (copied to a temporary directory, committed, indexed): impact <name> and
@@ -98,11 +98,14 @@ def main():
         if fails: return 1
 
         # ── a. the installed command, no flags ───────────────────────────────────────────────────────────────────
-        for verb, args in (('find', ('how is the invoice total computed',)),
-                           ('graph', ()), ('diff', ()), ('install', ())):
+        for verb, args in (('find', ('how is the invoice total computed',)), ('diff', ()), ('install', ())):
             rc, out, err = cli(repo, verb, *args)
             check(f'{verb}: off the surface, the installed command refuses it and names the supported verbs',
                   rc != 0 and 'impact' in err and 'path' in err and 'tests' in err, (out + err)[:400])
+        rc, out, err = cli(repo, 'graph')
+        page = out.strip().splitlines()[-1].split('page: ', 1)[-1] if out.strip() else ''
+        check('graph: on the surface, it draws the page and prints its path last', rc == 0 and page.endswith('graph.html')
+              and os.path.isfile(page), (out + err)[-400:])
         rc, out, err = cli(repo, 'context', 'how is the invoice total computed')
         check('context: on the surface, the task in words answers with the flow', rc == 0 and 'pricing.py' in out, (out + err)[:400])
         rc, out, err = cli(repo, 'impact', 'vat_rate')
