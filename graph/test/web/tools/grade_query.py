@@ -9,6 +9,7 @@ The answer contract (SPEC 6.2): web rows are JSON objects carrying at least `at`
 other_languages is never read). Field aliases: event = event | event_name; names may be a list.
 An expected `at` without a line compares the answer's file part only.
 """
+import collections
 import json
 import re
 import sys
@@ -198,15 +199,20 @@ def main():
         got.append((t, r.get('status')))
     got_set = {t for t, _ in got}
     exp_set = set(exp)
+    # review-1 #30: SET and SET>= compare MULTISETS: a duplicated answer row is an extra and fails; an expectation lists
+    # a tuple as many times as the oracle has distinct nodes behind it
+    got_ms = collections.Counter(t for t, _ in got)
+    exp_ms = collections.Counter(exp)
     if not exp:
         print('  0 expected tuples: not gradable (a 0/0 is not a pass)')
         return 1
     if grade in ('SET', 'LINK'):
         # LINK (SPEC 11.2, Q36): the asserted include's rows, graded as a SET (the filter keeps asserted rows only)
-        ok = got_set == exp_set
+        ok = got_ms == exp_ms
     elif grade == 'SET>=':
         extra_match = {t for t, st in got if t not in exp_set and st == 'match'}
-        ok = exp_set <= got_set and not extra_match
+        dup = {t for t in exp_ms if got_ms[t] > exp_ms[t]}
+        ok = all(got_ms[t] >= n for t, n in exp_ms.items()) and not extra_match and not dup
     elif grade == 'ORDER':
         # the full sequence, repeats included (an outline lists several rows on one line)
         seq = [t for t, _ in got]
@@ -214,6 +220,10 @@ def main():
     else:
         print(f'  unknown grade {grade}')
         return 1
+    if not ok and grade != 'ORDER':
+        dups = sorted(t for t in got_ms if got_ms[t] > max(1, exp_ms[t]))
+        if dups:
+            print(f'  role {role}: duplicated answer rows {[(t, got_ms[t]) for t in dups]}')
     if not ok:
         print(f'  role {role}: expected {sorted(exp_set) if grade != "ORDER" else exp}')
         print(f'  role {role}: answer   {sorted(got_set) if grade != "ORDER" else [t for t, _ in got]}')

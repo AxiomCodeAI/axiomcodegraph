@@ -112,9 +112,27 @@ def main():
         bad.append('ABSENT: an empty or refusing answer was graded wrong')
     if grade_absent(json.dumps({'rows': [{'at': 'css/base.css:1', 'role': 'defines'}]})) == 0:
         bad.append('ABSENT: the custom property rows returned for a flag still passed')
+    # multisets (review-1 #30): a duplicated row fails SET and SET>=, the exact multiset passes
+    def grade_ms(grade, rows, expected):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump({'rows': [dict(at=a, role='carries', status='match') for a in rows]}, f)
+        with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as e:
+            e.write(f'# reviewed: yes\n# grade={grade} section=web role=carries fields=at filter=-\n')
+            e.write(''.join(f'{x}\n' for x in expected))
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'grade_query.py'), f.name, e.name], capture_output=True, text=True).returncode
+        os.unlink(f.name); os.unlink(e.name)
+        return rc
+    two = ['a.html:3', 'a.html:5']
+    for g in ('SET', 'SET>='):
+        if grade_ms(g, two, two) != 0:
+            bad.append(f'{g}: the exact multiset was graded wrong')
+        if grade_ms(g, two + ['a.html:3'], two) == 0:
+            bad.append(f'{g}: a duplicated answer row still passed')
+    if grade_ms('SET', ['a.html:3', 'a.html:3'], ['a.html:3', 'a.html:3']) != 0:
+        bad.append('SET: two distinct nodes on one line (expected twice) were graded wrong')
     for b in bad:
         print(f'  {b}')
-    print(f'grade_query self-test: {20 - len(bad)}/20 checks')
+    print(f'grade_query self-test: {25 - len(bad)}/25 checks')
     return 1 if bad else 0
 
 
