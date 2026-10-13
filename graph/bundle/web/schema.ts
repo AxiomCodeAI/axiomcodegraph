@@ -142,7 +142,7 @@ const WEB_TABLE_DEFS: readonly TableSpec[] = [
   {
     name: 'web_loads',
     description: 'page -> stylesheet, in cascade order: `via` link | style | import; `load_order` 1-based (an @import\'ed sheet comes before the importing sheet\'s own rules, depth-first); `import_depth` 0 for a direct load; `via_uid` the link/style element or the importing sheet. A <link rel="alternate stylesheet"> is conditional alternate_sheet. An unknown row (no stylesheet_uid, no order) says why: external_url, unresolved_url, not_indexed, template_url.',
-    columns: [id('page_uid'), id('stylesheet_uid'), t('url_as_written'), t('via'), id('via_uid'), i('load_order'), i('import_depth'), t('media'), t('layer'), t('status'), t('reason')],
+    columns: [id('page_uid'), id('stylesheet_uid'), t('url_as_written'), t('via'), id('via_uid'), i('load_order'), i('import_depth'), t('media'), t('layer'), t('status'), t('reason'), ref('via_include', 'the include reference (web_references uid) at whose site a host loads a fragment\'s sheet (iter4 ruling); NULL for the page\'s own')],
   },
   {
     name: 'web_imports',
@@ -161,7 +161,7 @@ const WEB_TABLE_DEFS: readonly TableSpec[] = [
   },
   {
     name: 'web_resources',
-    description: 'element or declaration -> file: images, media, srcset candidates, link resources, scripts\' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time.',
+    description: 'element or declaration -> file: images, media, srcset candidates, link resources, scripts\' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is the page the URL is resolved for: an element of an included fragment gives one row per host, resolved against the host\'s location (iter4 ruling).',
     columns: [id('from_uid'), t('from_kind'), id('owner_uid'), t('kind'), t('url'), id('file'), i('file_exists'), t('status'), t('reason')],
   },
   {

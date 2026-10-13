@@ -496,7 +496,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // A page that includes a fragment is styled as the browser sees it after the include: the fragment's top-level elements
   // stand where the include is, inside the host's tree and under the host's sheets. Each such composition is matched
   // again below (runPage with a composed tree), and only the fragment's elements get rows from it, with host_page_uid.
-  interface Insert { hostEl: El | null; at: [number, number]; position: number; frag: string; elems: El[] | null; removes: Set<string> }
+  interface Insert { hostEl: El | null; at: [number, number]; position: number; frag: string; elems: El[] | null; removes: Set<string>; ref: string | null }
   const includeInserts = new Map<string, Insert[]>(); // host page -> what goes into it (includes, asserted includes)
   const extendsComps: { layout: string; child: string; inserts: Insert[] }[] = [];
   const hosted = new Set<string>();
@@ -659,7 +659,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     hosted.add(e.frag);
     push(hostsOfFragment, e.frag, { host: e.host, hostEl: e.hostEl, line: e.at[0], col: e.at[1] });
     const ins = includeInserts.get(e.host) ?? []; includeInserts.set(e.host, ins);
-    ins.push({ hostEl: e.hostEl, at: e.at, position: e.position, frag: e.frag, elems: null, removes: new Set(e.replaced ? [e.replaced.id] : []) });
+    ins.push({ hostEl: e.hostEl, at: e.at, position: e.position, frag: e.frag, elems: null, removes: new Set(e.replaced ? [e.replaced.id] : []), ref: e.refId });
   }
   for (const r of T.ref.rows) {
     if (g(T.ref, r, 'referenceKind') !== 'INCLUDE') continue;
@@ -684,7 +684,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const blockAt = lpt ? (() => { const lineIdx = lpt.starts.findIndex((_st0, i) => (lpt.starts[i + 1] ?? Infinity) > span[0]); return [lineIdx + 1, span[0] - lpt.starts[lineIdx]! + 1] as [number, number]; })() : x.at;
       const elems = (pages.get(page.id)?.elements ?? []).filter((e) => { const o = offsetOfEl(e); if (o <= cs || o >= ce) return false; const po = e.parent ? offsetOfEl(e.parent) : -1; return !e.parent || po <= cs || po >= ce; })
         .sort((a, b) => offsetOfEl(a) - offsetOfEl(b));
-      inserts.push({ hostEl, at: blockAt, position: (hostEl ? hostEl.children : topOf(layout)).filter((c) => before(posOf(c), blockAt)).length, frag: page.id, elems, removes });
+      inserts.push({ hostEl, at: blockAt, position: (hostEl ? hostEl.children : topOf(layout)).filter((c) => before(posOf(c), blockAt)).length, frag: page.id, elems, removes, ref: null });
     }
     extendsComps.push({ layout, child: page.id, inserts });
   }
@@ -719,7 +719,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       hosted.add(frag.id);
       push(hostsOfFragment, frag.id, { host: host.id, hostEl, line, col: 1 });
       const ins = includeInserts.get(host.id) ?? []; includeInserts.set(host.id, ins);
-      ins.push({ hostEl, at, position, frag: frag.id, elems: null, removes: new Set() });
+      ins.push({ hostEl, at, position, frag: frag.id, elems: null, removes: new Set(), ref: null });
     }
   }
   for (const p of pages.values()) {
@@ -1138,51 +1138,76 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const loadedBy = new Map<string, Set<string>>();
   const joinLayer = (a: string | null, b: string | null): string | null => (a && b ? `${a}.${b}` : a || b || null);
   const mediaCond = (m: string): string[] => (m && !/^all$/i.test(m.trim()) ? [`@media ${m.trim()}`] : []);
+  const sheetByAbs = new Map<string, string>(); for (const sh of sheets.values()) if (sh.kind === 'FILE' && sh.abs) sheetByAbs.set(path.normalize(sh.abs), sh.id);
   for (const page of pages.values()) {
     const loads: Load[] = []; let order = 0;
     const rows: Record<string, string | number | null>[] = [];
-    const pushSheet = (sid: string, via: string, viaId: string, depth: number, conds: string[], layer: string | null, disabled: string, stack: Set<string>) => {
+    const pushSheet = (sid: string, via: string, viaId: string, depth: number, conds: string[], layer: string | null, disabled: string, stack: Set<string>, viaInc: string | null) => {
       const s = sheets.get(sid)!;
       for (const n of s.rules) {
         if (!n.import) continue;
         const c = [...conds, ...mediaCond(n.import.media), ...(n.import.supports ? [`@supports ${n.import.supports}`] : [])];
         const lay = n.import.layer ? joinLayer(layer, n.import.layer) : layer;
-        if (n.import.to && !stack.has(n.import.to)) pushSheet(n.import.to, 'import', s.id, depth + 1, c, lay, disabled, new Set([...stack, n.import.to]));
+        if (n.import.to && !stack.has(n.import.to)) pushSheet(n.import.to, 'import', s.id, depth + 1, c, lay, disabled, new Set([...stack, n.import.to]), viaInc);
         else if (!n.import.to) rows.push({ page_uid: page.id, stylesheet_uid: null, url_as_written: n.import.url, via: 'import', via_uid: s.id, load_order: null, import_depth: depth + 1,
-          media: nz(n.import.media), layer: null, status: 'unknown', reason: n.import.reason });
+          media: nz(n.import.media), layer: null, status: 'unknown', reason: n.import.reason, via_include: viaInc });
       }
       order += 1;
       loads.push({ sheet: sid, via, viaId, depth, order, conds, layer, disabled });
       rows.push({ page_uid: page.id, stylesheet_uid: sid, url_as_written: via === 'style' ? null : (s.kind === 'FILE' ? s.file : null), via, via_uid: viaId, load_order: order,
-        import_depth: depth, media: conds.length ? conds.join(' && ') : null, layer, status: disabled ? 'conditional' : 'match', reason: disabled || null });
+        import_depth: depth, media: conds.length ? conds.join(' && ') : null, layer, status: disabled ? 'conditional' : 'match', reason: disabled || null, via_include: viaInc });
     };
-    const styleSheetOf = new Map<string, string>();
-    for (const s of sheets.values()) if (s.kind === 'HTML_STYLE_ELEMENT' && s.page === page.id) styleSheetOf.set(s.owner, s.id);
-    const linkRefs = new Map<string, string[]>();
-    for (const r of refsOfPage.get(page.id) ?? []) if (g(T.ref, r, 'referenceKind') === 'STYLESHEET') linkRefs.set(g(T.ref, r, 'ownerElementLinkHash'), r);
-    for (const e of page.elements) {
-      if (e.inert === 'template' || e.inert === 'iframe_text') continue;
-      if (e.tagLower === 'style' && (e.ns === 'HTML' || e.ns === '')) {
-        const sid = styleSheetOf.get(e.id); if (!sid) continue;
-        pushSheet(sid, 'style', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, e.inert === 'noscript' ? 'inert:noscript' : '', new Set([sid]));
-      } else if (e.tagLower === 'link' && (e.ns === 'HTML' || e.ns === '')) {
-        const relAttr = (e.attrs.get('rel')?.value ?? '').toLowerCase().split(/\s+/);
-        if (!relAttr.includes('stylesheet')) continue;
-        const r = linkRefs.get(e.id); if (!r) continue;
-        const refId = g(T.ref, r, 'htmlReferenceUniqueHash');
-        // a sheet the page may not apply: an alternate or disabled <link>, or one inside <noscript> (review #5: a browser
-        // with scripting on does not load it), is a conditional load whose rows carry the reason
-        const disabled = relAttr.includes('alternate') || e.attrs.has('disabled') ? 'alternate_sheet' : e.inert === 'noscript' ? 'inert:noscript' : '';
-        const sid = sheetOfRef.get(refId);
-        if (sid) pushSheet(sid, 'link', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, disabled, new Set([sid]));
-        else rows.push({ page_uid: page.id, stylesheet_uid: null, url_as_written: g(T.ref, r, 'urlAsWritten'), via: 'link', via_uid: e.id, load_order: null, import_depth: 0,
-          media: nz(e.attrs.get('media')?.value ?? ''), layer: null, status: 'unknown', reason: onDiskReason(linkUnknownOf.get(refId) ?? 'unresolved_url', page.abs, g(T.ref, r, 'path'), g(T.ref, r, 'urlKind')) });
+    /**
+     * A page's <style> and <link> sheets in document order; at each include site, the included fragment's, loaded by THIS
+     * page (iter4 ruling: a fragment loads nothing by itself; each host loads its sheets where it includes it, flagged
+     * via_include with the host's include reference). A relative URL written in a fragment resolves against the host's
+     * location (iter4 ruling), as the served page asks for it.
+     */
+    const walkPage = (pg: Page, viaInc: string | null, stack: string[]): void => {
+      const styleSheetOf = new Map<string, string>();
+      for (const s of sheets.values()) if (s.kind === 'HTML_STYLE_ELEMENT' && s.page === pg.id) styleSheetOf.set(s.owner, s.id);
+      const linkRefs = new Map<string, string[]>();
+      for (const r of refsOfPage.get(pg.id) ?? []) if (g(T.ref, r, 'referenceKind') === 'STYLESHEET') linkRefs.set(g(T.ref, r, 'ownerElementLinkHash'), r);
+      const ins = page.kind === 'FRAGMENT' && pg.id === page.id ? [] : [...(includeInserts.get(pg.id) ?? [])].sort((a, b) => (before(a.at, b.at) ? -1 : before(b.at, a.at) ? 1 : 0));
+      let k = 0;
+      const flush = (upTo: [number, number] | null) => {
+        while (k < ins.length && (upTo === null || before(ins[k]!.at, upTo))) {
+          const x = ins[k++]!; const f = pages.get(x.frag);
+          if (f && !stack.includes(x.frag)) walkPage(f, viaInc ?? x.ref, [...stack, x.frag]);
+        }
+      };
+      for (const e of pg.elements) {
+        flush(posOf(e));
+        if (e.inert === 'template' || e.inert === 'iframe_text') continue;
+        if (e.tagLower === 'style' && (e.ns === 'HTML' || e.ns === '')) {
+          const sid = styleSheetOf.get(e.id); if (!sid) continue;
+          pushSheet(sid, 'style', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, e.inert === 'noscript' ? 'inert:noscript' : '', new Set([sid]), viaInc);
+        } else if (e.tagLower === 'link' && (e.ns === 'HTML' || e.ns === '')) {
+          const relAttr = (e.attrs.get('rel')?.value ?? '').toLowerCase().split(/\s+/);
+          if (!relAttr.includes('stylesheet')) continue;
+          const r = linkRefs.get(e.id); if (!r) continue;
+          const refId = g(T.ref, r, 'htmlReferenceUniqueHash');
+          // a sheet the page may not apply: an alternate or disabled <link>, or one inside <noscript> (review #5: a browser
+          // with scripting on does not load it), is a conditional load whose rows carry the reason
+          const disabled = relAttr.includes('alternate') || e.attrs.has('disabled') ? 'alternate_sheet' : e.inert === 'noscript' ? 'inert:noscript' : '';
+          let sid = sheetOfRef.get(refId); let reason = linkUnknownOf.get(refId) ?? 'unresolved_url';
+          const urlKind = g(T.ref, r, 'urlKind'); const p0 = g(T.ref, r, 'path').split(/[?#]/)[0]!;
+          if (pg.id !== page.id && p0 && (urlKind === 'RELATIVE' || urlKind === 'ROOT_RELATIVE')) {
+            const cand = path.normalize(urlKind === 'ROOT_RELATIVE' ? rootRelative(page.abs, p0) : path.join(path.dirname(page.abs), p0));
+            sid = sheetByAbs.get(cand); reason = 'unresolved_url';
+          }
+          if (sid) pushSheet(sid, 'link', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, disabled, new Set([sid]), viaInc);
+          else rows.push({ page_uid: page.id, stylesheet_uid: null, url_as_written: g(T.ref, r, 'urlAsWritten'), via: 'link', via_uid: e.id, load_order: null, import_depth: 0,
+            media: nz(e.attrs.get('media')?.value ?? ''), layer: null, status: 'unknown', reason: onDiskReason(reason, page.abs, g(T.ref, r, 'path'), urlKind), via_include: viaInc });
+        }
       }
-    }
-    for (const row of rows) {
-      out('web_loads').push(row);
-    }
+      flush(null);
+    };
+    walkPage(page, null, [page.id]);
     loadsOf.set(page.id, loads);
+    // a fragment loads nothing by itself (its hosts do): no rows, and it keeps no sheet from being an orphan
+    if (page.kind === 'FRAGMENT') continue;
+    for (const row of rows) out('web_loads').push(row);
     for (const l of loads) { const set = loadedBy.get(l.sheet) ?? new Set<string>(); set.add(page.id); loadedBy.set(l.sheet, set); }
   }
   for (const s of sheets.values()) {
@@ -1919,9 +1944,20 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const attr = g(T.ref, r, 'attributeName'); const uk = g(T.ref, r, 'urlKind'); const url = g(T.ref, r, 'urlAsWritten'); const id = g(T.ref, r, 'htmlReferenceUniqueHash');
     const kind = g(T.ref, r, 'referenceKind');
     if (['IMAGE', 'MEDIA', 'LINK_RESOURCE', 'SCRIPT', 'OTHER', 'REQUEST'].includes(kind) && uk !== 'DATA_URI' && uk !== 'JAVASCRIPT_URI' && uk !== 'FRAGMENT') {
-      const abs = g(T.ref, r, 'resolvedFilePath'); const ex = onDisk(abs);
-      out('web_resources').push({ from_uid: elId, from_kind: 'element', owner_uid: page, kind, url, file: ex ? rel(abs) : null, file_exists: ex ? 1 : 0, status: ex ? 'match' : 'unknown',
-        reason: ex ? null : (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || uk === 'OTHER_SCHEME' ? 'external_url' : uk === 'TEMPLATE_EXPRESSION' ? 'template_url' : 'unresolved_url') });
+      const why = (ex: boolean) => (ex ? null : (uk === 'ABSOLUTE' || uk === 'PROTOCOL_RELATIVE' || uk === 'OTHER_SCHEME' ? 'external_url' : uk === 'TEMPLATE_EXPRESSION' ? 'template_url' : 'unresolved_url'));
+      // iter4 ruling: a relative URL in an included fragment resolves against each HOST's location (the browser loads the
+      // composed markup at the host's URL): one row per host, owned by that host, in place of the fragment-relative one
+      const p0 = g(T.ref, r, 'path').split(/[?#]/)[0]!;
+      const hosts = pages.get(page)?.kind === 'FRAGMENT' && p0 && (uk === 'RELATIVE' || uk === 'ROOT_RELATIVE') ? hostsOfFragment.get(page) ?? [] : [];
+      if (hosts.length) {
+        for (const h of new Map(hosts.map((x) => [x.host, x])).values()) {
+          const hp = pages.get(h.host)!; const abs = uk === 'ROOT_RELATIVE' ? rootRelative(hp.abs, p0) : path.join(path.dirname(hp.abs), p0); const ex = onDisk(abs);
+          out('web_resources').push({ from_uid: elId, from_kind: 'element', owner_uid: h.host, kind, url, file: ex ? rel(abs) : null, file_exists: ex ? 1 : 0, status: ex ? 'match' : 'unknown', reason: why(ex) });
+        }
+      } else {
+        const abs = g(T.ref, r, 'resolvedFilePath'); const ex = onDisk(abs);
+        out('web_resources').push({ from_uid: elId, from_kind: 'element', owner_uid: page, kind, url, file: ex ? rel(abs) : null, file_exists: ex ? 1 : 0, status: ex ? 'match' : 'unknown', reason: why(ex) });
+      }
     }
     if (!e || LINK_ATTRS[e.tagLower] !== attr.toLowerCase()) continue;
     if (e.inert === 'iframe_text') continue; // V3-08: markup inside <iframe> is text (G11): no link

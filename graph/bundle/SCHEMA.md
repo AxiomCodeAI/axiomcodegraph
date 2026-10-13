@@ -1449,6 +1449,7 @@ Rows: = page -> stylesheet loads (link, style, @import closure), one per load.
 | 8 | `layer` | TEXT |  |  |
 | 9 | `status` | TEXT |  |  |
 | 10 | `reason` | TEXT |  |  |
+| 11 | `via_include` | TEXT |  | the include reference (web_references uid) at whose site a host loads a fragment's sheet (iter4 ruling); NULL for the page's own |
 
 ### `web_imports`
 
@@ -1503,7 +1504,7 @@ Rows: = id references (href="#x", for=, aria-*, headers=).
 
 ### `web_resources`
 
-element or declaration -> file: images, media, srcset candidates, link resources, scripts' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time.
+element or declaration -> file: images, media, srcset candidates, link resources, scripts' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time. `owner_uid` is the page the URL is resolved for: an element of an included fragment gives one row per host, resolved against the host's location (iter4 ruling).
 
 Rows: = asset references (img, srcset candidates, url(), icons, fonts).
 

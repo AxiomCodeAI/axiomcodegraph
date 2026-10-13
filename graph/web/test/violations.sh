@@ -582,6 +582,32 @@ H
   db=$(build r116) && eq "R1-16 binding tokens: object keys, a conditional's strings, an unknowable concatenation" "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT e.html_id || '=' || s.selector_text AS x FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid JOIN web_selectors s ON s.uid = w.selector_uid WHERE w.reason LIKE '%dynamic_class%' ORDER BY 1)")" "a=.on a=.x b=.lg b=.on b=.x c=.lg"
 fi
 
+if want VIA-; then
+  # iter4 rulings: a fragment's <link>/<style> is loaded by each host at the include site (via_include), its relative
+  # href resolved against the HOST's location; a fragment loads nothing itself; orphan only when nothing includes it
+  put "$T/via/src/a.html" <<'H'
+<!doctype html><html><head><include src="parts/w.html"></include><link rel="stylesheet" href="css/page.css"></head><body><p class="w">a</p></body></html>
+H
+  put "$T/via/src/sub/b.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="../css/page.css"></head><body><include src="../parts/w.html"></include></body></html>
+H
+  put "$T/via/src/parts/w.html" <<'H'
+<link rel="stylesheet" href="css/w.css"><style>.w { margin: 0 }</style><div class="w">w</div><img src="img/a.png" alt="">
+H
+  printf 'png\n' | put "$T/via/src/img/a.png"
+  printf '<link rel="stylesheet" href="../css/old.css"><div>o</div>\n' | put "$T/via/src/parts/unused.html"
+  for f in page w old; do printf ".w { color: red }\n" | put "$T/via/src/css/$f.css"; done
+  db=$(build via) && {
+    eq "VIA-01 each host loads the fragment's sheets at the include site, flagged via_include" \
+      "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT p.file || ':' || coalesce(l.load_order, '-') || ':' || coalesce(s.file, l.status || '/' || coalesce(l.reason, '-')) || ':' || (l.via_include IS NOT NULL) AS x FROM web_loads l JOIN web_pages p ON p.uid = l.page_uid LEFT JOIN web_stylesheets s ON s.uid = l.stylesheet_uid ORDER BY p.file, coalesce(l.load_order, 99), x)")" \
+      "a.html:1:css/w.css:1 a.html:2:parts/w.html:1 a.html:3:css/page.css:0 sub/b.html:1:css/page.css:0 sub/b.html:2:parts/w.html:1 sub/b.html:-:unknown/unresolved_url:1"
+    eq "VIA-02 a fragment loads nothing itself; a sheet only an unincluded fragment links is an orphan" \
+      "$(sqlite3 "$db" "SELECT (SELECT count(*) FROM web_loads l JOIN web_pages p ON p.uid = l.page_uid WHERE p.file LIKE 'parts/%') || ':' || (SELECT group_concat(file) FROM web_unknown WHERE kind = 'orphan_sheet')")" "0:css/old.css"
+    eq "VIA-03 a fragment's <img src> resolves against each host: there under a.html, not under sub/b.html" \
+      "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT p.file || ':' || coalesce(r.file, '-') || ':' || r.status AS x FROM web_resources r JOIN web_pages p ON p.uid = r.owner_uid WHERE r.url = 'img/a.png' ORDER BY 1)")" "a.html:img/a.png:match sub/b.html:-:unknown"
+  }
+fi
+
 # review #14: a build that failed is a failed check (its eq lines never ran), not a silently skipped one
 if [ -s "$T/.build_failures" ]; then fail=$((fail + $(wc -l < "$T/.build_failures"))); echo "FAIL builds: $(tr '\n' ' ' < "$T/.build_failures")"; fi
 echo "web violation checks: $pass passed, $fail failed"
