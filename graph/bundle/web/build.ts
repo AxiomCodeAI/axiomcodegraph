@@ -397,6 +397,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // the same parent is its content until the parent closes. The parser closes it at the slash; the tree is mended
   // here (one page text read per page that has such an element).
   const depthOf = new Map<string, number>();
+  const mendedPages = new Set<string>();
   for (const p of pages.values()) {
     let lines: string[] | null = null;
     const textOf = (id: string): string => {
@@ -423,6 +424,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       mended = true;
     }
     if (mended) {
+      mendedPages.add(p.id);
       const walk = (x: El, d: number) => { depthOf.set(x.id, d); for (const c of x.children) walk(c, d + 1); };
       for (const x of p.elements) if (x.parent === null) walk(x, 0);
     }
@@ -1137,6 +1139,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     links: await readRawRel(rawDir, 'web-links-to.csv'),
     defVar: await readRawRel(rawDir, 'web-defines-var.csv'), useVar: await readRawRel(rawDir, 'web-uses-var.csv'),
   };
+  // the engine's structural selector matches (match.dl): page -> selector -> elements, for the selectors it supports
+  const engineMatch = new Map<string, Map<string, string[]>>();
+  for await (const [sel, page, el] of readRaw(path.join(rawDir, 'web-selector-match.csv'))) {
+    let bySel = engineMatch.get(page!); if (!bySel) { bySel = new Map(); engineMatch.set(page!, bySel); }
+    const els = bySel.get(sel!); if (els) els.push(el!); else bySel.set(sel!, [el!]);
+  }
+  const engineSupported = new Set<string>();
+  for await (const [sel] of readRaw(path.join(rawDir, 'web-selector-supported.csv'))) engineSupported.add(sel!);
   const sheetOfRef = new Map<string, string>(); for (const [, sheet, ref] of R.linkSheet) sheetOfRef.set(ref!, sheet!);
   const linkUnknownOf = new Map<string, string>(); for (const [, ref, reason] of R.linkUnknown) linkUnknownOf.set(ref!, reason!);
   const importTo = new Map<string, string>(); for (const [, to, vref] of R.imp) importTo.set(vref!, to!);
@@ -1561,6 +1571,14 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       }
     };
     const plain = !comp && !multiRun.has(pageId) && !md;
+    // the engine's matches stand for the matcher's on a plain page whose tree is the parser's and whose comparisons are
+    // exact: no quirks mode (case folding), no mended `<div/>`, no upper-case HTML tag
+    const engineEls = plain && !page.quirks && !mendedPages.has(pageId)
+      && page.elements.every((e) => !(e.ns === 'HTML' || e.ns === '') || e.tag === e.tagLower)
+      ? (engineMatch.get(pageId) ?? new Map<string, string[]>()) : null;
+    const liveSet = engineEls ? new Set(live) : null;
+    // an SVG or MathML element: the engine cannot decide a type part on it (see match.dl)
+    const foreign = engineEls !== null && page.elements.some((e) => !(e.ns === 'HTML' || e.ns === ''));
     const plainSheets = new Set<string>();
     for (const l of loads) {
       const x = idxOf(l.sheet, page.quirks);
@@ -1684,7 +1702,16 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             }
             continue;
           }
-          if (!missing) {
+          if (!missing && engineEls && engineSupported.has(s.id) && !(foreign && s.cx.some((c) => c.simples.some((x) => x.kind === 'TYPE')))) {
+            const els: El[] = [];
+            for (const id of engineEls.get(s.id) ?? []) { const e = elById.get(id); if (e && liveSet!.has(e)) els.push(e); }
+            els.sort((a, b) => a.idx - b.idx);
+            for (const e of els) {
+              W.add(e.id);
+              const [status, reason] = statusOf({ s: EXACT, r: '' }, e);
+              emit(e, status, reason, null);
+            }
+          } else if (!missing) {
             for (const e of m.candidates(s.cx)) {
               const r = m.match(s.cx, e);
               if (r.s === NO) continue;

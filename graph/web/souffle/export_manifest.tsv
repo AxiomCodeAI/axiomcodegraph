@@ -5,3 +5,5 @@ web_import_unknown	web-import-unknown.csv
 web_links_to	web-links-to.csv
 web_defines_var	web-defines-var.csv
 web_uses_var	web-uses-var.csv
+web_selector_match	web-selector-match.csv
+web_selector_supported	web-selector-supported.csv

@@ -1,0 +1,82 @@
+// ============================================================================
+// WEB — which elements a selector matches, structurally. HTML <-> CSS linking as relations, the
+// way every other engine resolves: element tokens, the tree, and a selector's compounds joined
+// right to left, solved by the engine (in parallel) instead of walked by the bundle.
+//
+// The supported shape (web_selector_supported): compounds of type, class and id parts joined by a
+// descendant or child combinator, at the top level of a rule (no nesting, no @scope), every type name
+// lower case. Everything else — pseudo-classes, :not/:is/:has, attributes, siblings, `*`-only
+// compounds, nesting, quirks-mode case folding, a tree the bundle mends, a page composed from
+// includes, a class binding — stays with the bundle's matcher (graph/bundle/web/select.ts), which
+// also turns each match into a status, the cascade and computed style.
+//
+// Comparisons are exact: the bundle reads a match only on a page where exact is what it would do
+// (no quirks mode, no upper-case HTML tag, no mended tree).
+// ============================================================================
+
+// ── the tree ──
+// (element, page, parent or "")
+web_el(el, page, parent) :-
+  html_element(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, parent, page, _, el).
+// HTML elements only: the parser writes a type selector's name lower-cased, which decides an HTML tag (compared
+// case-insensitively) but not an SVG or MathML one (compared as written) — on a page with those the bundle keeps its own
+// matcher for every selector with a type part
+web_el_tag(el, tag) :- html_element(tag, "HTML", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
+web_el_tag(el, tag) :- html_element(tag, "", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
+web_el_id(el, id) :- html_element(_, _, _, _, id, _, _, _, _, _, _, _, _, _, _, _, _, _, el), id != "".
+web_el_class(el, c) :- html_class_reference(c, _, _, el, _, _, _, _).
+
+// ── the selector, one row per top-level part: (selector, compound, kind, name) ──
+web_sel_part(sel, k, kind, name) :-
+  css_selector_part(kind, name, _, _, _, _, ks, _, "0", _, _, _, _, sel, _, _, _), k = to_number(ks).
+// the combinator before compound k (k > 0), written on its first part
+web_sel_comb(sel, k, comb) :-
+  css_selector_part(_, _, _, _, _, comb, ks, _, "0", _, _, _, _, sel, _, _, _), comb != "NONE", k = to_number(ks), k > 0.
+web_sel_last(sel, n) :- web_sel_part(sel, _, _, _), n = max k : { web_sel_part(sel, k, _, _) }.
+
+// a rule nested in a style rule, at any depth: its selectors are relative to the parent's
+web_rule_parent(r, p) :- css_rule(_, _, _, _, _, _, _, _, _, _, _, _, _, p, _, _, _, _, r), p != "".
+web_rule_in_style(r) :- web_rule_parent(r, p), css_rule("STYLE_RULE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+web_rule_in_style(r) :- web_rule_parent(r, p), web_rule_in_style(p).
+
+web_sel_unsupported(sel) :- web_sel_part(sel, _, kind, _), kind != "TYPE", kind != "CLASS", kind != "ID".
+web_sel_unsupported(sel) :- web_sel_part(sel, _, "TYPE", name), match(".*[A-Z|*].*", name).
+// a namespace prefix (`svg|rect`): the parser writes it beside the name
+web_sel_unsupported(sel) :- css_selector_part("TYPE", _, ns, _, _, _, _, _, _, _, _, _, _, sel, _, _, _), ns != "".
+web_sel_unsupported(sel) :- web_sel_comb(sel, _, comb), comb != "DESCENDANT", comb != "CHILD".
+// a part below the top level (an argument of :not/:is/:has …)
+web_sel_unsupported(sel) :- css_selector_part(_, _, _, _, _, _, _, _, d, _, _, _, _, sel, _, _, _), d != "0".
+web_sel_unsupported(sel) :- css_selector(_, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, sel).
+web_sel_unsupported(sel) :- css_selector(_, _, _, _, _, _, _, _, _, _, _, _, rule, _, _, sel), web_rule_in_style(rule).
+web_sel_unsupported(sel) :- css_selector(_, _, _, _, _, _, _, _, _, _, _, _, rule, _, _, sel), css_rule(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, rule), !css_rule("STYLE_RULE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, rule).
+// every compound 0..last carries a part (a `*`-only compound has none here: unsupported)
+web_sel_has(sel, k) :- web_sel_part(sel, k, _, _).
+web_sel_unsupported(sel) :- web_sel_last(sel, n), k = range(0, n), !web_sel_has(sel, k).
+
+web_selector_supported(sel) :- web_sel_part(sel, _, _, _), !web_sel_unsupported(sel).
+
+// ── compound k matches el: a candidate from any part, no part failing ──
+web_comp_cand(sel, k, el) :- web_selector_supported(sel), web_sel_part(sel, k, "ID", n), web_el_id(el, n).
+web_comp_cand(sel, k, el) :- web_selector_supported(sel), web_sel_part(sel, k, "CLASS", n), web_el_class(el, n).
+web_comp_cand(sel, k, el) :- web_selector_supported(sel), web_sel_part(sel, k, "TYPE", n), web_el_tag(el, n).
+web_comp_fail(sel, k, el) :- web_comp_cand(sel, k, el), web_sel_part(sel, k, "ID", n), !web_el_id(el, n).
+web_comp_fail(sel, k, el) :- web_comp_cand(sel, k, el), web_sel_part(sel, k, "CLASS", n), !web_el_class(el, n).
+web_comp_fail(sel, k, el) :- web_comp_cand(sel, k, el), web_sel_part(sel, k, "TYPE", n), !web_el_tag(el, n).
+web_comp_ok(sel, k, el) :- web_comp_cand(sel, k, el), !web_comp_fail(sel, k, el).
+
+// ── right to left: compounds 0..k match ending at el ──
+web_sel_m(sel, 0, el) :- web_comp_ok(sel, 0, el).
+web_sel_m(sel, k, el) :- web_sel_comb(sel, k, "CHILD"), web_comp_ok(sel, k, el), web_el(el, _, p), web_sel_m(sel, k - 1, p).
+web_sel_m(sel, k, el) :- web_sel_comb(sel, k, "DESCENDANT"), web_comp_ok(sel, k, el), web_sel_below(sel, k - 1, el).
+// el is a proper descendant of an element where compounds 0..k match
+web_sel_below(sel, k, el) :- web_sel_m(sel, k, a), web_sel_comb(sel, k + 1, "DESCENDANT"), web_el(el, _, a).
+web_sel_below(sel, k, el) :- web_sel_below(sel, k, p), web_el(el, _, p).
+
+// ── the answer, per page that can load the selector's sheet (a superset of the bundle's load set) ──
+web_page_sheet(page, sheet) :- web_link_sheet(page, sheet, _, _).
+web_page_sheet(page, sheet) :- css_stylesheet(_, _, _, _, _, _, _, _, page, _, _, _, _, _, _, _, sheet), page != "".
+web_page_sheet(page, sheet) :- web_page_sheet(page, from), web_import(from, sheet, _).
+// (selector, page, element)
+web_selector_match(sel, page, el) :-
+  web_sel_last(sel, n), web_sel_m(sel, n, el), web_el(el, page, _),
+  css_selector(_, _, _, _, _, _, _, _, _, _, _, _, _, sheet, _, sel), web_page_sheet(page, sheet).
