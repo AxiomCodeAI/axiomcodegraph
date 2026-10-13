@@ -224,6 +224,17 @@ def watched(root, lang):
                         or (l == 'python' and python_script(os.path.join(d, f), f)):
                     yield os.path.join(d, f); break
 
+def watched_from(repo, src, lang):
+    """watched(src, lang), and the web links file at the repository root when --src leaves it outside src: the web
+    build reads it from there (ax_links.web_link writes it at the root), so an asserted include written with --src
+    must make the graph stale like one written without it (review #23)"""
+    yield from watched(src, lang)
+    if 'web' not in (lang or '').split(','): return
+    top, sub = os.path.realpath(repo), os.path.realpath(src)
+    if sub == top: return
+    f = os.path.join(repo, NAMES['web'][0])
+    if os.path.isfile(f): yield f
+
 def digest(p):
     h = hashlib.sha1()
     with open(p, 'rb') as fh:
@@ -233,7 +244,7 @@ def digest(p):
 def snapshot(repo, lang, src):
     """the file table: {rel: [size, mtime_ns, sha1]} of every file the parser would read under src"""
     files = {}
-    for p in watched(src, lang):
+    for p in watched_from(repo, src, lang):
         try: st = os.stat(p); files[os.path.relpath(p, repo)] = [st.st_size, st.st_mtime_ns, digest(p)]
         except OSError: pass
     return files
@@ -302,7 +313,7 @@ def changes(repo, table=None):
     if not t: return None
     old = t.get('files', {}); src = os.path.join(repo, t.get('src') or '')
     changed, added, seen = [], [], set()
-    for p in watched(src, t.get('lang', '')):
+    for p in watched_from(repo, src, t.get('lang', '')):
         rel = os.path.relpath(p, repo); seen.add(rel)
         try: st = os.stat(p)
         except OSError: continue

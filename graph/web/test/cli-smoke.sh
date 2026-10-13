@@ -109,6 +109,17 @@ if (cd "$T/rev" && "$AX" index "$T/rev" --lang web >"$T/index3.log" 2>&1); then
   nocheck R1-27-like-escape 'blog/pageX1.html' "$AX" impact page_1.html
   T="$T0"
 else fail=$((fail+1)); echo "FAIL index (review site)"; tail -5 "$T/index3.log"; fi
+# R1-23 (third bullet): with --src, the graph's pages are relative to the source directory and the links file to the
+# repository; the verdict of an asserted include is keyed the same way, so `link` reports it taken
+mkdir -p "$T/srcrepo/.git" "$T/srcrepo/site/parts"
+printf '<!doctype html>\n<html><head><style>.slot{margin:0}</style></head><body>\n<div class="slot">\n  <!-- the card goes here -->\n</div></body></html>\n' > "$T/srcrepo/site/host.html"
+printf '<p class="card">c</p>\n' > "$T/srcrepo/site/parts/card.html"
+if (cd "$T/srcrepo" && "$AX" index "$T/srcrepo" --lang web --src site >"$T/index4.log" 2>&1); then
+  T0="$T"; T="$T0/src-run"; mkdir -p "$T"; ln -s "$T0/srcrepo" "$T/site"
+  check R1-23-src-link-taken '[asserted]' "$AX" link site/parts/card.html:1 site/host.html:4
+  check R1-23-src-link-list 'site/parts/card.html → site/host.html:4  taken yes' "$AX" link
+  T="$T0"
+else fail=$((fail+1)); echo "FAIL index (--src site)"; tail -5 "$T/index4.log"; fi
 # R1-12: through MCP, custom-property and attribute lines survive the no-options filter; advice to pass a flag does not
 mcp_out=$(python3 - "$ROOT/plugins/axiomcode/mcp/server.py" <<'PY'
 import re, sys

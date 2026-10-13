@@ -1286,14 +1286,20 @@ def web_graph(repo):
 
 
 def web_verdicts(repo):
-    """{(fragment, host, line): (taken, reason)} from the web graph's asserted include rows"""
+    """{(fragment, host, line): (taken, reason)} from the web graph's asserted include rows, keyed by repository-relative
+    paths as the links file holds them. A page's `file` is relative to run.source_dir (review #23: with --src, the
+    pages live under a subdirectory, so they are put back under it); a row naming no page keeps the text as written."""
     db = web_graph(repo); out = {}
     if not db: return out
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        for frag, host, line, status, reason in con.execute(
-                "SELECT i.url_as_written, coalesce(h.file, i.file), i.line, i.status, i.reason FROM web_includes i LEFT JOIN web_pages h ON h.uid = i.host_page_uid WHERE i.kind = 'asserted'"):
-            out[(frag, host, str(line))] = (status == 'asserted', reason)
+        sd = con.execute("SELECT value FROM run WHERE key = 'source_dir'").fetchone()
+        under = os.path.relpath(os.path.realpath(sd[0]), os.path.realpath(repo)).replace(os.sep, '/') if sd and sd[0] else '.'
+        to_repo = (lambda f: f) if under == '.' or under.startswith('..') else (lambda f: f"{under}/{f}")
+        for frag_page, frag, host_page, host, line, status, reason in con.execute(
+                """SELECT f.file, i.url_as_written, h.file, i.file, i.line, i.status, i.reason FROM web_includes i
+                   LEFT JOIN web_pages h ON h.uid = i.host_page_uid LEFT JOIN web_pages f ON f.uid = i.fragment_page_uid WHERE i.kind = 'asserted'"""):
+            out[(to_repo(frag_page) if frag_page else frag, to_repo(host_page) if host_page else host, str(line))] = (status == 'asserted', reason)
     finally: con.close()
     return out
 
