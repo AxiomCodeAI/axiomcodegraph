@@ -1784,6 +1784,7 @@ Rows: = distinct (element, pseudo, property) over contenders; ≤ 3M per project
 | 11 | `conditional_overrides` | INTEGER |  |  |
 | 12 | `override_decl_uid` | TEXT |  |  |
 | 13 | `winner_key` | TEXT |  |  |
+| 14 | `unknown_reason` | TEXT |  | why winner_status is unknown: unknown_contender (a contender the engine could not decide ranks above the winner) or undecidable_contender:<reason> (an unconditional rule whose selector is undecidable on the page, e.g. selector_unparsed, implied_element, would outrank it) |
 
 ### `web_tokens`
 

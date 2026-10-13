@@ -208,7 +208,13 @@ def run(args, cwd=None, timeout=900):
 
 # THE TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
 # graph, a refresh in flight) are kept for what they say; a clause that names a flag or a parameter to set is dropped.
-_OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*|\b[a-z_]+=(?:True|False|N\b|<|\d|\"|')")
+# Only the CLI's own option names count (review #12): a web answer names CSS custom properties (`custom property --brand`,
+# `:root { --brand: #fff }`, `var(--gap)`), and those lines are the answer. A name inside var( or before a colon is CSS;
+# and only the tools' own parameters count as a `name=` to set, never an HTML attribute (`style="…"`, `class="…"`).
+_CLI_OPTIONS = ('json|tests|tests-only|tests-in|why|unknown|depends|in|limit|depth|page|page-budget|budget|kind|top|warm|from-text|delete|'
+                'help|fresh|no-refresh|every|all|grep|grep-limit|paths|from|seeds|source|lang|language|languages|src|library|exclude-tests|'
+                'debug|range|selftest|version|exact|evidence|no-evidence|verbs|alongside|drop|slug')
+_OPTION = re.compile(r"(?<![\w(-])--(?:" + _CLI_OPTIONS + r")(?![\w-])(?!\s*:)|\b(?:task|source|name|start|end)=(?:True|False|N\b|<|\d|\"|')")
 def plain(text):
     out = []; code = False
     for line in (text or '').split('\n'):

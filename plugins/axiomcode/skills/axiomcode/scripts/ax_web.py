@@ -45,11 +45,20 @@ def language_of(db):
         return None
 
 
+# the options dev's verbs take with a value (review #10, #26): the value is neither the repository nor a target
+VALUE_FLAGS = ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds', '--top', '--tests-in', '--page-budget', '--grep-limit')
+
+
+def like_esc(s):
+    """a literal for a LIKE pattern: \\, % and _ escaped"""
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 def repo_of(args):
     skip = False; pos = []
     for a in args:
         if skip: skip = False; continue
-        if a in ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds'): skip = True; continue
+        if a in VALUE_FLAGS: skip = True; continue
         if a.startswith('-'): continue
         pos.append(a)
     return pos[-1] if pos and os.path.isdir(pos[-1]) else '.'
@@ -123,7 +132,7 @@ class Web:
     def run(self, verb, argv):
         args = list(argv); as_json = '--json' in args; self.WHY = '--why' in args
         args = [a for a in args if a not in ('--json', '--tests', '--why', '--fresh', '--no-refresh', '--every', '--all', '--grep')]
-        for flag in ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds'):
+        for flag in VALUE_FLAGS:
             while flag in args:
                 i = args.index(flag); v = args[i + 1] if i + 1 < len(args) else ''
                 del args[i:i + 2]
@@ -153,8 +162,9 @@ class Web:
     # ── naming ──
     def scope_pages(self):
         if not self.IN: return None
-        rows = self.q("SELECT uid FROM web_pages WHERE file = ? OR file LIKE ?", self.IN, '%' + self.IN.lstrip('./'))
-        return {r['uid'] for r in rows}
+        f = self.IN[2:] if self.IN.startswith('./') else self.IN
+        rows = self.page_by_file(f)
+        return {rows[0]['uid']} if rows else set()
 
     def in_page(self, col, host_col=None):
         """the --in filter on a page column; with host_col (web_styles.host_page_uid, §11) a fragment's rows matched where
@@ -235,12 +245,14 @@ class Web:
     def page_by_file(self, f):
         f = f.replace('\\', '/')
         f = f[2:] if f.startswith('./') else f
-        return self.q("SELECT * FROM web_pages WHERE file = ? OR file LIKE ? ORDER BY length(file)", f, '%/' + f)
+        return self.q("SELECT * FROM web_pages WHERE file = ?", f) or \
+            self.q("SELECT * FROM web_pages WHERE file LIKE ? ESCAPE '\\' ORDER BY length(file), file", '%/' + like_esc(f))
 
     def sheet_by_file(self, f):
         f = f.replace('\\', '/')
         f = f[2:] if f.startswith('./') else f
-        return self.q("SELECT * FROM web_stylesheets WHERE source_kind='FILE' AND (file = ? OR file LIKE ?) ORDER BY length(file)", f, '%/' + f)
+        return self.q("SELECT * FROM web_stylesheets WHERE source_kind='FILE' AND file = ?", f) or \
+            self.q("SELECT * FROM web_stylesheets WHERE source_kind='FILE' AND file LIKE ? ESCAPE '\\' ORDER BY length(file), file", '%/' + like_esc(f))
 
     # ── scripts and handlers, as markup and text ──
     def script_rows(self, where, *a, full=False):
@@ -431,7 +443,9 @@ class Web:
         if f.lower().endswith('.css'):
             sh = self.sheet_by_file(f)
             if not sh: return {'found': False, 'refusal': f"web graph: no stylesheet {f}"}
-            rows = self.q("SELECT uid, selector_text FROM web_selectors WHERE stylesheet_uid = ? AND line <= ? AND COALESCE(end_line, line) >= ? ORDER BY line DESC", sh[0]['uid'], n, n)
+            rule = self.q1("SELECT uid FROM web_rules WHERE stylesheet_uid = ? AND line <= ? AND COALESCE(end_line, line) >= ? AND uid IN (SELECT rule_uid FROM web_selectors)"
+                           " ORDER BY line DESC, end_line ASC LIMIT 1", sh[0]['uid'], n, n)
+            rows = self.q("SELECT uid, selector_text FROM web_selectors WHERE rule_uid = ? ORDER BY line, col", rule['uid']) if rule else []
             if not rows: return {'found': False, 'refusal': f"web graph: no selector at {f}:{n}"}
             return self.impact_selector(rows[0]['selector_text'], sel_ids=[r['uid'] for r in rows])
         pg = self.page_by_file(f)

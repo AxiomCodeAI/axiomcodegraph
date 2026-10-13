@@ -73,5 +73,39 @@ if (cd "$T/tpl" && "$AX" index "$T/tpl" --lang web >"$T/index2.log" 2>&1); then
   check V3-06-handler-no-call '"role": "handler"' "$AX" impact index.html --json
   T="$T0"
 else fail=$((fail+1)); echo "FAIL index (template site)"; tail -5 "$T/index2.log"; fi
+# review 1 (R1-<n>: finding n): the query surface
+mkdir -p "$T/rev/blog"
+printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></head><body><p class="card">a</p></body></html>\n' > "$T/rev/index.html"
+printf '<!doctype html>\n<html><head><link rel="stylesheet" href="../style.css"></head><body><p class="card">b</p></body></html>\n' > "$T/rev/blog/index.html"
+printf '<!doctype html>\n<html><head><link rel="stylesheet" href="style.css"></head><body><p class="card">c</p></body></html>\n' > "$T/rev/oldindex.html"
+printf '<!doctype html>\n<html><body><p>x</p></body></html>\n' > "$T/rev/blog/pageX1.html"
+printf '.menu { color: red }\n.card {\n  color: blue;\n}\n' > "$T/rev/style.css"
+if (cd "$T/rev" && "$AX" index "$T/rev" --lang web >"$T/index3.log" 2>&1); then
+  # R1-10: an explicit repository wins over the graph of the directory asked from ($T/site, whose graph has no .card),
+  # with the trailing option the front door appends
+  check R1-10-explicit-repo 'oldindex.html' "$AX" impact .card "$T/rev" --json
+  T0="$T"; T="$T0/rev-run"; mkdir -p "$T"; ln -s "$T0/rev" "$T/site"
+  # R1-09: a stylesheet line names the rule holding it (web_selectors has no end_line)
+  check R1-09-sheet-line 'web: selector .card' "$AX" impact style.css:3
+  # R1-11: --in index.html is that page, not blog/index.html or oldindex.html
+  check R1-11-in-exact 'index.html:2: p.card' "$AX" impact .card --in index.html
+  nocheck R1-11-in-not-suffix 'blog/index.html' "$AX" impact .card --in index.html
+  nocheck R1-11-in-not-suffix2 'oldindex.html' "$AX" impact .card --in index.html
+  # R1-26: a dev option's value is no target
+  nocheck R1-26-top-value 'nothing named' "$AX" impact .card --top 5
+  # R1-27: _ in a LIKE pattern is a literal: page_1.html is not pageX1.html
+  nocheck R1-27-like-escape 'blog/pageX1.html' "$AX" impact page_1.html
+  T="$T0"
+else fail=$((fail+1)); echo "FAIL index (review site)"; tail -5 "$T/index3.log"; fi
+# R1-12: through MCP, custom-property and attribute lines survive the no-options filter; advice to pass a flag does not
+mcp_out=$(python3 - "$ROOT/plugins/axiomcode/mcp/server.py" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+start = src.index('_CLI_OPTIONS = (') if '_CLI_OPTIONS = (' in src else src.index('_OPTION = re.compile')
+ns = {'re': re}; exec(src[start:src.index('\n\n', src.index('def plain('))], ns)
+print(ns['plain']('web: custom property --brand\n  a.css:1: :root { --brand: #fff }\n  index.html:3: <p class="x" style="margin: var(--gap)">\nre-run with --why for the chain.\nask again with source=True.').replace('\n', ' | '))
+PY
+)
+if [ "$mcp_out" = 'web: custom property --brand |   a.css:1: :root { --brand: #fff } |   index.html:3: <p class="x" style="margin: var(--gap)">' ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL R1-12-mcp-plain: [$mcp_out]"; fi
 echo "web cli smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

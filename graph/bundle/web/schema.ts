@@ -234,7 +234,7 @@ const WEB_TABLE_DEFS: readonly TableSpec[] = [
   {
     name: 'web_computed',
     description: 'The cascade winner per (element, pseudo-element, written property) with >= 1 contender (SPEC §9.2): contenders are the declarations of the property in every rule with a styles row for the element and pseudo-element, plus its style attribute, sorted by importance, origin/layer, specificity, sheet order, rule order, position. `winner_status` match | conditional_only (no exact contender) | unknown (an unknown contender sorts above the winner) | shorthand_override (a shorthand declaration sorts above this longhand\'s winner: `override_decl_uid`; values are not expanded, LIMIT L5). Inherited and initial values are not filled (L6). `winner_key` is the sort key the view web_cascade compares against.',
-    columns: [id('element_uid'), ref('page_uid'), ref('host_page_uid', 'a fragment element resolved where that host includes it (§11); NULL on its own page'), t('pseudo'), ref('property'), ref('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), ref('override_decl_uid'), t('winner_key')],
+    columns: [id('element_uid'), ref('page_uid'), ref('host_page_uid', 'a fragment element resolved where that host includes it (§11); NULL on its own page'), t('pseudo'), ref('property'), ref('winner_decl_uid'), t('winner_origin'), t('winner_status'), t('value_text'), i('important'), i('contenders'), i('conditional_overrides'), ref('override_decl_uid'), t('winner_key'), t('unknown_reason', 'why winner_status is unknown: unknown_contender (a contender the engine could not decide ranks above the winner) or undecidable_contender:<reason> (an unconditional rule whose selector is undecidable on the page, e.g. selector_unparsed, implied_element, would outrank it)')],
   },
   {
     name: 'web_tokens',
@@ -430,13 +430,14 @@ export const WEB_VIEWS: readonly string[] = [
   `CREATE VIEW web_cascade AS
    WITH c AS (
      SELECT s.element_uid AS element, COALESCE(s.pseudo_element, '') AS pseudo, CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END AS property, d.uid AS decl,
-            max(printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
-                s.spec_a, s.spec_b, s.spec_c, s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS k,
+            max(printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
+                s.spec_a, s.spec_b, s.spec_c, CASE WHEN s.scope_proximity IS NULL THEN 0 ELSE 9999 - min(s.scope_proximity, 9999) END,
+                s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS k,
             min(CASE s.status WHEN 'match' THEN 0 WHEN 'conditional' THEN 1 ELSE 2 END) AS st, max(s.conditions) AS conditions
        FROM web_styles s JOIN web_declarations d ON d.rule_uid = s.rule_uid
       GROUP BY 1, 2, 3, 4
      UNION ALL
-     SELECT d.element_uid, '', CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END, d.uid, printf('%d|%010d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
+     SELECT d.element_uid, '', CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END, d.uid, printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
        FROM web_declarations d WHERE d.attribute_uid IS NOT NULL AND d.element_uid IS NOT NULL)
    SELECT c.element, NULLIF(c.pseudo, '') AS pseudo, c.property, c.decl,
           ROW_NUMBER() OVER (PARTITION BY c.element, c.pseudo, c.property ORDER BY c.k DESC) AS rank,
@@ -448,6 +449,7 @@ export const WEB_VIEWS: readonly string[] = [
                WHEN substr(c.k, 3, 10) != substr(w.winner_key, 3, 10) THEN
                  CASE WHEN substr(c.k, 3, 10) = '2000000000' OR substr(w.winner_key, 3, 10) = '2000000000' THEN 'origin' ELSE 'layer' END
                WHEN substr(c.k, 14, 14) != substr(w.winner_key, 14, 14) THEN 'specificity'
+               WHEN substr(c.k, 29, 4) != substr(w.winner_key, 29, 4) THEN 'scope_proximity'
                ELSE 'source_order' END AS lost_reason,
           c.conditions, CASE c.st WHEN 0 THEN 'match' WHEN 1 THEN 'conditional' ELSE 'unknown' END AS status
      FROM c JOIN web_computed w ON w.element_uid = c.element AND COALESCE(w.pseudo, '') = c.pseudo AND w.property = c.property`,

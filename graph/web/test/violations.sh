@@ -11,7 +11,7 @@ pass=0; fail=0; FILTERS=("$@")
 want(){ [ ${#FILTERS[@]} -eq 0 ] && return 0; local f; for f in "${FILTERS[@]}"; do [[ "$1" == *"$f"* ]] && return 0; done; return 1; }
 build(){ # name -> builds $T/<name>/src into $T/<name>/out, echoes the sqlite path
   local d="$T/$1"
-  if ! bash "$ROOT/bin/axiomcode" "$d/src" "$d/out" --language web >"$d/build.log" 2>&1; then echo "BUILD FAILED: $1" >&2; tail -5 "$d/build.log" >&2; return 1; fi
+  if ! bash "$ROOT/bin/axiomcode" "$d/src" "$d/out" --language web >"$d/build.log" 2>&1; then echo "BUILD FAILED: $1" >&2; tail -5 "$d/build.log" >&2; echo "$1" >> "$T/.build_failures"; return 1; fi
   find "$d/out" -name graph.sqlite | head -1
 }
 put(){ mkdir -p "$(dirname "$1")"; cat > "$1"; }
@@ -501,5 +501,88 @@ H
   }
 fi
 
+# ── review 1 (R1-<n>: finding n) ──
+# computed value of a property for the element with this id (or class) on a page: value/status[/reason]
+cv(){ local why="''"; [ "$(sqlite3 "$1" "SELECT count(*) FROM pragma_table_info('web_computed') WHERE name = 'unknown_reason'")" = 1 ] && why="coalesce('/' || c.unknown_reason, '')"
+  sqlite3 "$1" "SELECT group_concat(c.value_text || '/' || c.winner_status || $why, ' ') FROM web_computed c JOIN web_elements e ON e.uid = c.element_uid JOIN web_pages p ON p.uid = c.page_uid WHERE p.file = '$2' AND (e.html_id = '$3' OR ' ' || e.class_names || ' ' LIKE '% $3 %') AND c.property = '$4' AND c.pseudo IS NULL"; }
+if want R1-02; then
+  # an undecidable contender (:root where <html> is implied) that would outrank the winner leaves it unknown, never a match
+  printf '<!doctype html><title>t</title><link rel="stylesheet" href="s.css"><p class="btn">x</p>\n' | put "$T/r102/src/implied.html"
+  printf '<!doctype html><html><head><title>t</title><link rel="stylesheet" href="s.css"></head><body><p class="btn">x</p></body></html>\n' | put "$T/r102/src/written.html"
+  printf '.btn { color: red }\n:root .btn { color: blue }\n.btn { margin: 0 }\n' > "$T/r102/src/s.css"
+  db=$(build r102) && {
+    eq "R1-02 implied <html>: :root .btn would outrank .btn, so the winner is unknown" "$(cv "$db" implied.html btn color)" "red/unknown/undecidable_contender:implied_element"
+    eq "R1-02 control: a property no undecidable rule sets stays a match" "$(cv "$db" implied.html btn margin)" "0/match"
+    eq "R1-02 control: with <html> written, :root .btn matches and wins" "$(cv "$db" written.html btn color)" "blue/match"
+  }
+fi
+if want R1-03; then
+  # each anonymous @import layer is its own layer: the later one wins over specificity
+  put "$T/r103/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="m.css"></head><body><p id="x" class="y">x</p></body></html>
+H
+  printf '@import url(a.css) layer;\n@import url(b.css) layer;\n' > "$T/r103/src/m.css"; printf '#x { color: red }\n' > "$T/r103/src/a.css"; printf '.y { color: blue }\n' > "$T/r103/src/b.css"
+  db=$(build r103) && eq "R1-03 two anonymous import layers: the later layer wins" "$(cv "$db" index.html x color)" "blue/match"
+fi
+if want R1-04; then
+  # @scope proximity: equal specificity, the nearer scope root wins whatever the order
+  put "$T/r104/src/index.html" <<'H'
+<!doctype html><html><head><style>@scope (.light) { p { color: black } } @scope (.dark) { p { color: white } }</style></head>
+<body><div class="dark"><div class="light"><p id="near-light">x</p></div></div><div class="light"><div class="dark"><p id="near-dark">y</p></div></div></body></html>
+H
+  db=$(build r104) && {
+    eq "R1-04 the nearer scope root (.light) wins over the later rule" "$(cv "$db" index.html near-light color)" "black/match"
+    eq "R1-04 control: the nearer root is .dark, and it wins" "$(cv "$db" index.html near-dark color)" "white/match"
+  }
+fi
+if want R1-05; then
+  # a sheet linked inside <noscript> is a conditional load (scripting on: not loaded)
+  put "$T/r105/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="main.css"><noscript><link rel="stylesheet" href="noscript.css"></noscript></head><body><div class="box">b</div></body></html>
+H
+  printf '.box { display: none }\n' > "$T/r105/src/main.css"; printf '.box { display: block }\n' > "$T/r105/src/noscript.css"
+  db=$(build r105) && {
+    eq "R1-05 the noscript sheet's load is conditional" "$(sqlite3 "$db" "SELECT group_concat(s.file || ':' || l.status || ':' || coalesce(l.reason, '-'), ' ') FROM (SELECT * FROM web_loads ORDER BY load_order) l JOIN web_stylesheets s ON s.uid = l.stylesheet_uid")" "main.css:match:- noscript.css:conditional:inert:noscript"
+    eq "R1-05 and the unconditional winner is main.css's" "$(cv "$db" index.html box display)" "none/match"
+  }
+fi
+if want R1-08; then
+  # `<div/>` followed at once by a tag: the browser keeps the div open, so the p is its child
+  put "$T/r108/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><div class="a"/><p class="b">x</p></body></html>
+H
+  printf '.a > .b { color: red }\n' > "$T/r108/src/s.css"
+  db=$(build r108) && eq "R1-08 .a > .b matches the p after <div class=a/>" "$(cv "$db" index.html b color)" "red/match"
+fi
+
+if want R1-06; then
+  # `:not(.active)` on an element whose class binding can add .active is undecided, not a match
+  put "$T/r106/src/index.html" <<'H'
+<!doctype html><html><head><style>.btn:not(.active) { color: gray }</style></head><body><button class="btn" :class="{active: on}" id="bound">a</button><button class="btn" id="plain">b</button></body></html>
+H
+  db=$(build r106) && {
+    eq "R1-06 a binding that can add .active leaves .btn:not(.active) conditional" "$(sqlite3 "$db" "SELECT w.status || ':' || coalesce(w.reason, '-') FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid WHERE e.html_id = 'bound'")" "conditional:dynamic_class"
+    eq "R1-06 control: without a binding it is a match" "$(sqlite3 "$db" "SELECT w.status FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid WHERE e.html_id = 'plain'")" "match"
+  }
+fi
+if want R1-07; then
+  # var(--gap) in an included fragment inherits from the host's :root, through the include site
+  put "$T/r107/src/host.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><!--#include virtual="/card.html" --></body></html>
+H
+  printf '<p class="card">c</p>\n' > "$T/r107/src/card.html"; printf ':root { --gap: 4px }\n.card { margin: var(--gap) }\n' > "$T/r107/src/s.css"
+  db=$(build r107) && eq "R1-07 the fragment's p.card finds --gap at the host's <html>" "$(sqlite3 "$db" "SELECT v.status || ':' || coalesce(r.tag_name, '-') FROM web_var_scope v JOIN web_pages p ON p.uid = v.page_uid LEFT JOIN web_elements r ON r.uid = v.root_uid WHERE p.file = 'card.html' AND v.name = '--gap'")" "match:html"
+fi
+if want R1-16; then
+  # class bindings are read by a lexical scan: nothing in the web engine parses JavaScript (owner ruling)
+  eq "R1-16 graph/bundle/web imports no JavaScript or TypeScript parser" "$(grep -l -E "from '(typescript|acorn|@babel/parser|esprima)'" "$ROOT"/graph/bundle/web/*.ts 2>/dev/null | wc -l | tr -d ' ')" "0"
+  put "$T/r116/src/index.html" <<'H'
+<!doctype html><html><head><style>.on { color: red } .x { color: blue } .lg { color: green }</style></head><body><p id="a" :class="{on: v, 'x': w}">a</p><p id="b" :class="'b-' + size">b</p><p id="c" :class="big ? 'lg' : ''">c</p></body></html>
+H
+  db=$(build r116) && eq "R1-16 binding tokens: object keys, a conditional's strings, an unknowable concatenation" "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT e.html_id || '=' || s.selector_text AS x FROM web_styles w JOIN web_elements e ON e.uid = w.element_uid JOIN web_selectors s ON s.uid = w.selector_uid WHERE w.reason LIKE '%dynamic_class%' ORDER BY 1)")" "a=.on a=.x b=.lg b=.on b=.x c=.lg"
+fi
+
+# review #14: a build that failed is a failed check (its eq lines never ran), not a silently skipped one
+if [ -s "$T/.build_failures" ]; then fail=$((fail + $(wc -l < "$T/.build_failures"))); echo "FAIL builds: $(tr '\n' ' ' < "$T/.build_failures")"; fi
 echo "web violation checks: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && [ "$pass" -ge 1 ]

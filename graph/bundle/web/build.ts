@@ -19,7 +19,6 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import * as ts from 'typescript';
 
 import { readRaw } from '@/bundle/csv';
 import type { Row } from '@/bundle/build';
@@ -134,40 +133,85 @@ const ANIMATION_KEYWORDS = new Set(['none', 'infinite', 'normal', 'reverse', 'al
   'running', 'paused', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'linear', 'step-start', 'step-end', 'initial', 'inherit', 'unset', 'revert',
   'revert-layer', 'auto', 'replace', 'add', 'accumulate']);
 
-/** The class tokens a dynamic class binding can add: the tokens its text spells, or '*' (any). SPEC §3.2 R2. */
+/**
+ * The class tokens a dynamic class binding can add: the tokens its text spells, or '*' (any). SPEC §3.2 R2.
+ *
+ * A LEXICAL SCAN, NOT A JAVASCRIPT PARSE (owner ruling, review #16: nothing in the web layer is parsed as JS). The value of
+ * `:class`, `x-bind:class`, `[ngClass]`, `ng-class`, `th:classappend`… is read as tokens: every string literal outside an
+ * object value is a class list, and every key of an object literal (`{active: on, 'is-open': x}`) is a class. Anything
+ * the scan cannot see the result of makes the binding `*`: an identifier, member or call in value position (`cls`,
+ * `'btn-' + size`, `classes()`), a template literal with `${}`, a spread, a computed key, unbalanced brackets. An
+ * identifier is a CONDITION, not a value, before `?`, `&&` or a comparison, after a comparison or `!`, or inside an
+ * object value; `true`, `false`, `null` and `undefined` give no class.
+ */
 export function dynamicTokens(name: string, value: string): Set<string> | '*' {
   const n = name.toLowerCase();
   const m = /^\[class\.([^\]]+)\]$/.exec(n) || /^class:(.+)$/.exec(n);
   if (m) return new Set([m[1]!]);
   if (n === 'class') return '*';
-  const sf = ts.createSourceFile('x.ts', `(${value});`, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
-  const st = sf.statements[0];
-  if (!st || !ts.isExpressionStatement(st) || (sf as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics?.length) return '*';
-  const out = new Set<string>(); let wild = false;
-  const str = (s: string) => { for (const t of s.split(/\s+/).filter(Boolean)) out.add(t); };
-  const val = (e: ts.Expression): void => {
-    if (ts.isParenthesizedExpression(e)) return val(e.expression);
-    if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) { str(e.text); return; }
-    if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return;
-    if (ts.isObjectLiteralExpression(e)) {
-      for (const p of e.properties) {
-        if (!ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p)) { wild = true; continue; }
-        const k = p.name;
-        if (ts.isIdentifier(k)) out.add(k.text); else if (ts.isStringLiteral(k) || ts.isNumericLiteral(k)) str(k.text); else wild = true;
+  type Tok = { k: 'str' | 'id' | 'num' | 'p'; v: string };
+  const toks: Tok[] = [];
+  const v = value;
+  for (let i = 0; i < v.length;) {
+    const c = v[i]!;
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1; let text = '';
+      for (; j < v.length && v[j] !== c; j++) {
+        if (v[j] === '\\') { text += v[j + 1] ?? ''; j++; continue; }
+        if (c === '`' && v[j] === '$' && v[j + 1] === '{') return '*';
+        text += v[j];
       }
-      return;
+      if (j >= v.length) return '*';
+      toks.push({ k: 'str', v: text }); i = j + 1; continue;
     }
-    if (ts.isArrayLiteralExpression(e)) { e.elements.forEach((x) => val(x)); return; }
-    if (ts.isConditionalExpression(e)) { val(e.whenTrue); val(e.whenFalse); return; }
-    if (ts.isBinaryExpression(e)) {
-      const op = e.operatorToken.kind;
-      if (op === ts.SyntaxKind.AmpersandAmpersandToken) { val(e.right); return; }
-      if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.PlusToken) { val(e.left); val(e.right); return; }
+    const id = /^[A-Za-z_$][\w$]*(?:\s*(?:\?\.|\.)\s*[A-Za-z_$][\w$]*)*/.exec(v.slice(i));
+    if (id) { toks.push({ k: 'id', v: id[0] }); i += id[0].length; continue; }
+    const num = /^\d[\w.]*/.exec(v.slice(i));
+    if (num) { toks.push({ k: 'num', v: num[0] }); i += num[0].length; continue; }
+    const op = /^(?:===|!==|==|!=|<=|>=|&&|\|\||\?\?|\.\.\.|[{}[\]():,?!<>+\-*/%])/.exec(v.slice(i));
+    if (!op) return '*';
+    toks.push({ k: 'p', v: op[0] }); i += op[0].length;
+  }
+  const out = new Set<string>();
+  const add = (t: string) => { for (const x of t.split(/\s+/).filter(Boolean)) out.add(x); };
+  const CMP = new Set(['===', '!==', '==', '!=', '<', '>', '<=', '>=']);
+  const LIT = new Set(['true', 'false', 'null', 'undefined']);
+  // a stack of open brackets; for an object, whether the scan is at a key (after `{` or `,`) or in a value (after `:`)
+  const stack: { b: string; inValue: boolean }[] = [];
+  const inObjValue = () => stack.some((f) => f.b === '{' && f.inValue);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i]!; const prev = toks[i - 1]; const next = toks[i + 1];
+    const top = stack[stack.length - 1];
+    if (t.k === 'p') {
+      if (t.v === '{' || t.v === '[' || t.v === '(') {
+        // a call: an identifier right before `(` was already judged; a computed key `{[x]: …}` is unknowable
+        if (t.v === '[' && top?.b === '{' && !top.inValue) return '*';
+        stack.push({ b: t.v, inValue: false }); continue;
+      }
+      if (t.v === '}' || t.v === ']' || t.v === ')') {
+        const f = stack.pop(); if (!f || { '}': '{', ']': '[', ')': '(' }[t.v] !== f.b) return '*'; continue;
+      }
+      if (top?.b === '{' && t.v === ':' && !top.inValue) { top.inValue = true; continue; }
+      if (top?.b === '{' && t.v === ',') { top.inValue = false; continue; }
+      if (t.v === '...' && !inObjValue()) return '*';
+      continue;
     }
-    wild = true;
-  };
-  val(st.expression);
-  return wild ? '*' : out;
+    // an object key: right after `{` or `,` in an object, before `:`
+    if (top?.b === '{' && !top.inValue) {
+      if (next?.v !== ':' && next?.v !== ',' && next?.v !== '}') return '*';
+      if (t.k === 'str' || t.k === 'id' || t.k === 'num') add(t.v);
+      continue;
+    }
+    if (inObjValue()) continue; // a condition
+    if (t.k === 'str') { if (!(next && CMP.has(next.v)) && !(prev && CMP.has(prev.v))) add(t.v); continue; }
+    if (t.k === 'num' || LIT.has(t.v)) continue;
+    // an identifier: a condition, or a value whose classes the scan cannot see
+    const condition = (next && (next.v === '?' || next.v === '&&' || CMP.has(next.v))) || (prev && (prev.v === '!' || CMP.has(prev.v)));
+    if (!condition) return '*';
+  }
+  if (stack.length) return '*';
+  return out;
 }
 
 /** The names an animation / animation-name value gives (vendor forms included, SPEC §3.4 G10). */
@@ -349,8 +393,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const textOf = (id: string): string => {
       if (lines === null) { try { let t = fs.readFileSync(p.abs, 'utf8'); if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); lines = t.split(/\r\n|\r|\n/); } catch { lines = []; } }
       const r = elRow.get(id)!; const sl = num(g(T.el, r, 'startLine'))!, sc = num(g(T.el, r, 'startColumn'))!, el = num(g(T.el, r, 'endLine'))!, ec = num(g(T.el, r, 'endColumn'))!;
-      if (sl === el) return (lines[sl - 1] ?? '').slice(sc - 1, ec);
-      return [(lines[sl - 1] ?? '').slice(sc - 1), ...lines.slice(sl, el - 1), (lines[el - 1] ?? '').slice(0, ec)].join('\n');
+      // the parser's columns are 1-based and the end column is exclusive (review #8: `ec` read one character past `<div/>`)
+      if (sl === el) return (lines[sl - 1] ?? '').slice(sc - 1, ec - 1);
+      return [(lines[sl - 1] ?? '').slice(sc - 1), ...lines.slice(sl, el - 1), (lines[el - 1] ?? '').slice(0, ec - 1)].join('\n');
     };
     let mended = false;
     for (const e of p.elements) {
@@ -1080,14 +1125,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const vr = (vrefsOfRule.get(n.id) ?? []).find((v) => g(T.vref, v, 'referenceKind') === 'IMPORT');
     const parts = importParts(n.prelude);
     const vid = vr ? g(T.vref, vr, 'cssValueReferenceUniqueHash') : '';
-    n.import = { to: importTo.get(vid) ?? null, vref: vid, media: parts.media, supports: parts.supports, layer: parts.layer,
+    // review #3: `@import url(x) layer;` opens an anonymous layer of its own, one per @import rule
+    n.import = { to: importTo.get(vid) ?? null, vref: vid, media: parts.media, supports: parts.supports, layer: parts.layer === '<anon-import>' ? `<anon:${n.id}>` : parts.layer,
       url: vr ? g(T.vref, vr, 'name') : n.prelude, reason: importTo.has(vid) ? null : onDiskReason(importUnknown.get(vid) ?? 'unresolved_url', s.abs, vr ? g(T.vref, vr, 'name') : '', vr ? g(T.vref, vr, 'urlKind') : '') };
     out('web_imports').push({ from_stylesheet_uid: s.id, to_stylesheet_uid: n.import.to, value_ref_uid: nz(vid), url_as_written: n.import.url,
       status: n.import.to ? 'match' : 'unknown', reason: n.import.to ? null : n.import.reason });
   }
 
   // ── per page: what it loads, in cascade order (SPEC §3.1, §3.3) ──
-  interface Load { sheet: string; via: string; viaId: string; depth: number; order: number; conds: string[]; layer: string | null; disabled: boolean }
+  interface Load { sheet: string; via: string; viaId: string; depth: number; order: number; conds: string[]; layer: string | null; disabled: string }
   const loadsOf = new Map<string, Load[]>();
   const loadedBy = new Map<string, Set<string>>();
   const joinLayer = (a: string | null, b: string | null): string | null => (a && b ? `${a}.${b}` : a || b || null);
@@ -1095,7 +1141,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   for (const page of pages.values()) {
     const loads: Load[] = []; let order = 0;
     const rows: Record<string, string | number | null>[] = [];
-    const pushSheet = (sid: string, via: string, viaId: string, depth: number, conds: string[], layer: string | null, disabled: boolean, stack: Set<string>) => {
+    const pushSheet = (sid: string, via: string, viaId: string, depth: number, conds: string[], layer: string | null, disabled: string, stack: Set<string>) => {
       const s = sheets.get(sid)!;
       for (const n of s.rules) {
         if (!n.import) continue;
@@ -1108,7 +1154,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       order += 1;
       loads.push({ sheet: sid, via, viaId, depth, order, conds, layer, disabled });
       rows.push({ page_uid: page.id, stylesheet_uid: sid, url_as_written: via === 'style' ? null : (s.kind === 'FILE' ? s.file : null), via, via_uid: viaId, load_order: order,
-        import_depth: depth, media: conds.length ? conds.join(' && ') : null, layer, status: disabled ? 'conditional' : 'match', reason: disabled ? 'alternate_sheet' : null });
+        import_depth: depth, media: conds.length ? conds.join(' && ') : null, layer, status: disabled ? 'conditional' : 'match', reason: disabled || null });
     };
     const styleSheetOf = new Map<string, string>();
     for (const s of sheets.values()) if (s.kind === 'HTML_STYLE_ELEMENT' && s.page === page.id) styleSheetOf.set(s.owner, s.id);
@@ -1118,13 +1164,15 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       if (e.inert === 'template' || e.inert === 'iframe_text') continue;
       if (e.tagLower === 'style' && (e.ns === 'HTML' || e.ns === '')) {
         const sid = styleSheetOf.get(e.id); if (!sid) continue;
-        pushSheet(sid, 'style', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, false, new Set([sid]));
+        pushSheet(sid, 'style', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, e.inert === 'noscript' ? 'inert:noscript' : '', new Set([sid]));
       } else if (e.tagLower === 'link' && (e.ns === 'HTML' || e.ns === '')) {
         const relAttr = (e.attrs.get('rel')?.value ?? '').toLowerCase().split(/\s+/);
         if (!relAttr.includes('stylesheet')) continue;
         const r = linkRefs.get(e.id); if (!r) continue;
         const refId = g(T.ref, r, 'htmlReferenceUniqueHash');
-        const disabled = relAttr.includes('alternate') || e.attrs.has('disabled');
+        // a sheet the page may not apply: an alternate or disabled <link>, or one inside <noscript> (review #5: a browser
+        // with scripting on does not load it), is a conditional load whose rows carry the reason
+        const disabled = relAttr.includes('alternate') || e.attrs.has('disabled') ? 'alternate_sheet' : e.inert === 'noscript' ? 'inert:noscript' : '';
         const sid = sheetOfRef.get(refId);
         if (sid) pushSheet(sid, 'link', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, disabled, new Set([sid]));
         else rows.push({ page_uid: page.id, stylesheet_uid: null, url_as_written: g(T.ref, r, 'urlAsWritten'), via: 'link', via_uid: e.id, load_order: null, import_depth: 0,
@@ -1298,8 +1346,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     return null;
   };
   // ── §9.2 resolved style: contenders, the cascade key, winners ──
-  interface Cand { pe: string; rule: string; st: number; a: number; b: number; c: number; so: number; ro: number; lr: number }
-  const cmpCand = (x: Cand, y: Cand): number => (x.a - y.a) || (x.b - y.b) || (x.c - y.c) || (x.so - y.so) || (x.ro - y.ro) || (x.lr - y.lr);
+  interface Cand { pe: string; rule: string; st: number; a: number; b: number; c: number; px: number; so: number; ro: number; lr: number }
+  /** a declaration of a rule whose selector the engine cannot decide on the page, with the cascade key it would have */
+  interface Undecided { key: string; reason: string }
+  const cmpCand = (x: Cand, y: Cand): number => (x.a - y.a) || (x.b - y.b) || (x.c - y.c) || (x.px - y.px) || (x.so - y.so) || (x.ro - y.ro) || (x.lr - y.lr);
+  /** scope proximity as a cascade field, higher wins: 9999 - hops to the scope root, 0 outside any @scope (review #4) */
+  const pxField = (prox: number | null): number => (prox === null ? 0 : 9999 - Math.min(prox, 9999));
   const classSel = new Set<string>(); const styledClass = new Set<string>();
   const inlineDecls = new Map<string, string[][]>(); // element -> its style attribute's declarations
   for (const r of T.decl.rows) { const a = g(T.decl, r, 'htmlAttributeLinkHash'); const el = a ? attrOwner.get(a) : undefined; if (el) push(inlineDecls, el, r); }
@@ -1307,10 +1359,10 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const propKey = (p: string): string => (p.startsWith('--') ? p : p.toLowerCase());
   const pad = (n: number, w: number): string => String(Math.max(0, Math.trunc(n))).padStart(w, '0');
   /** the cascade sort key as text (web_cascade recomputes it in SQL with the same layout): higher wins */
-  const keyOf = (imp: number, inline: boolean, lr: number, a: number, b: number, c: number, so: number, ro: number, pos: number): string =>
-    `${imp}|${pad(inline ? 2000000000 : imp ? 1000000000 - lr : lr, 10)}|${pad(a, 4)}|${pad(b, 4)}|${pad(c, 4)}|${pad(so, 6)}|${pad(ro, 7)}|${pad(pos, 5)}`;
+  const keyOf = (imp: number, inline: boolean, lr: number, a: number, b: number, c: number, px: number, so: number, ro: number, pos: number): string =>
+    `${imp}|${pad(inline ? 2000000000 : imp ? 1000000000 - lr : lr, 10)}|${pad(a, 4)}|${pad(b, 4)}|${pad(c, 4)}|${pad(px, 4)}|${pad(so, 6)}|${pad(ro, 7)}|${pad(pos, 5)}`;
   let computedRows = 0;
-  const computedOf = (pageId: string, cands: Map<string, Map<string, Cand>>, composed?: { host: string; els: string[] }) => {
+  const computedOf = (pageId: string, cands: Map<string, Map<string, Cand>>, composed?: { host: string; els: string[] }, undecided?: Map<string, Undecided[]>) => {
     const els = new Set<string>([...cands.keys()]);
     if (composed) { for (const id of composed.els) if (inlineDecls.has(id)) els.add(id); }
     else for (const e of pages.get(pageId)?.elements ?? []) if (inlineDecls.has(e.id) && e.inert !== 'iframe_text') els.add(e.id);
@@ -1322,13 +1374,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         for (const d of declsOfRule.get(c.rule) ?? []) {
           const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
           add(c.pe, { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: propKey(g(T.decl, d, 'property')), st: c.st, inline: false, imp,
-            key: keyOf(imp, false, c.lr, c.a, c.b, c.c, c.so, c.ro, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
+            key: keyOf(imp, false, c.lr, c.a, c.b, c.c, c.px, c.so, c.ro, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
         }
       }
       for (const d of inlineDecls.get(elId) ?? []) {
         const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
         add('', { decl: g(T.decl, d, 'cssDeclarationUniqueHash'), prop: propKey(g(T.decl, d, 'property')), st: 0, inline: true, imp,
-          key: keyOf(imp, true, 0, 0, 0, 0, 0, 0, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
+          key: keyOf(imp, true, 0, 0, 0, 0, 0, 0, 0, num(g(T.decl, d, 'position')) ?? 0), value: g(T.decl, d, 'valueText') });
       }
       for (const [pe, props] of byPe) {
         for (const ks of props.values()) ks.sort((x, y) => (x.key < y.key ? 1 : x.key > y.key ? -1 : 0));
@@ -1343,14 +1395,22 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           // V2-13 ruling: contenders = every declaration of the property that applies (any condition, the winner
           // included); conditional_overrides = the conditional ones among them
           const condOver = ks.filter((k) => k.st === 1).length;
-          if (status === 'match' && above.some((k) => k.st === 2)) status = 'unknown';
+          let unknownReason: string | null = null;
+          if (status === 'match' && above.some((k) => k.st === 2)) { status = 'unknown'; unknownReason = 'unknown_contender'; }
+          // review P1 #2: a rule the engine cannot decide on the page (an unparsed selector, a rule with a parse gap, :root
+          // where <html> is implied) is still a contender; one that would outrank the winner leaves it unknown, never a match
+          if (status === 'match' && w && undecided) {
+            const u = (undecided.get(`${pe}|${prop}`) ?? []).find((x) => x.key > w.key);
+            if (u) { status = 'unknown'; unknownReason = `undecidable_contender:${u.reason}`; }
+          }
           let override: K | null = null;
           if (w) for (const sh of SHORTHANDS.get(prop) ?? []) for (const k of props.get(sh) ?? []) if (k.st === 0 && k.key > w.key && (!override || k.key > override.key)) override = k;
           if (override && status === 'match') status = 'shorthand_override';
           computedRows++;
           out('web_computed').push({ element_uid: elId, page_uid: pageId, host_page_uid: composed?.host ?? null, pseudo: pe || null, property: prop, winner_decl_uid: w?.decl ?? null,
             winner_origin: w ? (w.inline ? 'inline' : 'rule') : null, winner_status: status, value_text: w ? unesc(w.value).replace(/\/\*[\s\S]*?\*\//g, '').trim() || null : null,
-            important: w?.imp ?? 0, contenders: ks.length, conditional_overrides: condOver, override_decl_uid: override?.decl ?? null, winner_key: w?.key ?? null });
+            important: w?.imp ?? 0, contenders: ks.length, conditional_overrides: condOver, override_decl_uid: override?.decl ?? null, winner_key: w?.key ?? null,
+            unknown_reason: status === 'unknown' ? (unknownReason ?? 'unknown_contender') : null });
         }
       }
     }
@@ -1398,6 +1458,23 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const seen = new Set<string>();
     const unmatched = new Map<string, { any: boolean; missing: boolean }>();
     const fold = (x: string) => (page.quirks ? x.toLowerCase() : x);
+    // review P1 #2: the declarations of unconditional rules whose selector is undecidable here, by (pseudo, property)
+    const undecided = new Map<string, Undecided[]>();
+    const noteUndecided = (s: SelN, n: RuleN, l: Load, layerRank: number, reason: string, conditional: boolean): void => {
+      if (conditional) return;
+      // a token the selector requires that the page does not carry: it matches nothing here
+      if (s.req.classes.some((c) => !ctx.classes.has(fold(c))) || s.req.ids.some((c) => !ctx.ids.has(fold(c)))) return;
+      // `:root` as the subject is the implied <html> itself, which has no row and no computed style here
+      const subject = s.cx[s.cx.length - 1];
+      if (reason === 'implied_element' && subject?.simples.some((x) => x.kind === 'PSEUDO_CLASS' && x.name.toLowerCase() === 'root')) return;
+      // a selector with no parts has no known specificity: it may outrank any winner
+      const sp = s.cx.length === 0 ? [9999, 9999, 9999] : s.spec;
+      for (const d of declsOfRule.get(n.id) ?? []) {
+        const imp = g(T.decl, d, 'isImportant') === 'true' ? 1 : 0;
+        push(undecided, `${s.pe}|${propKey(g(T.decl, d, 'property'))}`, {
+          key: keyOf(imp, false, layerRank, sp[0]!, sp[1]!, sp[2]!, 0, l.order, n.order, num(g(T.decl, d, 'position')) ?? 0), reason });
+      }
+    };
     for (const l of loads) {
       const sh = sheets.get(l.sheet)!;
       for (const n of sh.rules) {
@@ -1414,11 +1491,13 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           const tallies = !comp || comp.mode === 'host';
           if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (tallies) st.loading++; }
           const unk = s.unknown || scope?.spec.unknown || '';
+          if (unk) noteUndecided(s, n, l, layerRank, unk, atConds.length > 0 || !!l.disabled);
+          if (s.root && !page.hasHtml && !scope && !unk) noteUndecided(s, n, l, layerRank, 'implied_element', atConds.length > 0 || !!l.disabled);
           if (unk) { if (tallies && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= unk; unknownRow(unk, s.id, pageId, unk, null, sheetFile(l.sheet), null); } continue; }
           if (s.root && !page.hasHtml && !scope) { if (tallies && !seen.has(`u|${s.id}`)) { seen.add(`u|${s.id}`); st.wholeUnk++; st.ur ||= 'implied_element'; unknownRow('implied_element', s.id, pageId, 'implied_element', null, sheetFile(l.sheet), null); } continue; }
           const base = new Set(s.reasons);
           for (const c of atConds) base.add(`at_rule:${c.split(/\s/)[0]!.slice(1).toLowerCase()}`);
-          if (l.disabled) base.add('alternate_sheet');
+          if (l.disabled) base.add(l.disabled);
           if (scope) for (const r of scope.spec.reasons) base.add(r);
           let u = unmatched.get(s.id); if (!u) { u = { any: false, missing: false }; unmatched.set(s.id, u); }
           const missing = s.req.classes.some((c) => !ctx.classes.has(fold(c))) || s.req.ids.some((c) => !ctx.ids.has(fold(c)));
@@ -1439,7 +1518,9 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
               const cmap = tg.host ? (candsByPage.get(tg.page) ?? (candsByPage.set(tg.page, new Map()), candsByPage.get(tg.page)!)) : cands;
               const ck = `${s.pe}|${n.id}`; let em = cmap.get(eid); if (!em) { em = new Map(); cmap.set(eid, em); }
               const prev = em.get(ck); const stc = status === 'match' ? 0 : status === 'conditional' ? 1 : 2;
-              const cand = { pe: s.pe, rule: n.id, st: stc, a: s.spec[0], b: s.spec[1], c: s.spec[2], so: l.order, ro: n.order, lr: layerRank };
+              let px0: number | null = null;
+              if (root) { px0 = 0; for (let a: El | null = e; a && a !== root; a = a.parent) px0++; }
+              const cand = { pe: s.pe, rule: n.id, st: stc, a: s.spec[0], b: s.spec[1], c: s.spec[2], px: pxField(px0), so: l.order, ro: n.order, lr: layerRank };
               if (!prev || stc < prev.st || (stc === prev.st && cmpCand(cand, prev) > 0)) em.set(ck, cand);
               for (const c of s.classNamed) { classSel.add(s.id); if (e.classes.has(c)) styledClass.add(c); }
             }
@@ -1469,6 +1550,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
             const reasons = new Set(base);
             if (e.inert) reasons.add(`inert:${e.inert}`);
             if (rs.s === UNKNOWN) return ['unknown', rs.r];
+            // a conditional result carries its own reason (review #6: a negation a class binding can flip)
+            if (rs.s === COND && rs.r) reasons.add(rs.r);
             return [reasons.size ? 'conditional' : 'match', [...reasons].sort().join(';')];
           };
           if (scope) {
@@ -1532,7 +1615,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     // V3-05: a composed fragment no rule matches still has its style attributes' rows, per host
     const fragPages = new Set(candsByPage.keys());
     if (comp?.mode === 'host') for (const e of comp.live) if (e.origPage !== pageId && inlineDecls.has(e.origId)) fragPages.add(e.origPage);
-    for (const fp of fragPages) computedOf(fp, candsByPage.get(fp) ?? new Map(), { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) });
+    for (const fp of fragPages) computedOf(fp, candsByPage.get(fp) ?? new Map(), { host: pageId, els: (comp?.live ?? []).filter((e) => e.origPage === fp).map((e) => e.origId) }, undecided);
     // [iter2 grain] no per-(selector, page) unknown row: counted on the selector row; the page list is the view
     // web_selector_unmatched_pages. A page in several runs (its own composition, a layout an extending page is
     // matched in) is matched when any run matched; a token is missing only when every run missed it.
@@ -1549,7 +1632,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       if (!t) byPage.set(pageId, { any: u.any, missing: u.missing, unk });
       else { t.any ||= u.any; t.missing &&= u.missing; t.unk ||= unk; }
     }
-    if (!comp || comp.mode === 'host') computedOf(pageId, cands);
+    if (!comp || comp.mode === 'host') computedOf(pageId, cands, undefined, undecided);
   };
   // V2-08: each page's carried tokens, its own and its included fragments' (transitively), for the per-page view
   {
@@ -1706,19 +1789,37 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
         out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: null, root_exact_uid: null, status: 'unknown', reason: 'no_definition_in_scope' });
         return;
       }
-      const defRules = [...(definingRules.get(name) ?? [])].filter((r) => ruleEls.has(r));
       const attrDefs = attrDefEls.get(name);
-      let root: string | null = null, rootSt = NO, rootExact: string | null = null;
-      for (let a: El | null = elById.get(elId) ?? null; a; a = a.parent) {
-        let best = attrDefs?.has(a.id) ? EXACT : NO;
-        for (const dr of defRules) best = Math.max(best, ruleEls.get(dr)!.get(a.id) ?? NO);
-        if (best === UNKNOWN) best = NO;
-        if (best > NO && root === null) { root = a.id; rootSt = best; }
-        if (best === EXACT) { rootExact = a.id; break; }
+      const walk = (start: El | null, rels: Map<string, Map<string, number>>) => {
+        const defRules = [...(definingRules.get(name) ?? [])].filter((r) => rels.has(r));
+        let root: string | null = null, rootSt = NO, rootExact: string | null = null;
+        for (let a: El | null = start; a; a = a.parent) {
+          let best = attrDefs?.has(a.id) ? EXACT : NO;
+          for (const dr of defRules) best = Math.max(best, rels.get(dr)!.get(a.id) ?? NO);
+          if (best === UNKNOWN) best = NO;
+          if (best > NO && root === null) { root = a.id; rootSt = best; }
+          if (best === EXACT) { rootExact = a.id; break; }
+        }
+        return { root, rootSt, rootExact, defs: defRules.length };
+      };
+      const own = walk(elById.get(elId) ?? null, ruleEls);
+      let { root, rootSt, rootExact } = own;
+      let defCount = own.defs;
+      // review #7: above an included fragment's top element the tree is its host's, from the include site up, matched in
+      // the host (`:root{--gap}` on the host's <html>); with several hosts the row is a match only when every host has one
+      if (rootExact === null) {
+        const hosts = hostsOfFragment.get(pageId) ?? [];
+        const hr = hosts.map((h) => walk(h.hostEl, pageMatches.get(h.host) ?? new Map()));
+        defCount += hr.reduce((n, x) => n + x.defs, 0);
+        const found = hr.filter((x) => x.root !== null);
+        if (root === null && found.length > 0) {
+          const all = found.length === hr.length && found.every((x) => x.rootSt === EXACT);
+          root = found[0]!.root; rootSt = all ? EXACT : COND; rootExact = all ? found[0]!.rootExact : null;
+        }
       }
       out('web_var_scope').push({ page_uid: pageId, element_uid: elId, name, root_uid: root, root_exact_uid: rootExact !== root ? rootExact : null,
         status: root ? (rootSt === EXACT ? 'match' : 'conditional') : 'unknown',
-        reason: root ? null : propOnly ? 'property_initial' : (defRules.length || attrDefs ? 'not_inherited' : 'no_definition_in_scope') });
+        reason: root ? null : propOnly ? 'property_initial' : (defCount || attrDefs ? 'not_inherited' : 'no_definition_in_scope') });
     };
     for (const [pageId, ruleEls] of pageMatches) {
       for (const [ruleId, names] of usingRules) {

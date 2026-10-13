@@ -312,6 +312,10 @@ export class Matcher {
   scopeRoot: El | null = null;
 
   constructor(readonly page: PageCtx, readonly dynamic = false) {}
+  /** how deep inside :not() the match is; there a binding that can add the token decides it (review #6) */
+  private negDepth = 0;
+  /** whether a binding's tokens and attributes count: the dynamic_class pass, or under a negation in either pass */
+  private get dyn(): boolean { return this.dynamic || this.negDepth > 0; }
 
   /** Match one complex selector against one element. */
   match(cx: Complex, e: El): Res {
@@ -389,12 +393,12 @@ export class Matcher {
       case 'CLASS': {
         const has = q ? e.classesLower.has(s.name.toLowerCase()) : e.classes.has(s.name);
         if (has) return R_EXACT;
-        if (this.dynamic && e.dynTokens !== null && (e.dynTokens === '*' || e.dynTokens.has(s.name))) return cond('dynamic_class');
+        if (this.dyn && e.dynTokens !== null && (e.dynTokens === '*' || e.dynTokens.has(s.name))) return cond('dynamic_class');
         return R_NO;
       }
       case 'ID':
         if (q ? e.idAttr.toLowerCase() === s.name.toLowerCase() : e.idAttr === s.name) return R_EXACT;
-        return this.dynamic && e.dynAttrs.has('id') ? cond('dynamic_attribute') : R_NO;
+        return this.dyn && e.dynAttrs.has('id') ? cond('dynamic_attribute') : R_NO;
       case 'ATTRIBUTE': return this.attribute(s, e);
       case 'PSEUDO_ELEMENT': {
         const n = s.name.toLowerCase();
@@ -413,7 +417,7 @@ export class Matcher {
     const html = e.ns === 'HTML' || e.ns === '';
     let name = s.name; const bar = name.indexOf('|'); if (bar >= 0) name = name.slice(bar + 1);
     const a = e.attrs.get(html ? name.toLowerCase() : name) ?? (html ? undefined : e.attrs.get(name.toLowerCase()));
-    if (this.dynamic && e.dynAttrs.has(name.toLowerCase())) return cond('dynamic_attribute');
+    if (this.dyn && e.dynAttrs.has(name.toLowerCase())) return cond('dynamic_attribute');
     if (a === undefined) {
       return R_NO;
     }
@@ -469,7 +473,10 @@ export class Matcher {
     const attr = (k: string) => e.attrs.has(k);
     switch (n) {
       case 'not': {
-        const r = this.list(s.args, e);
+        // `.btn:not(.active)` on an element whose binding can add .active is undecided, not a match (review #6)
+        this.negDepth++;
+        let r: Res;
+        try { r = this.list(s.args, e); } finally { this.negDepth--; }
         return r.s === EXACT ? R_NO : r.s === NO ? R_EXACT : r;
       }
       case 'is': case 'where': case 'matches': case '-webkit-any': case '-moz-any':
