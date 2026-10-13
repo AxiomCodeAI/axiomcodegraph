@@ -460,6 +460,71 @@ class Walk {
   private readonly anchorCut = new Map<number, number>();
   /** Elements written after `</body>` that a browser puts at the end of the body (C-03). Keyed by the body's start offset. */
   private readonly bodyTail = new Map<number, SyntaxNode[]>();
+  /** A head whose children from this offset on are moved out (V3-08b): what a browser puts in the implied body. Keyed by the head's start offset. */
+  private readonly headCut = new Map<number, number>();
+
+  /**
+   * THE BODY A BROWSER IMPLIES BEFORE THE WRITTEN ONE (V3-08b, #1909). Text in the head (merge-conflict markers, a stray
+   * `>`), or an element the head cannot hold, closes the head and opens an implied body there; the written `<body>`
+   * that follows is then a second body, its tag ignored. The implied body is no row (LIMIT L1), so what it holds is
+   * the html element's: the head's children from that point, then the written body's children. Template tags are not
+   * text here (they render to nothing or to head content), and neither is a comment. Returns html's new element
+   * children, or nothing when the written body stays.
+   */
+  private impliedBodyRepair(htmlNode: SyntaxNode, out: SyntaxNode[]): SyntaxNode[] | undefined {
+    // an XML document (XHTML) implies nothing: its tree is the one written
+    if (this.xml) return undefined;
+    const tagOf = (c: SyntaxNode): string | undefined => tagNameOf(c, this.content)?.toLowerCase();
+    const bodyIdx = out.findIndex((c) => tagOf(c) === 'body');
+    if (bodyIdx < 0) return undefined;
+    const body = out[bodyIdx]!;
+    const isText = (c: SyntaxNode): boolean => {
+      if (c.type !== 'text' && c.type !== 'entity' && c.type !== 'ERROR') return false;
+      let s = this.src(c);
+      if (c.type === 'ERROR') {
+        // the elements inside an error region are elements, not text
+        const inner = c.namedChildren.filter((x) => ELEMENT_TYPES.has(x.type) || x.type === 'comment');
+        for (let k = inner.length - 1; k >= 0; k -= 1) s = s.slice(0, inner[k]!.startIndex - c.startIndex) + s.slice(inner[k]!.endIndex - c.startIndex);
+      }
+      return s.replace(TEMPLATE_OR_COMMENT_TEXT, '').trim() !== '';
+    };
+    const triggers = (c: SyntaxNode): boolean =>
+      ELEMENT_TYPES.has(c.type) ? !HEAD_CONTENT_TAGS.has(tagOf(c) ?? '') : isText(c);
+    const htmlTag = openingTagOf(htmlNode);
+    const htmlStart = htmlTag === undefined ? htmlNode.startIndex : startTagEnd(this.content, htmlTag);
+    let head: SyntaxNode | undefined;
+    let cutAt: number | undefined;
+    for (const c of contentChildren(htmlNode, HtmlNamespace.HTML, this.content)) {
+      if (c.startIndex < htmlStart || c.startIndex >= body.startIndex || c.type === 'comment') continue;
+      if (ELEMENT_TYPES.has(c.type) && tagOf(c) === 'head' && head === undefined && cutAt === undefined) {
+        head = c;
+        const headTag = openingTagOf(c);
+        const headStart = headTag === undefined ? c.startIndex : startTagEnd(this.content, headTag);
+        const inHead = contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= headStart && x.type !== 'comment');
+        const first = inHead.find(triggers);
+        if (first !== undefined) { cutAt = first.startIndex; break; }
+        continue;
+      }
+      if (c.startIndex >= (head?.startIndex ?? -1) && c.startIndex < (head?.endIndex ?? -1)) continue;
+      if (triggers(c)) { cutAt = c.startIndex; break; }
+    }
+    if (cutAt === undefined) return undefined;
+    const moved: SyntaxNode[] = [];
+    if (head !== undefined && cutAt >= head.startIndex && cutAt < head.endIndex) {
+      this.headCut.set(head.startIndex, cutAt);
+      moved.push(...contentChildren(head, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= cutAt! && ELEMENT_TYPES.has(x.type)));
+    }
+    const bodyTag = openingTagOf(body);
+    const bodyStart = bodyTag === undefined ? body.startIndex : startTagEnd(this.content, bodyTag);
+    const bodyKids = contentChildren(body, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= bodyStart && ELEMENT_TYPES.has(x.type));
+    const result: SyntaxNode[] = [];
+    for (const c of out) {
+      if (c === body) { result.push(...bodyKids); continue; }
+      result.push(c);
+      if (c === head) result.push(...moved);
+    }
+    return result;
+  }
 
   /**
    * BROWSER TREE CONSTRUCTION, THE REPAIRS THAT MATTER FOR MATCHING (C-03, G4, #1909). tree-sitter-html builds the tree
@@ -476,9 +541,13 @@ class Walk {
     let out = children;
     const cut = this.anchorCut.get(node.startIndex);
     if (cut !== undefined) out = out.slice(0, cut);
+    const headCutAt = lower === 'head' ? this.headCut.get(node.startIndex) : undefined;
+    if (headCutAt !== undefined) out = out.filter((c) => c.startIndex < headCutAt);
     const tail = this.bodyTail.get(node.startIndex);
     if (tail !== undefined) out = [...out, ...tail];
-    if (lower === 'html') {
+    const implied = lower === 'html' ? this.impliedBodyRepair(node, out) : undefined;
+    if (implied !== undefined) out = implied;
+    else if (lower === 'html') {
       const b = out.findIndex((c) => tagNameOf(c, this.content)?.toLowerCase() === 'body');
       if (b >= 0 && b < out.length - 1) {
         const after = out.slice(b + 1).filter((c) => tagNameOf(c, this.content)?.toLowerCase() !== 'head');
@@ -1165,6 +1234,10 @@ type OpenElements = ReadonlyMap<string, OpenElement>;
 
 /** Tags whose start tag is ignored while an element of the same kind is open (`head` also once `body` is). */
 const IGNORED_WHEN_OPEN_TAGS = new Set(['form', 'body', 'html', 'head']);
+/** What the head holds without a browser opening the body (V3-08b); `include` is a build-time directive (posthtml). */
+const HEAD_CONTENT_TAGS = new Set(['base', 'basefont', 'bgsound', 'link', 'meta', 'noframes', 'noscript', 'script', 'style', 'template', 'title', 'include']);
+/** Template tags, server-side code and comments: not text a browser would read as opening the body. */
+const TEMPLATE_OR_COMMENT_TEXT = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|\{#[\s\S]*?#\}|<%[\s\S]*?%>|<\?[\s\S]*?\?>|<!--[\s\S]*?-->|@@include\([^)]*\)/g;
 
 function isTextError(text: string): boolean {
   return !text.includes('<');

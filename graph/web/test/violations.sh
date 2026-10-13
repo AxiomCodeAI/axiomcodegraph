@@ -458,8 +458,16 @@ if want V3-08; then
 H
   echo '<!doctype html><p>x</p>' > "$T/v308/src/x.html"; mkdir -p "$T/v308/src/slides"; echo '<p>a</p>' > "$T/v308/src/slides/a.htm"
   printf '.nav-md { color: red }\n' > "$T/v308/src/s.css"
+  # (b) control: template tags in the head are not text, so this page keeps its written body
+  printf '<!doctype html><html><head><title>t</title>{%% block css %%}{%% endblock %%}<link rel="stylesheet" href="s.css"></head>\n<body class="nav-md"><p class="q">q</p></body></html>\n' > "$T/v308/src/t.html"
   db=$(build v308) && {
     eq "V3-08a no link from iframe text" "$(sqlite3 "$db" "SELECT count(*) FROM web_links WHERE url_as_written = '/slides/a.htm'")" "0"
+    eq "V3-08b text in the head implies the body: the written <body> is no element, its children and the head's rest are html's" \
+      "$(sqlite3 "$db" "SELECT group_concat(e.tag_name || '<' || coalesce(pe.tag_name, '-'), ' ') FROM (SELECT * FROM web_elements ORDER BY line, col) e JOIN web_pages p ON p.uid = e.page_uid LEFT JOIN web_elements pe ON pe.uid = e.parent_uid WHERE p.file = 'index.html'")" \
+      "html<- head<html title<head link<html iframe<html a<iframe p<html"
+    eq "V3-08b and the written body's class styles nothing there; the control page's body keeps it" \
+      "$(sqlite3 "$db" "SELECT group_concat(p.file || ':' || e.tag_name) FROM web_styles w JOIN web_selectors s ON s.uid = w.selector_uid JOIN web_elements e ON e.uid = w.element_uid JOIN web_pages p ON p.uid = w.page_uid WHERE s.selector_text = '.nav-md' AND w.status = 'match'")" \
+      "t.html:body"
   }
 fi
 
