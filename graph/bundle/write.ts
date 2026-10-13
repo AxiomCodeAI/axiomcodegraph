@@ -7,8 +7,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readRaw, writeTable } from '@/bundle/csv';
-import type { CoreTables, Row } from '@/bundle/build';
-import type { ExtRelation } from '@/bundle/catalog';
+import { lap, type CoreTables, type Row } from '@/bundle/build';
+import { EXT_QUERIED, type ExtRelation } from '@/bundle/catalog';
 import { CATALOG_TABLES, CORE_TABLES, GUIDE, LANGUAGES, NOTES, QUERIES, SCHEMA_VERSION, VOCAB, type Language, type TableSpec } from '@/bundle/schema';
 
 export function writeCoreCsv(graphDir: string, core: CoreTables, log: (s: string) => void): void {
@@ -48,6 +48,7 @@ export interface SqliteInputs {
 // VALUES list amortizes both; 128 rows per statement keeps the flattened argument array well
 // under sqlite's bind limit at the widest table.
 const BATCH = Math.max(1, Number(process.env.AXIOM_BUNDLE_BATCH ?? 128) || 128);
+const PAGE_SIZE = [4096, 8192, 16384, 32768, 65536].includes(Number(process.env.AXIOM_BUNDLE_PAGE_SIZE)) ? Number(process.env.AXIOM_BUNDLE_PAGE_SIZE) : 16384;
 type DbLike = { prepare(sql: string): { run(...a: (string | number | null)[]): unknown } };
 function batchInsert(db: DbLike, table: string, arity: number, verb: string): { push(r: (string | number | null)[]): void; flush(): void } {
   const one = `(${Array.from({ length: arity }, () => '?').join(', ')})`;
@@ -72,12 +73,35 @@ function batchInsert(db: DbLike, table: string, arity: number, verb: string): { 
   };
 }
 
+/**
+ * A keyed table's rows in key order, for loading. A WITHOUT ROWID table is stored in key order whatever order its
+ * rows arrive in, so this changes nothing stored; but rows arriving in hash order land all over the B-tree and
+ * split its pages again and again, while rows in key order are appended. The sort is stable, so of two rows with
+ * one key the first is still the one INSERT OR IGNORE keeps. A copy is sorted: the caller's array is not reordered.
+ */
+function inKeyOrder(t: TableSpec, rows: Row[]): Row[] {
+  const keys = t.columns.flatMap((c, i) => (c.key ? [i] : []));
+  if (keys.length === 0 || rows.length < 2) return rows;
+  const str = (v: Row[number] | undefined) => (v === null || v === undefined ? '' : String(v));
+  return rows.slice().sort((a, b) => {
+    for (const i of keys) {
+      const x = str(a[i]), y = str(b[i]);
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  });
+}
+
 export async function writeSqlite(inp: SqliteInputs): Promise<void> {
   // Loaded lazily so the CSV path works on a Node without the module.
   const { DatabaseSync } = await import('node:sqlite');
   fs.rmSync(inp.dbPath, { force: true });
   fs.rmSync(inp.dbPath + '-journal', { force: true });
   const db = new DatabaseSync(inp.dbPath);
+  // 16 KiB PAGES, set before the first table (AXIOM_BUNDLE_PAGE_SIZE overrides). The bundle is a bulk load of a file
+  // that reaches GBs, and at SQLite's default 4 KiB every table and index B-tree has four times the pages to split
+  // and write; the queries over the graph read it no slower. The page size changes no row and no answer.
+  db.exec(`PRAGMA page_size = ${PAGE_SIZE};`);
   db.exec('PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF; PRAGMA temp_store = MEMORY;');
   try {
     // ── core ────────────────────────────────────────────────────────────────
@@ -86,11 +110,13 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
       db.exec(createSql(t));
       const rows = (inp.core as unknown as Record<string, Row[]>)[t.name] ?? [];
       const ins = batchInsert(db, t.name, t.columns.length, 'INSERT OR IGNORE');
-      for (const r of rows) ins.push(r as (string | number | null)[]);
+      for (const r of inKeyOrder(t, rows)) ins.push(r as (string | number | null)[]);
       ins.flush();
       inp.log(`  sqlite ${t.name}: ${rows.length} rows`);
+      lap(`insert ${t.name} (${rows.length} rows)`);
     }
     db.exec('COMMIT;');
+    lap('commit core');
 
     // ── ext ─────────────────────────────────────────────────────────────────
     db.exec('BEGIN;');
@@ -107,8 +133,10 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
       }
       ins.flush();
       if (n > 0) inp.log(`  sqlite ${name}: ${n} rows`);
+      lap(`insert ${name} (${n} rows)`);
     }
     db.exec('COMMIT;');
+    lap('commit ext');
 
     // ── catalog ─────────────────────────────────────────────────────────────
     db.exec('BEGIN;');
@@ -165,14 +193,17 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
     const query = db.prepare('INSERT INTO schema_queries VALUES (?, ?, ?, ?)');
     for (const q of QUERIES) query.run(q.name, q.question, q.params, q.sql);
     db.exec('COMMIT;');
+    lap('catalog + vocab');
 
     // ── indexes, after the load ─────────────────────────────────────────────
     db.exec('BEGIN;');
     for (const t of CORE_TABLES) {
-      for (const cc of t.columns) if (cc.indexed) db.exec(`CREATE INDEX idx_${t.name}_${cc.name} ON ${t.name}(${cc.name});`);
+      for (const cc of t.columns) if (cc.indexed) { db.exec(`CREATE INDEX idx_${t.name}_${cc.name} ON ${t.name}(${cc.name});`); lap(`index ${t.name}.${cc.name}`); }
     }
-    for (const e of inp.ext) if (e.arity > 0) db.exec(`CREATE INDEX idx_ext_${e.relation}_c0 ON ext_${e.relation}(c0);`);
+    // an ext table the tools query keeps its c0 index; the rest are loaded and left unindexed (catalog.ts EXT_QUERIED)
+    for (const e of inp.ext) if (e.arity > 0 && EXT_QUERIED.has(e.relation)) { db.exec(`CREATE INDEX idx_ext_${e.relation}_c0 ON ext_${e.relation}(c0);`); lap(`index ext_${e.relation}.c0`); }
     db.exec('COMMIT;');
+    lap('commit indexes');
     db.exec(`PRAGMA user_version = ${Number(SCHEMA_VERSION)};`);
   } finally {
     db.close();

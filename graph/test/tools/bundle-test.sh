@@ -310,6 +310,30 @@ if ! diff -q <(BUNDLE --print-schema) "$ROOT/graph/bundle/SCHEMA.md" >/dev/null;
   bad "graph/bundle/SCHEMA.md is stale — run: npm run schema-doc"
 fi
 
+# 8. every ext relation a script queries is in EXT_QUERIED, so it keeps its c0 index (catalog.ts). The others are
+#    loaded unindexed: a new query on one of them would still answer, only slower, which no other check would see.
+missing="$(python3 - "$ROOT" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+rels = set()
+for lang in os.listdir(os.path.join(root, 'graph')):
+    m = os.path.join(root, 'graph', lang, 'souffle', 'export_manifest.tsv')
+    if os.path.isfile(m):
+        rels |= {l.split('\t')[0].strip() for l in open(m) if l.strip() and not l.lstrip().startswith('#')}
+cat = open(os.path.join(root, 'graph', 'bundle', 'catalog.ts')).read()
+queried = set(re.findall(r"'(\w+)'", cat[cat.index('EXT_QUERIED'):cat.index(']);', cat.index('EXT_QUERIED'))]))
+used = set()
+for d in ('plugins', 'hooks', 'bin'):
+    for dp, dns, fns in os.walk(os.path.join(root, d)):
+        dns[:] = [x for x in dns if x not in ('node_modules', 'dist', '.git')]
+        for fn in fns:
+            try: text = open(os.path.join(dp, fn), errors='replace').read()
+            except OSError: continue
+            used |= {r for r in re.findall(r'\bext_(\w+)', text) if r in rels}
+print(' '.join(sorted(used - queried)))
+PY
+)"
+[ -z "$missing" ] || bad "a script queries ext relation(s) missing from EXT_QUERIED in graph/bundle/catalog.ts (no c0 index): $missing"
 
 # ── the DEFAULT writes the database and nothing else ────────────────────────
 # The deliverable is graph.sqlite. csv/*.csv carries the same core tables, so writing
@@ -323,7 +347,7 @@ if [ -d "$d/csv" ] && [ -n "$(ls -A "$d/csv" 2>/dev/null)" ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "bundle: ok (3 languages$( [ "$HAVE_SQLITE" = 1 ] && echo ', one schema across them, canonical queries run' || echo ', csv only — no sqlite3 CLI'), schema doc current)"
+  echo "bundle: ok (3 languages$( [ "$HAVE_SQLITE" = 1 ] && echo ', one schema across them, canonical queries run' || echo ', csv only — no sqlite3 CLI'), schema doc current, queried ext relations indexed)"
 else
   echo "bundle: $fail failure(s)"; exit 1
 fi

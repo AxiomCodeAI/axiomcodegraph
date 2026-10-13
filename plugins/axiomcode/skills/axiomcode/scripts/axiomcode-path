@@ -293,6 +293,13 @@ class G:
         self.con.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", out)
         self.decorations_synthesised = len(out)
     def q(self, s, *p): return self.con.execute(s, p).fetchall()
+    def stub_sites(self):
+        """ax_edges.stub_sites of this graph, read once per connection: both exports (path's and impact's) ask for it.
+        The set is shared — a caller must not change it."""
+        if getattr(self, '_stubs_con', None) is not self.con:
+            self._stubs = ax_edges.stub_sites(lambda s, p: self.q(s, *p)) if self.has('call_sites') else set()
+            self._stubs_con = self.con
+        return self._stubs
     def has(self, t): return bool(self.q("SELECT 1 FROM sqlite_master WHERE name=?", t))
     def loc(self, i):
         r = self.sym.get(i) or self.all_sym.get(i)
@@ -1050,7 +1057,7 @@ class G:
         # …except a call written inside a mocking library's stub or verification (`when(repo.find(1))`,
         # `mock.Setup(r => r.Find(1))`): the receiver is a mock, so the real body never runs there, and walked as a call
         # it made every test that stubs a method a `sound` route to it. impact lists those sites as "stubs it".
-        stubs = ax_edges.stub_sites(lambda s, p: self.q(s, *p)) if self.has('call_sites') else set()
+        stubs = self.stub_sites()
         # leads an asserted-links rejection takes out (ax_links.suppressed): a set member every site of which was rejected
         import ax_links
         _rej, rej_edges = ax_links.suppressed(self.q, self.site_file)

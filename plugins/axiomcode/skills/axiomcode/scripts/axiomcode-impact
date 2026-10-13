@@ -264,8 +264,17 @@ class Impact:
         triple = py or file.endswith(('.java', '.kt', '.scala', '.groovy'))      # a Java text block is """ too
         js = file.endswith(('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'))
         prev = ''                                                                # the last code character seen
+        # only these characters can open a comment, a string or a regex literal: a run of any others is code, copied whole
+        special = self._CODE_SPECIAL_PY if py else self._CODE_SPECIAL
         while i < n:
             c = t[i]
+            if c not in '/"\'`#':
+                m = special.search(t, i); j = m.start() if m else n
+                out.append(t[i:j])
+                k = j - 1                                                        # `prev`: the run's last non-space, or its last newline
+                while k >= i and t[k].isspace() and t[k] != '\n': k -= 1
+                if k >= i: prev = t[k] if not t[k].isspace() else '\n'
+                i = j; continue
             if js and c == '/' and i + 1 < n and t[i + 1] not in '/*' and prev in '(,=:[!&|?{};+-*%~^<>' + '\n':
                 j = i + 1                                                        # a regex literal: /…/flags, never a division
                 while j < n and t[j] not in '/\n':
@@ -292,8 +301,9 @@ class Impact:
                 if not c.isspace(): prev = c
                 elif c == '\n': prev = '\n'
                 i += 1; continue
-            out.append(''.join('\n' if ch == '\n' else ' ' for ch in t[i:j])); prev = 'x'; i = j
+            out.append(self._BLANK.sub(' ', t[i:j])); prev = 'x'; i = j
         self.src[('code', file)] = ''.join(out).split('\n'); return self.src[('code', file)]
+    _CODE_SPECIAL = re.compile(r'[/"\'`]'); _CODE_SPECIAL_PY = re.compile(r'[/"\'`#]'); _BLANK = re.compile(r'[^\n]')
 
 
     # ── targets ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1843,13 +1853,18 @@ class Impact:
         # `Accessors = ...`): if the declaration's own source names a generator, it generates the same members
         gen_table = {d: set(ws) for d, ws in GENERATED.items()}
         used = {r[1].split('.')[-1] for r in g.q("SELECT owner_id, name FROM decorations")} if g.has('decorations') else set()
-        for d in used - set(gen_table):
+        # the first declaration of each such name with a file and a line, in the symbol table's order: found in one pass
+        # rather than one pass over every symbol per decorator name
+        wanted = used - set(gen_table); first_decl = {}
+        if wanted:
             for i, sy in g.sym.items():
-                if sy['name'] != d or not sy.get('file') or not sy.get('line'): continue
+                if sy['name'] in wanted and sy['name'] not in first_decl and sy.get('file') and sy.get('line'): first_decl[sy['name']] = sy
+        for d in wanted:
+            sy = first_decl.get(d)
+            if sy is not None:
                 body = '\n'.join(self.code(sy['file'])[sy['line'] - 1: (sy['end_line'] or sy['line']) + 1])
                 hit = {w for k, ws in GENERATED.items() if re.search(rf'\b{re.escape(k)}\b', body) for w in ws}
                 if hit: gen_table[d] = hit
-                break
         # A BASE CLASS BUILT BY A FACTORY: `Base = declarative_base()`, then `class Customer(Base)`. The written
         # base name is `Base`, which discriminates nothing, and the alias rule cannot help because an assignment
         # is not a declaration with a body to read. What identifies it is the assignment itself, in the source the
@@ -1863,6 +1878,7 @@ class Impact:
             pat = re.compile(rf'^\s*{re.escape(b)}\s*(?::[^=]+)?=\s*(\w+)\s*\(')
             for (fl,) in g.q("SELECT DISTINCT file FROM type_refs WHERE name = ? AND file IS NOT NULL", b):
                 for ln in (self.code(fl) or []):
+                    if b not in ln: continue                                        # the pattern starts with the name itself
                     m = pat.match(ln)
                     if m and m.group(1) in GENERATED:
                         gen_table[b] = set(GENERATED[m.group(1)]); break
@@ -1877,9 +1893,10 @@ class Impact:
         W('cert_tier', sorted({(t, ax_edges.direct_cert(t), ax_edges.direct_why(t))
                                for t in {r[0] for r in g.q("SELECT DISTINCT tier FROM call_edges")} | {ax_edges.STUB_TIER, 'overload'}}))
         # a call written inside a mock's stub or verification keeps its row and loses its tier: "stub" (ax_edges.stub_sites)
-        stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
+        stubs = g.stub_sites()
         # a chained route link's edge sits on the line of its own verb and path, where `registration` labels it
-        link_line = ax_registration.route_site_lines(g.q, g.site_file)
+        # the registrations come out of the same walk over the route calls, so they are kept for `registration` below
+        regs, link_line = ax_registration.registrations(g.q, g.site_file, with_own_lines=True)
         # LEADS A LINK REJECTED (ax_links.py): a site's by-name match or set member someone read and found wrong is not walked;
         # the engine's row stays in graph.sqlite. `rejected` feeds the by-name rules, the set members leave `calls` here.
         import ax_links
@@ -1978,7 +1995,7 @@ class Impact:
                     L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
                     for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
         W('ref', refs); W('qualifier', sorted(set(quals)))
-        regs = ax_registration.registrations(g.q, g.site_file)      # computed once: reg_key_fact below reads it too
+        # `regs`, computed once above with link_line: reg_key_fact below reads it too
         W('registration', regs)
         trs = []; trf = set()
         # a reference on a module-level type alias's own lines belongs to the alias, not the module (#784)
@@ -2339,7 +2356,19 @@ class Impact:
         # These are edges no call site carries — without them a change to a key or a bean has no visible consumer at all.
         cfg = []; keys = set(); beans = []; inj = []; factories = []
         if g.has('ext_config_affects_method'):
-            for r in g.q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1"): cfg.append((ckey(r[0]), r[1], r[2] or 'bound'))
+            # the rows whose method the index names, once per symbol row that names it: the join
+            # `ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1`, in a's order, without probing the
+            # symbols index once per row (millions of rows over a few keys)
+            per_method = collections.Counter(m for (m,) in g.q("SELECT method_id FROM symbols WHERE method_id IS NOT NULL"))
+            ck = {}
+            for r in g.q("SELECT c0, c1, c2 FROM ext_config_affects_method"):
+                n = per_method.get(r[1], 0)
+                if not n: continue
+                k = ck.get(r[0])
+                if k is None: k = ck[r[0]] = ckey(r[0])
+                row = (k, r[1], r[2] or 'bound')
+                cfg.append(row)
+                for _ in range(n - 1): cfg.append(row)
             keys |= {ckey(r[0]) for r in g.q("SELECT DISTINCT c0 FROM ext_config_affects_method")}
         for t in ('ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
             if g.has(t): keys |= {ckey(r[0]) for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
