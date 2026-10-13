@@ -132,6 +132,13 @@ nothing to claim yourself; if the reply does not carry it, the user is shown it 
 Each repository keeps its own record (`.axiomcode/assists.jsonl` at its root) and its own page,
 `.axiomcode/assists.html`, rebuilt whenever a turn adds to the record; `axiomcode report` rebuilds it by hand.
 
+## graph
+
+`axiomcode graph` draws the codebase as one page for the user to look at: directories, files, types and methods, with
+the call edges between them and each edge's tier. It prints the page's path (`.axiomcode/graph/graph.html`); open it
+in a browser. It is drawn from the graph the index built, rebuilt first only when a source file changed. It is not an
+MCP tool: it answers no question, so when the user asks to see the graph, run it and give them the path.
+
 ## What it cannot see — say so instead of guessing
 
 Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library; what a
