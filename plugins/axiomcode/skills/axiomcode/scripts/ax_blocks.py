@@ -199,7 +199,8 @@ def render(verb, doc, repo):
     # run: stays LAST: the answer ends with the command to run, whatever else the foot carries.
     kept = [x for x in foot if x.startswith(('verified', 'bound:'))][:3]
     out += kept + unknown(doc, repo) + [x for x in foot if x.startswith('run:')][:1]
-    return out
+    # what the question resolved to goes first (ax_grep.head): the places are a page of the answer, not all of it
+    return ax_grep.head({'tests': 'test-impact'}.get(verb, verb), doc) + out
 
 
 UNKNOWN_SHOWN = 5        # unresolved sites listed under an answer: the nearest; the verbs' --json carries up to 30
