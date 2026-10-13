@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import {
   TS_SKIP_DIRECTORIES,
+  TS_BUILD_OUTPUT_DIRECTORIES,
   TS_SOURCE_EXTENSIONS,
   TYPESCRIPT_CSV_FILES,
 } from '@/constants/typescript-constants';
@@ -98,6 +99,13 @@ export interface TypeScriptAnalysisOptions {
   /** A pre-computed hash, for a caller that already has one. */
   readonly serviceVersionLinkHash?: string;
   readonly excludeDirs?: readonly string[];
+  /**
+   * The root is a DEPENDENCY staged with `--library`, not the project under analysis.
+   * Its build-output directories (TS_BUILD_OUTPUT_DIRECTORIES) are then walked: that is
+   * where a published package keeps its declarations, and skipping them left every call
+   * into such a package unresolved. Stated by the caller, as JavaScript's `libraryRoot` is.
+   */
+  readonly libraryRoot?: boolean;
 }
 
 export interface TypeScriptAnalysisSummary {
@@ -246,6 +254,9 @@ export class TypeScriptProjectAnalyzer {
 
     const rootDir = path.resolve(options.rootDir);
     const excludes = new Set<string>(options.excludeDirs ?? TS_SKIP_DIRECTORIES);
+    if (options.libraryRoot === true) {
+      for (const name of TS_BUILD_OUTPUT_DIRECTORIES) excludes.delete(name);
+    }
     const configResolver = new TsConfigResolver();
     // A PROGRAM is the unit of merge scope, so when the root declares one its
     // file list wins over a directory walk. This is not an optimisation: a
