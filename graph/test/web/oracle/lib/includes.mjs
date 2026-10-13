@@ -77,8 +77,12 @@ export function scanIncludes(page) {
     const a = gulpArgs(t, m.index + m[0].length);
     found.push({ kind: 'gulp:@@include', url: m[1] ?? m[2], offset: m.index, args: a.args });
   }
+  // a Jinja/Django tag inside a template comment ({# #}, {% comment %}…{% endcomment %}) or an HTML comment is not a
+  // directive (iter4: a commented-out {% extends %} must not compose)
+  const tplComments = [...templateCommentRanges(t), ...[...t.matchAll(/<!--(?!#)[\s\S]*?-->/g)].map((m) => [m.index, m.index + m[0].length])];
+  const inTplComment = (o) => tplComments.some(([a, b]) => o >= a && o < b);
   for (const m of t.matchAll(/\{%-?\s*(include|extends|import)\s+(?:"([^"]*)"|'([^']*)'|([^\s%]+))[\s\S]*?-?%\}/g)) {
-    if (inEx(m.index)) continue;
+    if (inEx(m.index) || inTplComment(m.index)) continue;
     const bare = m[4] !== undefined;
     found.push({ kind: `jinja:${m[1]}`, url: bare ? m[4] : m[2] ?? m[3], offset: m.index, args: '', bareName: bare });
   }
@@ -244,6 +248,21 @@ export function composeTree(page, pageByPath, refsByPage) {
   };
   const root = build(page);
   return { root, members };
+}
+
+/** Ranges of template comments: `{# … #}` and Django `{% comment %} … {% endcomment %}`. */
+export function templateCommentRanges(t) {
+  const out = [];
+  for (const m of t.matchAll(/\{#[\s\S]*?#\}/g)) out.push([m.index, m.index + m[0].length]);
+  for (const m of t.matchAll(/\{%-?\s*comment\b[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g)) out.push([m.index, m.index + m[0].length]);
+  return out;
+}
+/** The text with template comments blanked (newlines kept, every other character a space: positions keep). */
+export function blankTemplateComments(t) {
+  if (!/\{#|\{%-?\s*comment\b/.test(t)) return t;
+  let out = t;
+  for (const [a, b] of templateCommentRanges(t)) out = out.slice(0, a) + out.slice(a, b).replace(/[^\r\n]/g, ' ') + out.slice(b);
+  return out;
 }
 
 /** `{% block name %}…{% endblock %}` ranges of a page: [{name, open, start, end}] (start/end = content offsets). */

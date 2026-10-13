@@ -18,7 +18,7 @@ import { parsePage, bodyOf, attrValueRaw, unmask, DIRECTIVE_RE, TEMPLATE_IN_VALU
 import { decodeHTMLAttribute, decodeXML } from 'entities';
 import { handlersOf, pageDialects } from './lib/handlers.mjs';
 import * as conv from './lib/convert.mjs';
-import { resolveIncludes, cutCycles, composes, composeTree, composeExtends, assertedInclude, containerAt } from './lib/includes.mjs';
+import { resolveIncludes, cutCycles, composes, composeTree, composeExtends, assertedInclude, containerAt, blankTemplateComments } from './lib/includes.mjs';
 import selectorParser from 'postcss-selector-parser';
 import { parseSheet, parseStyleAttr, GENERIC_FONTS } from './lib/css.mjs';
 import { rewriteSelector, compileQuery, makePseudos, matchAll, dynamicAttrQuery } from './lib/select.mjs';
@@ -31,7 +31,7 @@ if (!projectDir || !outDir) { console.error('usage: oracle.mjs <project-dir> <ou
 const WALK = opt('walk', 'all');
 const KINDS = opt('kinds', '') ? new Set(opt('kinds', '').split(',')) : null;
 // the matching stage is the expensive one: run it only when a requested kind depends on it
-const STYLE_KINDS = ['styles', 'cascade', 'unknown', 'l1', 'var', 'var_scope', 'keyframes_use', 'font_use', 'container_use', 'usage', 'rule_usage', 'computed', 'cascade_entry', 'class'];
+const STYLE_KINDS = ['styles', 'host_styles', 'styles_loads', 'cascade', 'unknown', 'l1', 'var', 'var_scope', 'keyframes_use', 'font_use', 'container_use', 'usage', 'rule_usage', 'computed', 'cascade_entry', 'class'];
 const DO_STYLES = !flag('no-styles') && (!KINDS || STYLE_KINDS.some((k) => KINDS.has(k)));
 const root = path.resolve(projectDir);
 setSiteRoot(root);
@@ -280,7 +280,8 @@ for (const page of pages) {
       const b = bodyOf(page, el);
       styleN += 1;
       const key = `style@${el.key}`;
-      const s = parseSheet(b.text, page.rel, { line: b.line, col: b.col }, key);
+      // CSS inside a template comment ({% comment %}…{% endcomment %}, {# #}) is not live; blanked, positions kept
+      const s = parseSheet(blankTemplateComments(b.text), page.rel, { line: b.line, col: b.col }, key);
       s.source = 'STYLE'; s.page = page; s.el = el; s.minified = false; s.vendor = false;
       sheets.set(key, s);
     }
@@ -453,6 +454,7 @@ let l1Count = 0; let stylesCount = 0;
 const pageMatches = new Map();
 const carrierMiss = new Set();
 const cascadeBuf = new Map(); // page\0sel\0el -> {best, orders}
+const composedSheets = new Set(); // fragment <style> sheets applied in some host's composed page
 const carrierAcc = new Map(); // page -> {classes, ids, sels: selKey -> {matched, required}} over all the page's views
 const contenderLoads = []; // every (page, element, pseudo, rule, selector, load) with a match/conditional styles row (SPEC 9.2) // selectors with no static carrier on some page (SPEC 3.5 iter2 grain) // page -> Map(selKey -> {elems:Map(elemKey->status), ...})
 
@@ -495,9 +497,23 @@ function makeView(v) {
 
 if (DO_STYLES) for (const v of views) {
   if (v.kind === 'no_host') { emit('unknown', 'fragment_no_host', v.page.rel, v.page.rel); continue; }
-  const loads = pageLoads.get(v.page.rel) ?? [];
-  if (loads.length === 0) continue;
+  const baseLoads = pageLoads.get(v.page.rel) ?? [];
   const page = makeView(v);
+  // [iter4] an included fragment's own <style> applies on the served page: its rules join the host's sheets, after
+  // them, in document order of the composed tree (no loads_sheet row: the page loads it through the include)
+  const loads = [...baseLoads];
+  if (page.composed) {
+    let ord = Math.max(0, ...baseLoads.map((l) => l.order ?? 0));
+    for (const el of page.elements) {
+      if (el.tag !== 'style' || el.ns !== 'html' || el.inert || page.base.byKey.has(el.key)) continue;
+      const t = (el.node.attribs?.type ?? '').trim().toLowerCase(); if (t && t !== 'text/css') continue;
+      const sh = sheets.get(`style@${el.key}`); if (!sh) continue;
+      const media = el.node.attribs?.media?.trim();
+      loads.push({ sheet: sh, via: 'style', depth: 0, order: ++ord, status: 'match', reason: '-', conds: media && !/^all$/i.test(media) ? [`@media ${media}`] : [], layer: null, disabled: false });
+      composedSheets.add(sh.key);
+    }
+  }
+  if (loads.length === 0) continue;
   const ownView = page.viewKind === 'page';
   const emitU = ownView ? emit : () => {};
   const side = { langUnknown: new Set() };
