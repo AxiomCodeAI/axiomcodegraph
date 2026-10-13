@@ -44,7 +44,8 @@ on:
 # for exactly the rules it was built from; the smoke step still runs every one.
 
 env:
-  LANGUAGES: java typescript python javascript csharp
+  # web: the HTML + CSS engine (graph/web). It is built, marked .parallel and solved at -j 8 like every other.
+  LANGUAGES: java typescript python javascript csharp web
   # Same pin and checksum as ci.yml: the tool that produces the published binaries is
   # verified against what upstream published for that release.
   SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
@@ -229,7 +230,7 @@ jobs:
         if: startsWith(matrix.target.platform, 'win32')
         shell: cmd
         run: |
-          for %%L in (java typescript python javascript csharp) do (
+          for %%L in (java typescript python javascript csharp web) do (
             fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
             if errorlevel 1 (
               if not exist engines\%%L mkdir engines\%%L
@@ -298,9 +299,11 @@ jobs:
           for lang in $LANGUAGES; do
             # the binary itself, not the .parallel marker (or a DLL) beside it
             bin="engines/$lang/axiomcode-engine-$lang"; [ -f "$bin.exe" ] && bin="$bin.exe"; chmod +x "$bin" 2>/dev/null || true
+            # every shipped engine is the parallel flavor: without the marker run-souffle.sh would solve it at -j 1
+            [ -f "$bin.parallel" ] || { echo "::error::$lang has no .parallel marker beside $bin"; exit 1; }
             mkdir -p "facts-$lang" "out-$lang"
             sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
-            "./$bin" -F "facts-$lang" -D "out-$lang"
+            "./$bin" -j 8 -F "facts-$lang" -D "out-$lang"
             echo "$lang: ok ($(ls out-$lang | wc -l) relations written)"
           done
           bash gen/queries/smoke.sh check gen/queries engines/queries
@@ -408,7 +411,8 @@ jobs:
           for lang in $LANGUAGES; do
             mkdir -p "facts-$lang" "out-$lang"
             sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
-            "./engines/$lang/axiomcode-engine-$lang" -F "facts-$lang" -D "out-$lang"
+            [ -f "engines/$lang/axiomcode-engine-$lang.parallel" ] || { echo "::error::$lang has no .parallel marker"; exit 1; }
+            "./engines/$lang/axiomcode-engine-$lang" -j 8 -F "facts-$lang" -D "out-$lang"
           done
           bash gen/queries/smoke.sh check gen/queries engines/queries
       - name: save the engines for the next run
