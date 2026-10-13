@@ -969,6 +969,1041 @@ Types this run creates an instance of — the rapid-type-analysis set that bound
 - **python** — Every row has how = `new`: the rule set records that some client call constructs the class, not which form.
 - **csharp** — EMPTY — the C# engine derives the instantiation set but does not export it. Dispatch in C# is not narrowed by it either (see the README of the C# engine).
 
+## Web tables — `web_<name>` (language `web`: HTML and CSS)
+
+A `--language web` run writes its own `<out>/web/graph.sqlite`. Its core tables are empty (HTML and CSS declare no methods or types); the web graph is the named tables below, created by `graph/bundle/web/write.ts` with an index on every `idx` column, and documented in `schema_tables` / `schema_columns` inside the database like the core tables. Every `*_uid` is a kind prefix and 16 hex digits of an IR hash; every `file` is relative to `run.source_dir`. No table holds a JavaScript node or an edge to one: `<script>` bodies and `on*` code are text.
+
+### `web_pages`
+
+One HTML file (html_document). `file` is repository-relative; `quirks` = 1 when the page has no doctype (class and id selectors then match ASCII case-insensitively).
+
+Rows: = HTML documents parsed (pages and fragments).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `file` | TEXT | yes |  |
+| 2 | `name` | TEXT |  |  |
+| 3 | `document_kind` | TEXT |  | DOCUMENT or FRAGMENT |
+| 4 | `doctype` | TEXT |  |  |
+| 5 | `quirks` | INTEGER |  |  |
+| 6 | `lang` | TEXT |  |  |
+| 7 | `title` | TEXT |  |  |
+| 8 | `template_dialects` | TEXT |  |  |
+| 9 | `minified` | INTEGER |  |  |
+| 10 | `element_count` | INTEGER |  |  |
+| 11 | `script_count` | INTEGER |  |  |
+| 12 | `inline_script_count` | INTEGER |  |  |
+| 13 | `line` | INTEGER |  |  |
+| 14 | `end_line` | INTEGER |  |  |
+
+### `web_elements`
+
+One element as WRITTEN (implied tbody/html/head/body are not rows, LIMIT L1). `display` is tag#id.class1.class2; `position` the 0-based index among the parent's element children; `nth_of_type` 1-based; `inert` = 1 inside <template> or <noscript>; `dynamic_class` = 1 when a template directive or interpolation sets the class at run time.
+
+Rows: = elements as written (implied html/head/body/tbody are not rows).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT | yes |  |
+| 2 | `parent_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT |  |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `end_line` | INTEGER |  |  |
+| 7 | `end_col` | INTEGER |  |  |
+| 8 | `tag_name` | TEXT | yes |  |
+| 9 | `namespace` | TEXT |  |  |
+| 10 | `depth` | INTEGER |  |  |
+| 11 | `position` | INTEGER |  |  |
+| 12 | `nth_of_type` | INTEGER |  |  |
+| 13 | `html_id` | TEXT | yes | the id attribute |
+| 14 | `class_names` | TEXT |  | as written, space-separated |
+| 15 | `child_count` | INTEGER |  |  |
+| 16 | `text` | TEXT |  | direct text, cut at 1,024 chars |
+| 17 | `inert` | TEXT |  | template \| noscript \| iframe_text (markup inside <iframe>, text to a browser: never styled) \| NULL |
+| 18 | `dynamic_class` | INTEGER |  |  |
+| 19 | `display` | TEXT |  |  |
+
+### `web_attributes`
+
+One attribute (html_attribute). `kind` is what it does: ID, CLASS, STYLE, EVENT_HANDLER, URL, SRCSET, DATA, ARIA, FOR, ID_REFERENCE, NAME, TYPE, REL, TEMPLATE_DIRECTIVE, …
+
+Rows: = attributes as written.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT |  |  |
+| 3 | `file` | TEXT |  |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `name` | TEXT | yes |  |
+| 7 | `prefix` | TEXT |  |  |
+| 8 | `value` | TEXT |  | cut at 4,096 chars; entity-decoded, as the DOM reads it |
+| 9 | `value_raw` | TEXT |  | the value as written, only when entity decoding changed it (V3-10a) |
+| 10 | `kind` | TEXT |  |  |
+| 11 | `has_value` | INTEGER |  |  |
+
+### `web_class_tokens`
+
+One token of a class attribute: what `.name` selectors and the JavaScript graph's DOM-touch literals name.
+
+Rows: = class tokens over all elements (templated tokens kept, flagged dynamic).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT |  |  |
+| 3 | `file` | TEXT |  |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `position` | INTEGER |  |  |
+| 6 | `class_name` | TEXT | yes |  |
+| 7 | `dynamic` | INTEGER |  | 1 for a token a template expression writes (`{{m.tag}}`, `btn-{{ kind }}`), kept as written (V2-15) |
+
+### `web_references`
+
+One URL a page names (html_reference): kind SCRIPT, STYLESHEET, ANCHOR, IMAGE, FORM_ACTION, FRAME, LINK_RESOURCE, MEDIA, META_REFRESH, BASE, REQUEST, OTHER. `resolved_file` is repository-relative and set only when the file is on disk.
+
+Rows: = URL-bearing attributes, @import/url() and INCLUDE references.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT | yes |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `reference_kind` | TEXT |  |  |
+| 7 | `attribute_name` | TEXT |  |  |
+| 8 | `url_as_written` | TEXT |  |  |
+| 9 | `url_kind` | TEXT |  |  |
+| 10 | `path` | TEXT |  |  |
+| 11 | `query` | TEXT |  |  |
+| 12 | `fragment` | TEXT |  |  |
+| 13 | `resolved_file` | TEXT | yes |  |
+| 14 | `is_resolved` | INTEGER |  |  |
+
+### `web_scripts`
+
+One <script> element (SPEC §10; view web_script), in page order (`order_on_page`): type as classified and as written, `attributes` (JSON of every attribute), module / nomodule / async / defer, src and the file it resolves to, or for an inline one the body range, `body` (the exact source text between the tags, sliced from the file: no entity decoding, CRLF kept, nothing trimmed; NULL with a web_unknown stale_source row when the file changed since parsing), `body_lines`, `body_bytes` and `inline_index`. Non-JavaScript types (JSON, importmap, templates) are rows too. Nothing here reads a body as JavaScript.
+
+Rows: = <script> elements.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT | yes |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `order_on_page` | INTEGER |  |  |
+| 7 | `script_kind` | TEXT |  | EXTERNAL or INLINE |
+| 8 | `script_type` | TEXT |  |  |
+| 9 | `type_as_written` | TEXT |  |  |
+| 10 | `attributes` | TEXT |  | JSON, values entity-decoded |
+| 11 | `attributes_raw` | TEXT |  | JSON of the values as written, only when entity decoding changed one (V3-10a) |
+| 12 | `src` | TEXT |  |  |
+| 13 | `resolved_file` | TEXT | yes |  |
+| 14 | `is_module` | INTEGER |  |  |
+| 15 | `is_async` | INTEGER |  |  |
+| 16 | `is_defer` | INTEGER |  |  |
+| 17 | `is_nomodule` | INTEGER |  |  |
+| 18 | `body_start_line` | INTEGER |  |  |
+| 19 | `body_start_col` | INTEGER |  |  |
+| 20 | `body_end_line` | INTEGER |  |  |
+| 21 | `body_end_col` | INTEGER |  |  |
+| 22 | `body_length` | INTEGER |  |  |
+| 23 | `body_lines` | INTEGER |  |  |
+| 24 | `body_bytes` | INTEGER |  |  |
+| 25 | `body` | TEXT |  |  |
+| 26 | `inline_index` | INTEGER |  |  |
+
+### `web_handlers`
+
+One handler-bearing attribute or javascript: URL on an HTML tag (SPEC §10; view web_handler), in page order (`handler_index`): `attr_as_written` (original case, read from the source), `event` (lower-case DOM event; `htmx:x` for hx-on::x; `navigate` for a javascript: URL), `modifiers` (comma list), `source_kind` (on_attribute | javascript_url | vue | alpine | angular | angularjs | svelte | htmx | stimulus; one row per Stimulus descriptor), `code` as the attribute value reads (for javascript: the text after it; for Stimulus the descriptor) and `code_bytes`. Look-alikes (data-on*, onboarding, once, @x on a page with no Vue/Alpine, ng-if, data-action without #) are not rows. No JavaScript is parsed.
+
+Rows: = on* attributes, javascript: URLs and template event directives.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `attribute_uid` | TEXT | yes |  |
+| 3 | `page_uid` | TEXT | yes |  |
+| 4 | `file` | TEXT | yes |  |
+| 5 | `tag` | TEXT | yes |  |
+| 6 | `attr_as_written` | TEXT |  |  |
+| 7 | `event` | TEXT | yes |  |
+| 8 | `event_source` | TEXT |  | written \| stimulus_default (a data-action descriptor with no event: Stimulus's default for the tag) \| stimulus_default_unknown (no default for the tag; event NULL) |
+| 9 | `modifiers` | TEXT |  |  |
+| 10 | `source_kind` | TEXT |  |  |
+| 11 | `code` | TEXT |  |  |
+| 12 | `code_raw` | TEXT |  | the code as written, only when entity decoding changed it (V3-10a) |
+| 13 | `code_bytes` | INTEGER |  |  |
+| 14 | `line` | INTEGER |  |  |
+| 15 | `col` | INTEGER |  |  |
+| 16 | `handler_index` | INTEGER |  |  |
+| 17 | `known_event` | INTEGER |  | 1 when the event is in the DOM/HTML event-handler list |
+
+### `web_handler_calls`
+
+One call the parser read in an on* attribute, a javascript: URL or a template event directive, by the name written (`callee_name`); `handler_index` is the on* attribute's place among the page's on* attributes. The attribute itself, with its raw text, is a web_attributes row of kind EVENT_HANDLER.
+
+Rows: ≤ names called inside handler code (the parser's call tokens).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `attribute_uid` | TEXT | yes |  |
+| 3 | `page_uid` | TEXT | yes |  |
+| 4 | `file` | TEXT | yes |  |
+| 5 | `line` | INTEGER |  |  |
+| 6 | `col` | INTEGER |  |  |
+| 7 | `handler_source` | TEXT |  |  |
+| 8 | `event` | TEXT |  |  |
+| 9 | `callee_name` | TEXT | yes |  |
+| 10 | `receiver` | TEXT |  |  |
+| 11 | `callee_text` | TEXT |  |  |
+| 12 | `argument_count` | INTEGER |  |  |
+| 13 | `is_new` | INTEGER |  |  |
+| 14 | `handler_index` | INTEGER |  |  |
+
+### `web_template_exprs`
+
+One template-dialect expression (Vue, Alpine, Angular, Jinja, Handlebars, ERB, …): a directive value or an interpolation (`attribute_uid` NULL: element text).
+
+Rows: = template directives and interpolations (SSI directives are web_ssi_directives).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `attribute_uid` | TEXT | yes |  |
+| 3 | `page_uid` | TEXT | yes |  |
+| 4 | `file` | TEXT | yes |  |
+| 5 | `line` | INTEGER |  |  |
+| 6 | `col` | INTEGER |  |  |
+| 7 | `dialect` | TEXT |  |  |
+| 8 | `expression_kind` | TEXT |  |  |
+| 9 | `directive` | TEXT |  |  |
+| 10 | `argument` | TEXT |  |  |
+| 11 | `modifiers` | TEXT |  |  |
+| 12 | `expression_text` | TEXT |  |  |
+| 13 | `callee_names` | TEXT |  |  |
+| 14 | `identifiers` | TEXT |  |  |
+| 15 | `declares` | TEXT |  |  |
+
+### `web_ssi_directives`
+
+One server-side include directive other than `#include` (V3-10b): `<!--#set -->`, `#echo`, `#if`/`#elif`/`#else`/`#endif`, `#config`, `#exec`, … with its arguments as written. `#include` is a reference of kind INCLUDE and a web_includes row; neither is a template expression.
+
+Rows: = SSI directives other than #include.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT | yes |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `directive` | TEXT |  |  |
+| 7 | `expression_kind` | TEXT |  |  |
+| 8 | `args` | TEXT |  |  |
+| 9 | `text` | TEXT |  | the directive as written, <!--#…--> |
+
+### `web_stylesheets`
+
+One stylesheet: a .css file or a <style> element (`owner_element_uid`, `page_uid`). `display` is the file, or `<page><style#n>`. `vendor` = 1 for a sheet under vendor/, plugins/, bower_components/, lib/ or a .min.css (still matched: a vendor sheet a page loads styles that page).
+
+Rows: = CSS files + <style> elements.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `file` | TEXT | yes |  |
+| 2 | `name` | TEXT |  |  |
+| 3 | `source_kind` | TEXT |  |  |
+| 4 | `owner_element_uid` | TEXT | yes |  |
+| 5 | `page_uid` | TEXT | yes |  |
+| 6 | `minified` | INTEGER |  |  |
+| 7 | `vendor` | INTEGER |  |  |
+| 8 | `rule_count` | INTEGER |  |  |
+| 9 | `declaration_count` | INTEGER |  |  |
+| 10 | `gap_count` | INTEGER |  |  |
+| 11 | `line` | INTEGER |  |  |
+| 12 | `end_line` | INTEGER |  |  |
+| 13 | `display` | TEXT | yes |  |
+| 14 | `loaded_by_pages` | INTEGER |  | how many pages load it, directly or through @import |
+
+### `web_rules`
+
+One rule: a style rule or an at-rule. `rule_order` is its 1-based pre-order position in its sheet; `layer` the dotted cascade layer it sits in (empty: unlayered); `conditions` `usage` the best of its selectors' usage (matched > conditional_only > unknown_only > unmatched_static > not_loaded; NULL without element selectors); the enclosing @media/@supports/@container/@scope/@starting-style/@document preludes, outermost first, joined by ' && '; `in_keyframes` = 1 for a block inside @keyframes/@font-face/@page… (its selectors style no element).
+
+Rows: = CSS rules and at-rules.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `stylesheet_uid` | TEXT | yes |  |
+| 2 | `parent_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT | yes |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `end_line` | INTEGER |  |  |
+| 7 | `end_col` | INTEGER |  |  |
+| 8 | `rule_kind` | TEXT |  |  |
+| 9 | `at_rule_name` | TEXT |  |  |
+| 10 | `name` | TEXT | yes |  |
+| 11 | `prelude_text` | TEXT |  |  |
+| 12 | `nesting_depth` | INTEGER |  |  |
+| 13 | `position` | INTEGER |  |  |
+| 14 | `rule_order` | INTEGER |  |  |
+| 15 | `layer` | TEXT |  |  |
+| 16 | `conditions` | TEXT |  |  |
+| 17 | `in_keyframes` | INTEGER |  |  |
+| 18 | `important_count` | INTEGER |  |  |
+| 19 | `usage` | TEXT |  |  |
+| 20 | `prelude_bytes` | INTEGER |  | the prelude's UTF-8 size |
+| 21 | `prelude_truncated` | INTEGER |  | 1 when the prelude is over 64 KiB and was cut (V2-12) |
+
+### `web_selectors`
+
+One complex selector of a style rule. `decidability`: exact, conditional (a state pseudo-class or an at-rule condition), unknown (with `reason`), none (a keyframe offset). spec_* is the specificity after nesting is resolved. Per page (SPEC §3.5 [iter2] grain, §9.9): `pages_loading` pages whose loads reach its sheet, `pages_matched` pages with any styles row, `pages_unmatched` pages with none and no whole-selector unknown (the list: view web_selector_unmatched_pages), `unknown_reason` explains `usage`: for unmatched_static no_static_carrier (a required class/id has no static carrier on some page) or no_element_matches, for unknown_only the unknown reason (dynamic_class, shadow_dom…), NULL otherwise; `usage` matched | conditional_only | unknown_only | unmatched_static (loaded, no styles row anywhere) | not_loaded (NULL for a keyframe offset). Never "dead": classes added at run time are outside this layer.
+
+Rows: = selectors (one per comma-separated selector of a rule).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `rule_uid` | TEXT | yes |  |
+| 2 | `stylesheet_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT | yes |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `position` | INTEGER |  |  |
+| 7 | `selector_text` | TEXT | yes |  |
+| 8 | `spec_a` | INTEGER |  |  |
+| 9 | `spec_b` | INTEGER |  |  |
+| 10 | `spec_c` | INTEGER |  |  |
+| 11 | `compound_count` | INTEGER |  |  |
+| 12 | `has_nesting` | INTEGER |  |  |
+| 13 | `has_pseudo_element` | INTEGER |  |  |
+| 14 | `decidability` | TEXT |  |  |
+| 15 | `reason` | TEXT |  |  |
+| 16 | `pages_loading` | INTEGER |  |  |
+| 17 | `pages_matched` | INTEGER |  |  |
+| 18 | `elements_matched` | INTEGER |  |  |
+| 19 | `pages_unmatched` | INTEGER |  |  |
+| 20 | `unknown_reason` | TEXT |  |  |
+| 21 | `usage` | TEXT |  |  |
+
+### `web_selector_required`
+
+The class and id tokens a selector REQUIRES of its subject chain (nesting resolved; never inside :not()/:is() alternatives), written for every selector that, on some page, required a token no element there carries: what view web_selector_unmatched_pages tests against each loading page's carriers.
+
+Rows: ≤ class/id tokens a selector requires.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `selector_uid` | TEXT | yes |  |
+| 1 | `kind` | TEXT |  | class \| id |
+| 2 | `token` | TEXT | yes |  |
+
+### `web_selector_parts`
+
+One simple selector (css_selector_part). `part_kind`: TYPE UNIVERSAL CLASS ID ATTRIBUTE PSEUDO_CLASS PSEUDO_ELEMENT NESTING RAW; arguments of :not()/:is()/:has()/:nth-child(of) have `parent_uid` and depth > 0.
+
+Rows: = compound parts over all selectors.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT |  |  |
+| 1 | `selector_uid` | TEXT | yes |  |
+| 2 | `rule_uid` | TEXT |  |  |
+| 3 | `line` | INTEGER |  |  |
+| 4 | `col` | INTEGER |  |  |
+| 5 | `part_kind` | TEXT |  |  |
+| 6 | `name` | TEXT | yes |  |
+| 7 | `value` | TEXT |  |  |
+| 8 | `matcher` | TEXT |  |  |
+| 9 | `flags` | TEXT |  |  |
+| 10 | `combinator` | TEXT |  |  |
+| 11 | `compound_index` | INTEGER |  |  |
+| 12 | `position` | INTEGER |  |  |
+| 13 | `depth` | INTEGER |  |  |
+| 14 | `argument_index` | INTEGER |  |  |
+| 15 | `parent_uid` | TEXT |  |  |
+
+### `web_declarations`
+
+One declaration, in a rule (`rule_uid`) or a style="" attribute (`attribute_uid`, `element_uid`).
+
+Rows: = declarations in rules and style attributes.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `rule_uid` | TEXT | yes |  |
+| 2 | `attribute_uid` | TEXT | yes |  |
+| 3 | `element_uid` | TEXT | yes |  |
+| 4 | `stylesheet_uid` | TEXT |  |  |
+| 5 | `page_uid` | TEXT | yes |  |
+| 6 | `file` | TEXT | yes |  |
+| 7 | `line` | INTEGER |  |  |
+| 8 | `col` | INTEGER |  |  |
+| 9 | `end_line` | INTEGER |  |  |
+| 10 | `end_col` | INTEGER |  |  |
+| 11 | `property` | TEXT | yes |  |
+| 12 | `value_text` | TEXT |  |  |
+| 13 | `is_important` | INTEGER |  |  |
+| 14 | `is_custom` | INTEGER |  |  |
+| 15 | `vendor_prefix` | TEXT |  |  |
+| 16 | `position` | INTEGER |  |  |
+| 17 | `value_bytes` | INTEGER |  | the value's UTF-8 size |
+| 18 | `value_truncated` | INTEGER |  | 1 when the value is over 64 KiB and was cut (a listed LIMIT, V2-12); value_text otherwise holds it in full, whitespace as written |
+
+### `web_value_refs`
+
+A name or URL a declaration value (or an at-rule prelude) refers to: VARIABLE (var(--x)), URL, IMPORT, KEYFRAMES, LAYER, CONTAINER, FONT_FAMILY. `resolved_file` only when the file is on disk.
+
+Rows: = var(), url(), animation-name, font-family, @layer/@container names in values.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `declaration_uid` | TEXT | yes |  |
+| 2 | `rule_uid` | TEXT | yes |  |
+| 3 | `stylesheet_uid` | TEXT | yes |  |
+| 4 | `file` | TEXT | yes |  |
+| 5 | `line` | INTEGER |  |  |
+| 6 | `col` | INTEGER |  |  |
+| 7 | `reference_kind` | TEXT |  |  |
+| 8 | `name` | TEXT | yes |  |
+| 9 | `fallback_text` | TEXT |  |  |
+| 10 | `url_kind` | TEXT |  |  |
+| 11 | `resolved_file` | TEXT | yes |  |
+| 12 | `is_resolved` | INTEGER |  |  |
+
+### `web_comments`
+
+One CSS comment.
+
+Rows: = CSS comments (text cut at the parser's limit).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `stylesheet_uid` | TEXT | yes |  |
+| 2 | `file` | TEXT | yes |  |
+| 3 | `line` | INTEGER |  |  |
+| 4 | `col` | INTEGER |  |  |
+| 5 | `end_line` | INTEGER |  |  |
+| 6 | `end_col` | INTEGER |  |  |
+| 7 | `text` | TEXT |  |  |
+
+### `web_gaps`
+
+What a grammar could not read: `lang` html or css, the gap kind, and the page/sheet and rule/element it covers.
+
+Rows: = parse gaps the parser declared.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `lang` | TEXT |  |  |
+| 2 | `gap_kind` | TEXT |  |  |
+| 3 | `detail` | TEXT |  |  |
+| 4 | `owner_uid` | TEXT | yes | page (html) or sheet (css) |
+| 5 | `related_uid` | TEXT | yes | the element (html) or rule (css) it covers |
+| 6 | `element_uid` | TEXT | yes | the element an html gap covers (= related_uid for html) |
+| 7 | `file` | TEXT | yes |  |
+| 8 | `line` | INTEGER |  |  |
+| 9 | `col` | INTEGER |  |  |
+| 10 | `end_line` | INTEGER |  |  |
+| 11 | `end_col` | INTEGER |  |  |
+
+### `web_loads`
+
+page -> stylesheet, in cascade order: `via` link | style | import; `load_order` 1-based (an @import'ed sheet comes before the importing sheet's own rules, depth-first); `import_depth` 0 for a direct load; `via_uid` the link/style element or the importing sheet. A <link rel="alternate stylesheet"> is conditional alternate_sheet. An unknown row (no stylesheet_uid, no order) says why: external_url, unresolved_url, not_indexed, template_url.
+
+Rows: = page -> stylesheet loads (link, style, @import closure), one per load.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `page_uid` | TEXT | yes |  |
+| 1 | `stylesheet_uid` | TEXT | yes |  |
+| 2 | `url_as_written` | TEXT |  |  |
+| 3 | `via` | TEXT |  |  |
+| 4 | `via_uid` | TEXT | yes |  |
+| 5 | `load_order` | INTEGER |  |  |
+| 6 | `import_depth` | INTEGER |  |  |
+| 7 | `media` | TEXT |  |  |
+| 8 | `layer` | TEXT |  |  |
+| 9 | `status` | TEXT |  |  |
+| 10 | `reason` | TEXT |  |  |
+
+### `web_imports`
+
+stylesheet -> stylesheet by @import, with the IMPORT value reference; unknown rows say why the target is absent.
+
+Rows: = @import references.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `from_stylesheet_uid` | TEXT | yes |  |
+| 1 | `to_stylesheet_uid` | TEXT | yes |  |
+| 2 | `value_ref_uid` | TEXT | yes |  |
+| 3 | `url_as_written` | TEXT |  |  |
+| 4 | `status` | TEXT |  |  |
+| 5 | `reason` | TEXT |  |  |
+
+### `web_links`
+
+element -> page by an anchor, form action, frame/iframe or meta refresh; `to_element_uid` is the target page's element with the URL's #fragment id, when there is one.
+
+Rows: = anchor, iframe and form references from pages.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `from_element_uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT | yes |  |
+| 2 | `attribute_name` | TEXT |  |  |
+| 3 | `to_page_uid` | TEXT | yes |  |
+| 4 | `to_element_uid` | TEXT | yes |  |
+| 5 | `kind` | TEXT |  |  |
+| 6 | `reference_uid` | TEXT | yes |  |
+| 7 | `url_as_written` | TEXT |  |  |
+| 8 | `fragment` | TEXT |  |  |
+| 9 | `status` | TEXT |  |  |
+| 10 | `reason` | TEXT |  |  |
+
+### `web_id_refs`
+
+element -> element with the referenced id on the SAME page: href="#x", label for, aria-labelledby/-describedby/-controls/…, form/list/headers/popovertarget/commandfor. status ambiguous (one row per carrier) for a duplicated id; unknown no_such_id when no element has it.
+
+Rows: = id references (href="#x", for=, aria-*, headers=).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `from_element_uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT | yes |  |
+| 2 | `attribute_name` | TEXT |  |  |
+| 3 | `id_value` | TEXT | yes |  |
+| 4 | `to_element_uid` | TEXT | yes |  |
+| 5 | `status` | TEXT |  |  |
+| 6 | `reason` | TEXT |  |  |
+
+### `web_resources`
+
+element or declaration -> file: images, media, srcset candidates, link resources, scripts' src, css url(). `file_exists` = 1 when the resolved file is on disk at index time.
+
+Rows: = asset references (img, srcset candidates, url(), icons, fonts).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `from_uid` | TEXT | yes |  |
+| 1 | `from_kind` | TEXT |  |  |
+| 2 | `owner_uid` | TEXT | yes |  |
+| 3 | `kind` | TEXT |  |  |
+| 4 | `url` | TEXT |  |  |
+| 5 | `file` | TEXT | yes |  |
+| 6 | `file_exists` | INTEGER |  |  |
+| 7 | `status` | TEXT |  |  |
+| 8 | `reason` | TEXT |  |  |
+
+### `web_styles`
+
+selector -> element: the rule applies to the element on that page (only through sheets the page loads). `reason` lists every condition, sorted, ';'-joined. Cascade order fields per SPEC §3.3: sort by (important_count>0, layer_rank, spec_a, spec_b, spec_c, sheet_order, rule_order). `pseudo_element` set when the rule styles a ::before/::after/… of the element.
+
+Rows: one per (selector, element, page); ≤ 10M per project (SPEC §7), reported if exceeded, never capped.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `selector_uid` | TEXT |  |  |
+| 1 | `rule_uid` | TEXT | yes |  |
+| 2 | `stylesheet_uid` | TEXT |  |  |
+| 3 | `element_uid` | TEXT | yes |  |
+| 4 | `page_uid` | TEXT |  |  |
+| 5 | `status` | TEXT |  |  |
+| 6 | `reason` | TEXT |  |  |
+| 7 | `conditions` | TEXT |  |  |
+| 8 | `pseudo_element` | TEXT |  |  |
+| 9 | `spec_a` | INTEGER |  |  |
+| 10 | `spec_b` | INTEGER |  |  |
+| 11 | `spec_c` | INTEGER |  |  |
+| 12 | `layer_rank` | INTEGER |  |  |
+| 13 | `sheet_order` | INTEGER |  |  |
+| 14 | `rule_order` | INTEGER |  |  |
+| 15 | `important_count` | INTEGER |  |  |
+| 16 | `scope_root` | TEXT |  | inside @scope: the scope root element |
+| 17 | `scope_proximity` | INTEGER |  | generations from the scope root to the element |
+| 18 | `host_page_uid` | TEXT |  | set when the element is a fragment's, matched where a host page includes it (web_includes): the host, whose sheets and tree the match used; NULL for a page matched on its own |
+| 19 | `loads` | TEXT |  | the sheet_order of every load of this sheet on the page when there are two or more (V2-22); the row's sheet_order is the later one |
+
+### `web_includes`
+
+A page that includes a fragment at build or serve time (SPEC §11.2, G22): SSI `<!--#include virtual|file -->`, posthtml `<include src>`, gulp `@@include`, Jinja `{% include %}` / `{% extends %}` / `{% import %}`, or an include the agent asserted with `link` (kind and status `asserted`). `kind` is the flavour; `host_element_uid` the element the include sits in (for `<include src>` the include element's parent; NULL at the top level), `position` the sibling index the fragment's top-level elements take there. For `jinja:extends` the host is the layout extended and the fragment the extending page, whose blocks are matched at the layout's blocks. status match | ambiguous (two template roots hold the name; one row each) | unknown (reason unresolved_url, template_url, not_indexed, include_cycle) | asserted.
+
+Rows: = include references with a resolved or declared-unknown host/fragment pair.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `host_page_uid` | TEXT | yes |  |
+| 1 | `fragment_page_uid` | TEXT | yes |  |
+| 2 | `kind` | TEXT |  |  |
+| 3 | `host_element_uid` | TEXT | yes |  |
+| 4 | `position` | INTEGER |  |  |
+| 5 | `reference_uid` | TEXT | yes |  |
+| 6 | `url_as_written` | TEXT |  |  |
+| 7 | `file` | TEXT | yes |  |
+| 8 | `line` | INTEGER |  |  |
+| 9 | `col` | INTEGER |  |  |
+| 10 | `args` | TEXT |  |  |
+| 11 | `status` | TEXT |  |  |
+| 12 | `reason` | TEXT |  |  |
+
+### `web_var_def`
+
+Every custom-property definition: a declaration `--x: …` in a rule or a style attribute, or an `@property --x` rule (def_uid = rule_uid). SPEC §3.4a.
+
+Rows: = custom-property declarations + @property rules (SPEC §3.4a).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `def_uid` | TEXT | yes |  |
+| 1 | `name` | TEXT | yes |  |
+| 2 | `rule_uid` | TEXT | yes |  |
+| 3 | `attribute_uid` | TEXT | yes |  |
+| 4 | `element_uid` | TEXT | yes |  |
+| 5 | `stylesheet_uid` | TEXT | yes |  |
+
+### `web_var_visible`
+
+Page-independent: a var() use (the using declaration and its value reference) sees the definitions of its name held by an OWNER (`def_owner_kind` sheet: a stylesheet some page loads with the use; page: style attributes of a page that loads the use) — one row per (use, owner), `defs` = how many definitions of the name that owner holds, `def_uid` set when it is exactly one (V1-22 grain; the per-definition rows are the view web_var_visible_defs). A use no definition reaches: one row, def_owner_uid NULL, reason no_definition_in_scope / fallback_only.
+
+Rows: ≤ var() uses × definitions visible on some page (page-independent, SPEC §3.4a).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `use_uid` | TEXT |  |  |
+| 1 | `value_ref_uid` | TEXT |  |  |
+| 2 | `name` | TEXT | yes |  |
+| 3 | `def_owner_uid` | TEXT |  |  |
+| 4 | `def_owner_kind` | TEXT |  |  |
+| 5 | `defs` | INTEGER |  |  |
+| 6 | `def_uid` | TEXT | yes |  |
+| 7 | `status` | TEXT |  |  |
+| 8 | `reason` | TEXT |  |  |
+
+### `web_var_scope`
+
+One row per (page, element styled by a rule using var(--name), name): `root_uid` the nearest ancestor-or-self styled by a rule defining --name (the inheritance root), status of that styles row; `root_exact_uid` the nearest EXACT root when the nearest is only conditional; NULL root with reason not_inherited / no_definition_in_scope.
+
+Rows: one per (page, element, var name) for elements styled by a rule using the name (SPEC §3.4a).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `page_uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `name` | TEXT | yes |  |
+| 3 | `root_uid` | TEXT | yes |  |
+| 4 | `root_exact_uid` | TEXT | yes |  |
+| 5 | `status` | TEXT |  |  |
+| 6 | `reason` | TEXT |  |  |
+
+### `web_defines_var`
+
+declaration -> custom property it defines (page-independent).
+
+Rows: = custom-property declarations.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `declaration_uid` | TEXT | yes |  |
+| 1 | `name` | TEXT | yes |  |
+
+### `web_uses_var`
+
+var() value reference -> custom property name, with the declaration it sits in (page-independent).
+
+Rows: = var() references.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `value_ref_uid` | TEXT | yes |  |
+| 1 | `name` | TEXT | yes |  |
+| 2 | `declaration_uid` | TEXT | yes |  |
+
+### `web_keyframes_use`
+
+animation / animation-name (the declaration) -> @keyframes rule of that name (vendor-prefixed included) in a sheet the same page loads; unknown no_such_keyframes.
+
+Rows: ≤ animation names used × pages.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `use_uid` | TEXT | yes |  |
+| 1 | `value_ref_uid` | TEXT | yes |  |
+| 2 | `name` | TEXT | yes |  |
+| 3 | `target_uid` | TEXT | yes |  |
+| 4 | `page_uid` | TEXT | yes |  |
+| 5 | `status` | TEXT |  |  |
+| 6 | `reason` | TEXT |  |  |
+
+### `web_font_use`
+
+font-family (the declaration) -> @font-face rule declaring the family (case-insensitive, quotes stripped) in a sheet the same page loads; unknown system_or_external_font.
+
+Rows: ≤ font-family names used × pages.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `use_uid` | TEXT | yes |  |
+| 1 | `value_ref_uid` | TEXT | yes |  |
+| 2 | `name` | TEXT | yes |  |
+| 3 | `target_uid` | TEXT | yes |  |
+| 4 | `page_uid` | TEXT | yes |  |
+| 5 | `status` | TEXT |  |  |
+| 6 | `reason` | TEXT |  |  |
+
+### `web_container_use`
+
+@container <name> (the rule) -> the declarations (container-name / container) naming it in sheets the same page loads.
+
+Rows: ≤ @container names used × pages.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `use_uid` | TEXT | yes |  |
+| 1 | `name` | TEXT | yes |  |
+| 2 | `target_uid` | TEXT | yes |  |
+| 3 | `page_uid` | TEXT | yes |  |
+| 4 | `status` | TEXT |  |  |
+| 5 | `reason` | TEXT |  |  |
+
+### `web_components`
+
+A shared structure (component candidate, SPEC §9.1): level `include` (§11): a fragment page included by >= 2 hosts, one occurrence per include site (element_uid the element the include sits in). Otherwise every written element (not inert, not html/head/body) with one signature, at a `level` — exact (tag, static class tokens, attribute names, children) or shape (tag and children only) — kept when it occurs >= 2 times with >= 3 elements, and maximal (a group only ever found as the direct part of one other group is folded into it). `display` <tag>.<first 3 classes sorted> (#n when shared); `size` elements in one occurrence; `parent_component_uid` the group whose occurrences contain every occurrence of this one; `rules_styling_root` rules with a styles row on the first occurrence.
+
+Rows: ≤ distinct structural signatures with ≥ 2 occurrences (SPEC §9.1).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `level` | TEXT |  |  |
+| 2 | `signature` | TEXT |  |  |
+| 3 | `root_tag` | TEXT |  |  |
+| 4 | `root_classes` | TEXT |  |  |
+| 5 | `display` | TEXT | yes |  |
+| 6 | `size` | INTEGER |  |  |
+| 7 | `occurrences` | INTEGER |  |  |
+| 8 | `pages` | INTEGER |  |  |
+| 9 | `parent_component_uid` | TEXT | yes |  |
+| 10 | `slot_count` | INTEGER |  |  |
+| 11 | `rules_styling_root` | INTEGER |  |  |
+
+### `web_component_occurrences`
+
+One occurrence (root element) of a component candidate.
+
+Rows: ≤ 2 × elements (SPEC §9.1).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `component_uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `file` | TEXT |  |  |
+| 4 | `line` | INTEGER |  |  |
+| 5 | `col` | INTEGER |  |  |
+| 6 | `at_top_level` | INTEGER |  | 1 for an include outside any element: element_uid is then the host's root element (V3-07) |
+
+### `web_component_slots`
+
+What varies between the aligned occurrences of a component (or the items of a repeat, keyed by its uid): `path` child-index path from the root ('' = the root, e.g. 0/2/1), `kind` text | attr:<name> | class (shape level), distinct_values and up to 5 samples (JSON).
+
+Rows: ≤ Σ group sizes (SPEC §9.1).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `component_uid` | TEXT | yes |  |
+| 1 | `path` | TEXT |  |  |
+| 2 | `kind` | TEXT |  |  |
+| 3 | `attribute_name` | TEXT |  |  |
+| 4 | `distinct_values` | INTEGER |  |  |
+| 5 | `samples` | TEXT |  |  |
+
+### `web_repeats`
+
+A repeated list (SPEC §9.8): a maximal run of >= 3 consecutive element siblings of one shape, >= 2 elements per item. `uniform` = every item also has one exact signature; slots in web_component_slots under this uid.
+
+Rows: ≤ elements / 3 (SPEC §9.8).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `parent_element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `first_element_uid` | TEXT | yes |  |
+| 4 | `start_position` | INTEGER |  |  |
+| 5 | `count` | INTEGER |  |  |
+| 6 | `item_tag` | TEXT |  |  |
+| 7 | `item_classes` | TEXT |  |  |
+| 8 | `item_size` | INTEGER |  |  |
+| 9 | `uniform` | INTEGER |  |  |
+| 10 | `component_uid` | TEXT | yes |  |
+| 11 | `slot_count` | INTEGER |  |  |
+
+### `web_computed`
+
+The cascade winner per (element, pseudo-element, written property) with >= 1 contender (SPEC §9.2): contenders are the declarations of the property in every rule with a styles row for the element and pseudo-element, plus its style attribute, sorted by importance, origin/layer, specificity, sheet order, rule order, position. `winner_status` match | conditional_only (no exact contender) | unknown (an unknown contender sorts above the winner) | shorthand_override (a shorthand declaration sorts above this longhand's winner: `override_decl_uid`; values are not expanded, LIMIT L5). Inherited and initial values are not filled (L6). `winner_key` is the sort key the view web_cascade compares against.
+
+Rows: = distinct (element, pseudo, property) over contenders; ≤ 3M per project (SPEC §9.2).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `element_uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT |  |  |
+| 2 | `host_page_uid` | TEXT |  | a fragment element resolved where that host includes it (§11); NULL on its own page |
+| 3 | `pseudo` | TEXT |  |  |
+| 4 | `property` | TEXT |  |  |
+| 5 | `winner_decl_uid` | TEXT |  |  |
+| 6 | `winner_origin` | TEXT |  |  |
+| 7 | `winner_status` | TEXT |  |  |
+| 8 | `value_text` | TEXT |  |  |
+| 9 | `important` | INTEGER |  |  |
+| 10 | `contenders` | INTEGER |  |  |
+| 11 | `conditional_overrides` | INTEGER |  |  |
+| 12 | `override_decl_uid` | TEXT |  |  |
+| 13 | `winner_key` | TEXT |  |  |
+
+### `web_tokens`
+
+A theme token (SPEC §9.3): kind color | font_family | font_size | spacing | radius | shadow | z_index | custom_property and its normalised value; `uses` declarations holding it, `project_uses` those outside vendor sheets and minified twins, `sheets`, `rules`, `vars` custom properties whose value holds it.
+
+Rows: ≤ distinct normalised values (SPEC §9.3).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `kind` | TEXT |  |  |
+| 2 | `value` | TEXT | yes |  |
+| 3 | `uses` | INTEGER |  |  |
+| 4 | `project_uses` | INTEGER |  |  |
+| 5 | `sheets` | INTEGER |  |  |
+| 6 | `rules` | INTEGER |  |  |
+| 7 | `vars` | TEXT |  |  |
+| 8 | `unused` | INTEGER |  | 1 for a custom property declared and never read through var() (V2-06) |
+
+### `web_token_uses`
+
+token -> declaration holding it.
+
+Rows: ≤ 4 × declarations (SPEC §9.3).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `token_uid` | TEXT | yes |  |
+| 1 | `declaration_uid` | TEXT | yes |  |
+
+### `web_breakpoints`
+
+A @media prelude or a media attribute, normalised (SPEC §9.4): lower-cased, whitespace collapsed, no space inside parentheses or around : and ,. `min_px`/`max_px` from min-width/max-width/width ranges (em/rem x 16, `unit` as written), other features in `features`; counts of rules under it, sheets, elements styled through it and pages.
+
+Rows: ≤ distinct @media preludes (SPEC §9.4).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `media` | TEXT | yes |  |
+| 2 | `min_px` | INTEGER |  |  |
+| 3 | `max_px` | INTEGER |  |  |
+| 4 | `unit` | TEXT |  |  |
+| 5 | `features` | TEXT |  |  |
+| 6 | `rules` | INTEGER |  |  |
+| 7 | `sheets` | INTEGER |  |  |
+| 8 | `elements` | INTEGER |  |  |
+| 9 | `pages` | INTEGER |  |  |
+
+### `web_rule_breakpoints`
+
+rule -> breakpoint it sits under (depth 1 = a direct child of the @media, 0 = a rule of a sheet loaded with that media).
+
+Rows: ≤ rules (SPEC §9.4).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `rule_uid` | TEXT | yes |  |
+| 1 | `breakpoint_uid` | TEXT | yes |  |
+| 2 | `depth` | INTEGER |  |  |
+
+### `web_forms`
+
+A <form> (SPEC §9.5): action as written and the page it resolves to, method (lower-cased, default get), enctype, controls it owns.
+
+Rows: = <form> elements.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `element_uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT | yes |  |
+| 2 | `action` | TEXT |  |  |
+| 3 | `action_resolved_page` | TEXT | yes |  |
+| 4 | `method` | TEXT |  |  |
+| 5 | `enctype` | TEXT |  |  |
+| 6 | `controls` | INTEGER |  |  |
+| 7 | `implicit_action` | INTEGER |  | 1 when the form has no action attribute: it submits to the page itself (action = the page) |
+
+### `web_form_controls`
+
+input, select, textarea, button, contenteditable (SPEC §9.5): its form owner (form attribute, else the nearest ancestor form), type (input default text, button default submit), the constraint attributes, and its label per the HTML spec: `label_via` for | wrap | aria-labelledby | aria-label | title | none.
+
+Rows: = form controls (SPEC §9.5).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `element_uid` | TEXT | yes |  |
+| 1 | `page_uid` | TEXT | yes |  |
+| 2 | `form_uid` | TEXT | yes |  |
+| 3 | `tag` | TEXT |  |  |
+| 4 | `type` | TEXT |  |  |
+| 5 | `name` | TEXT | yes |  |
+| 6 | `id` | TEXT | yes |  |
+| 7 | `required` | INTEGER |  |  |
+| 8 | `pattern` | TEXT |  |  |
+| 9 | `min` | TEXT |  |  |
+| 10 | `max` | TEXT |  |  |
+| 11 | `minlength` | TEXT |  |  |
+| 12 | `maxlength` | TEXT |  |  |
+| 13 | `step` | TEXT |  |  |
+| 14 | `placeholder` | TEXT |  |  |
+| 15 | `value` | TEXT |  |  |
+| 16 | `checked` | INTEGER |  |  |
+| 17 | `disabled` | INTEGER |  |  |
+| 18 | `multiple` | INTEGER |  |  |
+| 19 | `autocomplete` | TEXT |  |  |
+| 20 | `label_uid` | TEXT | yes |  |
+| 21 | `label_via` | TEXT |  |  |
+| 22 | `label_text` | TEXT |  |  |
+
+### `web_icon_classes`
+
+A class C is an icon class (SPEC §9.6) when a selector of ONE compound whose only class is C, with ::before/::after, belongs to a rule declaring `content` with a string of <= 2 characters or one CSS escape. `font_family` as written: declared in that rule, or in a one-class rule for a class the same elements carry.
+
+Rows: ≤ selectors (SPEC §9.6).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `class_name` | TEXT | yes |  |
+| 1 | `rule_uid` | TEXT | yes |  |
+| 2 | `content` | TEXT |  |  |
+| 3 | `font_family` | TEXT |  |  |
+| 4 | `used_elements` | INTEGER |  |  |
+
+### `web_font_faces`
+
+An @font-face: family, the files its src names, weight, style, and the rules using the family.
+
+Rows: = @font-face rules.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `rule_uid` | TEXT | yes |  |
+| 1 | `family` | TEXT | yes |  |
+| 2 | `src_files` | TEXT |  |  |
+| 3 | `weight` | TEXT |  |  |
+| 4 | `style` | TEXT |  |  |
+| 5 | `used_rules` | INTEGER |  |  |
+
+### `web_outline`
+
+Landmarks and headings of a page in document order (SPEC §9.7): header, nav, main, aside, footer, search, section/article (region when named), a named form, ARIA landmark roles; h1-h6 and role=heading with aria-level. `parent_outline_uid` the nearest ancestor outline row.
+
+Rows: ≤ elements (SPEC §9.7).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `kind` | TEXT |  |  |
+| 4 | `name` | TEXT |  |  |
+| 5 | `level` | INTEGER |  |  |
+| 6 | `label` | TEXT |  |  |
+| 7 | `text` | TEXT |  |  |
+| 8 | `parent_outline_uid` | TEXT | yes |  |
+| 9 | `ordinal` | INTEGER |  |  |
+
+### `web_classes`
+
+A class token carried by an element (SPEC §9.9): elements and pages carrying it, selectors naming it, those of them with any styles row, `styled` = some selector naming it has a styles row on an element carrying it, `icon` = an icon class. Never "dead": classes added at run time are outside this layer.
+
+Rows: ≤ distinct class tokens + selector class names (SPEC §9.9).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `class_name` | TEXT | yes |  |
+| 1 | `elements` | INTEGER |  |  |
+| 2 | `pages` | INTEGER |  |  |
+| 3 | `selectors_naming` | INTEGER |  |  |
+| 4 | `selectors_matching` | INTEGER |  |  |
+| 5 | `styled` | INTEGER |  |  |
+| 6 | `icon` | INTEGER |  |  |
+
+### `web_page_carriers`
+
+Every class and id token a page carries, its own elements' and those of every fragment it includes (outside iframe text): what the view web_selector_unmatched_pages looks a required token up in (V2-08). `token_lc` is the token lower-cased, for quirks-mode pages.
+
+Rows: = distinct (page, kind, token) over a page's and its included fragments' class/id tokens.
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `page_uid` | TEXT |  |  |
+| 1 | `kind` | TEXT |  |  |
+| 2 | `token` | TEXT |  |  |
+| 3 | `token_lc` | TEXT |  |  |
+
+### `web_unknown`
+
+Every declared unknown that has no edge row of its own: orphan_sheet, fragment_no_host, no_static_carrier (a selector needing a class/id no element of the page carries), shadow_dom, selector_unparsed, implied_element, column_combinator (a selector undecidable on a page), parse_gap, duplicate_id, … with the node and page it concerns.
+
+Rows: ≤ 0.1 × web_styles + 10,000 (SPEC §11.3).
+
+| # | column | type | idx | meaning |
+|---|---|---|---|---|
+| 0 | `kind` | TEXT |  |  |
+| 1 | `node_uid` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT | yes |  |
+| 3 | `reason` | TEXT |  |  |
+| 4 | `detail` | TEXT |  |  |
+| 5 | `file` | TEXT | yes |  |
+| 6 | `line` | INTEGER |  |  |
+
+### Web views
+
+SQL views over the tables above, not materialized.
+
+| view | answers |
+|---|---|
+| `web_cascade` | Every contender of a web_computed row with its outcome and why it lost (keys as web_computed.winner_key; SPEC §9.2). |
+| `web_page_inventory` | The per-page inventory (elements, sheets, scripts, forms, …): aggregates of the stored tables (SPEC §9.10). |
+| `web_selector_unmatched_pages` | The pages behind web_selectors.pages_unmatched: pages loading the selector's sheet with no styles row and no whole-selector unknown (SPEC §3.5). |
+| `web_script` | Each <script> in page order with its attributes and verbatim body (SPEC §10). |
+| `web_handler` | Each on* attribute / javascript: URL / template event with its code as the DOM sees it and as written (SPEC §10). |
+| `web_event_handlers` | The handler rows in the oracle's vocabulary (element, attribute, event). |
+| `web_var_visible_defs` | web_var_visible expanded to one row per definition it covers (lossless). |
+| `web_var` | var(--x) per page: a use, each definition in scope on the page, and the inheritance status (SPEC §3.4a). Not materialized: quadratic on a large site; impact reads the stored tables. |
+| `web_contains` | The element tree as edges: each element under its parent element, or under its page at the top level (parent_kind). |
+| `web_inline_styles` | Each style attribute with its declarations. |
+
 ## Extended tables — `ext_<relation>`
 
 Every relation in the language's `graph/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.
