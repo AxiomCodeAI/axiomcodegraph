@@ -1322,6 +1322,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // none (and no whole-selector unknown), pages where a required class/id has no static carrier; statuses seen
   type SelStat = { loading: number; matched: number; elements: number; unmatched: number; missing: number; wholeUnk: number; m: number; c: number; u: number; ur: string };
   const selStats = new Map<string, SelStat>();
+  const newSelStat = (): SelStat => ({ loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0, ur: '' });
 
   // layer ranks of one page (SPEC §3.3 R7): first declaration, walking the page's sheets in load order and each
   // in source order (into an @import where it is written); a layer's sublayers rank before its own rules
@@ -1485,6 +1486,35 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
    * - mode `extends`: the layout's tree with an extending page's blocks; only the extending page's elements (and what it
    *   includes) get rows, the layout having its own.
    */
+  // THE SHEET'S SELECTOR INDEX, by a class or id each selector requires (a browser's rule hash). A selector that requires a
+  // token the page does not carry matches nothing there, and its only effect on that page is a tally (loading, unmatched,
+  // missing). A plain page (one run, no composition, no dynamic class binding) visits just the selectors whose key it
+  // carries plus those with no key, in sheet order, so the match costs what the page can match rather than pages x
+  // selectors; the skipped ones are tallied in bulk after the pages (skipTally).
+  type SheetIdx = { entries: { n: RuleN; s: SelN }[]; always: number[]; keyOf: (string | null)[]; byKey: Map<string, number[]>; byKeyLc: Map<string, number[]> | null; gated: number[] };
+  const sheetIdx = new Map<string, SheetIdx>();
+  const idxOf = (sheetId: string, lc: boolean): SheetIdx & { keys: Map<string, number[]> } => {
+    let x = sheetIdx.get(sheetId);
+    if (!x) {
+      x = { entries: [], always: [], keyOf: [], byKey: new Map(), byKeyLc: null, gated: [] };
+      for (const n of sheets.get(sheetId)!.rules) {
+        if (n.kind !== 'STYLE_RULE' || !n.matchable) continue;
+        for (const s of selsOfRule.get(n.id) ?? []) {
+          const i = x.entries.length; x.entries.push({ n, s });
+          // never skipped: an undecidable selector, `:root`, an @scope rule (each writes unknown rows or depends on more than tokens)
+          const k = n.inScope || s.unknown || s.root ? null
+            : s.req.ids.length ? `i\u0000${s.req.ids[0]}` : s.req.classes.length ? `c\u0000${s.req.classes[0]}` : null;
+          x.keyOf.push(k);
+          if (k === null) x.always.push(i); else { push(x.byKey, k, i); x.gated.push(i); }
+        }
+      }
+      sheetIdx.set(sheetId, x);
+    }
+    if (lc && !x.byKeyLc) { x.byKeyLc = new Map(); for (const i of x.gated) push(x.byKeyLc, x.keyOf[i]!.toLowerCase(), i); }
+    return { ...x, keys: lc ? x.byKeyLc! : x.byKey };
+  };
+  const plainLoads = new Map<string, number>(); // sheet -> plain pages loading it
+  const plainSeen = new Map<string, number>(); // selector -> plain pages that visited it
   const runPage = (pageId: string, loads: Load[], comp?: { live: CEl[]; mode: 'host' | 'extends' }): void => {
     const page = pages.get(pageId)!;
     const cands = new Map<string, Map<string, Cand>>();
@@ -1530,21 +1560,38 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           key: keyOf(imp, false, layerRank, sp[0]!, sp[1]!, sp[2]!, 0, l.order, n.order, num(g(T.decl, d, 'position')) ?? 0), reason });
       }
     };
+    const plain = !comp && !multiRun.has(pageId) && !md;
+    const plainSheets = new Set<string>();
     for (const l of loads) {
-      const sh = sheets.get(l.sheet)!;
-      for (const n of sh.rules) {
-        if (n.kind !== 'STYLE_RULE' || !n.matchable) continue;
-        const sels = selsOfRule.get(n.id) ?? [];
-        if (sels.length === 0) continue;
-        const atConds = [...l.conds, ...n.conditions];
-        const layerRank = rank(joinLayer(l.layer, n.layer || null));
-        const conditions = atConds.length ? atConds.join(' && ') : null;
-        const scope = n.inScope ? scopeOf(n) : null;
-        for (const s of sels) {
+      const x = idxOf(l.sheet, page.quirks);
+      let visit: number[] | null = null; // null: every selector of the sheet
+      if (plain) {
+        if (!plainSheets.has(l.sheet)) { plainSheets.add(l.sheet); plainLoads.set(l.sheet, (plainLoads.get(l.sheet) ?? 0) + 1); }
+        visit = [...x.always];
+        for (const c of ctx.classes) { const b = x.keys.get(`c\u0000${c}`); if (b) for (const i of b) visit.push(i); }
+        for (const c of ctx.ids) { const b = x.keys.get(`i\u0000${c}`); if (b) for (const i of b) visit.push(i); }
+        visit.sort((a, b) => a - b);
+      }
+      // the rule-level values, computed once per rule as its selectors come up in order
+      let cur: RuleN | null = null;
+      let curConds: string[] = [], curRank = 0, curConditions: string | null = null, curScope: ReturnType<typeof scopeOf> | null = null;
+      const count = visit ? visit.length : x.entries.length;
+      for (let vi = 0; vi < count; vi++) {
+        const ei = visit ? visit[vi]! : vi;
+        const { n, s } = x.entries[ei]!;
+        if (n !== cur) {
+          cur = n;
+          curConds = [...l.conds, ...n.conditions];
+          curRank = rank(joinLayer(l.layer, n.layer || null));
+          curConditions = curConds.length ? curConds.join(' && ') : null;
+          curScope = n.inScope ? scopeOf(n) : null;
+        }
+        const atConds = curConds, layerRank = curRank, conditions = curConditions, scope = curScope;
+        {
           let st = selStats.get(s.id);
-          if (!st) { st = { loading: 0, matched: 0, elements: 0, unmatched: 0, missing: 0, wholeUnk: 0, m: 0, c: 0, u: 0, ur: '' }; selStats.set(s.id, st); }
+          if (!st) { st = newSelStat(); selStats.set(s.id, st); }
           const tallies = !comp || comp.mode === 'host';
-          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (tallies) st.loading++; }
+          if (!seen.has(`l|${s.id}`)) { seen.add(`l|${s.id}`); if (tallies) st.loading++; if (plain && x.keyOf[ei] !== null) plainSeen.set(s.id, (plainSeen.get(s.id) ?? 0) + 1); }
           const unk = s.unknown || scope?.spec.unknown || '';
           if (unk) noteUndecided(s, n, l, layerRank, unk, atConds.length > 0 || !!l.disabled);
           if (s.root && !page.hasHtml && !scope && !unk) noteUndecided(s, n, l, layerRank, 'implied_element', atConds.length > 0 || !!l.disabled);
@@ -1732,6 +1779,18 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     if (!live.some((e) => e.viaExtends)) continue;
     runPage(x.layout, composedLoads(x.layout, [...new Set(live.map((e) => e.origPage))].filter((p) => p !== x.layout)), { live, mode: 'extends' }); composedRuns++;
   }
+  // skipTally: a keyed selector a plain page did not visit requires a token that page does not carry, so on that page
+  // it loads, matches nothing and is missing a token: the tallies runPage would have made, in bulk
+  for (const [sheet, k] of plainLoads) {
+    const x = sheetIdx.get(sheet); if (!x) continue;
+    for (const i of x.gated) {
+      const s = x.entries[i]!.s;
+      const skipped = k - (plainSeen.get(s.id) ?? 0);
+      if (skipped <= 0) continue;
+      let st = selStats.get(s.id); if (!st) { st = newSelStat(); selStats.set(s.id, st); }
+      st.loading += skipped; st.unmatched += skipped; st.missing += skipped;
+    }
+  }
   for (const [sid, byPage] of pageTally) {
     const st = selStats.get(sid); if (!st) continue;
     for (const t of byPage.values()) { if (t.any) st.matched++; else if (!t.unk) { st.unmatched++; if (t.missing) st.missing++; } }
@@ -1789,24 +1848,49 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       return { sheet: rules.has(d) ? rules.get(d)!.sheet : declSheet(d), page: '' };
     };
     const pagesLoading = (sheet: string): Set<string> => loadedBy.get(sheet) ?? new Set();
+    // a name's definitions grouped by OWNER once (first-definition order, each owner's defs in definition order): a use
+    // then walks the owners, not every definition, so the cost is uses x owners rather than uses x definitions
+    type Owner = { owner: string; kind: string; page: string; sheet: string; defs: string[] };
+    const ownersByName = new Map<string, Owner[]>();
+    const ownersOf = (name: string): Owner[] => {
+      let os = ownersByName.get(name);
+      if (os) return os;
+      const byKey = new Map<string, Owner>(); os = [];
+      for (const d of defsByName.get(name) ?? []) {
+        const w = defSheetOrPage(d);
+        const owner = w.page ? w.page : w.sheet;
+        let o = byKey.get(owner);
+        if (!o) { o = { owner, kind: w.page ? 'page' : 'sheet', page: w.page, sheet: w.sheet, defs: [] }; byKey.set(owner, o); os.push(o); }
+        o.defs.push(d);
+      }
+      ownersByName.set(name, os);
+      return os;
+    };
+    // does any page of `a` load `sheet`: walk the smaller set. A use in a sheet asks it once per (use sheet, def sheet)
+    const meetsMemo = new Map<string, boolean>();
+    const meets = (a: Set<string>, sheet: string, useSheet: string | null): boolean => {
+      const mk = useSheet === null ? null : `${useSheet}\u0000${sheet}`;
+      if (mk !== null) { const hit = meetsMemo.get(mk); if (hit !== undefined) return hit; }
+      const b = pagesLoading(sheet);
+      const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+      let r = false;
+      for (const p of small) if (big.has(p)) { r = true; break; }
+      if (mk !== null) meetsMemo.set(mk, r);
+      return r;
+    };
     const visible = new Set<string>();
     for (const [vref, name, decl] of R.useVar) {
       const a = declAttr(decl!);
-      const usePages = a ? new Set([attrPage.get(a) ?? '']) : pagesLoading(declSheet(decl!));
+      const useSheet = a ? null : declSheet(decl!);
+      const usePages = useSheet === null ? new Set([attrPage.get(a) ?? '']) : pagesLoading(useSheet);
       const fb = g(T.vref, vrefRow.get(vref!) ?? [], 'fallbackText');
       // V1-22 grain: one row per (use, def OWNER) — the sheet or the page (style attribute) holding the definitions — not
       // per (use, def): a name defined in every theme sheet made the use x def product 8.5x the budget. Lossless: the
       // per-definition rows are the view web_var_visible_defs (web_var_def by name and owner).
       const byOwner = new Map<string, { kind: string; defs: string[] }>();
-      const okOwner = new Map<string, boolean>();
-      for (const d of defsByName.get(name!) ?? []) {
-        const w = defSheetOrPage(d);
-        const owner = w.page ? w.page : w.sheet; const kind = w.page ? 'page' : 'sheet';
-        let ok = okOwner.get(owner);
-        if (ok === undefined) { ok = [...usePages].some((p) => (w.page ? w.page === p : pagesLoading(w.sheet).has(p))); okOwner.set(owner, ok); }
-        if (!ok) continue;
-        let o = byOwner.get(owner); if (!o) { o = { kind, defs: [] }; byOwner.set(owner, o); }
-        o.defs.push(d);
+      for (const o of ownersOf(name!)) {
+        const ok = o.page ? usePages.has(o.page) : meets(usePages, o.sheet, useSheet);
+        if (ok) byOwner.set(o.owner, o);
       }
       for (const [owner, o] of byOwner) {
         const k = `${vref}|${owner}`; if (visible.has(k)) continue; visible.add(k);
