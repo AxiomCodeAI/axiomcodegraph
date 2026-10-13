@@ -18,27 +18,58 @@ export const MAX_LINES = 55000;
 // The parser's WEB walk has its own skip list since #1909: it reads dist/, build/ and out/ (a client hands over
 // compiled CSS there).
 export const PARSER_WEB_EXCLUDED = new Set([...PARSER_EXCLUDED].filter((d) => d !== 'dist' && d !== 'build' && d !== 'out'));
+// [iter5 orchestrator, V4-08] the web walk reads every directory but node_modules/ and .git/ and what the project's
+// own .gitignore files exclude: no other name-based skip (target/, env/, dot-directories are read)
+
+/** A .gitignore file's patterns as matchers on a path relative to the directory holding it. */
+function gitignoreRules(text) {
+  const out = [];
+  for (let line of text.split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith('#')) continue;
+    line = line.replace(/\s+$/, '');
+    const neg = line.startsWith('!'); if (neg) line = line.slice(1);
+    const dirOnly = line.endsWith('/'); if (dirOnly) line = line.slice(0, -1);
+    const anchored = line.includes('/');
+    const body = line.replace(/^\//, '').split('').map((c, i, a) => (c === '*' ? (a[i + 1] === '*' ? '\u0000' : '[^/]*') : c === '?' ? '[^/]' : /[.+^${}()|[\]\\]/.test(c) ? `\\${c}` : c)).join('')
+      .replace(/\u0000\[\^\/\]\*\/?/g, '(?:.*/)?').replace(/\u0000/g, '.*');
+    const re = new RegExp(anchored ? `^${body}$` : `(^|/)${body}$`);
+    out.push({ neg, dirOnly, re });
+  }
+  return out;
+}
+const ignoredBy = (stack, rel, isDir) => {
+  let ign = false;
+  for (const { base, rules } of stack) {
+    const sub = base ? rel.slice(base.length + 1) : rel;
+    for (const r of rules) if ((!r.dirOnly || isDir) && r.re.test(sub)) ign = !r.neg;
+  }
+  return ign;
+};
 
 /** Walk `root`; returns [{rel, abs, ext, parserWalk}] sorted by rel; mode 'parser' keeps what the web walk reads. */
 export function walk(root, mode) {
   const out = [];
-  const rec = (dir, relDir, inWeb) => {
+  const rec = (dir, relDir, inWeb, stack) => {
     let ents;
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    const gi = ents.find((e) => e.isFile() && e.name === '.gitignore');
+    if (gi) stack = [...stack, { base: relDir, rules: gitignoreRules(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')) }];
     for (const e of ents) {
       const abs = path.join(dir, e.name);
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
       if (e.isDirectory()) {
-        if (e.name === 'node_modules' || e.name === '.git' || e.name.startsWith('.')) continue;
-        const w = inWeb && !PARSER_WEB_EXCLUDED.has(e.name);
+        if (e.name === 'node_modules' || e.name === '.git') continue;
+        const w = inWeb && !ignoredBy(stack, rel, true);
         if (mode === 'parser' && !w) continue;
-        rec(abs, rel, w);
+        rec(abs, rel, w, stack);
       } else if (e.isFile()) {
-        out.push({ rel, abs, ext: path.extname(e.name).toLowerCase(), parserWalk: inWeb });
+        const w = inWeb && !ignoredBy(stack, rel, false);
+        if (mode === 'parser' && !w) continue;
+        out.push({ rel, abs, ext: path.extname(e.name).toLowerCase(), parserWalk: w });
       }
     }
   };
-  rec(root, '', true);
+  rec(root, '', true, []);
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   return out;
 }
@@ -87,6 +118,7 @@ export const isVendor = (rel) => VENDOR_RE.test(rel) || /\.min\.css$/i.test(rel)
 // The project root, for root-relative URLs (set once by oracle.mjs).
 let SITE_ROOT = null;
 export function setSiteRoot(abs) { SITE_ROOT = abs; }
+const existsDir = (rel) => { if (!SITE_ROOT) return false; try { return fs.statSync(path.join(SITE_ROOT, rel)).isDirectory(); } catch { return false; } };
 const existsRel = (rel) => { if (!SITE_ROOT) return false; try { return fs.statSync(path.join(SITE_ROOT, rel)).isFile(); } catch { return false; } };
 
 /**
@@ -162,5 +194,8 @@ export function resolveUrl(raw, fromRel, baseHref) {
   joined = path.posix.normalize(joined);
   if (joined.startsWith('..')) return { kind: 'local', target: null, fragment };
   if (joined.endsWith('/') || joined === '.') joined = dirIndex(joined);
+  // [iter5 orchestrator, V4-07] a URL naming a directory without the trailing slash (`href="docs"`) is that
+  // directory too: it resolves to its index file, in reference.resolved_file as in links_to
+  else if (!existsRel(joined) && existsDir(joined)) joined = dirIndex(joined);
   return { kind: 'local', target: joined, fragment };
 }

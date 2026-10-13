@@ -19,6 +19,8 @@ const ANIM_KEYWORDS = new Set(['none', 'initial', 'inherit', 'unset', 'revert', 
 /** Shift a postcss position (relative to the parsed text) into file coordinates. */
 const shift = (p, base) => (p.line === 1 ? { line: base.line, col: base.col + p.column - 1 } : { line: base.line + p.line - 1, col: p.column });
 
+/** [V4-05] prelude/value text as stored: comments removed, leading/trailing whitespace trimmed, the rest as written. */
+export const storedText = (s) => (s ?? '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
 export const normSelector = (s) => s.replace(/\s+/g, ' ').trim();
 
 export function specificityOf(sel) {
@@ -50,7 +52,7 @@ export function parseSheet(text, file, base, sheetKey) {
       if (n.type === 'rule') {
         order += 1;
         const inKf = ctx.keyframes;
-        const r = { key: keyOf(n), kind: inKf ? 'keyframe' : 'style', name: '', prelude: normSelector(n.selector), rawPrelude: n.selector, parent: ctx.rule?.key ?? null,
+        const r = { key: keyOf(n), kind: inKf ? 'keyframe' : 'style', name: '', prelude: normSelector(n.selector), rawPrelude: storedText(n.selector), parent: ctx.rule?.key ?? null,
           order, node: n, conds: ctx.conds, layer: ctx.layer, sheet, important: 0, selectors: [], scopes: ctx.scopes ?? [],
           scopeTop: (ctx.scopes ?? []).length > 0 && !ctx.parentSelectors };
         if (!inKf) {
@@ -72,7 +74,7 @@ export function parseSheet(text, file, base, sheetKey) {
       if (n.type === 'atrule') {
         order += 1;
         const name = n.name.toLowerCase();
-        const r = { key: keyOf(n), kind: `@${name}`, name, prelude: n.params.replace(/\s+/g, ' ').trim(), rawPrelude: n.params, parent: ctx.rule?.key ?? null,
+        const r = { key: keyOf(n), kind: `@${name}`, name, prelude: n.params.replace(/\s+/g, ' ').trim(), rawPrelude: storedText(n.params), parent: ctx.rule?.key ?? null,
           order, node: n, conds: ctx.conds, layer: ctx.layer, sheet, important: 0, selectors: [] };
         sheet.rules.push(r);
         atRuleRefs(sheet, r, n);
@@ -178,7 +180,8 @@ function addDecl(sheet, n, key, ownerKey, ctx) {
   const prop = custom ? n.prop : n.prop.toLowerCase();
   // the value as the browser reads it: a comment inside it (`#333/*{fc}*/`) is not part of the value
   const value = n.value.trim();
-  const d = { key, owner: ownerKey, prop, value, important: !!n.important, custom, rule: ctx?.rule ?? null, sheet, rawValue: n.value };
+  // [iter5 orchestrator, V4-05] value_text as stored: comments removed, trimmed, inner whitespace (CR included) as written
+  const d = { key, owner: ownerKey, prop, value, important: !!n.important, custom, rule: ctx?.rule ?? null, sheet, rawValue: storedText(n.value) };
   sheet.decls.push(d);
   // a descriptor inside @font-face DEFINES the family; it is not a use of it
   const inFontFace = ctx?.rule?.name === 'font-face';

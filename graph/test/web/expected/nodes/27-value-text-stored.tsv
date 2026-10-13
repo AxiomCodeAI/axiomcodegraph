@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: nodes/27-value-text-stored   kinds: value_text,prelude_text
+# shape: theme CSS with build comments inside values (`.6em /*{radius}*/`, `Arial/*{ff}*/`), a CRLF inside a
+prelude_text	s.css:1:1	2	0	|.a
+prelude_text	s.css:2:1	2	0	|.b
+prelude_text	s.css:4:1	14	0	|button,  input
+value_text	s.css:1:31	5	0	|Arial
+value_text	s.css:1:6	4	0	|.6em
+value_text	s.css:2:6	7	0	|x(\r\n a)
+value_text	s.css:4:25	3	0	|red

@@ -155,8 +155,11 @@ export function parsePage(rel, rawText) {
 const MASK = { '"': '\u0001', "'": '\u0002' };
 const UNMASK = { '\u0001': '"', '\u0002': "'" };
 export function maskTemplateQuotes(text) {
-  if (!/\{%|\{\{/.test(text)) return text;
-  return text.replace(/\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}/g, (m) => m.replace(/["']/g, (q) => MASK[q]));
+  if (!/\{%|\{\{|<!--#/.test(text)) return text;
+  // (an SSI directive inside an attribute value, `href="<!--#echo var="u" -->"`, is masked the same way: V4-01)
+  // a template tag is one line (Django's never span lines) and short; an unbounded `{{ … }}` once ran from a stray
+  // `{{` in a script to a later `}}` and unquoted every single-quoted attribute between (iter4 stress regression)
+  return text.replace(/\{%[^\n]{0,500}?%\}|\{\{[^\n]{0,500}?\}\}|<!--#[^\n]{0,500}?-->/g, (m) => m.replace(/["']/g, (q) => MASK[q]));
 }
 export const unmask = (v) => (typeof v === 'string' && /[\u0001\u0002]/.test(v) ? v.replace(/[\u0001\u0002]/g, (c) => UNMASK[c]) : v);
 function unmaskTree(root) {

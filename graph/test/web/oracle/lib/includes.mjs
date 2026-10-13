@@ -218,7 +218,9 @@ function cloneTree(rootNode, rel) {
 function splice(parent, nodes, position, replace) {
   const ch = parent.children;
   let at;
-  if (replace) { at = ch.indexOf(replace); if (at < 0) return; ch.splice(at, 1, ...nodes); }
+  // [V4-02] `<include src=x />` is not self-closing in HTML: what follows it parses as its children. posthtml reads it
+  // as an empty element, so the fragment goes in its place and its "children" follow as the siblings they were written as
+  if (replace) { at = ch.indexOf(replace); if (at < 0) return; ch.splice(at, 1, ...nodes, ...(replace.children ?? [])); }
   else {
     let seen = 0; at = ch.length;
     for (let i = 0; i < ch.length; i++) if (isEl(ch[i])) { if (seen === position) { at = i; break; } seen++; }

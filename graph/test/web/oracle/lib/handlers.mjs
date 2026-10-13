@@ -50,6 +50,8 @@ export function handlersOf(page, el, written, raw, dialects) {
   let m;
   if ((m = /^on([a-z]+)$/i.exec(n))) { if (DOM_EVENTS.has(m[1].toLowerCase())) push(m[1].toLowerCase(), [], 'on_attribute'); return out; }
   if (['href', 'src', 'action', 'formaction', 'xlink:href'].includes(ln) && (m = /^\s*javascript:([\s\S]*)$/i.exec(code))) {
+    // [iter5 orchestrator, V4-03] `javascript:`, `javascript:;`, `javascript:void(0)` / `void 0` are no-op links
+    if (/^\s*(?:;?|void\s*\(\s*0\s*\)\s*;?|void\s+0\s*;?)\s*$/i.test(m[1])) return out;
     push('navigate', [], 'javascript_url', m[1]); return out;
   }
   if ((m = /^v-on:(\[[^\]]*\]|[^.]+)((?:\.[^.]+)*)$/i.exec(n))) { push(m[1].startsWith('[') ? m[1] : m[1].toLowerCase(), splitMods(m[2], '.'), 'vue'); return out; }

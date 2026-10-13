@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: pages/10-directory-without-slash   kinds: reference,links_to
+# shape: an SSI site linking sections as `href="docs"` and `href="../news"` (no trailing slash) where the directory
+links_to	sub/page.html:3:1	href	sub/docs/index.shtml	-	match	-
+links_to	sub/page.html:4:1	href	news/index.html	-	match	-
+links_to	sub/page.html:5:1	href	sub/docs/index.shtml	sub/docs/index.shtml:2:13	match	-
+links_to	sub/page.html:6:1	href	img	-	unknown	unresolved_url
+reference	sub/page.html:3:1	href	docs	local	sub/docs/index.shtml
+reference	sub/page.html:4:1	href	../news	local	news/index.html
+reference	sub/page.html:5:1	href	docs#top	local	sub/docs/index.shtml
+reference	sub/page.html:6:1	href	img	local	-

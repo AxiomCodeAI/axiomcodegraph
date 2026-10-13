@@ -236,9 +236,12 @@ for (const page of pages) {
   for (const [id, els] of idCount) emit('id', page.rel, id, els.length);
   // [iter4 orchestrator, V3-10b] SSI directives other than #include are ssi_directive rows (never template_expr);
   // #include is an include reference (SPEC 11.2)
+  // [iter5 orchestrator, V4-01] every directive, wherever it sits: top of file, between elements, inside an attribute
+  // (then its element is the one whose start tag holds it; an #include there composes nothing, so it is a row too)
   for (const m of page.text.matchAll(/<!--#([a-z]+)\b[\s\S]*?-->/gi)) {
-    if (m[1].toLowerCase() === 'include') continue;
-    const c = containerAt(page, m.index); const p = page.lines.pos(m.index);
+    const inTag = page.elements.find((e) => m.index > e.loc.startTag.startOffset && m.index < e.loc.startTag.endOffset);
+    if (m[1].toLowerCase() === 'include' && !inTag) continue;
+    const c = inTag ?? containerAt(page, m.index); const p = page.lines.pos(m.index);
     emit('ssi_directive', c ? c.key : '-', m[1].toLowerCase(), `${page.rel}:${p.line}:${p.col}`, `|${m[0]}`);
   }
   page.idCount = idCount;

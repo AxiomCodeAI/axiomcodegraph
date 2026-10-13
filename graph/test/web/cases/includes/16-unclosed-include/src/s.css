@@ -1,0 +1,4 @@
+.x { color: red }
+body > .m { a: 1 }
+body > .f { a: 2 }
+.m > .x { a: 3 }
