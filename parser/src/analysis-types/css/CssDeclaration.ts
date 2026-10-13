@@ -1,6 +1,6 @@
 import { WEB_CSS_TEXT_LIMIT } from '@/constants/web-constants';
 
-import { WebRow, bool, boundedText, num, text } from '../web/web-row';
+import { WebRow, bool, num, text, writtenText } from '../web/web-row';
 
 /**
  * One `property: value` pair.
@@ -71,7 +71,7 @@ export class CssDeclaration extends WebRow {
 
   protected values(): string[] {
     return [
-      text(this.property), boundedText(this.valueText, WEB_CSS_TEXT_LIMIT), bool(this.isImportant),
+      text(this.property), writtenText(this.valueText, WEB_CSS_TEXT_LIMIT), bool(this.isImportant),
       bool(this.isCustomProperty), text(this.vendorPrefix), num(this.position), num(this.startLine),
       num(this.startColumn), num(this.endLine), num(this.endColumn), this.ruleLinkHash,
       this.htmlAttributeLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash,

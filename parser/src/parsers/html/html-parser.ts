@@ -110,10 +110,16 @@ const SVG_ADJUSTED_ATTRIBUTES = new Map([
  * Jinja/Django/Twig `{% %}` and `{{ }}`, ERB/EJS/JSP `<% %>`, Jinja comments `{# #}`, PHP `<? ?>`.
  */
 const TEMPLATE_TAG = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|<%[\s\S]*?%>|\{#[\s\S]*?#\}|<\?[\s\S]*?\?>/g;
+/**
+ * What a START TAG's text is read around (V4-01): the template tags, and an SSI directive `<!--#echo var="a" -->` written
+ * inside an attribute value, whose own quotes do not end the value (the server replaces the directive before the browser
+ * sees the tag). Separate from TEMPLATE_TAG, which also finds template EXPRESSIONS: an SSI directive is not one (V3-10b).
+ */
+const START_TAG_OPAQUE = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|<%[\s\S]*?%>|\{#[\s\S]*?#\}|<\?[\s\S]*?\?>|<!--#[\s\S]*?-->/g;
 
 /** Text-level template markers, each naming the family it belongs to. */
 /** An SSI directive: a comment whose first character is `#` followed by a directive name (G23). */
-const SSI_DIRECTIVE_MARKER = /<!--#\s*(?:include|set|echo|if|elif|else|endif|config|exec|fsize|flastmod|printenv)\b/i;
+const SSI_DIRECTIVE_MARKER = /<!--#\s*(?:include|set|echo|if|elif|else|endif|config|exec|fsize|flastmod|printenv|comment)\b/i;
 
 const TEXT_DIALECTS: ReadonlyArray<readonly [HtmlTemplateDialect, RegExp]> = [
   [HtmlTemplateDialect.HANDLEBARS, /\{\{[#/>^]/],
@@ -224,7 +230,11 @@ function sanitiseForGrammar(text: string): string {
   // swallowed the next real tag's attributes and lost it (79 elements on one documentation page). Such a `<` becomes
   // U+2039 for the grammar only, one code unit as `<` is; text is read from the source.
   const out = text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase()).replace(/<(?![A-Za-z/!?%])/g, '\u2039');
-  return plaintextToEnd(out);
+  // V4-01: an SSI directive written inside a quoted attribute value (`href="/<!--#echo var="s" -->.html"`) keeps the value
+  // whole: the server replaces it before the browser reads the tag. Its quotes become U+02BA for the grammar only (one
+  // code unit each); a directive between elements is a comment either way. Values are read from the source.
+  const ssi = out.includes('<!--#') ? out.replace(/<!--#[\s\S]*?-->/g, (m) => m.replace(/["']/g, '\u02BA')) : out;
+  return plaintextToEnd(ssi);
 }
 
 /**
@@ -860,7 +870,7 @@ class Walk {
 
   private templateExpression(
     attribute: HtmlAttribute | undefined,
-    element: HtmlElement,
+    element: HtmlElement | undefined,
     dialect: HtmlTemplateDialect,
     kind: HtmlTemplateExpressionKind,
     directive: string,
@@ -889,7 +899,7 @@ class Walk {
     const row = new HtmlTemplateExpression({
       dialect, expressionKind: kind, directive, argument, modifiers, expressionText: text, calleeNames: callees,
       identifiers, declares, position, startLine: at.line, startColumn: at.column,
-      ownerElementLinkHash: element.getHash(), attributeLinkHash: attribute?.getHash() ?? '',
+      ownerElementLinkHash: element?.getHash() ?? '', attributeLinkHash: attribute?.getHash() ?? '',
       documentLinkHash: this.out.document.getHash(), serviceVersionLinkHash: this.version,
     });
     this.out.templateExpressions.push(row);
@@ -1184,7 +1194,9 @@ class Walk {
       const kind = name === 'echo' ? HtmlTemplateExpressionKind.INTERPOLATION : name === 'set' ? HtmlTemplateExpressionKind.BINDING
         : ['if', 'elif', 'else', 'endif'].includes(name) ? HtmlTemplateExpressionKind.CONDITION
           : name === 'include' ? HtmlTemplateExpressionKind.REFERENCE : HtmlTemplateExpressionKind.DIRECTIVE;
-      if (owner !== undefined && SSI_DIRECTIVE_MARKER.test(m[0])) {
+      // V4-01: every SSI directive is a row wherever it sits: at the top of the file (no owner element), between
+      // elements, or inside an attribute value; #comment included
+      if (SSI_DIRECTIVE_MARKER.test(m[0])) {
         this.dialects.add(HtmlTemplateDialect.SSI);
         this.templateExpression(undefined, owner, HtmlTemplateDialect.SSI, kind, name, '', [], args, m.index, this.lines.positionOf(m.index), false);
       }
@@ -1335,11 +1347,11 @@ function readAttributes(node: SyntaxNode, content: string, flavour: TemplateFlav
   }
   const tagEnd = startTagEnd(content, tagNode);
   const tagText = content.slice(tagNode.startIndex, tagEnd);
-  if (tagNode.hasError || TEMPLATE_TAG.test(tagText)) {
-    TEMPLATE_TAG.lastIndex = 0;
+  if (tagNode.hasError || START_TAG_OPAQUE.test(tagText)) {
+    START_TAG_OPAQUE.lastIndex = 0;
     return rawAttributes(tagText, tagNode.startIndex);
   }
-  TEMPLATE_TAG.lastIndex = 0;
+  START_TAG_OPAQUE.lastIndex = 0;
   return tagNode.namedChildren.filter((c) => c.type === 'attribute').map((attr) => {
     const nameNode = attr.namedChildren.find((c) => c.type === 'attribute_name');
     const hasValue = attr.children.some((c) => !c.isNamed && c.type === '=');
@@ -1372,21 +1384,22 @@ export function startTagEnd(content: string, tagNode: SyntaxNode): number {
   let quote = '';
   while (i < content.length) {
     const ch = content[i]!;
+    // a template tag or an SSI directive is opaque, inside a quoted value too: its own quotes end nothing (V4-01)
+    START_TAG_OPAQUE.lastIndex = i;
+    const m = START_TAG_OPAQUE.exec(content);
+    if (m !== null && m.index === i) {
+      i += m[0].length;
+      continue;
+    }
     if (quote !== '') {
       if (ch === quote) quote = '';
       i += 1;
       continue;
     }
-    TEMPLATE_TAG.lastIndex = i;
-    const m = TEMPLATE_TAG.exec(content);
-    if (m !== null && m.index === i) {
-      i += m[0].length;
-      continue;
-    }
     if (ch === '"' || ch === '\'') {
       quote = ch;
     } else if (ch === '>') {
-      TEMPLATE_TAG.lastIndex = 0;
+      START_TAG_OPAQUE.lastIndex = 0;
       return i + 1;
     } else if (ch === '<' && i > tagNode.startIndex + 1 && /[A-Za-z/!]/.test(content[i + 1] ?? '')) {
       // The next tag began: this one never closed.
@@ -1395,7 +1408,7 @@ export function startTagEnd(content: string, tagNode: SyntaxNode): number {
     }
     i += 1;
   }
-  TEMPLATE_TAG.lastIndex = 0;
+  START_TAG_OPAQUE.lastIndex = 0;
   return tagNode.endIndex;
 }
 
@@ -1413,7 +1426,7 @@ function rawAttributes(tagText: string, tagStart: number): ReadAttribute[] {
   const out: ReadAttribute[] = [];
   let masked = body;
   const tags: Array<{ start: number; end: number; text: string }> = [];
-  for (const m of body.matchAll(TEMPLATE_TAG)) {
+  for (const m of body.matchAll(START_TAG_OPAQUE)) {
     tags.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     masked = masked.slice(0, m.index) + ' '.repeat(m[0].length) + masked.slice(m.index + m[0].length);
   }

@@ -1005,17 +1005,19 @@ export class CssParser {
       }
     }
     const lower = property.toLowerCase();
+    // V4-06: the names are read with every comment blanked to spaces (same length, so offsets hold): `Arial/*{ff}*/` is Arial
+    const named = mapComments(rawValue, (c) => ' '.repeat(c.length));
     // `-webkit-animation-name: spin` names a @keyframes as the unprefixed property does (V1-15, G10)
     const unprefixed = lower.replace(/^-(?:webkit|moz|o|ms)-(?=animation(?:-name)?$)/, '');
     if (unprefixed === 'animation-name' || unprefixed === 'animation') {
-      for (const segment of commaSegments(rawValue)) {
+      for (const segment of commaSegments(named)) {
         const token = tokens(segment.text).find((t) => (IDENTIFIER.test(t.text) && !ANIMATION_KEYWORDS.has(t.text.toLowerCase())) || /^["']/.test(t.text));
         if (token !== undefined) {
           emit(CssValueReferenceKind.KEYFRAMES, unquote(token.text), '', segment.offset + token.offset);
         }
       }
     } else if (lower === 'font-family') {
-      for (const segment of commaSegments(rawValue)) {
+      for (const segment of commaSegments(named)) {
         const family = familyName(segment.text);
         if (family !== undefined && !GENERIC_FONT_FAMILIES.has(family.toLowerCase())) {
           emit(CssValueReferenceKind.FONT_FAMILY, family, '', segment.offset + (segment.text.length - segment.text.trimStart().length));
@@ -1024,11 +1026,11 @@ export class CssParser {
     } else if (lower === 'font') {
       // The shorthand: `[style weight variant stretch] size[/line-height] family, family`. The
       // families are everything after the size token; a system keyword (`font: menu`) has none.
-      const first = commaSegments(rawValue)[0];
+      const first = commaSegments(named)[0];
       const sizeToken = first === undefined ? undefined : tokens(first.text).find((t) => /^(\d|\.\d|[a-z-]+\/|[a-z]*\d)/.test(t.text) && /\d|\//.test(t.text) || /^(xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|larger|smaller)$/.test(t.text));
       if (first !== undefined && sizeToken !== undefined) {
         const familyStart = sizeToken.offset + sizeToken.text.length;
-        const families = rawValue.slice(familyStart);
+        const families = named.slice(familyStart);
         for (const segment of commaSegments(families)) {
           const family = familyName(segment.text);
           if (family !== undefined && !GENERIC_FONT_FAMILIES.has(family.toLowerCase())) {

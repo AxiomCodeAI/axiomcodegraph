@@ -6,7 +6,6 @@ import { CssStylesheet } from '@/analysis-types/css/CssStylesheet';
 import { WebRow } from '@/analysis-types/web/web-row';
 import {
   ANALYSIS_OUTPUT_DIR,
-  EXCLUDED_DIRS,
   LARGE_FILE_BYTE_THRESHOLD,
   LARGE_FILE_LINE_THRESHOLD,
 } from '@/constants/consts';
@@ -31,15 +30,13 @@ import { isGitIgnoredDir } from '@/utils/git-ignored';
 import { LineIndex } from '@/utils/web/line-index';
 
 /**
- * THE WEB WALK'S OWN SKIP LIST (#1909). `EXCLUDED_DIRS` is the source walks' list, and for a script front end
- * `dist/`, `build/` and `out/` are a build's copy of the source beside it. For a site they are often the site:
- * a template ships its compiled stylesheet in `dist/css/` and every page links it, so skipping the directory by
- * name left the project's own main stylesheet unread while the page's <link> resolved to it — every selector
- * match through it missing. Pages and stylesheets under those names are read; a generated documentation tree
- * (javadoc, Dokka) and a git-ignored directory are still skipped below, and `target/` (a JVM build's copy of
- * resources) and virtual environments stay skipped by name.
+ * THE WEB WALK'S OWN SKIP LIST (#1909, V4-08 ruling). For a site, `dist/`, `build/`, `out/`, `target/` or `env/` is often
+ * the site itself (a template ships its compiled stylesheet in `dist/css/` and every page links it), so the web walk
+ * skips no directory by name except `node_modules/` and `.git/`; what the repository's own ignore files exclude is
+ * skipped (isGitIgnoredDir), and so is a generated documentation tree (javadoc, Dokka), recognised by its content.
+ * The JavaScript and TypeScript walks keep their own list (EXCLUDED_DIRS).
  */
-const WEB_EXCLUDED_DIRS: ReadonlySet<string> = new Set([...EXCLUDED_DIRS].filter((d) => d !== 'dist' && d !== 'build' && d !== 'out'));
+const WEB_EXCLUDED_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git']);
 
 interface SkippedFile {
   filePath: string;
@@ -294,7 +291,7 @@ export class WebProjectAnalyzer {
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (WEB_EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+        if (WEB_EXCLUDED_DIRS.has(entry.name)) {
           continue;
         }
         if (isGitIgnoredDir(path.join(dirPath, entry.name)) || isGeneratedOutputDirectory(dirPath, entry.name)) {

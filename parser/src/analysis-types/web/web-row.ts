@@ -89,6 +89,16 @@ export function boundedText(value: string, limit: number): string {
   return EntityUtils.escapeTsv(value.length > limit ? value.slice(0, limit) : value);
 }
 
+/**
+ * CSS text AS WRITTEN (V4-05 ruling: inner whitespace as written): like boundedText, but a carriage return is kept, as
+ * the two characters `\r`, instead of folding CRLF into one `\n` (EntityUtils.escapeTsv, shared by every front end, does
+ * that). The web engine decodes `\r` back. Used for a declaration's value and a rule's prelude.
+ */
+export function writtenText(value: string, limit: number): string {
+  const v = value.length > limit ? value.slice(0, limit) : value;
+  return EntityUtils.escapeTsv(v.includes('\r') ? v.replace(/\r/g, '\\r') : v);
+}
+
 /** A comma-LIST column, order preserved: `a,b,a` keeps both the repetition and the order. */
 export function commaList(values: Iterable<string>): string {
   return Array.from(values).map((v) => v.replace(/,/g, '\\,')).join(',');
