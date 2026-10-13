@@ -126,6 +126,7 @@ function sanitiseForGrammar(text: string): string {
   // declaration after it into a bogus nested "rule" (`font-family: Arial` read as a selector) and dropped them.
   // The braces inside a comment are blanked for the grammar only; a comment row reads its text from the source.
   let out = text.replace(/\/\*[\s\S]*?\*\//g, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
+  out = blankTemplateTags(out);
   out = out.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
   // `@keyframes "fade"`: a quoted name is legal and the grammar takes only an identifier; the quotes become
   // underscores for the grammar, and the name is read from the text as written
@@ -144,6 +145,29 @@ function sanitiseForGrammar(text: string): string {
   out = out.replace(/!\s*important\b/gi, (m) => m.toLowerCase());
   out = compactSpacedAnPlusB(out);
   return blankOddCustomValues(out);
+}
+
+/**
+ * A TEMPLATE TAG IN A `<style>` (V3-03 on r10, #1909): a Django/Jinja page writes `background-color: {{ theme.primary|
+ * default:"#E54F38" }};`, and the grammar ended the rule at the tag's first `}`, so every rule after it in the sheet was
+ * misread (a browser and postcss read the braces as a nested block of the value and keep the rule). For the grammar
+ * only: a `{% comment %}…{% endcomment %}` block and a `{# #}` comment become spaces (the template engine strips them
+ * before serving); a `{{ }}` / `{% %}` tag inside a declaration value (the nearest of `{ ; } :` before it is `:`)
+ * becomes underscores, a token the value keeps; any other tag becomes spaces. Every row reads its text from the source.
+ */
+function blankTemplateTags(text: string): string {
+  if (!/\{[{%#]/.test(text)) return text;
+  let out = text.replace(/\{%-?\s*comment\b[\s\S]*?\{%-?\s*endcomment\s*-?%\}|\{#[\s\S]*?#\}/g, (m) => m.replace(/[^\n]/g, ' '));
+  // left to right, so the look-back sees the tags before it already blanked (a `:` inside `default:"#x"` is no colon)
+  const tag = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = tag.exec(out)) !== null) {
+    let k = m.index - 1;
+    while (k >= 0 && !'{;}:'.includes(out[k]!)) k--;
+    const fill = k >= 0 && out[k] === ':' ? '_' : ' ';
+    out = out.slice(0, m.index) + m[0].replace(/[^\n]/g, fill) + out.slice(m.index + m[0].length);
+  }
+  return out;
 }
 
 /**

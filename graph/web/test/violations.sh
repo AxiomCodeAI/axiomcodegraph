@@ -386,6 +386,21 @@ H
     eq "V3-03 only the uncommented include is a reference" "$(sqlite3 "$db" "SELECT group_concat(attribute_name || ' ' || url_as_written) FROM web_references WHERE reference_kind = 'INCLUDE'")" "jinja:include real.html"
     eq "V3-03 no extends composition" "$(sqlite3 "$db" "SELECT count(*) || ':' || sum(kind = 'jinja:include') FROM web_includes")" "1:1"
   }
+  # a template tag inside a <style> declaration value keeps the rule whole (a browser reads the braces as a block of
+  # the value); a {% comment %} block in it is stripped by the template engine; a rule inside {% if %} is live
+  put "$T/v303c/src/page.html" <<'H'
+<!doctype html><html><head><style>
+.a { background-color: {{ theme.p|default:"#E54F38" }}; }
+.c { color: {{ x }} !important; border: 1px solid {{ y|default:"#fff" }}; }
+{% comment %} .dead { color: red } {% endcomment %}
+{% if z %}.d { color: blue }{% endif %}
+.e { color: green }
+</style></head><body><p class="a c d e dead">x</p></body></html>
+H
+  db=$(build v303c) && {
+    eq "V3-03 rules after a template tag in a <style> value keep their selectors" "$(sqlite3 "$db" "SELECT group_concat(selector_text, ' ') FROM (SELECT selector_text FROM web_selectors ORDER BY line, col)")" ".a .c .d .e"
+    eq "V3-03 and their declarations, values as written" "$(sqlite3 "$db" "SELECT group_concat(property || '=' || value_text, ' | ') FROM (SELECT * FROM web_declarations WHERE rule_uid IS NOT NULL ORDER BY line, col)")" 'background-color={{ theme.p|default:"#E54F38" }} | color={{ x }} | border=1px solid {{ y|default:"#fff" }} | color=blue | color=green'
+  }
 fi
 
 if want V3-10; then
