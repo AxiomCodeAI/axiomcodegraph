@@ -66,6 +66,23 @@ class Rows:
         return ekey.rsplit(':', 2)[0]
 
 
+RANK = {'match': 3, 'conditional': 2, 'unknown': 1}
+
+
+def per_rule(rows, host=None):
+    """[iter5 orchestrator] element-styled answers: one row per (element, rule[, host]) with the rule's best status
+    on that element (a rule whose two selectors both match counts once). Rows (element, selector, status[, host]) ->
+    sorted [(at, rule_at[, host], status)], a multiset over distinct (element, rule) pairs."""
+    best = {}
+    for row in rows:
+        el, sel, st = row[0], row[1], row[2]
+        h = row[3] if len(row) > 3 else host
+        k = (el, sel.rsplit('/', 1)[0], h)
+        if k not in best or RANK.get(st, 0) > RANK.get(best[k], 0):
+            best[k] = st
+    return sorted((at_of(el), at_of(rule)) + ((h,) if h is not None else ()) + (st,) for (el, rule, h), st in best.items())
+
+
 def derive(R, fn, arg):
     a = arg.split('|') if arg else []
     if fn in ('styled_by', 'styled_by_conditions', 'styled_by_state', 'styled_by_important'):
@@ -97,9 +114,10 @@ def derive(R, fn, arg):
     if fn == 'rules_class':
         return sorted({(at_of(r[0]),) for r in R.by['selector_part'] if r[1] == 'CLASS' and r[2] == a[0]}), False
     if fn == 'styled_by_selector':
+        # [iter5 orchestrator] one row per (element, rule): (at, rule_at, status), the rule's best status on the element
         page, text = a
         sels = {k for k, t in R.sel_text.items() if t == text}
-        return sorted({(at_of(r[1]),) for r in R.by['styles'] if r[0] in sels and R.page_of(r[1]) == page}), False
+        return per_rule(((r[1], r[0], r[2]) for r in R.by['styles'] if r[0] in sels and R.page_of(r[1]) == page)), False
     if fn == 'unmatched':
         sheet = a[0]
         matched = {r[0] for r in R.by['styles'] if r[2] != 'unknown'}
@@ -290,8 +308,8 @@ def derive(R, fn, arg):
         # fragment's elements (the asserted ones) are the answer
         frag, host, text = a[0].split('@', 1)[0], a[1], a[2]
         sels = {k for k, t in R.sel_text.items() if t == text}
-        return sorted({(at_of(r[1]), r[3]) for r in R.by['host_styles'] if r[0] in sels and r[2] == host
-                       and R.page_of(r[1]) == frag}), False
+        return per_rule(((r[1], r[0], r[3]) for r in R.by['host_styles'] if r[0] in sels and r[2] == host
+                         and R.page_of(r[1]) == frag)), False
     if fn == 'included_by':
         return sorted({(at_of(r[5]),) for r in R.by['include'] if r[1] == a[0] and r[7] in ('match', 'asserted')
                        and r[2] not in ('jinja:import', 'jinja:extends')}), False
@@ -300,8 +318,8 @@ def derive(R, fn, arg):
                        and r[2] not in ('jinja:import', 'jinja:extends')}), False
     if fn == 'host_styled':
         sels = {k for k, t in R.sel_text.items() if t == a[0]}
-        own = {(at_of(r[1]), '') for r in R.by['styles'] if r[0] in sels and r[2] != 'unknown'}
-        return sorted(own | {(at_of(r[1]), r[2]) for r in R.by['host_styles'] if r[0] in sels and r[3] != 'unknown'}), False
+        own = per_rule(((r[1], r[0], r[2]) for r in R.by['styles'] if r[0] in sels and r[2] != 'unknown'), host='')
+        return sorted(own + per_rule(((r[1], r[0], r[3], r[2]) for r in R.by['host_styles'] if r[0] in sels and r[3] != 'unknown'))), False
     if fn == 'skipped_not_built':
         return [('skipped_not_built',)], True
     raise SystemExit(f'query_oracle: unknown derivation {fn}')

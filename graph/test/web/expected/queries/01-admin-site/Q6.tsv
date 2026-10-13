@@ -1,6 +1,10 @@
-# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# reviewed: yes 2026-10-12 iter 5 — [iter5 orchestrator] element-styled answers are one row per (element, rule): (at, rule_at, status), read against the site
 # Q6: elements selector X matches on P
-# grade=SET>= section=web role=styled fields=at filter=-
+# grade=SET>= section=web role=styled fields=at,rule_at,status filter=-
 # ask: impact ".card .title" --in index.html
-index.html:22
-index.html:24
+index.html:22	css/app.css:8	match
+index.html:22	css/app.css:9	conditional
+index.html:22	index.html:10	match
+index.html:24	css/app.css:8	match
+index.html:24	css/app.css:9	conditional
+index.html:24	index.html:10	match

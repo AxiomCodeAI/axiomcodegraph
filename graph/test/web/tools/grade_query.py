@@ -93,6 +93,14 @@ def keep(row, filt):
     raise SystemExit(f'grade_query: unknown filter {filt}')
 
 
+def norm_line(v):
+    """A position field as file:line (a file:line:col answer is cut to its line; absent -> '')."""
+    if v is None:
+        return ''
+    parts = str(v).rsplit(':', 2)
+    return f'{parts[0]}:{parts[1]}' if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit() else str(v)
+
+
 def norm_at(a, want_line):
     a = str(a)
     return a if want_line else a.rsplit(':', 1)[0] if a.rsplit(':', 1)[-1].isdigit() else a
@@ -187,7 +195,8 @@ def main():
     for e in exp:
         exp_by_prefix.setdefault(e[:-1], []).append(e)
     for r in sorted(picked, key=lambda r: r.get('rank', 0)) if grade == 'ORDER' else picked:
-        t = tuple(norm_at(r['at'], want_line) if f == 'at' else (field(r, f) if field(r, f) is not None else '') for f in fields)
+        # `at` and every *_at position field (rule_at, via_at) compare as file:line
+        t = tuple(norm_at(r['at'], want_line) if f == 'at' else norm_line(field(r, f)) if f.endswith('_at') else (field(r, f) if field(r, f) is not None else '') for f in fields)
         # SPEC 10: a body cut at the line limit says `cut: true` with body_lines; it counts as the expected body
         # when it is that body's first lines and body_lines equals the expected line count
         if fields[-1] == 'code' and r.get('cut') in (True, 'true', 1):

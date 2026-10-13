@@ -1,5 +1,5 @@
-# reviewed: yes 2026-10-10 iter 3 — read against the site and SPEC 11.2 (asserted include: parent of the first node on the host line is host_element; hosts at the directive line; per-host matches)
+# reviewed: yes 2026-10-12 iter 5 — [iter5 orchestrator] element-styled answers are one row per (element, rule): (at, rule_at, status), read against the site
 # Q36c: selector matches if fragment F were included in P at a placeholder comment
-# grade=LINK section=web role=styled fields=at,status filter=asserted
+# grade=LINK section=web role=styled fields=at,rule_at,status filter=asserted
 # ask: link parts/promo.html:1 shop.html:8 ;; impact ".card" --in shop.html ;; link parts/promo.html:1 -
-parts/promo.html:1	match
+parts/promo.html:1	css/shop.css:1	match
