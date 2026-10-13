@@ -123,6 +123,13 @@ With them, a call into a dependency resolves to its declaration and a chain is t
 types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is
 not found this way.
 
+## graph
+
+`axiomcode graph` draws the codebase as one page for the user to look at: directories, files, types and methods, with
+the call edges between them and each edge's tier. It prints the page's path (`.axiomcode/graph/graph.html`); open it
+in a browser. It is drawn from the graph the index built, rebuilt first only when a source file changed. It is not an
+MCP tool: it answers no question, so when the user asks to see the graph, run it and give them the path.
+
 ## What it cannot see — say so instead of guessing
 
 Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library; what a
