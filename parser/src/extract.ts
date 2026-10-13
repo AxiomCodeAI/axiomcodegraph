@@ -291,6 +291,16 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const javaProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVA);
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
+  // A DEPENDENCY whose declarations all sit in a build directory: detection looks for
+  // TypeScript near the top and skips build output, so such a package was staged as
+  // JavaScript only and every TypeScript call into it stayed unresolved. Its package.json
+  // says it has types; that makes the root a TypeScript project for a library walk.
+  if (opts.library === true && typescriptProjects.length === 0 && packageDeclaresTypes(absolutePath)) {
+    typescriptProjects.push({
+      name: path.basename(absolutePath), path: absolutePath,
+      language: ProjectLanguage.TYPESCRIPT, hasSourceFiles: true,
+    });
+  }
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
   const csharpProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.CSHARP);
   const wanted = (language: string): boolean => opts.languages === undefined || opts.languages.has(language);
@@ -391,6 +401,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           ? ['node_modules', '.git', 'dist', 'build', 'out', 'coverage',
              'test', 'tests', '__tests__', '.next', '.turbo']
           : undefined,
+        libraryRoot: opts.library === true,
       })))),
     timed(Promise.all(pythonProjects.map((project, i) =>
       pythonAnalyzer.analyze({
@@ -518,4 +529,25 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(2);
   console.log(`\n⏱️  TOTAL analysis time: ${elapsed}s`);
   console.log('✨ Analysis complete!\n');
+}
+
+/**
+ * Does the package.json at `root` declare type definitions: a `types` / `typings` field,
+ * or a `types` condition anywhere in its `exports` map?
+ */
+function packageDeclaresTypes(root: string): boolean {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  } catch {
+    return false;
+  }
+  if (typeof manifest !== 'object' || manifest === null) return false;
+  const m = manifest as Record<string, unknown>;
+  if (typeof m.types === 'string' || typeof m.typings === 'string') return true;
+  const hasTypesCondition = (node: unknown): boolean =>
+    typeof node === 'object' && node !== null
+    && Object.entries(node as Record<string, unknown>).some(([key, value]) =>
+      key === 'types' ? typeof value === 'string' : hasTypesCondition(value));
+  return hasTypesCondition(m.exports);
 }

@@ -35,7 +35,7 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no-refresh, and the MCP tools' refresh=false,
 set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_REFRESH_BATCH (default 5; 1 = off) is how many edits a rebuild waits for once the last build
+is the quiet window; AXIOMCODE_REFRESH_BATCH (default 7; 1 = off) is how many edits a rebuild waits for once the last build
 took AXIOMCODE_REFRESH_BATCH_ABOVE seconds (default 20); AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
 the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 0) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
@@ -1011,13 +1011,13 @@ def running_line(repo, s): return started_line(repo, s, running=True)
 # a repository whose build takes 5 s that keeps the graph current for free, but where it takes a minute (1,300 Java
 # files: 48-73 s cold, and 50-88 s again after a one- or two-file edit, since the solve is whole-program) an agent
 # editing every few seconds kept a rebuild running back to back. So once the last build took AXIOMCODE_REFRESH_BATCH_ABOVE
-# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 5; 1 = off) starts the
+# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 7; 1 = off) starts the
 # rebuild; a shell command waits for the next edit or checkpoint. The end of a turn, a prompt, a session start, the
 # timer and every query still refresh at once, so the graph is current whenever the agent stops or asks.
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 
 def batch_size():
-    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 5))
+    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 7))
     except ValueError: return 3
 
 def batching(repo):
@@ -1532,7 +1532,15 @@ def query(repo, verb, argv, fresh=False):
         pass
     def run():
         return subprocess.run(argv, stdout=subprocess.PIPE)
-    def passthrough(): ax_exec.become(argv)             # never os.execvp: on Windows it returns 0 before the answer (#1640)
+    def passthrough():
+        # THE FRONT DOOR'S RENDERER RUNS IN THIS PROCESS (ax_blocks.py, by this interpreter): handed over, it started Python
+        # a second time to import what this one has imported, on every query, and on Windows as a child process
+        if len(argv) > 2 and argv[0] == sys.executable and os.path.abspath(argv[1]) == os.path.join(H, 'ax_blocks.py'):
+            sys.stdout.flush(); sys.stderr.flush()
+            sys.argv = list(argv[1:])
+            import ax_blocks
+            sys.exit(ax_blocks.cli(sys.argv))
+        ax_exec.become(argv)                            # never os.execvp: on Windows it returns 0 before the answer (#1640)
     def with_note(n):                                   # the answer as it is, then one line about it on stderr
         r = subprocess.run(argv); print(n, file=sys.stderr); return r.returncode
     # REFRESH SWITCHED OFF IS NOT "UP TO DATE". With AXIOMCODE_NO_REFRESH nothing rebuilds the graph, which is exactly when

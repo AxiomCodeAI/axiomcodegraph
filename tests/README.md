@@ -12,6 +12,9 @@ the behaviour it is about, so a failure says what broke rather than which number
 One check needs no graph and is its own script:
 
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
+    python3 tests/answer_head.py         the places view (MCP, the installed command) opens with what the question resolved
+                                         to: a closure's size and count per hop, and a name that matched several
+                                         declarations; a single declaration adds nothing (#1939; no graph needed)
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape, on a small
                                          Python case by default; --lang java|csharp|typescript for the others
                                          (typescript needs the TypeScript engine; indexes, so it needs the engine)

@@ -169,6 +169,14 @@ def also_text(whys, shown=2):
     return '; also: ' + '; '.join(whys[:shown]) + (f" (+{len(whys) - shown} more)" if len(whys) > shown else '')
 
 
+def declarations_of(label):
+    """how many declarations a target's label says the name matched: `total (4 declarations)` is 4, a local's
+    `local x in f (+2 declarations)` is 3, anything else 1. Every resolver writes the count into the label, so the
+    --json document carries it from there rather than from each resolver's own shape of ids"""
+    m = re.search(r'\((\+?)(\d+) declarations\)', label or '')
+    return 1 if not m else int(m.group(2)) + (1 if m.group(1) else 0)
+
+
 def merge_reasons(why, others):
     """-> (why, others left): reasons that differ from the row's only in their last word -- `using the same field a`,
     `... field b` -- are said once, `using the same field a, b`, rather than as a sentence each"""
@@ -3593,7 +3601,7 @@ def main(argv):
         fw_grep = ("grep -rnF " + ' '.join(f"-e '\"{p_}'" for p_ in pre) + f" {P.grep_roots(g)}") if pre else \
                   ("grep -rnw " + ' '.join(f'-e "{n}"' for n in names) + f" {P.grep_roots(g)}" if names else '')
     if as_json:
-        doc = ({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
+        doc = ({'targets': [{'kind': k, 'label': lab, 'declarations': declarations_of(lab)} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'also': contract_also.get(c, []), 'at': g.loc(c), 'for': sorted(contract_for[c])} for c, why in contract],
                           # the sort key ends in x[0], the id: two distinct anon-class methods can share a
                           # display AND every other component of the key, and without the id the order is
