@@ -34,9 +34,17 @@ def main():
                               db.execute("insert into web_elements values (NULL, 'P1', NULL, NULL, NULL, NULL, 'div', NULL, NULL, NULL)")))
     if not out:
         bad.append(f'NULL element: empty output (rc={rc})')
+    # 3. a raw parser hash in an emitted row is caught (the include@ key once came after the rows that used it)
+    sys.path.insert(0, HERE)
+    import normalize
+    good = ['loads_via_include\ta.html\tcss/w.css\tinclude@a.html:4:1', 'element\ta.html:3:1\tdiv\t-\t-']
+    badr = ['loads_via_include\ta.html\tcss/w.css\tHTML_REFERENCE_3c375826cc1e74104c9848ed923c80d4',
+            'styles\tCSS_SELECTOR_5fb05ecd2f5ea581\ta.html:3:1\tmatch\t-\t-']
+    if normalize.raw_hash_rows(good) or len(normalize.raw_hash_rows(badr)) != 2:
+        bad.append('raw hash detector: missed a raw uid or flagged a display key')
     for b in bad:
         print(f'  {b}')
-    print(f'normalize self-test: {2 - len(bad)}/2 checks')
+    print(f'normalize self-test: {3 - len(bad)}/3 checks')
     return 1 if bad else 0
 
 

@@ -102,6 +102,7 @@ declaration = file:line:col; value_ref owner = its declaration key or (at-rule r
 """
 import json
 import os
+import re
 import sqlite3
 import sys
 
@@ -143,6 +144,14 @@ class Graph:
         if missing:
             die(f'{table} lacks column(s) {", ".join(missing)} (contract: graph/test/web/tools/normalize.py)')
         return self.db.execute(f'select {", ".join(cols)} from {table}').fetchall()
+
+
+RAW_HASH = re.compile(r'(?<![\w])(?:HTML|CSS)_[A-Z_]+_[0-9a-f]{12,}(?![\w])')
+
+
+def raw_hash_rows(rows):
+    """Rows holding a raw parser uid (HTML_REFERENCE_…, CSS_SELECTOR_…) in any column: a key not mapped."""
+    return [r for r in rows if not r.startswith('normalize_error') and RAW_HASH.search(r)]
 
 
 def main():
@@ -329,6 +338,12 @@ def main():
             emit('layer', n)
         for n in {n for _u, _d, _r, rk, n, *_x in refs if rk == 'CONTAINER' and n}:
             emit('container', n)
+        # an include's reference is keyed by its position (web_unknown and loads_via_include rows name it); keyed BEFORE the edges: include@file:line:col
+        incl = g.rows('web_includes', ['host_page_uid', 'fragment_page_uid', 'kind', 'host_element_uid', 'position', 'file',
+                                       'line', 'col', 'args', 'status', 'reason', 'reference_uid'])
+        for *_x, f, ln, col, _a, _s, _r, ru in incl:
+            if ru:
+                key.setdefault(ru, f'include@{f}:{ln}:{col}')
         # edges
         vi_col = ['via_include'] if g.has('web_loads', 'via_include') else []
         for p, s, url, via, order, depth, st, rs, *vi in g.rows('web_loads', ['page_uid', 'stylesheet_uid', 'url_as_written', 'via', 'load_order', 'import_depth', 'status', 'reason'] + vi_col):
@@ -342,12 +357,6 @@ def main():
             emit('links_to', key.get(e), an, key.get(tp) if tp else url, key.get(te) if te else None, st, rs)
         for e, an, idv, te, st, rs in g.rows('web_id_refs', ['from_element_uid', 'attribute_name', 'id_value', 'to_element_uid', 'status', 'reason']):
             emit('id_ref', key.get(e), an, idv, key.get(te) if te else None, st, rs)
-        # an include's reference is keyed by its position (web_unknown rows name it): include@file:line:col
-        incl = g.rows('web_includes', ['host_page_uid', 'fragment_page_uid', 'kind', 'host_element_uid', 'position', 'file',
-                                       'line', 'col', 'args', 'status', 'reason', 'reference_uid'])
-        for *_x, f, ln, col, _a, _s, _r, ru in incl:
-            if ru:
-                key.setdefault(ru, f'include@{f}:{ln}:{col}')
         if want('include'):
             for h, fr, kd, he, pos, f, ln, col, args, st, rs, _ru in incl:
                 emit('include', key.get(h, h) if h else None, key.get(fr, fr) if fr else None, kd, key.get(he, he) if he else None,
@@ -455,6 +464,11 @@ def main():
     except BaseException as e:  # noqa: BLE001  (SystemExit from die() included)
         failed = f'{type(e).__name__}: {e}'
         out.append('\t'.join(['normalize_error', esc(failed)]))
+    # every key column must be a display key: a raw parser hash means a uid was emitted before (or without) its key
+    raw = raw_hash_rows(out)
+    if raw:
+        failed = failed or f'{len(raw)} row(s) hold a raw HTML_/CSS_ hash where a display key belongs, e.g. {raw[0][:160]}'
+        out.extend('\t'.join(['normalize_error', 'raw_hash', esc(r)]) for r in raw[:20])
     out.sort()
     sys.stdout.write(''.join(r + '\n' for r in out))
     if failed:
