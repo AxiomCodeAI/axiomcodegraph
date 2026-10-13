@@ -75,10 +75,11 @@ jobs:
       - name: every language, installed from the tarballs, no Soufflé
         run: |
           set -euo pipefail
-          for pair in java:java typescript:typescript python:python javascript:javascript; do
+          for pair in java:java typescript:typescript python:python javascript:javascript web:web; do
             lang="${pair%%:*}"
             # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
-            cases=(graph/test/"$lang"/cases/*/src)
+            # web cases sit one level deeper (cases/<suite>/<case>); this one has selectors the engine matches
+            if [ "$lang" = web ]; then cases=(graph/test/web/cases/cascade/01-*/src); else cases=(graph/test/"$lang"/cases/*/src); fi
             case_dir="${cases[0]}"
             [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             bash .github/scripts/e2e-install.sh artifacts/engines-linux-x64 linux-x64 "$lang" "$case_dir"
