@@ -608,6 +608,46 @@ H
   }
 fi
 
+if want R1-P3; then
+  # review 1, P3 findings
+  put "$T/r1p3/src/index.html" <<'H'
+<!doctype html><html><head><link rel="stylesheet" href="s.css"><link rel="preload" as="style" href="app.css" onload="this.rel='stylesheet'">
+<script>var s = "{% include 'x.html' %}";</script></head>
+<body><input name="t" value="TOKEN_0123456789abcdef0123456789abcdef"><p id="y" class="x z">p</p>
+<plaintext><p class="after">a</p></plaintext><div class="after">d</div></body></html>
+H
+  printf '<div class="inc">x</div>\n' | put "$T/r1p3/src/x.html"
+  printf 'a[href*="/*"] { color: red }\n.b { color: blue }\n/* note */\n.x, #y:hover { color: red }\n.z { color: blue }\n' | put "$T/r1p3/src/s.css"
+  printf '.app { color: green }\n' | put "$T/r1p3/src/app.css"
+  db=$(build r1p3) && {
+    eq "R1-18 a web graph writes no core vocabulary for language web" "$(sqlite3 "$db" "SELECT count(*) FROM schema_vocab WHERE language = 'web'")" "0"
+    eq "R1-19 an attribute value shaped like an IR hash is data, written whole" "$(sqlite3 "$db" "SELECT value FROM web_attributes WHERE name = 'value'")" "TOKEN_0123456789abcdef0123456789abcdef"
+    eq "R1-21 a /* inside a string opens no comment: the rules after it keep their selectors" "$(sqlite3 "$db" "SELECT group_concat(selector_text, ' ') FROM (SELECT selector_text FROM web_selectors WHERE file = 's.css' ORDER BY line, col)")" 'a[href*="/*"] .b .x #y:hover .z'
+    eq "R1-22 an include directive inside <script> is no INCLUDE reference" "$(sqlite3 "$db" "SELECT count(*) FROM web_references WHERE reference_kind = 'INCLUDE'")" "0"
+    eq "R1-24 a preload-as-style link is a conditional load" "$(sqlite3 "$db" "SELECT s.file || ':' || l.status || ':' || l.reason FROM web_loads l JOIN web_stylesheets s ON s.uid = l.stylesheet_uid WHERE s.file = 'app.css'")" "app.css:conditional:preload_as_style"
+    eq "R1-29 web_cascade keys a rule by its unconditional selector: red loses to .z on source order" "$(sqlite3 "$db" "SELECT group_concat(x, ' ') FROM (SELECT d.value_text || '=' || c.outcome || ':' || coalesce(c.lost_reason, '-') AS x FROM web_cascade c JOIN web_declarations d ON d.uid = c.decl JOIN web_elements e ON e.uid = c.element WHERE e.html_id = 'y' AND c.property = 'color' ORDER BY 1)")" "blue=won:- red=lost:source_order"
+    eq "R1-31 nothing after <plaintext> is an element" "$(sqlite3 "$db" "SELECT count(*) FROM web_elements WHERE class_names = 'after'")" "0"
+  }
+  # R1-23: a links file above the repository (the source has .git) is not read
+  mkdir -p "$T/r123/repo/src/.git"
+  printf '<!doctype html><html><body><div class="slot">s</div></body></html>\n' | put "$T/r123/repo/src/host.html"
+  printf '<p class="card">c</p>\n' | put "$T/r123/repo/src/card.html"
+  printf 'repo/src/card.html\trepo/src/host.html\t1\tx\tnow\n' | put "$T/r123/axiomcode-web-links.tsv"
+  mv "$T/r123/repo/src" "$T/r123/src"; rmdir "$T/r123/repo"
+  printf 'src/card.html\tsrc/host.html\t1\tx\tnow\n' > "$T/axiomcode-web-links.tsv"
+  db=$(build r123) && eq "R1-23 a links file above the repository root applies to nothing" "$(sqlite3 "$db" "SELECT count(*) FROM web_includes WHERE kind = 'asserted'")" "0"
+  rm -f "$T/axiomcode-web-links.tsv"
+  # R1-20: an IR row with the wrong field count is declared, not lost silently
+  mkdir -p "$T/r120/src"; printf '<!doctype html><html><body><p class="a">a</p></body></html>\n' > "$T/r120/src/index.html"
+  if bash "$ROOT/bin/axiomcode" parser "$T/r120/src" "$T/r120/ir" >"$T/r120/parse.log" 2>&1; then
+    ir="$T/r120/ir/web"; f="$ir/all-html-class-references.csv"
+    { cat "$f"; tail -1 "$f" | sed 's/$/\textra/'; } > "$f.new" && mv "$f.new" "$f"
+    if bash "$ROOT/bin/axiomcode" engine --language web --client-ir "$ir" --out "$T/r120/out" >"$T/r120/engine.log" 2>&1; then
+      eq "R1-20 the dropped IR row is a web_unknown ir_row_dropped" "$(sqlite3 "$T/r120/out/web/graph.sqlite" "SELECT kind || ':' || detail FROM web_unknown WHERE kind = 'ir_row_dropped'" 2>/dev/null || sqlite3 "$(find "$T/r120/out" -name graph.sqlite | head -1)" "SELECT kind || ':' || detail FROM web_unknown WHERE kind = 'ir_row_dropped'")" "ir_row_dropped:1 row(s) of all-html-class-references.csv with the wrong field count"
+    else fail=$((fail+1)); echo "FAIL R1-20 engine on the edited IR"; tail -5 "$T/r120/engine.log"; fi
+  else fail=$((fail+1)); echo "FAIL R1-20 parser"; tail -5 "$T/r120/parse.log"; fi
+fi
+
 # review #14: a build that failed is a failed check (its eq lines never ran), not a silently skipped one
 if [ -s "$T/.build_failures" ]; then fail=$((fail + $(wc -l < "$T/.build_failures"))); echo "FAIL builds: $(tr '\n' ' ' < "$T/.build_failures")"; fi
 echo "web violation checks: $pass passed, $fail failed"

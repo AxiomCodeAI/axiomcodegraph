@@ -33,7 +33,7 @@ export type WebSink = (table: string, row: Record<string, string | number | null
 
 // ── reading ────────────────────────────────────────────────────────────────
 
-interface Table { col: (name: string) => number; rows: string[][] }
+interface Table { col: (name: string) => number; rows: string[][]; base: string; dropped: number }
 
 /**
  * One web IR relation. The web tables never hold a raw tab or newline (EntityUtils.escapeTsv writes them as \t and
@@ -44,19 +44,21 @@ interface Table { col: (name: string) => number; rows: string[][] }
 async function readIr(dir: string, base: string): Promise<Table> {
   const file = path.join(dir, `${base}.csv`);
   const rows: string[][] = [];
-  let header: string[] | null = null;
+  let header: string[] | null = null; let dropped = 0;
   const unq = (f: string): string => (f.length >= 2 && f.charCodeAt(0) === 34 && f.charCodeAt(f.length - 1) === 34 ? f.slice(1, -1).replace(/""/g, '"') : f);
   if (fs.existsSync(file) && fs.statSync(file).size > 0) {
     for await (const r of readRaw(file)) {
       const row = r.map(unq);
       if (row.length > 0 && row[row.length - 1]!.endsWith('\r')) row[row.length - 1] = row[row.length - 1]!.slice(0, -1);
       if (header === null) { header = row; continue; }
-      if (row.length === header.length) rows.push(row.map((x) => (x.length > 96 ? x : flat(x))));
+      // review #20: a row with the wrong field count (a raw tab the parser failed to escape) is not read; it is counted, and
+      // the build declares it (web_unknown ir_row_dropped), never loses it silently
+      if (row.length === header.length) rows.push(row.map((x) => (x.length > 96 ? x : flat(x)))); else dropped++;
     }
   }
   const idx = new Map((header ?? []).map((n, i) => [n, i]));
   return {
-    rows,
+    rows, base, dropped,
     col: (name: string) => {
       const i = idx.get(name);
       if (i === undefined) {
@@ -292,6 +294,11 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   const onDisk = (abs: string): boolean => { try { return abs !== '' && fs.statSync(abs).isFile(); } catch { return false; } };
   const unknownRow = (kind: string, node: string | null, page: string | null, reason: string, detail: string | null, file: string | null, line: number | null) =>
     out('web_unknown').push({ kind, node_uid: node, page_uid: page, reason, detail, file, line });
+
+  for (const t of Object.values(T)) if (t.dropped > 0) {
+    log(`web: ${t.dropped} row(s) of ${t.base}.csv have the wrong field count and were not read`);
+    unknownRow('ir_row_dropped', null, null, 'ir_row_dropped', `${t.dropped} row(s) of ${t.base}.csv with the wrong field count`, null, null);
+  }
 
   // ── pages ──
   interface Page { id: string; file: string; abs: string; kind: string; quirks: boolean; lang: string; elements: El[]; rows: string[][]; hasHtml: boolean }
@@ -695,7 +702,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
   // status unknown and its reason, never applied.
   {
     let linksFile = process.env.AXIOMCODE_WEB_LINKS || '';
-    if (!linksFile && root) for (let d = root; ; d = path.dirname(d)) { const f = path.join(d, 'axiomcode-web-links.tsv'); if (onDisk(f)) { linksFile = f; break; } if (d === path.dirname(d)) break; }
+    // review #23: from the source directory up to the repository it is in (the first ancestor holding .git or .axiomcode),
+    // never above it: a links file in a home directory applies to no build under it
+    if (!linksFile && root) for (let d = root; ; d = path.dirname(d)) {
+      const f = path.join(d, 'axiomcode-web-links.tsv'); if (onDisk(f)) { linksFile = f; break; }
+      if (fs.existsSync(path.join(d, '.git')) || fs.existsSync(path.join(d, '.axiomcode')) || d === path.dirname(d)) break;
+    }
     let lines: string[] = [];
     try { lines = linksFile ? fs.readFileSync(linksFile, 'utf8').split('\n') : []; } catch { lines = []; }
     const base = linksFile ? path.dirname(linksFile) : root;
@@ -1168,6 +1180,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       for (const s of sheets.values()) if (s.kind === 'HTML_STYLE_ELEMENT' && s.page === pg.id) styleSheetOf.set(s.owner, s.id);
       const linkRefs = new Map<string, string[]>();
       for (const r of refsOfPage.get(pg.id) ?? []) if (g(T.ref, r, 'referenceKind') === 'STYLESHEET') linkRefs.set(g(T.ref, r, 'ownerElementLinkHash'), r);
+      const preloadRefs = new Map<string, string[]>();
+      for (const r of refsOfPage.get(pg.id) ?? []) if (g(T.ref, r, 'referenceKind') !== 'STYLESHEET' && (g(T.ref, r, 'attributeName') || '').toLowerCase() === 'href') preloadRefs.set(g(T.ref, r, 'ownerElementLinkHash'), r);
       const ins = page.kind === 'FRAGMENT' && pg.id === page.id ? [] : [...(includeInserts.get(pg.id) ?? [])].sort((a, b) => (before(a.at, b.at) ? -1 : before(b.at, a.at) ? 1 : 0));
       let k = 0;
       const flush = (upTo: [number, number] | null) => {
@@ -1184,13 +1198,18 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
           pushSheet(sid, 'style', e.id, 0, mediaCond(e.attrs.get('media')?.value ?? ''), null, e.inert === 'noscript' ? 'inert:noscript' : '', new Set([sid]), viaInc);
         } else if (e.tagLower === 'link' && (e.ns === 'HTML' || e.ns === '')) {
           const relAttr = (e.attrs.get('rel')?.value ?? '').toLowerCase().split(/\s+/);
-          if (!relAttr.includes('stylesheet')) continue;
-          const r = linkRefs.get(e.id); if (!r) continue;
+          // review #24: `<link rel=preload as=style onload="this.rel='stylesheet'">` (the async-stylesheet pattern) is applied
+          // once a script swaps it in: a conditional load, reason preload_as_style
+          const preload = relAttr.includes('preload') && (e.attrs.get('as')?.value ?? '').trim().toLowerCase() === 'style';
+          if (!relAttr.includes('stylesheet') && !preload) continue;
+          const r = linkRefs.get(e.id) ?? (preload ? preloadRefs.get(e.id) : undefined); if (!r) continue;
           const refId = g(T.ref, r, 'htmlReferenceUniqueHash');
           // a sheet the page may not apply: an alternate or disabled <link>, or one inside <noscript> (review #5: a browser
           // with scripting on does not load it), is a conditional load whose rows carry the reason
-          const disabled = relAttr.includes('alternate') || e.attrs.has('disabled') ? 'alternate_sheet' : e.inert === 'noscript' ? 'inert:noscript' : '';
+          const disabled = relAttr.includes('alternate') || e.attrs.has('disabled') ? 'alternate_sheet' : e.inert === 'noscript' ? 'inert:noscript' : preload && !relAttr.includes('stylesheet') ? 'preload_as_style' : '';
           let sid = sheetOfRef.get(refId); let reason = linkUnknownOf.get(refId) ?? 'unresolved_url';
+          // a preload's reference is a link resource, not a stylesheet one: its sheet is the file it resolves to
+          if (!sid && preload) sid = sheetByAbs.get(path.normalize(g(T.ref, r, 'resolvedFilePath') || '-'));
           const urlKind = g(T.ref, r, 'urlKind'); const p0 = g(T.ref, r, 'path').split(/[?#]/)[0]!;
           if (pg.id !== page.id && p0 && (urlKind === 'RELATIVE' || urlKind === 'ROOT_RELATIVE')) {
             const cand = path.normalize(urlKind === 'ROOT_RELATIVE' ? rootRelative(page.abs, p0) : path.join(path.dirname(page.abs), p0));

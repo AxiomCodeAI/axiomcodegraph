@@ -428,19 +428,25 @@ export const WEB_FINALIZE: readonly string[] = [
 export const WEB_VIEWS: readonly string[] = [
   // SPEC §9.2: every contender of a web_computed row with its outcome and why it lost (keys as web_computed.winner_key)
   `CREATE VIEW web_cascade AS
-   WITH c AS (
+   WITH r AS (
+     -- review #29: a declaration is keyed by its BEST styles row as computedOf picks it: the best status first (an
+     -- unconditional selector of the rule over a :hover one), then the cascade key; per host for a composed fragment
      SELECT s.element_uid AS element, COALESCE(s.pseudo_element, '') AS pseudo, CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END AS property, d.uid AS decl,
-            max(printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
+            COALESCE(s.host_page_uid, '') AS host,
+            max(printf('%d|', 2 - CASE s.status WHEN 'match' THEN 0 WHEN 'conditional' THEN 1 ELSE 2 END) ||
+                printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, CASE WHEN d.is_important = 1 THEN 1000000000 - s.layer_rank ELSE s.layer_rank END,
                 s.spec_a, s.spec_b, s.spec_c, CASE WHEN s.scope_proximity IS NULL THEN 0 ELSE 9999 - min(s.scope_proximity, 9999) END,
-                s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS k,
-            min(CASE s.status WHEN 'match' THEN 0 WHEN 'conditional' THEN 1 ELSE 2 END) AS st, max(s.conditions) AS conditions
+                s.sheet_order, s.rule_order, COALESCE(d.position, 0))) AS sk,
+            max(s.conditions) AS conditions
        FROM web_styles s JOIN web_declarations d ON d.rule_uid = s.rule_uid
-      GROUP BY 1, 2, 3, 4
+      GROUP BY 1, 2, 3, 4, 5),
+   c AS (
+     SELECT element, pseudo, property, decl, host, 0 AS inl, substr(sk, 3) AS k, 2 - CAST(substr(sk, 1, 1) AS INTEGER) AS st, conditions FROM r
      UNION ALL
-     SELECT d.element_uid, '', CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END, d.uid, printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
+     SELECT d.element_uid, '', CASE WHEN d.property LIKE '--%' THEN d.property ELSE lower(d.property) END, d.uid, '', 1, printf('%d|%010d|%04d|%04d|%04d|%04d|%06d|%07d|%05d', d.is_important, 2000000000, 0, 0, 0, 0, 0, 0, COALESCE(d.position, 0)), 0, NULL
        FROM web_declarations d WHERE d.attribute_uid IS NOT NULL AND d.element_uid IS NOT NULL)
    SELECT c.element, NULLIF(c.pseudo, '') AS pseudo, c.property, c.decl,
-          ROW_NUMBER() OVER (PARTITION BY c.element, c.pseudo, c.property ORDER BY c.k DESC) AS rank,
+          ROW_NUMBER() OVER (PARTITION BY c.element, c.pseudo, c.property, COALESCE(w.host_page_uid, '') ORDER BY c.k DESC) AS rank,
           -- no unconditional winner (V2-03): every contender is conditional (or unknown), none lost
           CASE WHEN w.winner_decl_uid IS NULL THEN (CASE c.st WHEN 2 THEN 'unknown' ELSE 'conditional' END)
                WHEN c.decl = w.winner_decl_uid THEN 'won' WHEN c.k > w.winner_key THEN 'conditional' ELSE 'lost' END AS outcome,
@@ -452,7 +458,8 @@ export const WEB_VIEWS: readonly string[] = [
                WHEN substr(c.k, 29, 4) != substr(w.winner_key, 29, 4) THEN 'scope_proximity'
                ELSE 'source_order' END AS lost_reason,
           c.conditions, CASE c.st WHEN 0 THEN 'match' WHEN 1 THEN 'conditional' ELSE 'unknown' END AS status
-     FROM c JOIN web_computed w ON w.element_uid = c.element AND COALESCE(w.pseudo, '') = c.pseudo AND w.property = c.property`,
+     FROM c JOIN web_computed w ON w.element_uid = c.element AND COALESCE(w.pseudo, '') = c.pseudo AND w.property = c.property
+      AND (c.inl = 1 OR COALESCE(w.host_page_uid, '') = c.host)`,
   // SPEC §9.10: the per-page inventory, aggregates of existing tables
   `CREATE VIEW web_page_inventory AS SELECT p.uid AS page, p.file,
      (SELECT group_concat(f, ' ') FROM (SELECT st.file AS f FROM web_loads l JOIN web_stylesheets st ON st.uid = l.stylesheet_uid WHERE l.page_uid = p.uid ORDER BY l.load_order)) AS sheets_in_order,

@@ -223,7 +223,23 @@ function sanitiseForGrammar(text: string): string {
   // (`v < list.length` in a code sample shown as text) it is text. `<%` is left alone: a template tag the walk reads. The grammar took `< cur` for a start tag, which then
   // swallowed the next real tag's attributes and lost it (79 elements on one documentation page). Such a `<` becomes
   // U+2039 for the grammar only, one code unit as `<` is; text is read from the source.
-  return text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase()).replace(/<(?![A-Za-z/!?%])/g, '\u2039');
+  const out = text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase()).replace(/<(?![A-Za-z/!?%])/g, '\u2039');
+  return plaintextToEnd(out);
+}
+
+/**
+ * `<plaintext>` IS NEVER CLOSED (review #31): a browser reads everything after its start tag as text, `</plaintext>` and
+ * any later tag included. For the grammar only, the rest of the document after the first `<plaintext>` start tag
+ * (outside a comment) is blanked, newlines kept, so no element after it is built; its text is read from the source.
+ */
+function plaintextToEnd(text: string): string {
+  const re = /<!--[\s\S]*?-->|<plaintext\b[^>]*>/gi;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m[0].startsWith('<!--')) continue;
+    const at = m.index + m[0].length;
+    return text.slice(0, at) + text.slice(at).replace(/[^\n]/g, ' ');
+  }
+  return text;
 }
 
 /** One attribute as written: its name, its decoded value, and where it sits. */
@@ -1156,11 +1172,12 @@ class Walk {
       for (const sp of this.spans) if (sp.start <= offset && offset < sp.end && (best === undefined || sp.start >= best.start)) best = sp;
       return best?.row;
     };
+    const inRawContent = (offset: number): boolean => this.spans.some((sp) => RAW_CONTENT_TAGS.has(sp.row.tagName.toLowerCase()) && sp.start < offset && offset < sp.end);
     for (const m of text.matchAll(/<!--#\s*([a-z]+)\b([\s\S]*?)-->/gi)) {
       const name = m[1]!.toLowerCase();
       const args = m[2]!.trim();
       const owner = ownerAt(m.index);
-      if (name === 'include') {
+      if (name === 'include' && !inRawContent(m.index)) {
         const a = /\b(virtual|file)\s*=\s*(["'])([\s\S]*?)\2/i.exec(args);
         if (a !== null) found.push({ offset: m.index, flavour: `ssi:${a[1]!.toLowerCase()}`, url: a[3]!, expression: /\$\{?\w/.test(a[3]!), owner });
       }
@@ -1178,6 +1195,9 @@ class Walk {
     for (const m of text.matchAll(/<!--(?!#)[\s\S]*?(?:-->|$)|\{#[\s\S]*?#\}|\{%-?\s*(comment|raw|verbatim)\b[\s\S]*?%\}[\s\S]*?(?:\{%-?\s*end\1\s*-?%\}|$)/g)) {
       commented.push([m.index, m.index + m[0].length]);
     }
+    // review #22: inside a raw-text or RCDATA element (<script>, <style>, <textarea>, <title>, <xmp>) an include's markup
+    // would be text, never elements: a directive there composes nothing. <pre> and <code> parse markup, so they keep it.
+    for (const sp of this.spans) if (RAW_CONTENT_TAGS.has(sp.row.tagName.toLowerCase())) commented.push([sp.start, sp.end]);
     const isCommented = (offset: number): boolean => commented.some(([a, b]) => a < offset && offset < b);
     for (const m of text.matchAll(/@@include\(\s*(["'])([^"'\n]*)\1/g)) {
       if (isCommented(m.index)) continue;
@@ -1234,6 +1254,8 @@ type OpenElements = ReadonlyMap<string, OpenElement>;
 
 /** Tags whose start tag is ignored while an element of the same kind is open (`head` also once `body` is). */
 const IGNORED_WHEN_OPEN_TAGS = new Set(['form', 'body', 'html', 'head']);
+/** Elements whose content is text to the browser (raw text and RCDATA): an include directive there composes no markup. */
+const RAW_CONTENT_TAGS = new Set(['script', 'style', 'textarea', 'title', 'xmp']);
 /** What the head holds without a browser opening the body (V3-08b); `include` is a build-time directive (posthtml). */
 const HEAD_CONTENT_TAGS = new Set(['base', 'basefont', 'bgsound', 'link', 'meta', 'noframes', 'noscript', 'script', 'style', 'template', 'title', 'include']);
 /** Template tags, server-side code and comments: not text a browser would read as opening the body. */

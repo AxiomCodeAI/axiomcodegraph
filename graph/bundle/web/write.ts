@@ -18,6 +18,11 @@ const BATCH = 64;
  */
 const IR_HASH = /^([A-Z][A-Z0-9_]*_)([0-9a-f]{32})$/;
 const shortUid = (v: string): string => { const m = IR_HASH.exec(v); return m ? m[1]! + m[2]!.slice(0, 16) : v; };
+/**
+ * The columns that hold a uid (review #19): only these are shortened. An attribute value, a class token or a script body
+ * that happens to look like an IR hash (`value="TOKEN_0123…"`) is data and is written as it is.
+ */
+const holdsUid = (column: string): boolean => /(^|_)uid$|_page$/.test(column) || column === 'scope_root' || column === 'via_include';
 /** text columns where the empty string is a value, not "none": an empty inline script's body, an empty handler's code */
 const KEEP_EMPTY = new Set(['web_scripts.body', 'web_handlers.code']);
 
@@ -57,7 +62,7 @@ export class WebDb {
     const b = this.buf.get(table)!;
     for (const c of cols) {
       const v = r[c];
-      b.push(v === undefined || (v === '' && !KEEP_EMPTY.has(`${table}.${c}`)) ? null : typeof v === 'string' && v.length === 0 ? v : typeof v === 'string' ? shortUid(v) : v);
+      b.push(v === undefined || (v === '' && !KEEP_EMPTY.has(`${table}.${c}`)) ? null : typeof v === 'string' && v.length === 0 ? v : typeof v === 'string' && holdsUid(c) ? shortUid(v) : v);
     }
     this.counts.set(table, this.counts.get(table)! + 1);
     if (b.length === n * BATCH) {

@@ -1324,8 +1324,11 @@ def web_link(repo, args, as_json=False):
     if not h or not WEB_PAGE.search(h) or not hl: return None
     if not web_graph(repo):
         print("axiomcode link: no web graph here to take an asserted include (index with --lang web first)", file=sys.stderr); return 2
+    top = os.path.realpath(repo)
     for x in (f, h):
-        if not os.path.isfile(os.path.join(repo, x)):
+        # review #23: a path that leaves the repository (`../other/page.html`) is no file in it
+        full = os.path.realpath(os.path.join(repo, x))
+        if not os.path.isfile(full) or os.path.commonpath([top, full]) != top:
             print(f"axiomcode link: rejected — {x} is not a file in this repository", file=sys.stderr); return 1
     new = dict(fragment=f, host=h, line=hl, by=os.environ.get('AXIOMCODE_LINK_BY') or os.environ.get('USER') or 'agent', at=time.strftime('%Y-%m-%dT%H:%M:%S'))
     links = [l for l in links if not (l['fragment'] == f and l['host'] == h)] + [new]

@@ -125,7 +125,9 @@ function sanitiseForGrammar(text: string): string {
   // declaration value, and the grammar, which takes a comment there for the start of a nested rule, turned every
   // declaration after it into a bogus nested "rule" (`font-family: Arial` read as a selector) and dropped them.
   // The braces inside a comment are blanked for the grammar only; a comment row reads its text from the source.
-  let out = text.replace(/\/\*[\s\S]*?\*\//g, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
+  let out = mapComments(text, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
+  // and a `/*` inside a string (`a[href*="/*"]`) is no comment either, though the grammar would take it for one there
+  out = maskCommentOpenersInStrings(out);
   out = blankTemplateTags(out);
   out = out.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
   // `@keyframes "fade"`: a quoted name is legal and the grammar takes only an identifier; the quotes become
@@ -234,7 +236,45 @@ function unclosedBlocks(text: string): number {
 
 /** The text with every comment's inside blanked, same length, for scans that must not read comments. */
 function withoutComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, (m) => '/*' + ' '.repeat(m.length - 4) + '*/');
+  return mapComments(text, (m) => '/*' + ' '.repeat(Math.max(0, m.length - 4)) + '*/');
+}
+
+/**
+ * Each comment of a sheet replaced by `f(comment)`, found by a scan that skips strings (review #21): `a[href*="/*"]`
+ * opens no comment, so a regex over the raw text no longer spans from a string's `/*` to the next real comment and
+ * blanks the braces of every rule between. A string ends at its quote or at a newline (CSS: a bad string); an
+ * unterminated comment runs to the end of the sheet.
+ */
+/** For the grammar only: the `*` of every `/*` inside a quoted string becomes `_`, same length (review #21). */
+function maskCommentOpenersInStrings(text: string): string {
+  if (!text.includes('/*')) return text;
+  const chars = text.split(''); let quote = '';
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i]!;
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote || c === '\n') { quote = ''; continue; }
+      if (c === '/' && chars[i + 1] === '*') chars[i + 1] = '_';
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '/' && chars[i + 1] === '*') { const end = text.indexOf('*/', i + 2); i = end < 0 ? chars.length : end + 1; }
+  }
+  return chars.join('');
+}
+
+function mapComments(text: string, f: (comment: string) => string): string {
+  let out = ''; let last = 0; let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote) { if (c === '\\') i++; else if (c === quote || c === '\n') quote = ''; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2); const stop = end < 0 ? text.length : end + 2;
+      out += text.slice(last, i) + f(text.slice(i, stop)); last = stop; i = stop - 1;
+    }
+  }
+  return out + text.slice(last);
 }
 
 /** An identifier as written, with its CSS escapes decoded: `md\:flex` is `md:flex`, `\31 23` is `123`. */

@@ -18,7 +18,12 @@ import { WEB_TABLE_BOUNDS, WEB_TABLES, WEB_VIEW_DOCS, WEB_VIEWS } from '@/bundle
 export const SCHEMA_VERSION = '1';
 
 export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp' | 'web';
-export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp', 'web'];
+/**
+ * The languages a core vocabulary row marked `all` is written for (review #18): the call-graph languages, as on dev. The
+ * web graph has no core rows (its tables are web_*), so `web` is a Language but takes no `all` vocabulary, and every
+ * other language's schema_vocab stays as it was.
+ */
+export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp'];
 
 export interface ColumnSpec {
   name: string;

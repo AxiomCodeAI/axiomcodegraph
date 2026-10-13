@@ -327,12 +327,17 @@ class Web:
                 'prose': [l for d in docs for l in (d.get('prose') or [d.get('refusal', '')]) + ['']]}
 
     def cascade_rows(self, element_uid, role='styled_by'):
+        # review #28: cascade order (the winner last) and total: importance is per declaration (web_cascade has it), so a
+        # rule with one !important declaration does not sort last for all its properties; @scope proximity counts after
+        # specificity; two selectors of one rule tie-break by their own position
         rows = self.q("""SELECT s.status, s.reason, s.conditions, s.pseudo_element, s.spec_a, s.spec_b, s.spec_c, s.layer_rank, s.sheet_order,
                    s.rule_order, s.important_count, sel.selector_text, sel.file, sel.line, st.display sheet, s.scope_root, ru.file rfile, ru.line rline
             FROM web_styles s JOIN web_selectors sel ON sel.uid = s.selector_uid JOIN web_stylesheets st ON st.uid = s.stylesheet_uid
             LEFT JOIN web_rules ru ON ru.uid = s.rule_uid
             WHERE s.element_uid = ? AND s.status != 'unknown'
-            ORDER BY s.important_count > 0, s.layer_rank, s.spec_a, s.spec_b, s.spec_c, s.sheet_order, s.rule_order""", element_uid)
+            ORDER BY s.layer_rank, s.spec_a, s.spec_b, s.spec_c,
+                     CASE WHEN s.scope_proximity IS NULL THEN -1 ELSE 9999 - s.scope_proximity END, s.sheet_order, s.rule_order,
+                     sel.line, sel.col, s.selector_uid""", element_uid)
         out = []
         for i, r in enumerate(rows):
             # V2-01: `at` is the rule's own start; the selector that matched is `via_at`
