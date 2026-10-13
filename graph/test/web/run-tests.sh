@@ -37,6 +37,19 @@
 #              Cases run one at a time (one engine solve each).
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
+
+# PEAK MEMORY OF A BUILD, on macOS and Linux: BSD time -l reports bytes, GNU time -v kilobytes. With neither (no
+# /usr/bin/time installed) the build still runs and the peak reads 0, which only a scale case's RSS budget would use.
+case "$(uname -s)" in
+  Darwin) TIMED=(/usr/bin/time -l)
+          rss_mb_of() { awk '/maximum resident set size/ {print $1}' "$1" | sort -n | tail -1 | awk '{print int($1 / 1048576)}'; } ;;
+  *) if /usr/bin/time -v true >/dev/null 2>&1; then
+       TIMED=(/usr/bin/time -v)
+       rss_mb_of() { awk -F: '/Maximum resident set size/ {gsub(/ /, "", $2); print $2}' "$1" | sort -n | tail -1 | awk '{print int($1 / 1024)}'; }
+     else
+       TIMED=(); rss_mb_of() { echo 0; }
+     fi ;;
+esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # AXIOM_ROOT: the checkout whose bin/axiomcode, parser and graph/web engine are under test
 # (default: this one). Lets the suites on web/torture run against the feat/web-layer worktree.
@@ -238,11 +251,11 @@ for rel in "${CASES[@]}"; do
   langs=web
   [[ ",$check," == *",crosslang,"* ]] && langs=web,javascript
   t0=$(date +%s)
-  if ! /usr/bin/time -l bash "$ROOT/bin/axiomcode" "$src" "$w/out" --language "$langs" --debug >"$w/build.log" 2>"$w/build.err"; then
+  if ! "${TIMED[@]}" bash "$ROOT/bin/axiomcode" "$src" "$w/out" --language "$langs" --debug >"$w/build.log" 2>"$w/build.err"; then
     echo "FAIL (build — see $w/build.err)"; tail -3 "$w/build.err" | sed 's/^/    /'; fail=$((fail+1)); failed+=("$rel"); continue
   fi
   secs=$(( $(date +%s) - t0 ))
-  rss_mb=$(( $(awk '/maximum resident set size/ {print $1}' "$w/build.err" | sort -n | tail -1) / 1048576 ))
+  rss_mb=$(rss_mb_of "$w/build.err")
   ok=1
   if [ "$mode" = "scale" ]; then
     oracle_counts="$w/oracle-counts.tsv"
