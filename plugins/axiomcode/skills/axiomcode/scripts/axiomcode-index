@@ -28,7 +28,7 @@ INDEX_VERSION = '9'      # bump when the tables' CONTENT changes shape (v2: Java
                          # v7: data keys of module-level const objects declared, Object.freeze seen through;
                          # v8: literals carry numbers and booleans with a kind column, and the name of the constant
                          #     a scalar initializes — a spec's numbers were the one thing the graph could not answer;
-                         # v9: the web graph (HTML + CSS) is indexed: pages, stylesheets, .classes, #ids, --properties,
+                         # v9: the web graph (HTML + CSS) is indexed: pages, stylesheets, .classes, #ids, custom properties (var(--x)),
                          #     @keyframes/@font-face/@layer/@container, selectors and inline scripts are symbols); the query
                          # frontend re-indexes an older graph when the IR is still there
 

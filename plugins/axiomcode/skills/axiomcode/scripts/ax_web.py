@@ -6,10 +6,10 @@ declarations, custom properties, @keyframes, @font-face, @layer, @container and 
 loads, what links where, which rules style which elements (match / conditional / unknown) and which declarations a
 var() reaches (graph/bundle/web/schema.ts). Every verb script hands a web graph to this module first:
 
-  impact <target>      .class  #id  --custom-prop  page.html  css/app.css  page.html:42 (the element there)
+  impact <target>      .class  #id  'var(--custom-prop)'  page.html  css/app.css  page.html:42 (the element there)
                        "@keyframes name"  "@font-face family"  "@layer name"  "@container name"  a selector as written
                        page.html#script-2 (an inline script)  [--in <page>] [--json]
-  path <A> <B>         page -> sheet (link, @import), page -> page (links), --var -> use -> rule -> element, …
+  path <A> <B>         page -> sheet (link, @import), page -> page (links), var(--x) -> use -> rule -> element, …
   context "<task>"     the web names the task's words land on, best first; the unused stylesheets, duplicated ids,
                        template-dialect pages when the task asks for them
   tests                a web graph selects no tests: exit 3, so a repository's other graphs answer alone
@@ -50,7 +50,7 @@ def repo_of(args):
     for a in args:
         if skip: skip = False; continue
         if a in ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds'): skip = True; continue
-        if a.startswith('--') and not re.match(r'^--[A-Za-z_][\w-]*$', a): continue
+        if a.startswith('-'): continue
         pos.append(a)
     return pos[-1] if pos and os.path.isdir(pos[-1]) else '.'
 
@@ -131,6 +131,8 @@ class Web:
                 if flag == '--limit':
                     try: self.limit = int(v) or 10 ** 9
                     except ValueError: pass
+        # an option the verb does not know is no target (the web graph adds no options of its own)
+        args = [a for a in args if not (a.startswith('-') and len(a) > 1)]
         if args and os.path.isdir(args[-1]) and (len(args) > (2 if verb == 'path' else 1) or verb == 'context'): args = args[:-1]
         if verb in ('tests', 'test-impact'):
             print("the web graph selects no tests (HTML and CSS have none); the other graphs answer for the edit")
@@ -196,7 +198,10 @@ class Web:
         return out
 
     def kind_of(self, a):
-        if a.startswith('--') and len(a) > 2: return ('var', a)
+        # a custom property is asked in CSS's own syntax, `var(--name)` (a fallback after the name is ignored); a bare
+        # `--name` is a flag to the CLI, never a target
+        m = re.match(r'^var\(\s*(--[^\s,)]+)\s*(?:,[^)]*)?\)$', a)
+        if m: return ('var', m.group(1))
         if a.startswith('component:'): return ('component', a[len('component:'):])
         if a.startswith('token:'): return ('token', a[len('token:'):])
         if re.match(r'^#[0-9a-fA-F]{3,8}$', a) and not self.q1("SELECT 1 FROM web_elements WHERE html_id = ? LIMIT 1", a[1:]) and self.q1("SELECT 1 FROM web_tokens WHERE value = ? LIMIT 1", self.norm_color(a)):
@@ -301,7 +306,7 @@ class Web:
 
     # ── impact ──
     def impact(self, args):
-        if not args: return {'found': False, 'refusal': 'usage: impact <.class | #id | --prop | page.html | sheet.css | page.html:LINE | "@keyframes k" | "@font-face f" | selector>'}
+        if not args: return {'found': False, 'refusal': 'usage: impact <.class | #id | var(--prop) | page.html | sheet.css | page.html:LINE | "@keyframes k" | "@font-face f" | selector>'}
         docs = []
         for kind, val in self.classify(args):
             docs.append(getattr(self, 'impact_' + kind)(val))
@@ -913,7 +918,7 @@ class Web:
 
     def path(self, args):
         pos = [a for a in args if not os.path.isdir(a)] if len(args) > 2 else args
-        if len(pos) < 2: return {'found': False, 'refusal': 'usage: path <A> <B>  (page.html, sheet.css, .class, #id, --prop, page.html:LINE, selector)'}
+        if len(pos) < 2: return {'found': False, 'refusal': 'usage: path <A> <B>  (page.html, sheet.css, .class, #id, var(--prop), page.html:LINE, selector)'}
         A, B = pos[0], pos[1]
         src, dst = self.endpoint(A), set(self.endpoint(B))
         if not src: return {'found': False, 'refusal': f"web graph: nothing named '{A}'"}

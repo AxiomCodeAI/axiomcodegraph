@@ -28,6 +28,11 @@ check(){ # name, expected substring, command...
   out=$(cd "$T/site" && "$@" 2>&1)
   if [[ "$out" == *"$want"* ]]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $name: wanted '$want'"; echo "$out" | head -8 | sed 's/^/    /'; fi
 }
+nocheck(){ # name, substring that must NOT appear in a non-empty answer, command...
+  local name="$1" unwanted="$2"; shift 2; local out
+  out=$(cd "$T/site" && "$@" 2>&1)
+  if [ -n "$out" ] && [[ "$out" != *"$unwanted"* ]]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $name: '$unwanted' in the answer (or no answer)"; echo "$out" | head -8 | sed 's/^/    /'; fi
+}
 if ! (cd "$T/site" && "$AX" index "$T/site" --lang web >"$T/index.log" 2>&1); then echo "FAIL index:"; tail -5 "$T/index.log"; exit 1; fi
 [ -f "$T/site/.axiomcode/out/graph.sqlite" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL index wrote no graph.sqlite"; tail -5 "$T/index.log"; }
 check impact-class 'elements carrying .menu: 2' "$AX" impact .menu
@@ -36,10 +41,12 @@ check impact-page '1. style.css' "$AX" impact index.html
 check impact-style-at '"at": "host.html:2"' "$AX" impact host.html --json
 # C-04: a single-class selector asked for on a page answers the selector->element role too, not only the class lookup
 check impact-class-styled 'elements the selector .menu styles: 1' "$AX" impact .menu --in index.html
-check impact-var '--gap' "$AX" impact --gap
-# --json with a name that starts with -- (a custom property): a name, not a flag, so not the "your edits" answer
-check impact-var-json '"--gap"' "$AX" impact --gap --json
-check impact-var-json-in '"--gap"' "$AX" impact --gap --in index.html --json
+check impact-var '--gap' "$AX" impact 'var(--gap)'
+# a custom property is asked in CSS's own syntax, var(--name); with --json it is still a name, not the "your edits" answer
+check impact-var-json '"--gap"' "$AX" impact 'var(--gap)' --json
+check impact-var-json-in '"--gap"' "$AX" impact 'var(--gap)' --in index.html --json
+# a bare --gap is a flag the CLI does not know, as on dev: never read as the custom property
+nocheck impact-bare-dashdash-not-a-target 'custom property --gap' "$AX" impact --gap
 # V2-09: Tailwind class names, as written and with their CSS escape
 check impact-tailwind 'elements carrying .dark:bg-gray-900: 1' "$AX" impact .dark:bg-gray-900
 check impact-tailwind-escaped 'elements carrying .dark:bg-gray-900: 1' "$AX" impact '.dark\:bg-gray-900'
