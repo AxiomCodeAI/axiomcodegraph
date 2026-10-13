@@ -359,8 +359,28 @@ for (const s of sheets.values()) for (const imp of s.imports) {
 
 // ── loading: link / style / @import closure, in cascade order (SPEC 3.1, 3.3) ────────────────
 const loadedBy = new Map(); // sheetKey -> Set(page)
+// [iter4 orchestrator] a fragment loads nothing by itself: its <style>/<link rel=stylesheet> is loaded by every host
+// page that includes it, in the host's load order at the include site (loads_via_include names the include); a
+// fragment no page includes leaves its sheets orphan
+const loadSeq = (page) => {
+  if (!(refsByPage.get(page.rel) ?? []).some(composes)) return page.elements.map((el) => ({ el, via: null }));
+  const c = composeTree(page, pageByPath, refsByPage);
+  const byNode = new Map(c.members.map((m) => [m.node, m.el]));
+  const out = []; const st = [[c.root, null]];
+  while (st.length) {
+    const [n, inert] = st.pop();
+    const el = byNode.get(n);
+    if (el && n !== c.root) out.push({ el: { ...el, inert: el.inert ?? inert }, via: n.axVia ?? null });
+    const ci = inert ?? (n.name === 'template' && n.namespace === 'http://www.w3.org/1999/xhtml' ? 'template' : null);
+    const ch = n.children ?? [];
+    for (let i = ch.length - 1; i >= 0; i--) st.push([ch[i], n === c.root ? null : ci]);
+  }
+  return out;
+};
+const includeKey = (r) => `include@${r.page.rel}:${r.line}:${r.col}`;
 for (const page of pages) {
-  const loads = []; let order = 0;
+  if (page.isFragment) { pageLoads.set(page.rel, []); continue; }
+  const loads = []; let order = 0; let curVia = null;
   const pushSheet = (s, via, depth, ctx, stack) => {
     // @import first, depth-first, at the import's position
     for (const imp of s.imports) {
@@ -380,9 +400,10 @@ for (const page of pages) {
       }
     }
     order += 1;
-    loads.push({ sheet: s, via, depth, order, status: ctx.disabled ? 'conditional' : 'match', reason: ctx.disabled ? 'alternate_sheet' : '-', conds: ctx.conds, layer: ctx.layer, disabled: ctx.disabled });
+    loads.push({ sheet: s, via, depth, order, status: ctx.disabled ? 'conditional' : 'match', reason: ctx.disabled ? 'alternate_sheet' : '-', conds: ctx.conds, layer: ctx.layer, disabled: ctx.disabled, viaInclude: curVia });
   };
-  for (const el of page.elements) {
+  for (const { el, via: viaRef } of loadSeq(page)) {
+    curVia = viaRef ? includeKey(viaRef) : null;
     if (el.inert === 'template') continue;
     if (el.tag === 'style' && el.ns === 'html') {
       const t = (el.node.attribs?.type ?? '').trim().toLowerCase();
@@ -403,16 +424,20 @@ for (const page of pages) {
       else {
         const reason = u.kind === 'external' ? 'external_url' : u.kind === 'template' ? 'template_url'
           : u.kind === 'local' && u.target && fs.existsSync(path.join(root, u.target)) ? 'not_indexed' : 'unresolved_url';
-        loads.push({ sheet: null, url: href, via: 'link', depth: 0, status: 'unknown', reason });
+        loads.push({ sheet: null, url: href, via: 'link', depth: 0, status: 'unknown', reason, viaInclude: curVia });
       }
     }
   }
   for (const l of loads) {
     if (l.sheet) {
       emit('loads_sheet', page.rel, l.sheet.key, l.via, l.order, l.depth, l.status, l.reason);
+      if (l.viaInclude) emit('loads_via_include', page.rel, l.sheet.key, l.viaInclude);
       if (!loadedBy.has(l.sheet.key)) loadedBy.set(l.sheet.key, new Set());
       loadedBy.get(l.sheet.key).add(page.rel);
-    } else emit('loads_sheet', page.rel, l.url, l.via, '-', l.depth, l.status, l.reason);
+    } else {
+      emit('loads_sheet', page.rel, l.url, l.via, '-', l.depth, l.status, l.reason);
+      if (l.viaInclude) emit('loads_via_include', page.rel, l.url, l.viaInclude);
+    }
   }
   pageLoads.set(page.rel, loads.filter((l) => l.sheet));
 }
@@ -502,7 +527,7 @@ if (DO_STYLES) for (const v of views) {
   // [iter4] an included fragment's own <style> applies on the served page: its rules join the host's sheets, after
   // them, in document order of the composed tree (no loads_sheet row: the page loads it through the include)
   const loads = [...baseLoads];
-  if (page.composed) {
+  if (page.viewKind === 'extends') {
     let ord = Math.max(0, ...baseLoads.map((l) => l.order ?? 0));
     for (const el of page.elements) {
       if (el.tag !== 'style' || el.ns !== 'html' || el.inert || page.base.byKey.has(el.key)) continue;

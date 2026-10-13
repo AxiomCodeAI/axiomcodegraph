@@ -1,0 +1,27 @@
+# reviewed: yes 2026-10-12 iter 4 — a fragment's <style>/<link> is loaded by each host at the include site (loads_via_include); a fragment no page includes leaves its sheet orphan
+# case: includes/14-fragment-sheets-per-host   kinds: loads_sheet,loads_via_include,unknown,host_styles,styles
+# shape: a widget partial carrying its own <link> to a widget sheet and a <style>, included by one page before the
+host_styles	css/page.css:1:1/0	parts/widget.html:3:1	a.html	match	-	-
+host_styles	css/page.css:1:1/0	parts/widget.html:3:1	b.html	match	-	-
+host_styles	css/widget.css:1:1/0	parts/widget.html:3:1	a.html	match	-	-
+host_styles	css/widget.css:1:1/0	parts/widget.html:3:1	b.html	match	-	-
+host_styles	parts/widget.html:2:8/0	parts/widget.html:3:1	a.html	match	-	-
+host_styles	parts/widget.html:2:8/0	parts/widget.html:3:1	b.html	match	-	-
+loads_sheet	a.html	css/page.css	link	3	0	match	-
+loads_sheet	a.html	css/widget.css	link	1	0	match	-
+loads_sheet	a.html	style@parts/widget.html:2:1	style	2	0	match	-
+loads_sheet	b.html	css/page.css	link	1	0	match	-
+loads_sheet	b.html	css/widget.css	link	2	0	match	-
+loads_sheet	b.html	style@parts/widget.html:2:1	style	3	0	match	-
+loads_via_include	a.html	css/widget.css	include@a.html:4:1
+loads_via_include	a.html	style@parts/widget.html:2:1	include@a.html:4:1
+loads_via_include	b.html	css/widget.css	include@b.html:8:1
+loads_via_include	b.html	style@parts/widget.html:2:1	include@b.html:8:1
+styles	css/page.css:1:1/0	a.html:7:7	match	-	-
+styles	css/page.css:1:1/0	b.html:7:1	match	-	-
+styles	css/widget.css:1:1/0	a.html:7:7	match	-	-
+styles	css/widget.css:1:1/0	b.html:7:1	match	-	-
+styles	parts/widget.html:2:8/0	a.html:7:7	match	-	-
+styles	parts/widget.html:2:8/0	b.html:7:1	match	-	-
+unknown	fragment_no_host	parts/unused.html	parts/unused.html
+unknown	orphan_sheet	css/old.css	-

@@ -85,6 +85,7 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_attributes.file, .line          -> attr_at <element> <name> <file:line>               (V2-01 via_at)
   web_styles.loads (sheet orders)     -> styles_loads <selector> <element> <page> <orders>  (V2-22, > 1 load only)
   web_tokens.unused                   -> last column of token                               (V2-06)
+  web_loads.via_include               -> loads_via_include <host page> <sheet> <include@file:line:col>  (iter4)
   web_attributes.value_raw            -> attr_raw <element> <name> <written text>, when it differs from value (V3-10a)
   web_ssi_directives(element_uid, directive, file, line, col, text)
                                       -> ssi_directive <parent element> <directive> <file:line:col> |<text> (V3-10b)
@@ -329,8 +330,12 @@ def main():
         for n in {n for _u, _d, _r, rk, n, *_x in refs if rk == 'CONTAINER' and n}:
             emit('container', n)
         # edges
-        for p, s, url, via, order, depth, st, rs in g.rows('web_loads', ['page_uid', 'stylesheet_uid', 'url_as_written', 'via', 'load_order', 'import_depth', 'status', 'reason']):
+        vi_col = ['via_include'] if g.has('web_loads', 'via_include') else []
+        for p, s, url, via, order, depth, st, rs, *vi in g.rows('web_loads', ['page_uid', 'stylesheet_uid', 'url_as_written', 'via', 'load_order', 'import_depth', 'status', 'reason'] + vi_col):
             emit('loads_sheet', key.get(p), key.get(s) if s else url, via, order if s else None, depth, st, rs)
+            if vi and vi[0]:
+                # [iter4] a fragment's sheet loaded by its host: via_include = the include's reference uid
+                emit('loads_via_include', key.get(p), key.get(s) if s else url, key.get(vi[0], vi[0]))
         for a, b, url, st, rs in g.rows('web_imports', ['from_stylesheet_uid', 'to_stylesheet_uid', 'url_as_written', 'status', 'reason']):
             emit('imports', key.get(a), key.get(b) if b else url, st, rs)
         for e, an, tp, te, url, st, rs in g.rows('web_links', ['from_element_uid', 'attribute_name', 'to_page_uid', 'to_element_uid', 'url_as_written', 'status', 'reason']):

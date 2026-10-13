@@ -241,6 +241,8 @@ export function composeTree(page, pageByPath, refsByPage) {
     for (const r of [...refs].reverse()) {
       const frag = pageByPath.get(r.targets[0]);
       const sub = build(frag);
+      // the include that placed each element (the innermost one): a fragment's <style>/<link> loads via it
+      { const st = [sub]; while (st.length) { const n = st.pop(); if (n !== sub && n.axVia === undefined && n.axKey) n.axVia = r; for (const c of n.children ?? []) st.push(c); } }
       const parent = r.hostKey ? map.get(pg.byKey.get(r.hostKey).node) : root;
       splice(parent, [...sub.children], r.position, r.includeEl ? map.get(r.includeEl.node) : null);
     }
