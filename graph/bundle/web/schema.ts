@@ -26,7 +26,7 @@ const id = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT'
  */
 const ref = (name: string, description = ''): ColumnSpec => ({ name, type: 'TEXT', description, nullable: true });
 
-export const WEB_TABLES: readonly TableSpec[] = [
+const WEB_TABLE_DEFS: readonly TableSpec[] = [
   // ── nodes ────────────────────────────────────────────────────────────────
   {
     name: 'web_pages',
@@ -290,6 +290,132 @@ export const WEB_TABLES: readonly TableSpec[] = [
     columns: [t('kind'), id('node_uid'), id('page_uid'), t('reason'), t('detail'), id('file'), i('line')],
   },
 ];
+
+/**
+ * ID COLUMNS NO QUERY READS BY (#1908 cost: indexes <= 40% of graph.sqlite). Every query the web layer runs (impact, path,
+ * context, link, the index export, the stored views and the build's own finalize step) was traced on the cli-smoke and
+ * torture query cases and the corpus question sets of two dev projects, and EXPLAIN QUERY PLAN run for each on both
+ * projects' graphs: none of these indexes was chosen on either. They are not created (the columns stay); SQLite builds
+ * an automatic index for a join that wants one. A name here that is no column is an error.
+ */
+const NOT_INDEXED = new Set<string>([
+  'web_attributes.name',
+  'web_class_tokens.element_uid',
+  'web_comments.file',
+  'web_comments.stylesheet_uid',
+  'web_comments.uid',
+  'web_component_occurrences.element_uid',
+  'web_container_use.page_uid',
+  'web_container_use.target_uid',
+  'web_declarations.file',
+  'web_defines_var.declaration_uid',
+  'web_defines_var.name',
+  'web_elements.tag_name',
+  'web_font_faces.family',
+  'web_font_faces.rule_uid',
+  'web_font_use.name',
+  'web_font_use.page_uid',
+  'web_font_use.target_uid',
+  'web_font_use.use_uid',
+  'web_font_use.value_ref_uid',
+  'web_form_controls.element_uid',
+  'web_form_controls.form_uid',
+  'web_form_controls.id',
+  'web_form_controls.label_uid',
+  'web_form_controls.name',
+  'web_forms.action_resolved_page',
+  'web_forms.element_uid',
+  'web_forms.page_uid',
+  'web_gaps.element_uid',
+  'web_gaps.file',
+  'web_gaps.related_uid',
+  'web_gaps.uid',
+  'web_handler_calls.attribute_uid',
+  'web_handler_calls.callee_name',
+  'web_handler_calls.element_uid',
+  'web_handler_calls.file',
+  'web_handler_calls.uid',
+  'web_handlers.attribute_uid',
+  'web_handlers.event',
+  'web_handlers.file',
+  'web_handlers.tag',
+  'web_handlers.uid',
+  'web_icon_classes.rule_uid',
+  'web_id_refs.from_element_uid',
+  'web_id_refs.page_uid',
+  'web_id_refs.to_element_uid',
+  'web_imports.value_ref_uid',
+  'web_includes.file',
+  'web_includes.host_element_uid',
+  'web_includes.reference_uid',
+  'web_keyframes_use.name',
+  'web_keyframes_use.page_uid',
+  'web_keyframes_use.target_uid',
+  'web_keyframes_use.use_uid',
+  'web_keyframes_use.value_ref_uid',
+  'web_links.from_element_uid',
+  'web_links.reference_uid',
+  'web_links.to_element_uid',
+  'web_loads.via_uid',
+  'web_outline.element_uid',
+  'web_outline.parent_outline_uid',
+  'web_references.file',
+  'web_references.page_uid',
+  'web_references.resolved_file',
+  'web_references.uid',
+  'web_repeats.component_uid',
+  'web_repeats.first_element_uid',
+  'web_repeats.parent_element_uid',
+  'web_repeats.uid',
+  'web_resources.file',
+  'web_resources.from_uid',
+  'web_rules.name',
+  'web_rules.parent_uid',
+  'web_scripts.file',
+  'web_scripts.resolved_file',
+  'web_scripts.uid',
+  'web_selector_required.token',
+  'web_selectors.file',
+  'web_ssi_directives.element_uid',
+  'web_ssi_directives.file',
+  'web_ssi_directives.page_uid',
+  'web_ssi_directives.uid',
+  'web_stylesheets.display',
+  'web_stylesheets.owner_element_uid',
+  'web_stylesheets.page_uid',
+  'web_template_exprs.attribute_uid',
+  'web_template_exprs.element_uid',
+  'web_template_exprs.file',
+  'web_template_exprs.uid',
+  'web_token_uses.declaration_uid',
+  'web_tokens.uid',
+  'web_unknown.file',
+  'web_uses_var.value_ref_uid',
+  'web_value_refs.declaration_uid',
+  'web_value_refs.file',
+  'web_value_refs.resolved_file',
+  'web_value_refs.rule_uid',
+  'web_value_refs.uid',
+  'web_var_def.attribute_uid',
+  'web_var_def.def_uid',
+  'web_var_def.element_uid',
+  'web_var_def.rule_uid',
+  'web_var_def.stylesheet_uid',
+  'web_var_scope.element_uid',
+  'web_var_scope.name',
+  'web_var_scope.page_uid',
+  'web_var_scope.root_exact_uid',
+  'web_var_scope.root_uid',
+  'web_var_visible.def_uid',
+]);
+
+export const WEB_TABLES: readonly TableSpec[] = WEB_TABLE_DEFS.map((t) => ({
+  ...t, columns: t.columns.map((c) => (c.indexed && NOT_INDEXED.has(`${t.name}.${c.name}`) ? { ...c, indexed: false } : c)),
+}));
+for (const n of NOT_INDEXED) {
+  const [tn, cn] = n.split('.');
+  if (!WEB_TABLE_DEFS.some((t) => t.name === tn && t.columns.some((c) => c.name === cn && c.indexed))) throw new Error(`NOT_INDEXED names ${n}, which is no indexed web column`);
+}
 
 /** Views: the edges a reader expects by name that are a projection of a node table. */
 /** run after the indexes: values that need every table written (web_rules.usage from its selectors) */

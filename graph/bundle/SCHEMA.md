@@ -1013,7 +1013,7 @@ Rows: = elements as written (implied html/head/body/tbody are not rows).
 | 5 | `col` | INTEGER |  |  |
 | 6 | `end_line` | INTEGER |  |  |
 | 7 | `end_col` | INTEGER |  |  |
-| 8 | `tag_name` | TEXT | yes |  |
+| 8 | `tag_name` | TEXT |  |  |
 | 9 | `namespace` | TEXT |  |  |
 | 10 | `depth` | INTEGER |  |  |
 | 11 | `position` | INTEGER |  |  |
@@ -1040,7 +1040,7 @@ Rows: = attributes as written.
 | 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
-| 6 | `name` | TEXT | yes |  |
+| 6 | `name` | TEXT |  |  |
 | 7 | `prefix` | TEXT |  |  |
 | 8 | `value` | TEXT |  | cut at 4,096 chars; entity-decoded, as the DOM reads it |
 | 9 | `value_raw` | TEXT |  | the value as written, only when entity decoding changed it (V3-10a) |
@@ -1056,7 +1056,7 @@ Rows: = class tokens over all elements (templated tokens kept, flagged dynamic).
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
 | 0 | `uid` | TEXT |  |  |
-| 1 | `element_uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT |  |  |
 | 2 | `page_uid` | TEXT |  |  |
 | 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
@@ -1072,10 +1072,10 @@ Rows: = URL-bearing attributes, @import/url() and INCLUDE references.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
 | 1 | `element_uid` | TEXT | yes |  |
-| 2 | `page_uid` | TEXT | yes |  |
-| 3 | `file` | TEXT | yes |  |
+| 2 | `page_uid` | TEXT |  |  |
+| 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
 | 6 | `reference_kind` | TEXT |  |  |
@@ -1085,7 +1085,7 @@ Rows: = URL-bearing attributes, @import/url() and INCLUDE references.
 | 10 | `path` | TEXT |  |  |
 | 11 | `query` | TEXT |  |  |
 | 12 | `fragment` | TEXT |  |  |
-| 13 | `resolved_file` | TEXT | yes |  |
+| 13 | `resolved_file` | TEXT |  |  |
 | 14 | `is_resolved` | INTEGER |  |  |
 
 ### `web_scripts`
@@ -1096,10 +1096,10 @@ Rows: = <script> elements.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
 | 1 | `element_uid` | TEXT | yes |  |
 | 2 | `page_uid` | TEXT | yes |  |
-| 3 | `file` | TEXT | yes |  |
+| 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
 | 6 | `order_on_page` | INTEGER |  |  |
@@ -1109,7 +1109,7 @@ Rows: = <script> elements.
 | 10 | `attributes` | TEXT |  | JSON, values entity-decoded |
 | 11 | `attributes_raw` | TEXT |  | JSON of the values as written, only when entity decoding changed one (V3-10a) |
 | 12 | `src` | TEXT |  |  |
-| 13 | `resolved_file` | TEXT | yes |  |
+| 13 | `resolved_file` | TEXT |  |  |
 | 14 | `is_module` | INTEGER |  |  |
 | 15 | `is_async` | INTEGER |  |  |
 | 16 | `is_defer` | INTEGER |  |  |
@@ -1132,14 +1132,14 @@ Rows: = on* attributes, javascript: URLs and template event directives.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
 | 1 | `element_uid` | TEXT | yes |  |
-| 2 | `attribute_uid` | TEXT | yes |  |
+| 2 | `attribute_uid` | TEXT |  |  |
 | 3 | `page_uid` | TEXT | yes |  |
-| 4 | `file` | TEXT | yes |  |
-| 5 | `tag` | TEXT | yes |  |
+| 4 | `file` | TEXT |  |  |
+| 5 | `tag` | TEXT |  |  |
 | 6 | `attr_as_written` | TEXT |  |  |
-| 7 | `event` | TEXT | yes |  |
+| 7 | `event` | TEXT |  |  |
 | 8 | `event_source` | TEXT |  | written \| stimulus_default (a data-action descriptor with no event: Stimulus's default for the tag) \| stimulus_default_unknown (no default for the tag; event NULL) |
 | 9 | `modifiers` | TEXT |  |  |
 | 10 | `source_kind` | TEXT |  |  |
@@ -1159,16 +1159,16 @@ Rows: ≤ names called inside handler code (the parser's call tokens).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
-| 2 | `attribute_uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT |  |  |
+| 2 | `attribute_uid` | TEXT |  |  |
 | 3 | `page_uid` | TEXT | yes |  |
-| 4 | `file` | TEXT | yes |  |
+| 4 | `file` | TEXT |  |  |
 | 5 | `line` | INTEGER |  |  |
 | 6 | `col` | INTEGER |  |  |
 | 7 | `handler_source` | TEXT |  |  |
 | 8 | `event` | TEXT |  |  |
-| 9 | `callee_name` | TEXT | yes |  |
+| 9 | `callee_name` | TEXT |  |  |
 | 10 | `receiver` | TEXT |  |  |
 | 11 | `callee_text` | TEXT |  |  |
 | 12 | `argument_count` | INTEGER |  |  |
@@ -1183,11 +1183,11 @@ Rows: = template directives and interpolations (SSI directives are web_ssi_direc
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
-| 2 | `attribute_uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT |  |  |
+| 2 | `attribute_uid` | TEXT |  |  |
 | 3 | `page_uid` | TEXT | yes |  |
-| 4 | `file` | TEXT | yes |  |
+| 4 | `file` | TEXT |  |  |
 | 5 | `line` | INTEGER |  |  |
 | 6 | `col` | INTEGER |  |  |
 | 7 | `dialect` | TEXT |  |  |
@@ -1208,10 +1208,10 @@ Rows: = SSI directives other than #include.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
-| 2 | `page_uid` | TEXT | yes |  |
-| 3 | `file` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT |  |  |
+| 2 | `page_uid` | TEXT |  |  |
+| 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
 | 6 | `directive` | TEXT |  |  |
@@ -1231,8 +1231,8 @@ Rows: = CSS files + <style> elements.
 | 1 | `file` | TEXT | yes |  |
 | 2 | `name` | TEXT |  |  |
 | 3 | `source_kind` | TEXT |  |  |
-| 4 | `owner_element_uid` | TEXT | yes |  |
-| 5 | `page_uid` | TEXT | yes |  |
+| 4 | `owner_element_uid` | TEXT |  |  |
+| 5 | `page_uid` | TEXT |  |  |
 | 6 | `minified` | INTEGER |  |  |
 | 7 | `vendor` | INTEGER |  |  |
 | 8 | `rule_count` | INTEGER |  |  |
@@ -1240,7 +1240,7 @@ Rows: = CSS files + <style> elements.
 | 10 | `gap_count` | INTEGER |  |  |
 | 11 | `line` | INTEGER |  |  |
 | 12 | `end_line` | INTEGER |  |  |
-| 13 | `display` | TEXT | yes |  |
+| 13 | `display` | TEXT |  |  |
 | 14 | `loaded_by_pages` | INTEGER |  | how many pages load it, directly or through @import |
 
 ### `web_rules`
@@ -1253,7 +1253,7 @@ Rows: = CSS rules and at-rules.
 |---|---|---|---|---|
 | 0 | `uid` | TEXT | yes |  |
 | 1 | `stylesheet_uid` | TEXT | yes |  |
-| 2 | `parent_uid` | TEXT | yes |  |
+| 2 | `parent_uid` | TEXT |  |  |
 | 3 | `file` | TEXT | yes |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
@@ -1261,7 +1261,7 @@ Rows: = CSS rules and at-rules.
 | 7 | `end_col` | INTEGER |  |  |
 | 8 | `rule_kind` | TEXT |  |  |
 | 9 | `at_rule_name` | TEXT |  |  |
-| 10 | `name` | TEXT | yes |  |
+| 10 | `name` | TEXT |  |  |
 | 11 | `prelude_text` | TEXT |  |  |
 | 12 | `nesting_depth` | INTEGER |  |  |
 | 13 | `position` | INTEGER |  |  |
@@ -1285,7 +1285,7 @@ Rows: = selectors (one per comma-separated selector of a rule).
 | 0 | `uid` | TEXT | yes |  |
 | 1 | `rule_uid` | TEXT | yes |  |
 | 2 | `stylesheet_uid` | TEXT | yes |  |
-| 3 | `file` | TEXT | yes |  |
+| 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
 | 5 | `col` | INTEGER |  |  |
 | 6 | `position` | INTEGER |  |  |
@@ -1315,7 +1315,7 @@ Rows: ≤ class/id tokens a selector requires.
 |---|---|---|---|---|
 | 0 | `selector_uid` | TEXT | yes |  |
 | 1 | `kind` | TEXT |  | class \| id |
-| 2 | `token` | TEXT | yes |  |
+| 2 | `token` | TEXT |  |  |
 
 ### `web_selector_parts`
 
@@ -1356,7 +1356,7 @@ Rows: = declarations in rules and style attributes.
 | 3 | `element_uid` | TEXT | yes |  |
 | 4 | `stylesheet_uid` | TEXT |  |  |
 | 5 | `page_uid` | TEXT | yes |  |
-| 6 | `file` | TEXT | yes |  |
+| 6 | `file` | TEXT |  |  |
 | 7 | `line` | INTEGER |  |  |
 | 8 | `col` | INTEGER |  |  |
 | 9 | `end_line` | INTEGER |  |  |
@@ -1378,18 +1378,18 @@ Rows: = var(), url(), animation-name, font-family, @layer/@container names in va
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `declaration_uid` | TEXT | yes |  |
-| 2 | `rule_uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `declaration_uid` | TEXT |  |  |
+| 2 | `rule_uid` | TEXT |  |  |
 | 3 | `stylesheet_uid` | TEXT | yes |  |
-| 4 | `file` | TEXT | yes |  |
+| 4 | `file` | TEXT |  |  |
 | 5 | `line` | INTEGER |  |  |
 | 6 | `col` | INTEGER |  |  |
 | 7 | `reference_kind` | TEXT |  |  |
 | 8 | `name` | TEXT | yes |  |
 | 9 | `fallback_text` | TEXT |  |  |
 | 10 | `url_kind` | TEXT |  |  |
-| 11 | `resolved_file` | TEXT | yes |  |
+| 11 | `resolved_file` | TEXT |  |  |
 | 12 | `is_resolved` | INTEGER |  |  |
 
 ### `web_comments`
@@ -1400,9 +1400,9 @@ Rows: = CSS comments (text cut at the parser's limit).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `stylesheet_uid` | TEXT | yes |  |
-| 2 | `file` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `stylesheet_uid` | TEXT |  |  |
+| 2 | `file` | TEXT |  |  |
 | 3 | `line` | INTEGER |  |  |
 | 4 | `col` | INTEGER |  |  |
 | 5 | `end_line` | INTEGER |  |  |
@@ -1417,14 +1417,14 @@ Rows: = parse gaps the parser declared.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
 | 1 | `lang` | TEXT |  |  |
 | 2 | `gap_kind` | TEXT |  |  |
 | 3 | `detail` | TEXT |  |  |
 | 4 | `owner_uid` | TEXT | yes | page (html) or sheet (css) |
-| 5 | `related_uid` | TEXT | yes | the element (html) or rule (css) it covers |
-| 6 | `element_uid` | TEXT | yes | the element an html gap covers (= related_uid for html) |
-| 7 | `file` | TEXT | yes |  |
+| 5 | `related_uid` | TEXT |  | the element (html) or rule (css) it covers |
+| 6 | `element_uid` | TEXT |  | the element an html gap covers (= related_uid for html) |
+| 7 | `file` | TEXT |  |  |
 | 8 | `line` | INTEGER |  |  |
 | 9 | `col` | INTEGER |  |  |
 | 10 | `end_line` | INTEGER |  |  |
@@ -1442,7 +1442,7 @@ Rows: = page -> stylesheet loads (link, style, @import closure), one per load.
 | 1 | `stylesheet_uid` | TEXT | yes |  |
 | 2 | `url_as_written` | TEXT |  |  |
 | 3 | `via` | TEXT |  |  |
-| 4 | `via_uid` | TEXT | yes |  |
+| 4 | `via_uid` | TEXT |  |  |
 | 5 | `load_order` | INTEGER |  |  |
 | 6 | `import_depth` | INTEGER |  |  |
 | 7 | `media` | TEXT |  |  |
@@ -1460,7 +1460,7 @@ Rows: = @import references.
 |---|---|---|---|---|
 | 0 | `from_stylesheet_uid` | TEXT | yes |  |
 | 1 | `to_stylesheet_uid` | TEXT | yes |  |
-| 2 | `value_ref_uid` | TEXT | yes |  |
+| 2 | `value_ref_uid` | TEXT |  |  |
 | 3 | `url_as_written` | TEXT |  |  |
 | 4 | `status` | TEXT |  |  |
 | 5 | `reason` | TEXT |  |  |
@@ -1473,13 +1473,13 @@ Rows: = anchor, iframe and form references from pages.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `from_element_uid` | TEXT | yes |  |
+| 0 | `from_element_uid` | TEXT |  |  |
 | 1 | `page_uid` | TEXT | yes |  |
 | 2 | `attribute_name` | TEXT |  |  |
 | 3 | `to_page_uid` | TEXT | yes |  |
-| 4 | `to_element_uid` | TEXT | yes |  |
+| 4 | `to_element_uid` | TEXT |  |  |
 | 5 | `kind` | TEXT |  |  |
-| 6 | `reference_uid` | TEXT | yes |  |
+| 6 | `reference_uid` | TEXT |  |  |
 | 7 | `url_as_written` | TEXT |  |  |
 | 8 | `fragment` | TEXT |  |  |
 | 9 | `status` | TEXT |  |  |
@@ -1493,11 +1493,11 @@ Rows: = id references (href="#x", for=, aria-*, headers=).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `from_element_uid` | TEXT | yes |  |
-| 1 | `page_uid` | TEXT | yes |  |
+| 0 | `from_element_uid` | TEXT |  |  |
+| 1 | `page_uid` | TEXT |  |  |
 | 2 | `attribute_name` | TEXT |  |  |
 | 3 | `id_value` | TEXT | yes |  |
-| 4 | `to_element_uid` | TEXT | yes |  |
+| 4 | `to_element_uid` | TEXT |  |  |
 | 5 | `status` | TEXT |  |  |
 | 6 | `reason` | TEXT |  |  |
 
@@ -1509,12 +1509,12 @@ Rows: = asset references (img, srcset candidates, url(), icons, fonts).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `from_uid` | TEXT | yes |  |
+| 0 | `from_uid` | TEXT |  |  |
 | 1 | `from_kind` | TEXT |  |  |
 | 2 | `owner_uid` | TEXT | yes |  |
 | 3 | `kind` | TEXT |  |  |
 | 4 | `url` | TEXT |  |  |
-| 5 | `file` | TEXT | yes |  |
+| 5 | `file` | TEXT |  |  |
 | 6 | `file_exists` | INTEGER |  |  |
 | 7 | `status` | TEXT |  |  |
 | 8 | `reason` | TEXT |  |  |
@@ -1559,11 +1559,11 @@ Rows: = include references with a resolved or declared-unknown host/fragment pai
 | 0 | `host_page_uid` | TEXT | yes |  |
 | 1 | `fragment_page_uid` | TEXT | yes |  |
 | 2 | `kind` | TEXT |  |  |
-| 3 | `host_element_uid` | TEXT | yes |  |
+| 3 | `host_element_uid` | TEXT |  |  |
 | 4 | `position` | INTEGER |  |  |
-| 5 | `reference_uid` | TEXT | yes |  |
+| 5 | `reference_uid` | TEXT |  |  |
 | 6 | `url_as_written` | TEXT |  |  |
-| 7 | `file` | TEXT | yes |  |
+| 7 | `file` | TEXT |  |  |
 | 8 | `line` | INTEGER |  |  |
 | 9 | `col` | INTEGER |  |  |
 | 10 | `args` | TEXT |  |  |
@@ -1578,12 +1578,12 @@ Rows: = custom-property declarations + @property rules (SPEC §3.4a).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `def_uid` | TEXT | yes |  |
+| 0 | `def_uid` | TEXT |  |  |
 | 1 | `name` | TEXT | yes |  |
-| 2 | `rule_uid` | TEXT | yes |  |
-| 3 | `attribute_uid` | TEXT | yes |  |
-| 4 | `element_uid` | TEXT | yes |  |
-| 5 | `stylesheet_uid` | TEXT | yes |  |
+| 2 | `rule_uid` | TEXT |  |  |
+| 3 | `attribute_uid` | TEXT |  |  |
+| 4 | `element_uid` | TEXT |  |  |
+| 5 | `stylesheet_uid` | TEXT |  |  |
 
 ### `web_var_visible`
 
@@ -1599,7 +1599,7 @@ Rows: ≤ var() uses × definitions visible on some page (page-independent, SPEC
 | 3 | `def_owner_uid` | TEXT |  |  |
 | 4 | `def_owner_kind` | TEXT |  |  |
 | 5 | `defs` | INTEGER |  |  |
-| 6 | `def_uid` | TEXT | yes |  |
+| 6 | `def_uid` | TEXT |  |  |
 | 7 | `status` | TEXT |  |  |
 | 8 | `reason` | TEXT |  |  |
 
@@ -1611,11 +1611,11 @@ Rows: one per (page, element, var name) for elements styled by a rule using the 
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `page_uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
-| 2 | `name` | TEXT | yes |  |
-| 3 | `root_uid` | TEXT | yes |  |
-| 4 | `root_exact_uid` | TEXT | yes |  |
+| 0 | `page_uid` | TEXT |  |  |
+| 1 | `element_uid` | TEXT |  |  |
+| 2 | `name` | TEXT |  |  |
+| 3 | `root_uid` | TEXT |  |  |
+| 4 | `root_exact_uid` | TEXT |  |  |
 | 5 | `status` | TEXT |  |  |
 | 6 | `reason` | TEXT |  |  |
 
@@ -1627,8 +1627,8 @@ Rows: = custom-property declarations.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `declaration_uid` | TEXT | yes |  |
-| 1 | `name` | TEXT | yes |  |
+| 0 | `declaration_uid` | TEXT |  |  |
+| 1 | `name` | TEXT |  |  |
 
 ### `web_uses_var`
 
@@ -1638,7 +1638,7 @@ Rows: = var() references.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `value_ref_uid` | TEXT | yes |  |
+| 0 | `value_ref_uid` | TEXT |  |  |
 | 1 | `name` | TEXT | yes |  |
 | 2 | `declaration_uid` | TEXT | yes |  |
 
@@ -1650,11 +1650,11 @@ Rows: ≤ animation names used × pages.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `use_uid` | TEXT | yes |  |
-| 1 | `value_ref_uid` | TEXT | yes |  |
-| 2 | `name` | TEXT | yes |  |
-| 3 | `target_uid` | TEXT | yes |  |
-| 4 | `page_uid` | TEXT | yes |  |
+| 0 | `use_uid` | TEXT |  |  |
+| 1 | `value_ref_uid` | TEXT |  |  |
+| 2 | `name` | TEXT |  |  |
+| 3 | `target_uid` | TEXT |  |  |
+| 4 | `page_uid` | TEXT |  |  |
 | 5 | `status` | TEXT |  |  |
 | 6 | `reason` | TEXT |  |  |
 
@@ -1666,11 +1666,11 @@ Rows: ≤ font-family names used × pages.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `use_uid` | TEXT | yes |  |
-| 1 | `value_ref_uid` | TEXT | yes |  |
-| 2 | `name` | TEXT | yes |  |
-| 3 | `target_uid` | TEXT | yes |  |
-| 4 | `page_uid` | TEXT | yes |  |
+| 0 | `use_uid` | TEXT |  |  |
+| 1 | `value_ref_uid` | TEXT |  |  |
+| 2 | `name` | TEXT |  |  |
+| 3 | `target_uid` | TEXT |  |  |
+| 4 | `page_uid` | TEXT |  |  |
 | 5 | `status` | TEXT |  |  |
 | 6 | `reason` | TEXT |  |  |
 
@@ -1684,8 +1684,8 @@ Rows: ≤ @container names used × pages.
 |---|---|---|---|---|
 | 0 | `use_uid` | TEXT | yes |  |
 | 1 | `name` | TEXT | yes |  |
-| 2 | `target_uid` | TEXT | yes |  |
-| 3 | `page_uid` | TEXT | yes |  |
+| 2 | `target_uid` | TEXT |  |  |
+| 3 | `page_uid` | TEXT |  |  |
 | 4 | `status` | TEXT |  |  |
 | 5 | `reason` | TEXT |  |  |
 
@@ -1719,7 +1719,7 @@ Rows: ≤ 2 × elements (SPEC §9.1).
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
 | 0 | `component_uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT |  |  |
 | 2 | `page_uid` | TEXT | yes |  |
 | 3 | `file` | TEXT |  |  |
 | 4 | `line` | INTEGER |  |  |
@@ -1749,17 +1749,17 @@ Rows: ≤ elements / 3 (SPEC §9.8).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
-| 1 | `parent_element_uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
+| 1 | `parent_element_uid` | TEXT |  |  |
 | 2 | `page_uid` | TEXT | yes |  |
-| 3 | `first_element_uid` | TEXT | yes |  |
+| 3 | `first_element_uid` | TEXT |  |  |
 | 4 | `start_position` | INTEGER |  |  |
 | 5 | `count` | INTEGER |  |  |
 | 6 | `item_tag` | TEXT |  |  |
 | 7 | `item_classes` | TEXT |  |  |
 | 8 | `item_size` | INTEGER |  |  |
 | 9 | `uniform` | INTEGER |  |  |
-| 10 | `component_uid` | TEXT | yes |  |
+| 10 | `component_uid` | TEXT |  |  |
 | 11 | `slot_count` | INTEGER |  |  |
 
 ### `web_computed`
@@ -1793,7 +1793,7 @@ Rows: ≤ distinct normalised values (SPEC §9.3).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `uid` | TEXT | yes |  |
+| 0 | `uid` | TEXT |  |  |
 | 1 | `kind` | TEXT |  |  |
 | 2 | `value` | TEXT | yes |  |
 | 3 | `uses` | INTEGER |  |  |
@@ -1812,7 +1812,7 @@ Rows: ≤ 4 × declarations (SPEC §9.3).
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
 | 0 | `token_uid` | TEXT | yes |  |
-| 1 | `declaration_uid` | TEXT | yes |  |
+| 1 | `declaration_uid` | TEXT |  |  |
 
 ### `web_breakpoints`
 
@@ -1853,10 +1853,10 @@ Rows: = <form> elements.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `element_uid` | TEXT | yes |  |
-| 1 | `page_uid` | TEXT | yes |  |
+| 0 | `element_uid` | TEXT |  |  |
+| 1 | `page_uid` | TEXT |  |  |
 | 2 | `action` | TEXT |  |  |
-| 3 | `action_resolved_page` | TEXT | yes |  |
+| 3 | `action_resolved_page` | TEXT |  |  |
 | 4 | `method` | TEXT |  |  |
 | 5 | `enctype` | TEXT |  |  |
 | 6 | `controls` | INTEGER |  |  |
@@ -1870,13 +1870,13 @@ Rows: = form controls (SPEC §9.5).
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `element_uid` | TEXT | yes |  |
+| 0 | `element_uid` | TEXT |  |  |
 | 1 | `page_uid` | TEXT | yes |  |
-| 2 | `form_uid` | TEXT | yes |  |
+| 2 | `form_uid` | TEXT |  |  |
 | 3 | `tag` | TEXT |  |  |
 | 4 | `type` | TEXT |  |  |
-| 5 | `name` | TEXT | yes |  |
-| 6 | `id` | TEXT | yes |  |
+| 5 | `name` | TEXT |  |  |
+| 6 | `id` | TEXT |  |  |
 | 7 | `required` | INTEGER |  |  |
 | 8 | `pattern` | TEXT |  |  |
 | 9 | `min` | TEXT |  |  |
@@ -1890,7 +1890,7 @@ Rows: = form controls (SPEC §9.5).
 | 17 | `disabled` | INTEGER |  |  |
 | 18 | `multiple` | INTEGER |  |  |
 | 19 | `autocomplete` | TEXT |  |  |
-| 20 | `label_uid` | TEXT | yes |  |
+| 20 | `label_uid` | TEXT |  |  |
 | 21 | `label_via` | TEXT |  |  |
 | 22 | `label_text` | TEXT |  |  |
 
@@ -1903,7 +1903,7 @@ Rows: ≤ selectors (SPEC §9.6).
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
 | 0 | `class_name` | TEXT | yes |  |
-| 1 | `rule_uid` | TEXT | yes |  |
+| 1 | `rule_uid` | TEXT |  |  |
 | 2 | `content` | TEXT |  |  |
 | 3 | `font_family` | TEXT |  |  |
 | 4 | `used_elements` | INTEGER |  |  |
@@ -1916,8 +1916,8 @@ Rows: = @font-face rules.
 
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
-| 0 | `rule_uid` | TEXT | yes |  |
-| 1 | `family` | TEXT | yes |  |
+| 0 | `rule_uid` | TEXT |  |  |
+| 1 | `family` | TEXT |  |  |
 | 2 | `src_files` | TEXT |  |  |
 | 3 | `weight` | TEXT |  |  |
 | 4 | `style` | TEXT |  |  |
@@ -1932,14 +1932,14 @@ Rows: ≤ elements (SPEC §9.7).
 | # | column | type | idx | meaning |
 |---|---|---|---|---|
 | 0 | `uid` | TEXT | yes |  |
-| 1 | `element_uid` | TEXT | yes |  |
+| 1 | `element_uid` | TEXT |  |  |
 | 2 | `page_uid` | TEXT | yes |  |
 | 3 | `kind` | TEXT |  |  |
 | 4 | `name` | TEXT |  |  |
 | 5 | `level` | INTEGER |  |  |
 | 6 | `label` | TEXT |  |  |
 | 7 | `text` | TEXT |  |  |
-| 8 | `parent_outline_uid` | TEXT | yes |  |
+| 8 | `parent_outline_uid` | TEXT |  |  |
 | 9 | `ordinal` | INTEGER |  |  |
 
 ### `web_classes`
@@ -1984,7 +1984,7 @@ Rows: ≤ 0.1 × web_styles + 10,000 (SPEC §11.3).
 | 2 | `page_uid` | TEXT | yes |  |
 | 3 | `reason` | TEXT |  |  |
 | 4 | `detail` | TEXT |  |  |
-| 5 | `file` | TEXT | yes |  |
+| 5 | `file` | TEXT |  |  |
 | 6 | `line` | INTEGER |  |  |
 
 ### Web views

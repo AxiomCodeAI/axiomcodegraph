@@ -52,7 +52,7 @@ async function readIr(dir: string, base: string): Promise<Table> {
       const row = r.map(unq);
       if (row.length > 0 && row[row.length - 1]!.endsWith('\r')) row[row.length - 1] = row[row.length - 1]!.slice(0, -1);
       if (header === null) { header = row; continue; }
-      if (row.length === header.length) rows.push(row.map((x) => (x.length > 64 ? x : flat(x))));
+      if (row.length === header.length) rows.push(row.map((x) => (x.length > 96 ? x : flat(x))));
     }
   }
   const idx = new Map((header ?? []).map((n, i) => [n, i]));
@@ -69,14 +69,19 @@ async function readIr(dir: string, base: string): Promise<Table> {
   };
 }
 
-/** A copy of a short string that does not keep the 1 MB chunk it was sliced from alive. */
+/**
+ * A copy of a short string that does not keep the 1 MB chunk it was sliced from alive, shared with every equal one.
+ * An IR hash (a kind prefix and 32 hex digits, 41-96 characters) is the field most repeated across rows and tables: on
+ * the largest dev project 6.8M such fields hold 1.7M distinct values, so interning up to 96 characters keeps one copy
+ * of each (about 2M distinct strings in all, under the cap).
+ */
 const internTable = new Map<string, string>();
 function flat(x: string): string {
-  if (x.length <= 40) {
+  if (x.length <= 96) {
     const hit = internTable.get(x);
     if (hit !== undefined) return hit;
     const c = (' ' + x).slice(1);
-    if (internTable.size < 2_000_000) internTable.set(c, c);
+    if (internTable.size < 4_000_000) internTable.set(c, c);
     return c;
   }
   return (' ' + x).slice(1);
