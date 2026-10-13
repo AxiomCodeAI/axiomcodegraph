@@ -123,6 +123,15 @@ With them, a call into a dependency resolves to its declaration and a chain is t
 types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is
 not found this way.
 
+## report
+
+At the end of a turn where an answer verifiably led your work (a file the answer showed first that you then read or
+edited, or the tests it picked that you ran: Redirected / Helped / Useful), the plugin hands you a receipt once. End
+your reply with it exactly as written. It is read from the session's tool calls, not from what you write, so there is
+nothing to claim yourself; if the reply does not carry it, the user is shown it anyway.
+Each repository keeps its own record (`.axiomcode/assists.jsonl` at its root) and its own page,
+`.axiomcode/assists.html`, rebuilt whenever a turn adds to the record; `axiomcode report` rebuilds it by hand.
+
 ## graph
 
 `axiomcode graph` draws the codebase as one page for the user to look at: directories, files, types and methods, with
