@@ -97,6 +97,14 @@ export const TS_SKIP_DIRECTORIES = [
   '.next', '.nuxt', '.turbo', '.cache', '.yarn', 'bower_components',
 ] as const;
 
+/**
+ * The entries of TS_SKIP_DIRECTORIES that hold a build's output. For the project under
+ * analysis they are a copy of its own source; for a DEPENDENCY they are where its
+ * declaration files live: a root `.d.ts` that re-exports `./dist/...`, or a package whose
+ * every declaration sits under `dist/types/`. A library walk keeps them.
+ */
+export const TS_BUILD_OUTPUT_DIRECTORIES = ['dist', 'build', 'out'] as const;
+
 /** CSV file names for the TypeScript fact tables. */
 export const TYPESCRIPT_CSV_FILES = {
   MODULES: 'all-typescript-modules.csv',
