@@ -26,7 +26,7 @@ DOCS = sorted(p for d in (os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', '
        [os.path.join(ROOT, 'plugins', 'axiomcode', 'AGENTS.md')] + \
        sorted(glob.glob(os.path.join(ROOT, 'plugins', 'axiomcode', 'rules', '*.mdc')))
 
-VERB = r'(find|impact|path|tests)'
+VERB = r'(find|impact|path|tests|context|link|value)'
 # a tool named: a call `impact(`, the Claude Code name mcp__plugin_axiomcode_axiomcode__impact, MCP `impact`, or a command
 # in backticks (`axiomcode impact x`); `path:line: …` is an answer's shape, not the tool
 MENTION = re.compile(r'`(?:axiomcode )?' + VERB + r'(?:[ \t][^`\n]*)?`|\bmcp__plugin_axiomcode_axiomcode__' + VERB + r'\b'
@@ -130,7 +130,7 @@ def controls(tools):
         got = len(mismatches(documented(text), fake, 'control'))
         if got != want:
             bad.append(f"control {text!r}: {got} mismatch(es), want {want}")
-    if set(tools) != {'impact', 'path', 'tests'}:
+    if set(tools) != {'context', 'impact', 'link', 'path', 'tests', 'value'}:
         bad.append(f"the server listed {sorted(tools)}; the MCP tools were not read")
     return bad
 

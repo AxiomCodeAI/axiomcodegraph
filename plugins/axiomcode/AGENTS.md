@@ -8,13 +8,15 @@ that never spell the name:
                         impact() with no name: the same for your uncommitted edits
     path(start, end)    how A reaches B, every hop of the call chain
     tests()             the tests your uncommitted edits reach, and the command that runs them
+    value(name)         the current value of a named constant (MAX_ITEMS, Pager.MAX_ITEMS, MAX_*),
+                        with its kind and the file:line that writes it
     link(site, target)  record where an unresolved call lands, when the code makes it certain;
                         impact, path and tests then walk it, labelled [asserted]
     context(task)       how something works, as a narrative: the call flow step by step;
                         context(task, source=True) carries each step's code
 
 Without the tools, the same from the shell: `axiomcode impact <name>`,
-`axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`.
+`axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode value <name>`, `axiomcode context "<task>" --source`.
 
 Every answer is a numbered list of places, each with the code of the function it sits in and the line that
 matters marked `→`: answer from that code, and open a file only where a body was cut. A `resolved` place has
