@@ -75,6 +75,9 @@ One check needs no graph and is its own script:
                                          no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/windows_argv.py        an argument holding ' or " reaches the verb as written when a native program starts
+                                         Git Bash the Windows way (AXIOMCODE_ARGV, ax_exec.bash_argv), through both entry
+                                         points; taken once; the command-line branch is the control (no engine)
     python3 tests/no_exec.py             impact, path and context answer, with their exit status, where os.exec* does not
                                          replace the process, as on Windows; no script or hook calls os.exec* but
                                          ax_exec.py (#1640; indexes a case, so it needs the engine)

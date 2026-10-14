@@ -18,6 +18,7 @@ Which tests each file runs before:
     (`projects:` / `workspace`, or a vitest.workspace file), else the configuration's own root.
 """
 import os
+import posixpath
 import re
 
 CONFIG_NAME = re.compile(r'^(vitest\.config|vite\.config|vitest\.workspace|vitest\.shared|jest\.config)(\.[\w-]+)*\.(c|m)?[jt]s$')
@@ -26,6 +27,8 @@ STRING = re.compile(r'''(['"`])((?:(?!\1).)*)\1''')
 ROOTDIR = re.compile(r'''\brootDir\s*:\s*(['"])([^'"]*)\1''')
 LISTS_PROJECTS = re.compile(r'\b(projects|workspace)\s*:\s*\[')
 EXTS = ('', '.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '/index.ts', '/index.js')
+# Paths here are repository-relative and written with `/`, as the graph stores them: posixpath, never os.path, which
+# writes `\` on Windows, so no configuration there matched a file the graph holds.
 SKIP_DIRS = {'node_modules', '.git', 'dist', 'build', 'coverage', '.axiomcode', '.next', 'out'}
 
 
@@ -34,7 +37,7 @@ def _configs(repo):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not x.startswith('.')]
         for f in files:
             if CONFIG_NAME.match(f):
-                yield os.path.relpath(os.path.join(d, f), repo)
+                yield os.path.relpath(os.path.join(d, f), repo).replace(os.sep, '/')
 
 
 def _read(repo, rel):
@@ -48,9 +51,9 @@ def _resolve(repo, base, spec, files):
     """the repository file a set-up entry names, or None (a package, or nothing there)"""
     spec = spec.replace('<rootDir>', '.')
     if not spec.startswith(('.', '/')): return None              # a package's own set-up
-    rel = os.path.normpath(os.path.join(base, spec.lstrip('/') if spec.startswith('/') else spec))
+    rel = posixpath.normpath(posixpath.join(base, spec.lstrip('/') if spec.startswith('/') else spec))
     for e in EXTS:
-        if (rel + e).replace(os.sep, '/') in files: return (rel + e).replace(os.sep, '/')
+        if rel + e in files: return rel + e
     return None
 
 
@@ -58,15 +61,15 @@ def setup_files(repo, files):
     """[(setup file, kind, scope dir)] for every set-up file a runner configuration here names; `files` is the set of
     repository-relative files the graph holds. kind is 'each' (setupFiles*) or 'global' (globalSetup)."""
     cfgs = sorted(_configs(repo))
-    lister = {os.path.dirname(c) for c in cfgs if os.path.basename(c).startswith('vitest.workspace')
+    lister = {posixpath.dirname(c) for c in cfgs if os.path.basename(c).startswith('vitest.workspace')
               or LISTS_PROJECTS.search(_read(repo, c))}
     out = set()
     for c in cfgs:
         text = _read(repo, c)
         if not KEY.search(text): continue
-        cdir = os.path.dirname(c)
+        cdir = posixpath.dirname(c)
         rd = ROOTDIR.search(text)
-        root = os.path.normpath(os.path.join(cdir, rd.group(2))) if rd else cdir
+        root = posixpath.normpath(posixpath.join(cdir, rd.group(2))) if rd else cdir
         root = '' if root == '.' else root
         for key, val in KEY.findall(text):
             kind = 'global' if key == 'globalSetup' else 'each'
