@@ -91,7 +91,9 @@ def export(repo, page=None, how=''):
         def rel(p, src=src):
             a = p if os.path.isabs(p) else os.path.join(src, p)
             a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-            r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
+            try: r = os.path.relpath(a, repo).replace(os.sep, '/')
+            except ValueError: r = '..'                       # another drive (Windows): outside, as axiomcode-index reads it
+            return p.replace(os.sep, '/').lstrip('/') if r.startswith('..') else r
 
         # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
         owners.update({r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")})
