@@ -91,7 +91,9 @@ def export(repo, page=None, how=''):
         def rel(p, src=src):
             a = p if os.path.isabs(p) else os.path.join(src, p)
             a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-            r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
+            try: r = os.path.relpath(a, repo).replace(os.sep, '/')
+            except ValueError: r = '..'                       # another drive (Windows): outside, as axiomcode-index reads it
+            return p.replace(os.sep, '/').lstrip('/') if r.startswith('..') else r
 
         # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
         owners.update({r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")})
@@ -232,7 +234,9 @@ def run_build(repo, env=None):
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
     sys.stdout.flush()
-    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo], env=env)   # a bash script: Windows cannot exec it itself
+    import ax_exec
+    argv, env = ax_exec.bash_argv(b, [repo], env)
+    r = subprocess.run(argv, env=env)   # a bash script: Windows cannot exec it itself
     if r.returncode: sys.exit(r.returncode)
 
 

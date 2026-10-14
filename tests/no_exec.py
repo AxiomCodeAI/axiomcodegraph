@@ -72,14 +72,14 @@ def main():
         subprocess.run(['git', 'init', '-q', '.'], cwd=repo, check=True)
         subprocess.run(['git', 'add', '-A'], cwd=repo, check=True)
         subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x'], cwd=repo, check=True)
-        r = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode-build'), repo], capture_output=True, text=True, timeout=600)
+        r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(SCRIPTS, 'axiomcode-build'), repo], capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             print('no_exec: index failed\n' + (r.stdout + r.stderr)[-1500:]); return 1
         site = os.path.join(work, 'site'); os.makedirs(site)
         open(os.path.join(site, 'sitecustomize.py'), 'w').write(WINDOWS_EXEC % SCRIPTS)
         plain = dict(os.environ)
         win = dict(plain, PYTHONPATH=site + os.pathsep + os.environ.get('PYTHONPATH', ''))
-        ax = ['bash', os.path.join(SCRIPTS, 'axiomcode')]
+        ax = [os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(SCRIPTS, 'axiomcode')]   # Windows: a bare `bash` is WSL's
         checks = [  # (why, argv, what the answer holds, exit status 0?)
             ('impact answers', ax + ['impact', 'Rates.rate', repo], 'Quote.total', True),
             ('impact --json answers', ax + ['impact', 'Rates.rate', repo, '--json'], '"Quote.total', True),

@@ -18,6 +18,7 @@ Both backends read this module (dl/impact.dl through the `spawns_fact` input, gr
 they cannot drift apart on what counts as a spawn.
 """
 import os
+import posixpath
 import re
 
 # the process-starting calls, per language family. A bare `run(` / `call(` in Python is a spawn only where the file
@@ -105,7 +106,7 @@ def _literals(text, arg, seen=(), depth=0):
 
 def _resolve(lits, f, known):
     """the indexed files a run of consecutive pieces names, tried from the test's own directory up to the root"""
-    here = os.path.dirname(f).split('/') if os.path.dirname(f) else []
+    here = posixpath.dirname(f).split('/') if posixpath.dirname(f) else []
     bases = ['/'.join(here[:k]) for k in range(len(here), -1, -1)]
     out = set()
     for j in range(len(lits)):
@@ -113,7 +114,8 @@ def _resolve(lits, f, known):
             cand = '/'.join(p.strip('/') if k else p.rstrip('/') for k, p in enumerate(lits[i:j + 1]) if p)
             if not cand or cand.startswith('/') or cand in ('.', '..'): continue
             for b in bases:
-                p = os.path.normpath(os.path.join(b, cand)) if b else os.path.normpath(cand)
+                # repository-relative, `/` as the graph stores it: os.path wrote `\` on Windows and matched no file
+                p = posixpath.normpath(posixpath.join(b, cand)) if b else posixpath.normpath(cand)
                 # `require.resolve('../bin/semver')`, `node bin/cli`: the runtime adds the extension, so try its own —
                 # only on ONE literal that is itself a path: the middle piece of `join(ROOT, 'mcp', 'server.py')` is a
                 # directory, and `mcp` + `.py` named a sibling test file that nothing runs

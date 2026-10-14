@@ -457,10 +457,14 @@ class G:
         its leading `/` dropped as before, so a root-relative `/src/a.js` still matches — and is named as outside when not."""
         while f.startswith('./'): f = f[2:]
         if not os.path.isabs(f): return f, False
+        # Containment by commonpath on normcased paths, not a `root + '/'` prefix: on Windows abspath writes `\\` and
+        # either case for the drive, so a file under the repository was refused as outside it.
         real = os.path.realpath(f)
-        for root in {self.repo, os.path.abspath(self.repo)}:
+        for root in {self.repo, os.path.abspath(self.repo), os.path.realpath(self.repo)}:
             for p in (real, os.path.abspath(f)):
-                if p == root or p.startswith(root.rstrip('/') + '/'):
+                try: inside = os.path.commonpath([os.path.normcase(p), os.path.normcase(root)]) == os.path.normcase(root)
+                except ValueError: inside = False                      # another drive
+                if inside:
                     return os.path.relpath(p, root).replace(os.sep, '/'), False
         return f.lstrip('/'), True
     def file_lines(self, f):

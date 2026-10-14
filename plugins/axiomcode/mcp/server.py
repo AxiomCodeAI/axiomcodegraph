@@ -186,7 +186,13 @@ def run(args, cwd=None, timeout=900):
     note = stale_note(root)
     head = (note + '\n') if note else ''
     try:
-        r = subprocess.run([BASH, ax, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
+        # On Windows the arguments travel in AXIOMCODE_ARGV, not on the command line: Git Bash parses a command line by
+        # msys rules (`'` quotes, `\"` is no escape), so a question holding an apostrophe lost every argument after it.
+        # The same as ax_exec.bash_argv, which this server does not import.
+        argv = [BASH, ax, *args]
+        if os.name == 'nt':
+            argv, env = [BASH, ax], dict(env or os.environ, AXIOMCODE_ARGV=''.join(f'{a}\x1f' for a in args))
+        r = subprocess.run(argv, cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
     except OSError as e:
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")

@@ -49,6 +49,12 @@
 #                          build option above.)
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
+# Windows: a native caller (bin/axiomcode.js, the MCP server, ax_exec.bash_argv) hands the arguments over in
+# AXIOMCODE_ARGV, each ended by \x1f, because msys misparses them on a command line. Taken once, so a script this one
+# starts gets its own.
+if [ -n "${AXIOMCODE_ARGV+x}" ]; then
+  set --; while IFS= read -r -d $'\x1f' _a; do set -- "$@" "$_a"; done < <(printf '%s' "$AXIOMCODE_ARGV"); unset AXIOMCODE_ARGV _a
+fi
 # RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
 # node_modules/.bin, so under `npx axiomcode` or a global install $0 is that link and
 # dirname "$0" is .bin/, a directory this package does not live under. The walk below then

@@ -26,6 +26,7 @@ the previous graph. Three pieces:
   ax_fresh.py baseline <repo> [<seconds>]      when HEAD moved, wait for the baseline to follow it (changed, test-impact)
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
+  ax_fresh.py hold <file> <winpid> [--try]     the same on Windows, held for the build by this process until it ends
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
   ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
   ax_fresh.py newer <repo>                     exit 0 (saying so) when a newer axiomcode built the graph: never rebuilt by this one
@@ -245,7 +246,7 @@ def snapshot(repo, lang, src):
     """the file table: {rel: [size, mtime_ns, sha1]} of every file the parser would read under src"""
     files = {}
     for p in watched_from(repo, src, lang):
-        try: st = os.stat(p); files[os.path.relpath(p, repo)] = [st.st_size, st.st_mtime_ns, digest(p)]
+        try: st = os.stat(p); files[os.path.relpath(p, repo).replace(os.sep, '/')] = [st.st_size, st.st_mtime_ns, digest(p)]
         except OSError: pass
     return files
 
@@ -272,7 +273,7 @@ def dep_snapshot(repo):
         for f in files:
             if f in DEP_FILES or f.endswith('.csproj') or f.startswith('requirements') and f.endswith('.txt'):
                 pth = os.path.join(root, f)
-                try: st = os.stat(pth); out[os.path.relpath(pth, repo)] = f'{st.st_size}:{st.st_mtime_ns}'
+                try: st = os.stat(pth); out[os.path.relpath(pth, repo).replace(os.sep, '/')] = f'{st.st_size}:{st.st_mtime_ns}'
                 except OSError: pass
     # a Java dependency is fetched into a repository outside the project (~/.m2, Gradle's cache), which no file here
     # records: which declared dependencies are present there is part of the fingerprint, so one fetched after the
@@ -290,7 +291,7 @@ def dep_snapshot(repo):
             pass
     for env in ('.venv', 'venv', 'env', '.env'):
         for sp in glob.glob(os.path.join(repo, env, 'lib*', '*', 'site-packages')) + glob.glob(os.path.join(repo, env, 'Lib', 'site-packages')):
-            try: out[os.path.relpath(sp, repo)] = hashlib.sha1('|'.join(sorted(d for d in os.listdir(sp) if d.endswith('.dist-info'))).encode()).hexdigest()
+            try: out[os.path.relpath(sp, repo).replace(os.sep, '/')] = hashlib.sha1('|'.join(sorted(d for d in os.listdir(sp) if d.endswith('.dist-info'))).encode()).hexdigest()
             except OSError: pass
     return out
 
@@ -314,7 +315,7 @@ def changes(repo, table=None):
     old = t.get('files', {}); src = os.path.join(repo, t.get('src') or '')
     changed, added, seen = [], [], set()
     for p in watched_from(repo, src, t.get('lang', '')):
-        rel = os.path.relpath(p, repo); seen.add(rel)
+        rel = os.path.relpath(p, repo).replace(os.sep, '/'); seen.add(rel)
         try: st = os.stat(p)
         except OSError: continue
         o = old.get(rel)
@@ -331,7 +332,7 @@ def changes(repo, table=None):
         for l in SOURCE:
             if l in mine: continue
             for p in watched(src, l):
-                rel = os.path.relpath(p, repo)
+                rel = os.path.relpath(p, repo).replace(os.sep, '/')
                 if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
     changed += dep_changes(t, repo)
     return sorted(changed), sorted(added), sorted(set(old) - seen)
@@ -870,6 +871,30 @@ def _flock(fd, block):
                 time.sleep(0.5)
     except OSError: return False
 
+def hold(path, winpid, block):
+    """THE BUILD LOCK ON WINDOWS (Git Bash). There the build's `lock 9` cannot lock anything: fd 9 is Git Bash's, and a
+    native python.exe inherits only 0-2, so every build ran unlocked and two of one repository (a refresh and a query's
+    build, two refreshes) deleted each other's .progress and base-commit mid-build. This process holds the lock in the
+    build's place: it opens the lock file itself, takes the byte building() probes, says `held` (`busy` with --try when
+    another build has it), and waits for the build's Windows process to end, however it ends; Windows drops the lock
+    with this process. Returns the exit status: 0 held and released, 75 busy."""
+    import ctypes, msvcrt
+    fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    while True:
+        try: msvcrt.locking(fd, msvcrt.LK_NBLCK, 1); break
+        except OSError:
+            if not block: print('busy', flush=True); return 75
+            time.sleep(0.5)
+    print('held', flush=True)
+    for f in (sys.stdout, sys.stderr):                         # the build reads `held` and deletes that file: leave it closed
+        try: f.close()
+        except OSError: pass
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x00100000, False, int(winpid))          # SYNCHRONIZE
+    if h:
+        k.WaitForSingleObject(h, 0xFFFFFFFF); k.CloseHandle(h)
+    return 0
+
 def building(repo):
     """True while a build holds the build lock (the worker's or an explicit `axiomcode index`)"""
     p = os.path.join(repo, '.axiomcode', 'build.lock')
@@ -1216,7 +1241,9 @@ def worker(repo):
             # the worker is detached and has no console, so Windows would give the console program bash a new, visible
             # window for the length of every rebuild; CREATE_NO_WINDOW keeps it hidden
             try:
-                r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                import ax_exec
+                argv, env = ax_exec.bash_argv(os.path.join(H, 'axiomcode-build'), [repo], env)
+                r = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                    **(dict(creationflags=0x08000000) if os.name == 'nt' else {}))
             finally:
                 give_slot(slot)
@@ -1624,6 +1651,8 @@ def main(argv):
     cmd = argv[1]
     if cmd == 'lock':
         return 0 if _flock(int(argv[2]), '--try' not in argv) else 75
+    if cmd == 'hold':
+        return hold(argv[2], argv[3], '--try' not in argv)
     repo = os.path.realpath(argv[2]) if len(argv) > 2 else os.getcwd()
     if cmd in ('query', 'baseline', 'relink'): relink(repo, locked='--locked' in argv[3:4])   # every query verb passes here
     if cmd == 'relink': return 0
