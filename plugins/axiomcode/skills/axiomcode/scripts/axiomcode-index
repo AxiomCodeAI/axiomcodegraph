@@ -54,8 +54,12 @@ def rel(p):
     if not p: return p
     a = p if os.path.isabs(p) else os.path.join(SRC, p)
     a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-    r = os.path.relpath(a, REPO).replace(os.sep, '/')   # '/' on every platform: every reader splits on it
-    return p.lstrip('/') if r.startswith('..') else r
+    # ON ANOTHER DRIVE (Windows) a path has no form relative to the repository: relpath raised, and a --library whose
+    # compiled IR sits in the user cache on C: while the repository is on D: failed the whole index. It is outside the
+    # repository, as a `..` path is, and is kept as written.
+    try: r = os.path.relpath(a, REPO).replace(os.sep, '/')   # '/' on every platform: every reader splits on it
+    except ValueError: r = '..'
+    return p.replace(os.sep, '/').lstrip('/') if r.startswith('..') else r
 # never DEGRADE: an index built from the IR must not be rebuilt without it (the intermediates are routinely cleaned
 # to save disk). If only newer tables are missing, add them empty and keep everything else.
 prev = {r[0]: r[1] for r in c.execute("SELECT key, value FROM index_meta")} if c.execute("SELECT 1 FROM sqlite_master WHERE name='index_meta'").fetchone() else {}
