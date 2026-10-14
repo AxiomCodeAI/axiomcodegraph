@@ -287,10 +287,15 @@ A language is usable end to end when both the **parser** (source → relational 
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection |
 | **JavaScript** | stable | beta | **beta**. JSDoc as the type channel, CommonJS and ESM; being scored against the TypeScript compiler |
 | **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle |
+| **HTML** | beta | beta | **beta**. With CSS, one web graph: pages, the stylesheets and scripts each loads, and which rules style which elements, each edge `match`, `conditional` (a `:hover`, an `@media`) or `unknown` |
+| **CSS** | beta | beta | **beta**. Rules, selectors with specificity and nesting, and the cascade: the winning declaration per element and property, custom properties, fonts and keyframes in use |
 
 XML, YAML, `.properties` and `META-INF/services` are part of the Java graph, so a change to a property key or a
 wiring declaration has a blast radius into methods. A repository with several languages gets one graph per
 language.
+
+HTML and CSS are one graph of their own (`web`); its keys to the JavaScript graph (a script's file, a handler's
+callee name) are kept as columns, not resolved into calls.
 
 ## Benchmark results
 
