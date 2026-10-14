@@ -1,0 +1,51 @@
+# shape: documentation sites linking pages to each other with fragments, forms posting to pages, iframes embedding demos, and links to missing pages and ids
+kinds=links_to,id_ref
+@@@ file: src/demo/frame.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<p>demo</p>
+</body>
+</html>
+@@@ file: src/docs/guide.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<h2 id="install">Install</h2><a href="../index.html">back</a>
+</body>
+</html>
+@@@ file: src/docs/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<p>docs</p>
+</body>
+</html>
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<a href="docs/guide.html#install">g</a>
+<a href="docs/guide.html#nope">bad id</a>
+<a href="docs/">dir index</a>
+<a href="missing.html">missing</a>
+<a href="https://example.org/">ext</a>
+<form action="docs/guide.html" method="post"><input name="q"></form>
+<iframe src="demo/frame.html"></iframe>
+<a href="#top">self</a><h1 id="top">t</h1>
+<a href="javascript:void(0)">js</a>
+<area href="docs/guide.html" alt="">
+</body>
+</html>

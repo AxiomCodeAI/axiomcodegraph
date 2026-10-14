@@ -1,4 +1,4 @@
-import { WEB_TEXT_LIMIT } from '@/constants/web-constants';
+import { WEB_CSS_TEXT_LIMIT, WEB_TEXT_LIMIT } from '@/constants/web-constants';
 import { CssValueReferenceKind } from '@/enums/css/CssValueReferenceKind';
 import { WebUrlKind } from '@/enums/web/WebUrlKind';
 
@@ -68,7 +68,8 @@ export class CssValueReference extends WebRow {
 
   protected values(): string[] {
     return [
-      this.referenceKind, boundedText(this.name, WEB_TEXT_LIMIT), boundedText(this.fallbackText, WEB_TEXT_LIMIT),
+      // V4-04: a url() body (a data: URI) is CSS text kept whole below 64 KiB (V2-12), not cut at the 1 KiB name bound
+      this.referenceKind, boundedText(this.name, this.referenceKind === CssValueReferenceKind.URL ? WEB_CSS_TEXT_LIMIT : WEB_TEXT_LIMIT), boundedText(this.fallbackText, WEB_TEXT_LIMIT),
       this.urlKind, text(this.resolvedFilePath), bool(this.isResolved), num(this.position), num(this.startLine),
       num(this.startColumn), this.ownerDeclarationLinkHash, this.ownerRuleLinkHash, this.stylesheetLinkHash,
       this.serviceVersionLinkHash, this.hash,

@@ -1,0 +1,14 @@
+# shape: a Java site whose generated docs land in target/site/ and a Python project whose templates sit under env/
+# (V4-08: the web walk skips only node_modules/, .git/ and the project's ignore files)
+kinds=page,loads_sheet,links_to
+@@@ file: src/env/share/page.html
+<!doctype html>
+<html><body>e</body></html>
+@@@ file: src/index.html
+<!doctype html>
+<html><body><a href="target/site/index.html">docs</a> <a href="env/share/page.html">env</a></body></html>
+@@@ file: src/target/site/css/site.css
+body { a: 1 }
+@@@ file: src/target/site/index.html
+<!doctype html>
+<html><head><link rel="stylesheet" href="css/site.css"></head><body>d</body></html>

@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-12 iter 4 — a fragment's <style>/<link> is loaded by each host at the include site (loads_via_include); a fragment no page includes leaves its sheet orphan
+# case: cascade/16-fragment-page   kinds: styles,unknown,page
+# shape: build-time partials (no doctype, no <html>) that carry a <link> to the site sheet
+page	partials/nav.html	FRAGMENT
+unknown	fragment_no_host	partials/nav.html	partials/nav.html
+unknown	orphan_sheet	s.css	-

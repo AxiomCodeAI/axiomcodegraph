@@ -1,0 +1,261 @@
+/**
+ * WEB PLUMBING TESTS — what the web graph (graph/web) needs from the parser, end to end through extractProject.
+ *
+ *     npx tsx src/test/web-plumbing-tests.ts
+ *
+ * Each check builds a small tree in a temp directory, runs the parser in per-language mode exactly as
+ * `axiomcode parser` does, and reads the CSVs it wrote. Every check asserts that it compared at least one row:
+ * a missing file or an empty relation is a FAIL, never a vacuous pass.
+ *
+ *   web-folder        pages and stylesheets alone get an <ir>/web/ folder (#1908): no java/javascript/typescript
+ *                     project is needed for HTML and CSS to be a language.
+ *   dist-walk         a stylesheet under dist/, build/ or out/ that a page links is read (#1909).
+ *   brace-comment     a comment holding braces inside a declaration value keeps every declaration and invents
+ *                     no selector (#1909).
+ *   keyframe-lists    a minified keyframe selector list is one block; a quoted @keyframes name is an @keyframes.
+ *   odd-custom-value  `:root{--x:.}` (a custom property's value need not be an ordinary value) keeps every later
+ *                     rule top-level (V1-04, #1909).
+ *   unclosed-eof      a block still open at the end of a sheet closes there and nests what follows; a gap counts it (V1-03).
+ *   ssi-pages         .shtml / .shtm pages are HTML (G21, #1909).
+ *   climb-out         `../shared.css` from a page in a sub-project folder resolves inside the repository (V1-05).
+ */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { extractProject } from '@/extract';
+
+type Row = Record<string, string>;
+
+function readCsv(file: string): Row[] {
+  if (!fs.existsSync(file)) return [];
+  const text = fs.readFileSync(file, 'utf-8');
+  const lines = text.split('\n').filter((l) => l.length > 0);
+  if (lines.length === 0) return [];
+  const header = lines[0]!.split('\t');
+  return lines.slice(1).map((l) => {
+    const cells = l.split('\t'); const r: Row = {};
+    header.forEach((h, i) => { r[h] = (cells[i] ?? '').replace(/^"(.*)"$/, '$1').replace(/""/g, '"'); });
+    return r;
+  });
+}
+
+function tree(files: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-web-plumb-'));
+  for (const [rel, text] of Object.entries(files)) {
+    const p = path.join(root, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, text);
+  }
+  return root;
+}
+
+async function parse(root: string, languages?: ReadonlySet<string>, outName = '.ir'): Promise<string> {
+  const out = path.join(root, outName);
+  const log = console.log; const err = console.error;
+  console.log = () => {}; console.error = () => {};
+  try {
+    await extractProject({ projectPath: root, versionLink: 'PLUMBING', outputDir: out, layout: 'per-language', languages } as never);
+  } finally {
+    console.log = log; console.error = err;
+  }
+  return out;
+}
+
+let bad = 0; let ran = 0;
+const fail = (m: string) => { console.log('  ✗ ' + m); bad++; };
+const ok = (m: string) => console.log('  ✓ ' + m);
+
+async function webFolder(): Promise<void> {
+  const root = tree({
+    'index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><p class="a">x</p></body></html>\n',
+    'style.css': '.a { color: red }\n',
+  });
+  const ir = await parse(root);
+  const docs = readCsv(path.join(ir, 'web', 'all-html-documents.csv'));
+  const sheets = readCsv(path.join(ir, 'web', 'all-css-stylesheets.csv'));
+  ran++;
+  if (docs.length !== 1 || sheets.length !== 1) fail(`web-folder: expected 1 page and 1 sheet in <ir>/web, got ${docs.length} and ${sheets.length}`);
+  else ok('web-folder: a pure HTML+CSS tree gets <ir>/web/ (1 page, 1 sheet)');
+}
+
+async function distWalk(): Promise<void> {
+  const root = tree({
+    'index.html': '<!doctype html><html><head><link rel="stylesheet" href="dist/css/site.css"><link rel="stylesheet" href="build/b.css"><link rel="stylesheet" href="out/o.css"></head><body></body></html>\n',
+    'dist/css/site.css': '.btn { color: red }\n',
+    'build/b.css': '.b { color: red }\n',
+    'out/o.css': '.o { color: red }\n',
+    'node_modules/x/n.css': '.n { color: red }\n',
+  });
+  const ir = await parse(root);
+  const sheets = readCsv(path.join(ir, 'web', 'all-css-stylesheets.csv')).map((r) => r.relativePath ?? '');
+  const sels = readCsv(path.join(ir, 'web', 'all-css-selectors.csv')).map((r) => r.selectorText ?? '');
+  ran++;
+  const want = ['build/b.css', 'dist/css/site.css', 'out/o.css'];
+  const missing = want.filter((w) => !sheets.includes(w));
+  if (missing.length > 0) fail(`dist-walk: sheets not read: ${missing.join(', ')} (read: ${sheets.join(', ')})`);
+  else if (!sels.includes('.btn')) fail(`dist-walk: no selector .btn from dist/css/site.css (selectors: ${sels.join(', ')})`);
+  else if (sheets.some((s) => s.startsWith('node_modules/'))) fail('dist-walk: node_modules was walked');
+  else ok(`dist-walk: ${want.length} sheets under dist/build/out read, node_modules still skipped`);
+}
+
+async function braceComment(): Promise<void> {
+  const root = tree({
+    'theme.css': '.w { border: 1px solid #ddd/*{borderColor}*/; color: #333/*{fc}*/; font-family: Arial; }\n/* theme {x} */\n.next { margin: 0 }\n',
+  });
+  const ir = await parse(root);
+  const decls = readCsv(path.join(ir, 'web', 'all-css-declarations.csv')).map((r) => r.property ?? '');
+  const sels = readCsv(path.join(ir, 'web', 'all-css-selectors.csv')).map((r) => r.selectorText ?? '');
+  const comments = readCsv(path.join(ir, 'web', 'all-css-comments.csv')).map((r) => r.text ?? '');
+  ran++;
+  const wantDecls = ['border', 'color', 'font-family', 'margin'];
+  const lost = wantDecls.filter((d) => !decls.includes(d));
+  const bogus = sels.filter((s) => s !== '.w' && s !== '.next');
+  if (lost.length > 0) fail(`brace-comment: declarations lost: ${lost.join(', ')} (have ${decls.join(', ')})`);
+  else if (bogus.length > 0) fail(`brace-comment: bogus selectors: ${bogus.join(' | ')}`);
+  else if (!comments.includes(' theme {x} ')) fail(`brace-comment: comment text not kept as written (${comments.join(' | ')})`);
+  else ok(`brace-comment: ${decls.length} declarations kept, selectors exactly .w and .next, comment text as written`);
+}
+
+async function keyframeLists(): Promise<void> {
+  const root = tree({ 'anim.css': '@keyframes b{0%,20%,53%,to{opacity:1}40%,43%{opacity:0}}\n@keyframes "q" { to { opacity: 1 } }\n' });
+  const ir = await parse(root);
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const preludes = rules.filter((r) => r.ruleKind === 'STYLE_RULE').map((r) => r.preludeText ?? '').sort();
+  const kf = rules.filter((r) => r.atRuleName === 'keyframes').map((r) => r.preludeText ?? '').sort();
+  ran++;
+  if (JSON.stringify(preludes) !== JSON.stringify(['0%,20%,53%,to', '40%,43%', 'to'])) fail(`keyframe-lists: keyframe block preludes ${JSON.stringify(preludes)}`);
+  else if (JSON.stringify(kf) !== JSON.stringify(['"q"', 'b'])) fail(`keyframe-lists: @keyframes names ${JSON.stringify(kf)}`);
+  else ok('keyframe-lists: a minified keyframe selector list is one block with its whole list; a quoted @keyframes name is an @keyframes');
+}
+
+async function eventAttributes(): Promise<void> {
+  const root = tree({
+    'a.html': '<!doctype html><html><body><button once onclick2="x()" onclick="y()" ONDBLCLICK="z()">b</button></body></html>\n',
+    'b.xhtml': '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><button onclick="x1()" onClick="x2()">b</button></body></html>\n',
+  });
+  const ir = await parse(root);
+  const attrs = readCsv(path.join(ir, 'web', 'all-html-attributes.csv'));
+  const handlers = attrs.filter((a) => a.attributeKind === 'EVENT_HANDLER').map((a) => `${a.name}=${a.value}`).sort();
+  const once = attrs.find((a) => a.name === 'once');
+  ran++;
+  const want = ['onClick=x2()', 'onclick2=x()', 'onclick=x1()', 'onclick=y()', 'ondblclick=z()'].sort();
+  if (JSON.stringify(handlers) !== JSON.stringify(want)) fail(`event-attributes: handlers ${JSON.stringify(handlers)}, want ${JSON.stringify(want)}`);
+  else if (!once || once.attributeKind === 'EVENT_HANDLER') fail(`event-attributes: a bare \`once\` is ${once ? once.attributeKind : 'absent'}, want a row that is not an EVENT_HANDLER`);
+  else ok('event-attributes: on* with a value in any case is a handler, a bare `once` is not, and an XHTML page keeps onclick and onClick apart');
+}
+
+async function oddCustomValue(): Promise<void> {
+  // V1-04: a minified custom property whose value is not a valid ordinary value (`.`) must not swallow the rest of the sheet
+  const root = tree({ 'm.css': ':root{--x:.}.a{b:c}.d{e:f}\n:root{--y:;--z:{}}.g{h:i}\n' });
+  const ir = await parse(root);
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const decls = readCsv(path.join(ir, 'web', 'all-css-declarations.csv'));
+  const style = rules.filter((r) => r.ruleKind === 'STYLE_RULE');
+  const top = style.filter((r) => !r.parentRuleLinkHash).map((r) => r.preludeText ?? '').sort();
+  const x = decls.find((d) => d.property === '--x');
+  ran++;
+  if (style.length === 0) fail('odd-custom-value: no style rules at all');
+  else if (JSON.stringify(top) !== JSON.stringify([':root', ':root', '.a', '.d', '.g'].sort())) fail(`odd-custom-value: top-level rules ${JSON.stringify(top)} (want :root x2, .a, .d, .g)`);
+  else if (!x || (x.valueText ?? x.value ?? '').trim() !== '.') fail(`odd-custom-value: --x is ${x ? JSON.stringify(x) : 'absent'}, want value '.'`);
+  else ok('odd-custom-value: `--x:.` keeps its value and the rules after it stay top-level');
+}
+
+async function climbOutOfSubProject(): Promise<void> {
+  // V1-05: a page in a folder that is its own sub-project (it holds main.js) links ../shared.css beside that folder
+  const root = tree({
+    'dir/page/index.html': '<!doctype html><html><head><link rel="stylesheet" href="../shared.css"></head><body><p class="a">x</p></body></html>\n',
+    'dir/page/main.js': 'console.log(1);\n',
+    'dir/page/package.json': '{"name":"page","version":"1.0.0"}\n',
+    'dir/shared.css': '.a{color:red}\n',
+  });
+  const ir = await parse(root);
+  const refs = readCsv(path.join(ir, 'web', 'all-html-references.csv')).filter((r) => r.urlAsWritten === '../shared.css');
+  ran++;
+  if (refs.length !== 1) fail(`climb-out: ${refs.length} reference rows for ../shared.css`);
+  else if (refs[0]!.isResolved !== 'true' || !(refs[0]!.resolvedFilePath ?? '').endsWith(path.join('dir', 'shared.css'))) fail(`climb-out: ../shared.css resolved=${refs[0]!.isResolved} to '${refs[0]!.resolvedFilePath}'`);
+  else ok('climb-out: a relative url from a page in a sub-project resolves to a sheet outside it, inside the repository');
+}
+
+async function unclosedAtEof(): Promise<void> {
+  // V1-03: an unclosed block at EOF closes there (browser behaviour): the later rules are nested in it, and a gap says so
+  const root = tree({ 's.css': '.ok { color: black; }\n.broken { color: red;\n.after-broken { color: blue; }\n@media (min-width:10px) { .inside { color: green; }\n' });
+  const ir = await parse(root);
+  const rules = readCsv(path.join(ir, 'web', 'all-css-rules.csv'));
+  const decls = readCsv(path.join(ir, 'web', 'all-css-declarations.csv'));
+  const gaps = readCsv(path.join(ir, 'web', 'all-css-parse-gaps.csv'));
+  const hashOf = (r: Row) => r.cssRuleUniqueHash ?? '';
+  const by = (pre: string) => rules.find((r) => (r.preludeText ?? '').trim() === pre);
+  const broken = by('.broken'); const after = by('.after-broken'); const media = rules.find((r) => r.atRuleName === 'media'); const inside = by('.inside');
+  ran++;
+  if (!broken || !after || !media || !inside) fail(`unclosed-eof: rules ${JSON.stringify(rules.map((r) => r.preludeText))}`);
+  else if (after.parentRuleLinkHash !== hashOf(broken) || media.parentRuleLinkHash !== hashOf(broken) || inside.parentRuleLinkHash !== hashOf(media)) fail('unclosed-eof: .after-broken and @media are not nested in .broken, or .inside not in @media');
+  else if (!decls.some((d) => d.property === 'color' && (d.valueText ?? '').trim() === 'red' && d.ruleLinkHash === hashOf(broken))) fail('unclosed-eof: .broken lost color: red');
+  else if (!gaps.some((g) => g.gapKind === 'UNCLOSED_BLOCK' && /^2 block/.test(g.detail ?? ''))) fail(`unclosed-eof: no UNCLOSED_BLOCK gap for 2 blocks: ${JSON.stringify(gaps.map((g) => g.gapKind + ' ' + g.detail))}`);
+  else ok('unclosed-eof: blocks open at EOF close there; later rules nest in them; one gap row counts them');
+}
+
+async function ssiPages(): Promise<void> {
+  // G21: server-side-include pages (.shtml, .shtm) are HTML pages
+  const root = tree({ 'a.shtml': '<!doctype html><html><body><!--#include virtual="/h.html" --><p class="x">a</p></body></html>\n',
+    'b.shtm': '<!doctype html><p>b</p>\n', 'c.html': '<!doctype html><p>c</p>\n' });
+  const ir = await parse(root);
+  const docs = readCsv(path.join(ir, 'web', 'all-html-documents.csv')).map((d) => path.basename(d.filePath ?? '')).sort();
+  ran++;
+  if (JSON.stringify(docs) !== JSON.stringify(['a.shtml', 'b.shtm', 'c.html'])) fail(`ssi-pages: documents ${JSON.stringify(docs)}`);
+  else ok('ssi-pages: .shtml and .shtm are read as HTML pages');
+}
+
+async function onlyRequestedLanguages(): Promise<void> {
+  // V1-23: a web-only build parses no JavaScript (the JS pool was 4.3 of the 5.8 GB on a dev project); the control
+  // run without `languages` must still write javascript/, or the check would pass on a tree with no JavaScript at all
+  const root = tree({ 'package.json': '{"name":"p","version":"1.0.0"}\n', 'app.js': 'function go() { return 1; }\ngo();\n',
+    'index.html': '<!doctype html><html><head><script src="app.js"></script></head><body><p class="a">x</p></body></html>\n' });
+  const all = await parse(root, undefined, '.ir-all');
+  const web = await parse(root, new Set(['web']), '.ir-web');
+  const docs = readCsv(path.join(web, 'web', 'all-html-documents.csv'));
+  ran++;
+  if (!fs.existsSync(path.join(all, 'javascript'))) fail('only-requested-languages: control run wrote no javascript/ folder');
+  else if (fs.existsSync(path.join(web, 'javascript'))) fail(`only-requested-languages: web-only run wrote javascript/ (${fs.readdirSync(web).join(', ')})`);
+  else if (docs.length !== 1) fail(`only-requested-languages: expected 1 page in <ir>/web, got ${docs.length}`);
+  else ok('only-requested-languages: languages={web} writes web/ (1 page) and no javascript/; the control run writes both');
+}
+
+async function includeReferences(): Promise<void> {
+  // G22/G23: every include flavour is a reference of kind INCLUDE (flavour in attributeName, owner the element it sits
+  // in, or the <include> element itself); paths relative to the page resolve here; SSI directives are SSI expressions
+  const root = tree({
+    'index.html': '<!doctype html><html><body>\n<div id="a"><!--#include virtual="/inc/nav.html" --></div>\n<div id="b"><!--#include file="inc/nav.html" --></div>\n'
+      + '<include src="inc/nav.html"></include>\n<p id="c">@@include("./inc/nav.html", {"x": 1})</p>\n<span id="d">{% include "nav.html" %}{% include name %}</span>\n'
+      + '<i id="e"><!--#echo var="t" --><!--#set var="t" value="x" --></i>\n</body></html>\n',
+    'inc/nav.html': '<nav>n</nav>\n',
+    'child.html': '{% extends "base.html" %}{% from "m.html" import f %}\n',
+  });
+  const ir = await parse(root);
+  const refs = readCsv(path.join(ir, 'web', 'all-html-references.csv')).filter((r) => r.referenceKind === 'INCLUDE');
+  const els = new Map(readCsv(path.join(ir, 'web', 'all-html-elements.csv')).map((e) => [e.htmlElementUniqueHash ?? '', e]));
+  const owner = (r: Row): string => { const e = els.get(r.ownerElementLinkHash ?? ''); return e ? (e.id || e.tagName || '?') : '-'; };
+  const got = refs.map((r) => `${r.attributeName} ${r.urlAsWritten} ${r.urlKind} ${owner(r)} ${r.isResolved}`).sort();
+  const want = ['gulp:@@include ./inc/nav.html RELATIVE c true', 'jinja:extends base.html RELATIVE - false', 'jinja:import m.html RELATIVE - false',
+    'jinja:include name TEMPLATE_EXPRESSION d false', 'jinja:include nav.html RELATIVE d false', 'posthtml:include inc/nav.html RELATIVE include true',
+    'ssi:file inc/nav.html RELATIVE b true', 'ssi:virtual /inc/nav.html ROOT_RELATIVE a false'].sort();
+  const ssi = readCsv(path.join(ir, 'web', 'all-html-template-expressions.csv')).filter((t) => t.dialect === 'SSI').map((t) => `${t.directive}:${t.expressionKind}`).sort();
+  const docs = readCsv(path.join(ir, 'web', 'all-html-documents.csv')).filter((d) => (d.templateDialects ?? '').includes('SSI')).length;
+  ran++;
+  if (JSON.stringify(got) !== JSON.stringify(want)) fail(`include-references: got ${JSON.stringify(got)}`);
+  else if (JSON.stringify(ssi) !== JSON.stringify(['echo:INTERPOLATION', 'include:REFERENCE', 'include:REFERENCE', 'set:BINDING'])) fail(`include-references: SSI expressions ${JSON.stringify(ssi)}`);
+  else if (docs !== 1) fail(`include-references: ${docs} page(s) with dialect SSI, want 1`);
+  else ok(`include-references: ${want.length} INCLUDE references over 7 flavours, ${ssi.length} SSI expressions, the page's dialects name SSI`);
+}
+
+async function main(): Promise<number> {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, eventAttributes, oddCustomValue, climbOutOfSubProject, unclosedAtEof, ssiPages,
+    onlyRequestedLanguages, includeReferences]) {
+    try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
+  }
+  if (ran < 1) { console.log('FAIL  no check ran'); return 1; }
+  console.log(bad === 0 ? `\nOK  ${ran} check(s)` : `\nFAIL  ${bad} problem(s) in ${ran} check(s)`);
+  return bad === 0 ? 0 : 1;
+}
+
+main().then((c) => process.exit(c)).catch((e) => { console.error(e); process.exit(2); });

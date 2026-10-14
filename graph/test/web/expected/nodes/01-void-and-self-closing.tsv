@@ -1,0 +1,23 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/01-void-and-self-closing   kinds: element,contains
+# shape: admin templates write void elements both ways (<br>, <img/>, <input>) and occasionally <div/> on a non-void element, which a browser treats as an OPEN tag
+contains	index.html	index.html:2:1
+contains	index.html:2:1	index.html:3:1
+contains	index.html:3:1	index.html:4:3
+contains	index.html:3:1	index.html:5:21
+contains	index.html:3:1	index.html:5:3
+contains	index.html:3:1	index.html:6:3
+contains	index.html:4:3	index.html:4:16
+contains	index.html:4:3	index.html:4:9
+contains	index.html:6:3	index.html:7:3
+contains	index.html:6:3	index.html:8:3
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:16	br	-	-
+element	index.html:4:3	p	-	-
+element	index.html:4:9	br	-	-
+element	index.html:5:21	input	-	-
+element	index.html:5:3	img	-	-
+element	index.html:6:3	div	-	empty
+element	index.html:7:3	span	-	-
+element	index.html:8:3	hr	-	-

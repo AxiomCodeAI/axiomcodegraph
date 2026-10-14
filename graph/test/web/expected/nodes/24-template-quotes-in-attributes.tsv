@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: nodes/24-template-quotes-in-attributes   kinds: attribute,handler
+# shape: Django forms whose attribute values hold {% trans "..." %} with double quotes inside double-quoted values
+attribute	form.html:4:1	name	q
+attribute	form.html:4:1	placeholder	{% trans "Search employees" %}
+attribute	form.html:4:1	title	{{ _("Find") }}
+attribute	form.html:5:1	class	btn
+attribute	form.html:5:1	onclick	confirm('{% trans "Delete?" %}')
+handler	form.html:5:1	onclick	click	written	-	on_attribute	32	|confirm('{% trans "Delete?" %}')

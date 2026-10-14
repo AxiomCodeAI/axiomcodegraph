@@ -1,0 +1,31 @@
+# shape: an SSI site linking sections by directory (`/firefox/`, `docs/`): the index file is index.html,
+# index.htm, index.shtml or default.htm, first found in that order (V3-02, reference.resolved_file and links_to)
+kinds=reference,links_to
+@@@ file: src/both/index.htm
+<!doctype html>
+<html><body>p</body></html>
+@@@ file: src/both/index.html
+<!doctype html>
+<html><body>p</body></html>
+@@@ file: src/docs/index.htm
+<!doctype html>
+<html><body>p</body></html>
+@@@ file: src/empty/readme.txt
+x
+@@@ file: src/firefox/index.shtml
+<!doctype html>
+<html><body>p</body></html>
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body>
+<a href="/firefox/">f</a>
+<a href="docs/">d</a>
+<a href="legacy/">l</a>
+<a href="both/">b</a>
+<a href="empty/">e</a>
+</body>
+</html>
+@@@ file: src/legacy/default.htm
+<!doctype html>
+<html><body>p</body></html>

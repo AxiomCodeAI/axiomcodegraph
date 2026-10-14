@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: pages/06-dotted-query-links   kinds: reference,links_to
+# shape: a widget test page deep in tests/unit/<widget>/ whose nested menu links to itself with dotted query strings
+links_to	tests/unit/menu/menu.html:10:9	href	tests/unit/menu/menu.html	-	match	-
+links_to	tests/unit/menu/menu.html:13:11	href	tests/unit/menu/menu.html	tests/unit/menu/menu.html:16:1	match	-
+links_to	tests/unit/menu/menu.html:7:8	href	tests/unit/menu/menu.html	-	match	-
+links_to	tests/unit/menu/menu.html:9:9	href	tests/unit/menu/menu.html	-	match	-
+reference	tests/unit/menu/menu.html:10:9	href	?p=1.1.1.2	local	tests/unit/menu/menu.html
+reference	tests/unit/menu/menu.html:13:11	href	?p=1.1.2.5#top	local	tests/unit/menu/menu.html
+reference	tests/unit/menu/menu.html:7:8	href	?p=1.1.1	local	tests/unit/menu/menu.html
+reference	tests/unit/menu/menu.html:9:9	href	?p=1.1.1.1	local	tests/unit/menu/menu.html

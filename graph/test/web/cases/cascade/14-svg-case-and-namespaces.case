@@ -1,0 +1,17 @@
+# shape: icon sprites styled with camelCase SVG element names and a namespaced selector
+kinds=styles
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<svg><linearGradient id="g"></linearGradient><foreignObject><div class="fo">x</div></foreignObject><rect/></svg><DIV class="d">D</DIV>
+</body>
+</html>
+@@@ file: src/s.css
+@namespace svg url(http://www.w3.org/2000/svg);
+linearGradient { a: 1 }
+lineargradient { a: 2 }
+foreignObject .fo { a: 3 }
+svg|rect { a: 4 }
+DIV.d { a: 5 }

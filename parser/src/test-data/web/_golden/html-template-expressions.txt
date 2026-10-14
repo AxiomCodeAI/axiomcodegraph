@@ -21,6 +21,8 @@ dialect=JINJA	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressio
 dialect=JINJA	expressionKind=INTERPOLATION	directive=href	argument=href	modifiers=	expressionText=url_for('home')	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=12
 dialect=MUSTACHE	expressionKind=INTERPOLATION	directive=onclick	argument=onclick	modifiers=	expressionText=handler	calleeNames=	identifiers=	declares=	position=0	startLine=35	startColumn=43
 dialect=PHP	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=php echo $total;	calleeNames=	identifiers=	declares=	position=0	startLine=4	startColumn=3
+dialect=SSI	expressionKind=INTERPOLATION	directive=echo	argument=	modifiers=	expressionText="var=""title"""	calleeNames=	identifiers=	declares=	position=35	startLine=2	startColumn=20
+dialect=SSI	expressionKind=REFERENCE	directive=include	argument=	modifiers=	expressionText="virtual=""/partials/frame.html"""	calleeNames=	identifiers=	declares=	position=105	startLine=4	startColumn=23
 dialect=THYMELEAF	expressionKind=BINDING	directive=th:text	argument=text	modifiers=	expressionText=${title}	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=21
 dialect=VUE	expressionKind=BINDING	directive=:key	argument=key	modifiers=	expressionText=row.id	calleeNames=	identifiers=row	declares=	position=1	startLine=7	startColumn=38
 dialect=VUE	expressionKind=EVENT_HANDLER	directive=@keyup.enter	argument=keyup	modifiers=enter	expressionText=search()	calleeNames=search	identifiers=search	declares=	position=1	startLine=10	startColumn=45

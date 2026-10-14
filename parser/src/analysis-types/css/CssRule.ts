@@ -1,7 +1,7 @@
-import { WEB_TEXT_LIMIT } from '@/constants/web-constants';
+import { WEB_CSS_TEXT_LIMIT } from '@/constants/web-constants';
 import { CssRuleKind } from '@/enums/css/CssRuleKind';
 
-import { WebRow, boundedText, num, text } from '../web/web-row';
+import { WebRow, bool, num, text, writtenText } from '../web/web-row';
 
 /**
  * A style rule or an at-rule, in the tree the stylesheet writes them in.
@@ -17,7 +17,10 @@ export class CssRule extends WebRow {
   static readonly COLUMNS = [
     'ruleKind', 'atRuleName', 'name', 'preludeText', 'selectorCount', 'declarationCount',
     'childRuleCount', 'nestingDepth', 'position', 'startLine', 'startColumn', 'endLine', 'endColumn',
-    'parentRuleLinkHash', 'stylesheetLinkHash', 'serviceVersionLinkHash', 'cssRuleUniqueHash',
+    'parentRuleLinkHash', 'stylesheetLinkHash', 'serviceVersionLinkHash',
+    // V2-12: the prelude is kept in full (cut only past WEB_CSS_TEXT_LIMIT); its UTF-8 size and whether it was cut
+    'preludeBytes', 'preludeTruncated',
+    'cssRuleUniqueHash',
   ] as const;
 
   readonly relation = 'css_rule';
@@ -86,10 +89,11 @@ export class CssRule extends WebRow {
 
   protected values(): string[] {
     return [
-      this.ruleKind, text(this.atRuleName), text(this.name), boundedText(this.preludeText, WEB_TEXT_LIMIT),
+      this.ruleKind, text(this.atRuleName), text(this.name), writtenText(this.preludeText, WEB_CSS_TEXT_LIMIT),
       num(this.selectorCount), num(this.declarationCount), num(this.childRuleCount), num(this.nestingDepth),
       num(this.position), num(this.startLine), num(this.startColumn), num(this.endLine), num(this.endColumn),
-      this.parentRuleLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash, this.hash,
+      this.parentRuleLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash,
+      num(Buffer.byteLength(this.preludeText, 'utf8')), bool(this.preludeText.length > WEB_CSS_TEXT_LIMIT), this.hash,
     ];
   }
 }

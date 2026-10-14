@@ -1,0 +1,12 @@
+# shape: a Tailwind-style @theme / :root block declaring many custom properties of which a few are used, a
+# comment-annotated shadow (`0 /*{x}*/ -1px …`), and rgba(var(--rgb), .65) (V2-06, V2-05)
+kinds=token
+@@@ file: src/css/t.css
+:root { --color-gray-200: #eee; --breakpoint-sm: 40rem; --rgb: 0, 0, 0; }
+.a { color: var(--color-gray-200); border-color: var(--color-gray-200); }
+.b { text-shadow: 0 /*{a-bar-shadow-x}*/ -1px /*{a-bar-shadow-y}*/ 0 #000; }
+.c { background: rgba(var(--rgb), .65); }
+@@@ file: src/index.html
+<!doctype html>
+<html><head><link rel="stylesheet" href="css/t.css"></head>
+<body><p class="a b c">x</p></body></html>

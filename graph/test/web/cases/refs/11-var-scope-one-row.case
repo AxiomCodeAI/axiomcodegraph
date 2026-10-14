@@ -1,0 +1,19 @@
+# shape: (V1-12) Bootstrap-style components where one element is styled by several rules that all read the same custom property, nested under two defining ancestors: exactly one var-scope row per (page, element, name)
+kinds=var,var_scope
+check=var_budget
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<div class="theme"><div class="card"><a class="btn btn-primary">x</a></div></div>
+</body>
+</html>
+@@@ file: src/s.css
+.theme { --c: red; }
+.card { --c: blue; }
+.btn { color: var(--c); }
+.btn-primary { border-color: var(--c); }
+a.btn { outline-color: var(--c, black); }

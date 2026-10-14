@@ -1,0 +1,12 @@
+# shape: template output with character references inside class and id values
+kinds=element,class_token,id
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body>
+  <div class="a&amp;b x&#45;y  &quot;q&quot;" id="n&#x31;">t</div>
+  <span class="
+     multi
+     line	tabbed ">s</span>
+</body>
+</html>

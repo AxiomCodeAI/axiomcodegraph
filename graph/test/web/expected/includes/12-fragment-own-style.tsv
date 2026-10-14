@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-12 iter 4 — a fragment's own <style> applies on the composed page; a commented {% extends %} ({% comment %}, {# #}, <!-- -->) does not compose; CSS inside a template comment is not live
+# case: includes/12-fragment-own-style   kinds: include,host_styles,styles
+# shape: a Django theme partial that carries its own <style> block for its widget and is {% include %}d into pages
+host_styles	static/site.css:1:1/0	templates/widgets/card.html:5:1	templates/page.html	match	-	-
+host_styles	templates/widgets/card.html:2:3/0	templates/widgets/card.html:5:19	templates/page.html	match	-	-
+include	templates/page.html	templates/widgets/card.html	jinja:include	templates/page.html:4:1	1	templates/page.html:6:1	-	match	-
+styles	templates/widgets/card.html:3:3/0	templates/page.html:5:1	match	-	-

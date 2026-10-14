@@ -1,0 +1,14 @@
+# shape: a utility class with !important and a responsive override of the same property inside @media that loses to
+# it, plus a :hover rule of lower specificity (V2-13: contenders and conditional_overrides count every conditional
+# declaration, also those ranked below the winner)
+kinds=computed,cascade_entry
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body><p class="text-red">t</p></body>
+</html>
+@@@ file: src/s.css
+.text-red { color: red !important; }
+@media (max-width: 600px) { .text-red { color: blue; } }
+p:hover { color: green; }

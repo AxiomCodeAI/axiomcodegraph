@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/07-container-names   kinds: container,container_use
+# shape: container-query layouts naming containers with container-name and the container shorthand
+container	card
+container	main
+container	nowhere
+container	sidebar
+container_use	s.css:3:1	card	s.css:1:6	index.html	match	-
+container_use	s.css:4:1	nowhere	-	index.html	unknown	no_such_container

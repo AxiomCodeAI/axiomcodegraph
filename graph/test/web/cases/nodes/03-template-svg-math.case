@@ -1,0 +1,11 @@
+# shape: component demo pages with <template> blocks, inline SVG icons (camelCase linearGradient, viewBox) and a MathML formula
+kinds=element,attribute,contains
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body>
+  <template id="row"><tr class="r"><td>x</td></tr></template>
+  <svg viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0"/></linearGradient></defs><use href="#g"/></svg>
+  <math><mi>x</mi><mo>=</mo><mn>2</mn></math>
+</body>
+</html>

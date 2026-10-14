@@ -1,0 +1,25 @@
+# shape: form and icon styling with every attribute operator, including the i and s flags
+kinds=styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<input type="TEXT" name="first-name" lang="en-US" class="a b" data-k="Alpha beta">
+<a href="https://x.org/file.PDF" rel="noopener nofollow">pdf</a>
+<span data-k="">empty</span>
+</body>
+</html>
+@@@ file: src/s.css
+[data-k] { a: 1 }
+[data-k=""] { a: 2 }
+[type="text"] { a: 3 }
+[type="text" s] { a: 4 }
+[data-k="alpha beta" i] { a: 5 }
+[rel~="nofollow"] { a: 6 }
+[lang|="en"] { a: 7 }
+[href^="https"] { a: 8 }
+[href$=".pdf" i] { a: 9 }
+[href$=".pdf"] { a: 10 }
+[name*="st-na"] { a: 11 }
+[class~="b"] { a: 12 }

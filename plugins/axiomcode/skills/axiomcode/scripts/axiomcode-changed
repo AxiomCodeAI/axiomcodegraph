@@ -1440,6 +1440,11 @@ NO_GIT = ("no git base: {repo} is not a git checkout (a copy without .git), so t
           "working tree against, and nothing can say what changed. Name the files you edited: `axiomcode changed <file>…` "
           "or `axiomcode test-impact <file>…` (MCP files=[…]) counts every declaration in each named file as changed.")
 
+def web_graph(repo):
+    """does this repository have a web (HTML + CSS) graph, the main one or a language graph beside it"""
+    sys.path.insert(0, HERE); import ax_web
+    return any(ax_web.language_of(os.path.join(repo, '.axiomcode', *d, 'out', 'graph.sqlite')) == 'web' for d in ((), ('lang', 'web')))
+
 def outside_note(files, suite=None):
     """one line naming the changed files no graph here can read; test-impact adds the tests that load them"""
     fs = sorted(files)
@@ -1616,7 +1621,12 @@ def main(argv):
     for rel in sorted(C.mismatch):
         notes.append(('', f"{rel}: the graph's rows and the text it records for this file disagree (a refresh is publishing, or one "
                       "raced an edit): its declarations were placed by name, and what is said of them may have changed", None))
-    if outside: notes.append(('', outside_note(outside), None))
+    # pages and stylesheets have no declarations to diff, but a web graph reads them: said so, not "outside every language"
+    # (they stay in outside_index, which test-impact searches the tests for by name)
+    webbed = sorted(f for f in outside if re.search(r'\.(x?html?|shtml?|css)$', f, re.I)) if web_graph(C.repo) else []
+    if webbed: notes.append(('', f"{len(webbed)} page(s)/stylesheet(s) edited: " + ', '.join(webbed[:8]) + (f' … +{len(webbed) - 8}' if len(webbed) > 8 else '')
+                             + " — no declarations to diff; the web graph answers for them (`impact` with no name)", None))
+    if set(outside) - set(webbed): notes.append(('', outside_note(sorted(set(outside) - set(webbed))), None))
     # A BASELINE THAT HOLDS EDITS (an explicit index of an edited tree, or a rebuild run as one) hides them: said, with how
     # to count them, rather than a bare "no change" over a real edit. Only when the question is the working tree as a whole
     base_note = C.baseline_note() if mode == 'worktree' and not a and not (old_f or new_f) else ''
@@ -1695,6 +1705,8 @@ def main(argv):
     return 0
 
 if __name__ == '__main__':
+    # a WEB graph (HTML + CSS) has no call graph: its own module answers (ax_web.py), per language
+    import ax_web; ax_web.maybe_answer('changed', sys.argv[1:])
     if sys.argv[1:] and sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
     import ax_pages; ax_pages.install('changed')      # pages and a next step (#1202)
     sys.exit(main(sys.argv[1:]))

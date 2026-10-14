@@ -1,0 +1,14 @@
+# shape: (G12: keyframe selectors are not selectors) minified animation libraries with percentage lists in keyframes (`0%,20%,53%{…}`) and an IE filter declaration
+kinds=rule,selector,keyframes,declaration
+@@@ file: src/anim.css
+@keyframes bounce{0%,20%,53%,to{transform:translateZ(0)}40%,43%{transform:translate3d(0,-30px,0)}}.ie{filter:progid:DXImageTransform.Microsoft.gradient(startColorstr='#80000000', endColorstr='#80000000');zoom:1}
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="anim.css">
+</head>
+<body>
+<p>x</p>
+</body>
+</html>

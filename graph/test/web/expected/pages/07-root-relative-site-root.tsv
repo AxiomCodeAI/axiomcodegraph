@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: pages/07-root-relative-site-root   kinds: reference,loads_sheet,links_to
+# shape: snapshots whose site root is a subdirectory: a public/ admin page linking "/css/animate.css" (public/css on
+links_to	public/admin.html:7:7	href	public/index.html	-	match	-
+loads_sheet	app/templates/page.html	app/static/app/x.css	link	1	0	match	-
+loads_sheet	public/admin.html	/css/gone.css	link	-	0	unknown	unresolved_url
+loads_sheet	public/admin.html	public/css/animate.css	link	1	0	match	-
+reference	app/templates/page.html:4:1	href	/static/app/x.css	local	app/static/app/x.css
+reference	public/admin.html:4:1	href	/css/animate.css	local	public/css/animate.css
+reference	public/admin.html:5:1	href	/css/gone.css	local	-
+reference	public/admin.html:7:7	href	/index.html	local	public/index.html

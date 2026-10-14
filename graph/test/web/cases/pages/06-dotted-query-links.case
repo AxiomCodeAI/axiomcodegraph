@@ -1,0 +1,22 @@
+# shape: a widget test page deep in tests/unit/<widget>/ whose nested menu links to itself with dotted query strings
+# (`<a href="?p=1.1.1">`, `?p=1.1.1.4`): a query-only URL is the page itself, the dots are not an extension (V1-06)
+kinds=reference,links_to
+@@@ file: src/tests/unit/menu/menu.html
+<!doctype html>
+<html>
+<body>
+<div id="menu">
+	<ul>
+		<li>
+			<h2><a href="?p=1.1.1">Guitar</a></h2>
+			<ul>
+				<li><a href="?p=1.1.1.1">Electric</a></li>
+				<li><a href="?p=1.1.1.2">Acoustic</a></li>
+			</ul>
+		</li>
+		<li><h2><a href="?p=1.1.2.5#top">Bass</a></h2></li>
+	</ul>
+</div>
+<p id="top">t</p>
+</body>
+</html>

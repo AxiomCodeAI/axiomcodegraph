@@ -1126,6 +1126,13 @@ else
 fi
 ENGINE_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
+# THE WEB BUNDLE'S HEAP (#1908 cost). The web builder holds the page and stylesheet IR in memory while it streams rows
+# out; V8 left alone grew the heap to 3.1 GB on the largest dev project although the live set is under 1.8 GB (the same
+# build with a 1.8 GB old space runs in the same time at 1.94 GB RSS). A cap makes the collector run before the heap
+# grows past it; a caller's own --max-old-space-size wins.
+if [ "$LANG_ARG" = "web" ] && [[ "${NODE_OPTIONS:-}" != *max-old-space-size* ]]; then
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=${AXIOMCODE_WEB_HEAP_MB:-2304}"
+fi
 "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \

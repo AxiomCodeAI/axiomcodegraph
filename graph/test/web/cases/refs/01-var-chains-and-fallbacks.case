@@ -1,0 +1,16 @@
+# shape: Bootstrap-5-style token sheets: custom properties on :root defined from other custom properties, used with and without fallbacks, one never defined
+kinds=var,value_ref,custom_property
+check=var_budget
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<button class="btn">b</button>
+</body>
+</html>
+@@@ file: src/s.css
+:root { --blue: #00f; --primary: var(--blue); --btn-bg: var(--primary, red); }
+.btn { background: var(--btn-bg); color: var(--fg, var(--blue)); border-color: var(--nowhere); }

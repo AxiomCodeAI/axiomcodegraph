@@ -1,0 +1,16 @@
+# shape: include directives a static reader cannot follow: a partial deleted from the snapshot, a path built from a
+# server variable (SSI $var, a Jinja name), and a partial nothing includes any more
+kinds=page,include,reference,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+</head>
+<body>
+<include src="parts/missing.html"></include>
+<div class="lang"><!--#include virtual="/inc/$LANG/head.html" --></div>
+<div class="t">{% include partial_name %}</div>
+</body>
+</html>
+@@@ file: src/parts/orphan.html
+<div class="orphan">o</div>

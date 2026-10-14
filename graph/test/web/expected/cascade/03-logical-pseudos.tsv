@@ -1,0 +1,19 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/03-logical-pseudos   kinds: styles,unknown,cascade
+# shape: modern sheets using :is(), :where(), :not() and :has() for card and form states
+cascade	index.html	s.css:1:1/0	index.html:5:23	1	1	1	0,1,1	0	-
+cascade	index.html	s.css:1:1/0	index.html:6:29	1	1	1	0,1,1	0	-
+cascade	index.html	s.css:2:1/0	index.html:5:23	1	2	1	0,0,1	0	-
+cascade	index.html	s.css:2:1/0	index.html:6:29	1	2	1	0,0,1	0	-
+cascade	index.html	s.css:3:1/0	index.html:5:1	1	3	1	0,2,0	0	-
+cascade	index.html	s.css:4:1/0	index.html:5:1	1	4	1	0,1,1	0	-
+cascade	index.html	s.css:5:1/0	index.html:5:23	1	5	1	0,1,3	0	-
+cascade	index.html	s.css:6:1/0	index.html:7:35	1	6	1	0,1,1	0	-
+styles	s.css:1:1/0	index.html:5:23	match	-	-
+styles	s.css:1:1/0	index.html:6:29	match	-	-
+styles	s.css:2:1/0	index.html:5:23	match	-	-
+styles	s.css:2:1/0	index.html:6:29	match	-	-
+styles	s.css:3:1/0	index.html:5:1	match	-	-
+styles	s.css:4:1/0	index.html:5:1	match	-	-
+styles	s.css:5:1/0	index.html:5:23	match	-	-
+styles	s.css:6:1/0	index.html:7:35	match	-	-

@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: assets/01-icon-classes   kinds: icon_class
+# shape: icon-font sheets: classes defined by `.x::before { content: "\f00c" }` (font from the `.fa` rule the same elements carry), a one- and a two-character glyph, a legacy :before, a compound with a type selector, and rules that are NOT icon definitions (three characters, long content, two classes, no pseudo-element)
+icon_class	arrow	icons.css:6:1	"ab"	-	0
+icon_class	fa-check	icons.css:2:1	"\\f00c"	FontAwesome	1
+icon_class	fa-user	icons.css:3:1	"\\f007"	"Icons"	1
+icon_class	ok	icons.css:4:1	"✓"	-	0

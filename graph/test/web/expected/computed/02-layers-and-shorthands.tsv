@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: computed/02-layers-and-shorthands   kinds: computed
+# shape: a layered design-system sheet: unlayered beats layered for normal declarations, the earlier layer wins for !important, and a later `margin` shorthand overrides an earlier `margin-left` (recorded, not expanded)
+computed	index.html:7:1	-	color	s.css:2:20	match	2	0	-
+computed	index.html:7:1	-	margin	s.css:5:6	match	1	0	-
+computed	index.html:7:1	-	margin-left	s.css:3:59	shorthand_override	1	0	s.css:5:6
+computed	index.html:7:1	-	padding	s.css:4:6	match	3	0	-

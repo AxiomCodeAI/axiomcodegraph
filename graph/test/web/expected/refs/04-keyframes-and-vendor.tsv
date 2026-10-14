@@ -1,0 +1,17 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/04-keyframes-and-vendor   kinds: keyframes,keyframes_use,value_ref
+# shape: animation libraries shipping @keyframes and -webkit-keyframes of the same name, used via animation shorthand and animation-name lists
+keyframes	s.css:1:1	fadeIn
+keyframes	s.css:2:1	fadeIn
+keyframes	s.css:3:1	quoted
+keyframes_use	s.css:4:6	fadeIn	s.css:1:1	index.html	match	-
+keyframes_use	s.css:4:6	fadeIn	s.css:2:1	index.html	match	-
+keyframes_use	s.css:5:42	fadeIn	s.css:1:1	index.html	match	-
+keyframes_use	s.css:5:42	fadeIn	s.css:2:1	index.html	match	-
+keyframes_use	s.css:5:6	fadeIn	s.css:1:1	index.html	match	-
+keyframes_use	s.css:5:6	fadeIn	s.css:2:1	index.html	match	-
+keyframes_use	s.css:5:6	missingOne	-	index.html	unknown	no_such_keyframes
+value_ref	s.css:4:6	KEYFRAMES	fadeIn	-	-
+value_ref	s.css:5:42	KEYFRAMES	fadeIn	-	-
+value_ref	s.css:5:6	KEYFRAMES	fadeIn	-	-
+value_ref	s.css:5:6	KEYFRAMES	missingOne	-	-

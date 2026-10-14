@@ -1,0 +1,19 @@
+# shape: modern sheets using :is(), :where(), :not() and :has() for card and form states
+kinds=styles,unknown,cascade
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<article class="card"><h2>t</h2><img src="a.png" alt=""></article>
+<article class="card plain"><h2>u</h2></article>
+<form><input class="req" required><input class="opt"></form>
+</body>
+</html>
+@@@ file: src/s.css
+:is(.card, .none) h2 { a: 1 }
+:where(.card) h2 { a: 2 }
+.card:not(.plain) { a: 3 }
+.card:has(> img) { a: 4 }
+.card:has(img):not(:has(video)) h2 { a: 5 }
+form :not(.req, .x) { a: 6 }

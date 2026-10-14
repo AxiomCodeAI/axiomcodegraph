@@ -1,0 +1,15 @@
+# shape: (V1-21) admin themes listing the vendor system-font aliases before the generic family: -apple-system, BlinkMacSystemFont, -webkit-body, -webkit-pictograph produce no reference, a real web font does
+kinds=value_ref,font_use
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<p class="a">a</p>
+</body>
+</html>
+@@@ file: src/s.css
+@font-face { font-family: "Inter"; src: url(inter.woff2); }
+.a { font-family: -apple-system, BlinkMacSystemFont, -webkit-body, -webkit-pictograph, "Inter", "Segoe UI", sans-serif; }

@@ -1,0 +1,9 @@
+# shape: text tools listening for selection changes on an input and the body
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body onselectionchange="sel()">
+<input onselectionchange="isel()">
+</body>
+</html>

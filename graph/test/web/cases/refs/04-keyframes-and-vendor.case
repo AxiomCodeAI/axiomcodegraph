@@ -1,0 +1,19 @@
+# shape: animation libraries shipping @keyframes and -webkit-keyframes of the same name, used via animation shorthand and animation-name lists
+kinds=keyframes,keyframes_use,value_ref
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<div class="a">a</div>
+</body>
+</html>
+@@@ file: src/s.css
+@keyframes fadeIn { from { opacity: 0 } }
+@-webkit-keyframes fadeIn { from { opacity: 0 } }
+@keyframes "quoted" { to { opacity: 1 } }
+.a { animation: 1s ease-in 2 fadeIn; }
+.b { animation-name: fadeIn, missingOne; -webkit-animation: fadeIn 2s infinite; }
+.c { animation: none; }

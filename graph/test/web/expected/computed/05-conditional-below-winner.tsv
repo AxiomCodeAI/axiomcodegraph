@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 3 — V2-12 (text in full as written, bytes, a cut past 64 KiB is a listed limit) and V2-13 (every applying declaration counts, conditional ones below the winner included), read against the source
+# case: computed/05-conditional-below-winner   kinds: computed,cascade_entry
+# shape: a utility class with !important and a responsive override of the same property inside @media that loses to
+cascade_entry	index.html:4:7	-	color	s.css:1:13	won	-
+cascade_entry	index.html:4:7	-	color	s.css:2:41	lost	importance
+cascade_entry	index.html:4:7	-	color	s.css:3:11	lost	importance
+computed	index.html:4:7	-	color	s.css:1:13	match	3	2	-

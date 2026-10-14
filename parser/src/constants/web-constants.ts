@@ -13,7 +13,8 @@
  */
 
 /** Extensions read as HTML. `.xhtml` is XML by serialisation and HTML by vocabulary; the HTML grammar reads it. */
-export const HTML_EXTENSIONS = ['.html', '.htm', '.xhtml'] as const;
+/** `.shtml`/`.shtm` are server-side-include pages: HTML to the browser once included (G21; the include directives are iteration 3). */
+export const HTML_EXTENSIONS = ['.html', '.htm', '.xhtml', '.shtml', '.shtm'] as const;
 
 /**
  * Extensions read as CSS. Preprocessor dialects (`.scss`, `.sass`, `.less`, `.styl`) are
@@ -27,6 +28,12 @@ export const WEB_TEXT_LIMIT = 1_024;
 
 /** `html_attribute.value` is cut here: a data URI or an inline SVG attribute can run to megabytes. */
 export const WEB_ATTRIBUTE_VALUE_LIMIT = 4_096;
+
+/**
+ * A CSS value, prelude or selector is kept IN FULL, whitespace as written (V2-12 ruling: miss nothing); only past
+ * 64 KiB (a huge inline `data:` URL) is it cut, with the row's `…Truncated` column set, a listed LIMIT.
+ */
+export const WEB_CSS_TEXT_LIMIT = 65_536;
 
 /** `css_comment.text` and gap details are cut here. */
 export const WEB_COMMENT_TEXT_LIMIT = 2_048;

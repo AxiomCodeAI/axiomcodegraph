@@ -1,0 +1,13 @@
+# shape: admin templates write void elements both ways (<br>, <img/>, <input>) and occasionally <div/> on a non-void element, which a browser treats as an OPEN tag
+kinds=element,contains
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body>
+  <p>one<br>two<br/>three</p>
+  <img src="a.png"/><input type="text">
+  <div class="empty"/>
+  <span>inside the div that never closed</span>
+  <hr>
+</body>
+</html>
