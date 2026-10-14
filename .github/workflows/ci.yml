@@ -575,7 +575,7 @@ jobs:
           - { os: macos-15,         platform: darwin-arm64 }
           - { os: macos-15-intel,   platform: darwin-x64 }
     runs-on: ${{ matrix.target.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -610,6 +610,21 @@ jobs:
             bash .github/scripts/e2e-install.sh artifacts/engines "$PLATFORM" "$lang" "$case_dir"
             echo "::endgroup::"
           done
+      # The smoke test above is one case per language; Windows writes paths and command lines differently enough that
+      # a release passed it there with 43 case checks failing (tests not linked through a file path, an absolute
+      # file:line refused, ' and " mangled into Git Bash). Every query case, answered by the installed packages.
+      - name: every query case, installed from the tarballs, no Soufflé (Windows)
+        if: matrix.target.platform == 'win32-x64'
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.target.platform }}
+        run: |
+          set -euo pipefail
+          # the decompilers `--library auto` uses for a Java class jar and a NuGet package, as the engine job installs them
+          mvn -q dependency:get -Dartifact=org.vineflower:vineflower:1.10.1
+          dotnet tool install -g ilspycmd --version 8.2.0.7535 && export PATH="$USERPROFILE/.dotnet/tools:$PATH"
+          export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
+          bash .github/scripts/e2e-cases.sh artifacts/engines "$PLATFORM" --jobs 4
 
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that

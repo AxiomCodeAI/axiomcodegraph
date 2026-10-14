@@ -223,7 +223,8 @@ export class CSharpProjectAnalyzer {
           continue;
         }
         context.seen.add(absoluteFilePath);
-        const relativePath = path.relative(options.baseMservPath, absoluteFilePath);
+        // `/` on every platform, as the graph stores a file: on Windows `Shop\Pricer.cs` matched no rule joining paths
+        const relativePath = path.relative(options.baseMservPath, absoluteFilePath).split(path.sep).join('/');
 
         // THE GOVERNING PROJECT decides the framework and the symbols, unless the
         // caller fixed them. See cs-project-config.ts for why this is read at all.
@@ -498,7 +499,7 @@ function readProjectConfigFor(
     defineConstants: config.defineConstants,
     implicitFrameworkDefines: config.implicitFrameworkDefines,
     langVersion: config.langVersion,
-    projectPath: path.relative(baseMservPath, config.projectFile),
+    projectPath: path.relative(baseMservPath, config.projectFile).split(path.sep).join('/'),
     implicitUsings: config.implicitUsings,
     usings: config.usings,
   };

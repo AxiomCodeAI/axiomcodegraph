@@ -15,6 +15,12 @@
 # (the `axiomcode` dispatcher) ask each of them. Each graph is one language: no call is followed from one to another.
 # Each is published as soon as its own language is solved, the main one first, so a query never waits for another
 # language's compile; until the last one is in, .axiomcode/out/building names the languages still to come.
+# Windows: a native caller (bin/axiomcode.js, the MCP server, ax_exec.bash_argv) hands the arguments over in
+# AXIOMCODE_ARGV, each ended by \x1f, because msys misparses them on a command line. Taken once, so a script this one
+# starts gets its own.
+if [ -n "${AXIOMCODE_ARGV+x}" ]; then
+  set --; while IFS= read -r -d $'\x1f' _a; do set -- "$@" "$_a"; done < <(printf '%s' "$AXIOMCODE_ARGV"); unset AXIOMCODE_ARGV _a
+fi
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 # a repository that is not there is an error, never the working directory, and nothing is built
@@ -163,9 +169,21 @@ OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 # write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
 # whole life, so the OS drops it when the build ends however it ends: no stale lock to time out.
 exec 9>"$REPO/.axiomcode/build.lock"
-if ! python3 "$H/ax_fresh.py" lock 9 --try; then
+# ON WINDOWS a native python cannot lock Git Bash's fd 9, so a helper holds the lock for this build until it ends
+# (ax_fresh.py hold): it answers `held` or `busy` in a file, then holds on, released when this shell's process ends.
+take_lock(){
+  if [ -r "/proc/$$/winpid" ]; then
+    local f="$REPO/.axiomcode/build.lock.$$" r=""
+    python3 "$H/ax_fresh.py" hold "$REPO/.axiomcode/build.lock" "$(cat "/proc/$$/winpid")" "$@" > "$f" 2>/dev/null &
+    local hp=$!
+    while [ -z "$r" ] && kill -0 "$hp" 2>/dev/null; do r="$(cat "$f" 2>/dev/null)"; [ -n "$r" ] || sleep 0.2; done
+    [ -n "$r" ] || r="$(cat "$f" 2>/dev/null)"
+    rm -f "$f"; [ "$r" = held ]
+  else python3 "$H/ax_fresh.py" lock 9 "$@"; fi
+}
+if ! take_lock --try; then
   [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO; waiting for it …"
-  python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
+  take_lock || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
 python3 "$H/ax_fresh.py" relink "$REPO" --locked || true   # a pointer copied from another checkout is this one's again (#1605)
 BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)

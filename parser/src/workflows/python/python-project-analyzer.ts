@@ -572,11 +572,14 @@ export class PythonProjectAnalyzer {
     rootDir: string,
     baseMservPath: string
   ): string {
-    const fromMserv = path.relative(baseMservPath, filePath);
+    // Written with `/` on every platform, as the other languages' IR writes it: the rules join a module's directory to a
+    // string (`os.path.join(HERE, 'graph-core.py')`, `include("shop.urls")`) with `/`, and on Windows `pkg\changed.py`
+    // matched none of them.
+    const fromMserv = path.relative(baseMservPath, filePath).split(path.sep).join('/');
     if (fromMserv !== '' && !fromMserv.startsWith('..') && !path.isAbsolute(fromMserv)) {
       return fromMserv;
     }
-    return path.relative(rootDir, filePath) || path.basename(filePath);
+    return path.relative(rootDir, filePath).split(path.sep).join('/') || path.basename(filePath);
   }
 
   /** The directory names above a module's top-level package, outermost first (see ProjectModuleFacts.outerDirs). */

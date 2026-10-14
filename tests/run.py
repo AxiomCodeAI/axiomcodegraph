@@ -35,9 +35,31 @@ Four other keys a check may carry:
   and neither announces itself as a want/avoid mismatch. If anyone ever "simplifies" `pending` into a skip, that is
   the property they will have removed.
 """
-import builtins, concurrent.futures, io, json, os, re, shutil, subprocess, sys
+import builtins, concurrent.futures, io, json, os, re, shutil, sqlite3, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 AX = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode')
+# THE DISPATCHER IS STARTED AS THE PRODUCT STARTS IT, so the cases answer for Windows too: Git Bash found the way the CLI
+# finds it (a bare `bash` there is System32's WSL launcher), MSYS=noglob as the CLI sets it (`'*'` reached the verbs as the
+# directory's file names), and the arguments handed over by ax_exec.bash_argv (msys misparses `'` and `"` on a command line).
+sys.path.insert(0, os.path.dirname(AX)); import ax_exec, ax_fresh, time
+def clear(path):
+    """remove a case's .axiomcode once nothing is writing it. A check that edits a file leaves a background refresh
+    running after the case's last answer; removed under it, the refresh failed and wrote that failure into what Windows
+    could not delete (an open file there cannot be), and the next run of the case found a graph that "failed on this
+    tree", which is not retried. So: wait for the refresh and any build, then remove, retrying what is still held."""
+    d = os.path.join(path, '.axiomcode')
+    end = time.time() + 180
+    while os.path.isdir(d) and time.time() < end and (ax_fresh.refresher_running(path) or ax_fresh.building(path)): time.sleep(0.5)
+    while os.path.isdir(d) and time.time() < end:
+        shutil.rmtree(d, ignore_errors=True)
+        if os.path.isdir(d): time.sleep(0.5)
+for _s in (sys.stdout, sys.stderr): _s.reconfigure(encoding='utf-8', errors='replace')   # answers print → and ·; Windows' file encoding is cp1252
+BASH = os.environ.get('AXIOMCODE_BASH') or (subprocess.run(['node', '-e', "process.stdout.write(require(process.argv[1]).findBash().bash || '')",
+       os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'find-bash.js')], capture_output=True, text=True).stdout if os.name == 'nt' else '') or 'bash'
+BASE_ENV = dict(os.environ, MSYS=(os.environ.get('MSYS', '') + ' noglob').strip()) if os.name == 'nt' else None
+def ax(argv, env=None):
+    a, e = ax_exec.bash_argv(AX, argv, env if env is not None else BASE_ENV, BASH)
+    return subprocess.run(a, capture_output=True, text=True, encoding='utf-8', errors='replace', env=e)
 args = sys.argv[1:]; keep = '--keep' in args; verbose = '-v' in args
 lang = args[args.index('--lang') + 1] if '--lang' in args else None
 jobs = int(args[args.index('--jobs') + 1]) if '--jobs' in args else 1
@@ -53,27 +75,30 @@ def run_case(case):
     l, name, path = case; buf = io.StringIO(); fail = tot = pend = 0
     def print(*a, flush=False, **k): builtins.print(*a, file=buf, **k)
     print(f"… {l}/{name}", flush=True)
-    spec = json.load(open(os.path.join(path, 'case.json')))
-    build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else []) \
+    spec = json.load(open(os.path.join(path, 'case.json'), encoding='utf-8'))
+    clear(path)                                                       # what a stopped run left: start as a fresh checkout does
+    build = ['index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else []) \
         + (['--library', os.path.join(path, spec['library'])] if spec.get('library') else [])   # a staged dependency root, relative to the case
-    r = subprocess.run(build, capture_output=True, text=True)
+    r = ax(build)
     if r.returncode: print(f"FAIL {l}/{name}: index failed: {(r.stderr or r.stdout)[-300:]}"); return buf.getvalue(), 0, 1, 0
     for stmt in spec.get('sql', []):                                  # facts a framework extension would have written
-        subprocess.run(['sqlite3', os.path.join(path, '.axiomcode', 'out', 'graph.sqlite'), stmt], capture_output=True, text=True)
+        try:                                                          # the module, not the sqlite3 program: Windows has none
+            with sqlite3.connect(os.path.join(path, '.axiomcode', 'out', 'graph.sqlite')) as db: db.executescript(stmt)
+        except sqlite3.Error: pass
     # "edit": [file, old, new] — the case edits one of its files before that check runs (an asserted link whose line moved
     # or changed); every edited file, and a links file the case wrote, is put back when the case ends
-    links_file = os.path.join(path, 'axiomcode-links.tsv'); links_had = open(links_file).read() if os.path.exists(links_file) else None
+    links_file = os.path.join(path, 'axiomcode-links.tsv'); links_had = open(links_file, encoding='utf-8', newline='').read() if os.path.exists(links_file) else None
     edited = {}
     for ch in spec['checks']:
         tot += 1
         if ch.get('edit'):
-            ef, old, new = ch['edit']; fp = os.path.join(path, ef); txt = open(fp).read()
+            ef, old, new = ch['edit']; fp = os.path.join(path, ef); txt = open(fp, encoding='utf-8', newline='').read()
             edited.setdefault(fp, txt)
             if old not in txt: print(f"FAIL {l}/{name}: the edit's old text is not in {ef}"); fail += 1; continue
-            open(fp, 'w').write(txt.replace(old, new, 1))
+            open(fp, 'w', encoding='utf-8', newline='').write(txt.replace(old, new, 1))
         # "env": {…} — the check runs with these set (AXIOMCODE_FRONT=1: the answer the installed command and MCP give)
-        out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True,
-                             env=dict(os.environ, **ch['env']) if ch.get('env') else None)
+        out = ax([a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []),
+                 dict(BASE_ENV or os.environ, **ch['env']) if ch.get('env') else None)
         text = out.stdout + out.stderr
         # a [text] row quoting this case.json is the spec read back (a name no graph declares is searched as text, and the
         # case file lies in the searched tree): its own `avoid` strings there are not the tool's answer
@@ -92,7 +117,7 @@ def run_case(case):
         # "same_as": [run …] — STDOUT must be BYTE-IDENTICAL to another run's: a switch that must not change an answer
         # (evidence on an answer with no uncertain row, a default that is off) is a comparison, not a substring
         if ch.get('same_as'):
-            other = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['same_as']] + [path], capture_output=True, text=True)
+            other = ax([a.replace('{repo}', path) for a in ch['same_as']] + [path])
             if other.stdout != out.stdout:
                 a_, b_ = out.stdout.split('\n'), other.stdout.split('\n')
                 i = next((i for i, (x, y) in enumerate(zip(a_, b_)) if x != y), min(len(a_), len(b_)))
@@ -115,11 +140,11 @@ def run_case(case):
             # a traceback's last line is the error itself: keep the head (what it answered) and the tail (why it stopped)
             print('     ' + '\n     '.join(lines[:14] + (['…'] + lines[-12:] if len(lines) > 26 else lines[14:])))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")
-    for fp, txt in edited.items(): open(fp, 'w').write(txt)
+    for fp, txt in edited.items(): open(fp, 'w', encoding='utf-8', newline='').write(txt)
     if links_had is None:
         if os.path.exists(links_file): os.remove(links_file)
-    else: open(links_file, 'w').write(links_had)
-    if not keep: shutil.rmtree(os.path.join(path, '.axiomcode'), ignore_errors=True)
+    else: open(links_file, 'w', encoding='utf-8', newline='').write(links_had)
+    if not keep: clear(path)
     return buf.getvalue(), tot, fail, pend
 
 
