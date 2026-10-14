@@ -256,6 +256,14 @@ def path(start: str, end: str) -> str:
     return plain(run(['path', start, end, os.getcwd()]))
 
 @srv.tool()
+def value(name: str) -> str:
+    """The current value of a named constant: its value, its kind (number, string, bool) and the file:line that writes
+    it, with the line. name as written in the code: MAX_ITEMS, Pager.MAX_ITEMS for a class's, MAX_* for every match. A
+    name defined in several places is listed in all of them; a name declared without a literal value, a local, or an
+    unknown name says which."""
+    return plain(run(['value', name, os.getcwd()]))
+
+@srv.tool()
 def link(site: str = '', target: str = '') -> str:
     """Record where an unresolved call lands, when you have read the code and the target is CERTAIN: site is the call's
     file:line as an answer's `unknown:` block lists it, target the declaration it reaches (Owner.method, function, or
