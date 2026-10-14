@@ -1,0 +1,5 @@
+@import "base.css";
+.nav a { color: navy; }
+.btn { padding: 4px; }
+.btn.primary { color: white; }
+.ghost { opacity: 0.5; }
