@@ -2288,8 +2288,17 @@ def main(argv):
     if outside or loaded or other_lang:
         # NOT A CALL: a file no graph reads, or a program a test starts by name. The tests that name it are the lead
         if outside:
-            print(f"\n{len(outside)} changed file(s) outside every indexed language (no declaration to follow): "
-                  + ", ".join(outside[:8]) + (f" … +{len(outside) - 8}" if len(outside) > 8 else ""))
+            # a page or a stylesheet a web graph reads is in an indexed language, one with no tests of its own
+            import ax_web
+            has_web = any(ax_web.language_of(os.path.join(repo, '.axiomcode', *d, 'out', 'graph.sqlite')) == 'web' for d in ((), ('lang', 'web')))
+            webbed = [f for f in outside if re.search(r'\.(x?html?|shtml?|css)$', f, re.I)] if has_web else []
+            rest = [f for f in outside if f not in webbed]
+            if webbed:
+                print(f"\n{len(webbed)} page(s)/stylesheet(s) edited (the web graph reads them; HTML and CSS have no tests of their own): "
+                      + ", ".join(webbed[:8]) + (f" … +{len(webbed) - 8}" if len(webbed) > 8 else ""))
+            if rest:
+                print(f"\n{len(rest)} changed file(s) outside every indexed language (no declaration to follow): "
+                      + ", ".join(rest[:8]) + (f" … +{len(rest) - 8}" if len(rest) > 8 else ""))
         if loaded:
             print(f"  [text] {len(loaded_files)} test file(s) name them in their text — they load or start them; run these too:")
             for f, (n, ts) in sorted(loaded.items()):

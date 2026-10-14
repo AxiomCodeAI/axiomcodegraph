@@ -411,7 +411,14 @@ with sqlite3.connect(db) as c:
                   ('refreshed_tree', tree), ('refreshed_commit', commit)] + eng)
 PY
 }
-tiers(){ python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }
+# a call graph's edges by tier; a web graph (HTML + CSS) has none, so its pages, sheets and what the cascade matched
+tiers(){ python3 -c '
+import sqlite3,sys; c=sqlite3.connect(sys.argv[1])
+if c.execute("SELECT 1 FROM sqlite_master WHERE name = ?", ("web_pages",)).fetchone():
+    q = [("pages", "SELECT count(*) FROM web_pages"), ("stylesheets", "SELECT count(*) FROM web_stylesheets"),
+         ("selectors", "SELECT count(*) FROM web_selectors"), ("styled elements", "SELECT count(DISTINCT element_uid) FROM web_styles WHERE status = ?")]
+    print(", ".join("%s %d" % (k, c.execute(sql, ("match",) if "?" in sql else ()).fetchone()[0]) for k, sql in q))
+else: print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }
 # EACH LANGUAGE'S GRAPH IS PUBLISHED WHEN ITS OWN LANGUAGE IS SOLVED (#1555). The engine solves one language after
 # another, and nearly all of each is that language's Souffle compile. Published only when the whole run ended, the main
 # language's graph sat finished while three JavaScript files compiled: on a C# web application with a small ClientApp,

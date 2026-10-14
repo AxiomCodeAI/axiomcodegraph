@@ -117,6 +117,7 @@ class Web:
     def __init__(self, db, repo):
         self.con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         self.con.row_factory = sqlite3.Row
+        self.db = db
         self.repo = repo
         self.IN = None
         self.limit = ROWS
@@ -141,15 +142,25 @@ class Web:
                     try: self.limit = int(v) or 10 ** 9
                     except ValueError: pass
         # an option the verb does not know is no target (the web graph adds no options of its own)
+        unknown_opt = any(a.startswith('-') and len(a) > 1 for a in args)
         args = [a for a in args if not (a.startswith('-') and len(a) > 1)]
-        if args and os.path.isdir(args[-1]) and (len(args) > (2 if verb == 'path' else 1) or verb == 'context'): args = args[:-1]
+        if args and os.path.isdir(args[-1]) and (len(args) > (2 if verb == 'path' else 1) or verb == 'context'
+                                                 or os.path.realpath(args[-1]) == os.path.realpath(self.repo)): args = args[:-1]
         if verb in ('tests', 'test-impact'):
             print("the web graph selects no tests (HTML and CSS have none); the other graphs answer for the edit")
             return 3
-        if verb == 'changed':
-            print("the web graph has no declarations to diff; `impact <page.html | sheet.css | .class>` answers for an edited page or stylesheet")
+        if verb in ('changed', 'impact') and not args and not unknown_opt:
+            # an edit to a page or a stylesheet: the rules and elements it touched, and (impact) what each reaches.
+            # No web file edited: status 3, nothing to say, so the other graphs' answer stands alone
+            doc = self.edits(answer=verb == 'impact')
+            if doc is None:
+                # status 3: beside a call graph, its answer stands alone; alone, these lines are the answer
+                print("your edits: none\nno page or stylesheet edited since the web graph was built")
+                return 3
+        elif verb == 'changed':
+            print("web graph: `changed` takes no target; `impact <page.html | sheet.css | .class>` answers for one")
             return 3
-        if verb == 'impact': doc = self.impact(args)
+        elif verb == 'impact': doc = self.impact(args)
         elif verb == 'path': doc = self.path(args)
         elif verb == 'context': doc = self.context(args)
         else:
@@ -325,6 +336,96 @@ class Web:
         if len(docs) == 1: return docs[0]
         return {'found': any(d.get('found') for d in docs), 'targets': docs, 'rows': [r for d in docs for r in d.get('rows', [])],
                 'prose': [l for d in docs for l in (d.get('prose') or [d.get('refusal', '')]) + ['']]}
+
+    # ── edits ──
+    WEB_EXT = ('.html', '.htm', '.xhtml', '.shtml', '.shtm', '.css')
+
+    def git(self, *a):
+        import subprocess
+        try: r = subprocess.run(['git', *a], cwd=self.repo, capture_output=True, text=True)
+        except OSError: return None
+        return r.stdout if r.returncode == 0 else None
+
+    def edited(self):
+        """{file: sorted graph lines the edit touched} for every page or stylesheet edited since the commit the graph was
+        built from; [] for a file whose lines are not the graph's (new, or no hunk maps). A file written after the graph
+        was built still has the old text in the graph, so its hunks are read on the old side; else on the new side."""
+        # the baseline `changed` diffs the call graphs against (the tree of the last explicit index, moved to HEAD's when HEAD
+        # moves: axiomcode-build), so one edit is reported by every graph alike; the graph's commit, else HEAD, without one
+        base = None
+        try: base = open(os.path.join(self.repo, '.axiomcode', 'out', 'base-tree')).read().strip() or None
+        except OSError: pass
+        if base and self.git('cat-file', '-e', base) is None: base = None
+        if not base:
+            base = (self.q1("SELECT value FROM run WHERE key = 'source_version'") or [None])[0]
+            if not base or self.git('cat-file', '-e', base + '^{commit}') is None: base = 'HEAD'
+        diff = self.git('diff', '-U0', '--no-color', '--no-ext-diff', base, '--', '.')
+        if diff is None: return {}
+        try: built = os.path.getmtime(self.db)
+        except OSError: built = 0
+        # the files the graph is behind on, by content (ax_fresh's file table); the file's mtime only without a table
+        try:
+            import ax_fresh
+            c = ax_fresh.changes(self.repo, ax_fresh.load_table(self.repo))
+            behind = None if c is None else {f.replace(os.sep, '/') for f in list(c[0]) + list(c[1])}
+        except Exception: behind = None
+        out = {}; f = None; old_side = False; self.stale = []
+        for l in diff.split('\n'):
+            if l.startswith('+++ '):
+                t = l[4:]
+                if t == '/dev/null': f = None; continue          # a deleted file: nothing of it is left to style
+                f = t[2:] if t.startswith('b/') else t
+                if not f.lower().endswith(self.WEB_EXT): f = None; continue
+                if behind is not None: old_side = f in behind
+                else:
+                    try: old_side = os.path.getmtime(os.path.join(self.repo, f)) > built
+                    except OSError: old_side = False
+                if old_side: self.stale.append(f)
+                out.setdefault(f, set())
+            elif f and l.startswith('@@'):
+                m = re.match(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', l)
+                if not m: continue
+                a, b = (int(m.group(1)), int(m.group(2) or 1)) if old_side else (int(m.group(3)), int(m.group(4) or 1))
+                out[f].update(range(a, a + b) if b else [max(a, 1)])
+        for u in (self.git('ls-files', '--others', '--exclude-standard') or '').split('\n'):
+            if u.lower().endswith(self.WEB_EXT) and not u.startswith('.axiomcode/'): out.setdefault(u, set())
+        return {f: sorted(v) for f, v in out.items()}
+
+    def edits(self, answer=True):
+        ed = self.edited()
+        if not ed: return None
+        prose = [f"web: your edits — {len(ed)} page(s)/stylesheet(s)"]; rows = []; targets = []
+        for f, lines in ed.items():
+            css = f.lower().endswith('.css')
+            held = self.sheet_by_file(f) if css else self.page_by_file(f)
+            if not held:
+                prose.append(f"  {f}: not in the web graph yet (a new file); the next index reads it")
+                rows.append(self.row(f, 'stylesheet' if css else 'page', 'edited', 'unknown', 'not_indexed')); continue
+            hit = []
+            for n in lines:
+                if css:
+                    r = self.q1("SELECT uid, line FROM web_rules WHERE stylesheet_uid = ? AND line <= ? AND COALESCE(end_line, line) >= ? AND uid IN (SELECT rule_uid FROM web_selectors)"
+                                " ORDER BY line DESC, end_line ASC LIMIT 1", held[0]['uid'], n, n)
+                else:
+                    r = self.q1("SELECT uid, line FROM web_elements WHERE page_uid = ? AND line <= ? AND COALESCE(end_line, line) >= ? ORDER BY line DESC, col DESC LIMIT 1",
+                                held[0]['uid'], n, n)
+                if r and (f, r['line']) not in hit: hit.append((f, r['line']))
+            whole = not hit or len(hit) > 8              # many places, or none a rule or element holds: the file itself
+            what = (f"the stylesheet ({len(hit)} rule(s) edited)" if css else f"the page ({len(hit)} element(s) edited)") if hit else ('the stylesheet' if css else 'the page')
+            prose.append(f"  {f}: " + (what if whole else ', '.join(f"{'rule' if css else 'element'} at line {n}" for _, n in hit)))
+            rows += [self.row(at_of(f, n), 'rule' if css else 'element', 'edited') for _, n in hit] or [self.row(f, 'stylesheet' if css else 'page', 'edited')]
+            targets += [('sheet' if css else 'page', f)] if whole else [('line', t) for t in hit]
+        if self.stale:
+            prose.append(f"  (the graph predates the edit to {', '.join(self.stale[:3])}{' …' if len(self.stale) > 3 else ''}: what follows is before it; "
+                         "the next index reads it)")
+        if not answer:
+            return {'found': True, 'kind': 'edits', 'rows': rows, 'prose': prose, 'more': 0, 'stale': self.stale}
+        for kind, v in targets:
+            d = getattr(self, 'impact_' + kind)(v)
+            prose += [''] + (d.get('prose') or [d.get('refusal', '')])
+            rows += d.get('rows', [])
+        return {'found': True, 'kind': 'edits', 'targets': [t[1] if t[0] != 'line' else at_of(*t[1]) for t in targets], 'rows': rows, 'prose': prose, 'more': 0,
+                'stale': self.stale}
 
     def cascade_rows(self, element_uid, role='styled_by'):
         # review #28: cascade order (the winner last) and total: importance is per declaration (web_cascade has it), so a
@@ -884,8 +985,10 @@ class Web:
         kind, v = self.kind_of(a)
         if kind == 'page': return [('page', r['uid']) for r in self.page_by_file(v)]
         if kind == 'sheet': return [('sheet', r['uid']) for r in self.sheet_by_file(v)]
-        if kind == 'class': return [('el', r['element_uid']) for r in self.q("SELECT element_uid FROM web_class_tokens WHERE class_name = ?", v)]
-        if kind == 'id': return [('el', r['uid']) for r in self.q("SELECT uid FROM web_elements WHERE html_id = ?", v)]
+        # a class or an id is the elements carrying it AND the selectors naming it: a rule for a class no element carries
+        # (yet, or only at run time) is still reached by the page that loads its sheet
+        if kind == 'class': return [('el', r['element_uid']) for r in self.q("SELECT element_uid FROM web_class_tokens WHERE class_name = ?", v)] + self.naming('CLASS', v)
+        if kind == 'id': return [('el', r['uid']) for r in self.q("SELECT uid FROM web_elements WHERE html_id = ?", v)] + self.naming('ID', v)
         if kind == 'var': return [('var', v)]
         if kind == 'line':
             f, n = v; pg = self.page_by_file(f)
@@ -893,6 +996,9 @@ class Web:
         if kind == 'keyframes': return [('rule', r['uid']) for r in self.q("SELECT uid FROM web_rules WHERE at_rule_name LIKE '%keyframes' AND name = ?", v)]
         if kind == 'selector': return [('sel', r['uid']) for r in self.q("SELECT uid FROM web_selectors WHERE selector_text = ?", v)]
         return []
+
+    def naming(self, part, v):
+        return [('sel', r['selector_uid']) for r in self.q("SELECT DISTINCT selector_uid FROM web_selector_parts WHERE part_kind = ? AND name = ?", part, v)]
 
     def neighbours(self, node, edges):
         k, v = node; q = self.q
@@ -1012,10 +1118,15 @@ class Web:
             for r in self.q("SELECT e.file, e.line, e.html_id FROM web_elements e JOIN (SELECT page_uid, html_id FROM web_elements WHERE html_id IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1) d ON d.page_uid = e.page_uid AND d.html_id = e.html_id ORDER BY e.file, e.line"):
                 rows.append(self.row(at_of(r['file'], r['line']), 'element', 'duplicate_id', 'ambiguous', 'duplicate_id', id=r['html_id']))
         # the task's words: class tokens and selectors naming them, ranked by how many rules name them; the sheet holding most first
+        scores = {}
         words = [w.lower() for w in re.findall(r'[A-Za-z][\w-]{2,}', task) if w.lower() not in STOP]
+        # a page named by a number or a file name ("the 404 page", "about.html"): matched against page files only
+        for w in re.findall(r'(?<![\w.-])([\w-]*\d[\w-]*(?:\.x?html?)?|[\w-]+\.x?html?)(?![\w-])', task):
+            for r in self.q("SELECT file, title FROM web_pages WHERE lower(file) LIKE ? ESCAPE '\\'", '%' + like_esc(w.lower()) + '%'):
+                rows.append(self.row(r['file'], 'page', 'pages', title=r['title'], score=3))
+                scores[r['file']] = scores.get(r['file'], 0) + 3
         responsive = bool(re.search(r'\b(responsive|mobile|breakpoint|media|small screens?|tablet)\b', low))
         hover = bool(re.search(r'\b(hover|focus|active)\b', low))
-        scores = {}
         for w in dict.fromkeys(words):
             for r in self.q("""SELECT s.file, s.line, s.selector_text, r.conditions, s.reason FROM web_selector_parts p JOIN web_selectors s ON s.uid = p.selector_uid
                                JOIN web_rules r ON r.uid = s.rule_uid WHERE p.part_kind IN ('CLASS', 'ID') AND (lower(p.name) = ? OR lower(p.name) LIKE ? OR lower(p.name) LIKE ?)""",

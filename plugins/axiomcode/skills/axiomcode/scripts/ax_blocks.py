@@ -302,28 +302,57 @@ def verb_json(cmd):
     return r, doc
 
 
+def web_edits(repo):
+    """(is the main graph web, the web graph's answer for the edited pages and stylesheets or None). HTML and CSS have
+    no declarations for `changed` to diff: the web graph reads its own edits (ax_web.Web.edits)"""
+    import ax_web
+    main = os.path.join(repo, '.axiomcode')
+    for gdir in (main, os.path.join(main, 'lang', 'web')):
+        if ax_web.language_of(os.path.join(gdir, 'out', 'graph.sqlite')) == 'web': break
+    else: return False, None
+    import ax_exec
+    env = dict(os.environ, AXIOMCODE_GRAPH=gdir, AXIOMCODE_GRAPH_LANG='web')
+    r = subprocess.run(ax_exec.program(['python3', os.path.join(H, 'axiomcode-impact'), repo, '--json']), stdout=subprocess.PIPE,
+                       text=True, encoding='utf-8', errors='replace', env=env)
+    try: doc = json.loads(r.stdout) if r.returncode == 0 else None
+    except ValueError: doc = None
+    return gdir == main, doc
+
+
 def edits(repo):
     """impact with no name: what the working tree's edits changed, then what depends on those declarations, with code"""
+    web_main, wdoc = web_edits(repo)
+    wlines = (wdoc.get('prose') or []) if wdoc else []
+    if web_main:                                        # a web-only repository: the web graph is the whole answer
+        print('\n'.join(wlines or ["your edits: none", "no page or stylesheet edited since the graph was built"])); return 0
+    if wlines: wlines = ['', '══ web graph (HTML + CSS) ══'] + wlines
     r, doc = verb_json(['python3', os.path.join(H, 'axiomcode-changed'), repo])
     if not isinstance(doc, dict):
-        sys.stdout.write(r.stdout); return r.returncode
+        sys.stdout.write(r.stdout); print('\n'.join(wlines)) if wlines else None; return r.returncode
     ch = doc.get('changed') or []
     targets = list(dict.fromkeys(c['target'] for c in ch if c.get('target')))
     head = ["your edits: " + (', '.join(f"{c.get('kind')} {c.get('shown_target') or c.get('symbol')}" for c in ch[:8]) or 'none')
             + (f" (+{len(ch) - 8} more)" if len(ch) > 8 else '')]
     if not targets:
+        if wlines and not ch: print('\n'.join(wlines[2:])); return 0
         print('\n'.join(head + ["nothing edited is a declaration other code depends on" if ch else
-                                "no edits against the commit the graph was built from"]))
+                                "no edits against the commit the graph was built from"] + wlines))
         return 0
     r, doc = verb_json(['python3', os.path.join(H, 'axiomcode-impact')] + targets + [repo, '--tests'])
     lines = render('impact', doc, repo) if isinstance(doc, dict) else None
-    print('\n'.join(head + (lines or [x for x in (doc or {}).get('prose', [])] or [r.stdout.strip()])))
+    print('\n'.join(head + (lines or [x for x in (doc or {}).get('prose', [])] or [r.stdout.strip()]) + wlines))
     return 0
 
 
 def edits_json(repo, flags):
     """impact --json with no name: the impact document for the declarations the working tree's edits changed, with
     the edits themselves under "edits" — the machine form of edits(), so --json never answers less than the text"""
+    web_main, wdoc = web_edits(repo)
+    if web_main:                                        # a web-only repository: the web graph's document is the answer
+        print(json.dumps(wdoc or {'edits': [], 'answers': [], 'language': 'web',
+                                  'prose': ["your edits: none", "no page or stylesheet edited since the graph was built"]}, indent=2))
+        return 0
+    others = {'other_languages': {'web': wdoc}} if wdoc else {}
     r, doc = verb_json(['python3', os.path.join(H, 'axiomcode-changed'), repo])
     if not isinstance(doc, dict):
         sys.stdout.write(r.stdout); return r.returncode
@@ -331,15 +360,18 @@ def edits_json(repo, flags):
     targets = list(dict.fromkeys(c['target'] for c in ch if c.get('target')))
     head = ["your edits: " + (', '.join(f"{c.get('kind')} {c.get('shown_target') or c.get('symbol')}" for c in ch[:8]) or 'none')
             + (f" (+{len(ch) - 8} more)" if len(ch) > 8 else '')]
+    if not targets and not ch and wdoc:                # only pages and stylesheets were edited: the web graph's document
+        print(json.dumps(wdoc, indent=2)); return 0
     if not targets:
         print(json.dumps({'edits': ch, 'answers': [], 'prose': head + ["nothing edited is a declaration other code depends on" if ch else
-                                                                      "no edits against the commit the graph was built from"]}, indent=2))
+                                                                      "no edits against the commit the graph was built from"], **others}, indent=2))
         return 0
     r, out = verb_json(['python3', os.path.join(H, 'axiomcode-impact')] + targets + [repo] + [f for f in flags if f != '--json'])
     if not isinstance(out, dict):
         sys.stdout.write(r.stdout); return r.returncode
     out['edits'] = ch
     out['prose'] = head + list(out.get('prose') or [])
+    if wdoc: out.setdefault('other_languages', {})['web'] = wdoc
     print(json.dumps(out, indent=2))
     return r.returncode
 
@@ -365,8 +397,13 @@ def _main(verb, repo, cmd):
     if web_lines: import atexit; atexit.register(lambda: print('\n'.join(web_lines)))
     lines = render(verb, doc, repo) if r.returncode in (0, 1) or doc.get('called_undeclared') else None
     if lines is None:
-        # a refusal or an answer with no place in it: the verb's own words are the answer
-        prose = '\n'.join(doc.get('prose') or []) or doc.get('refusal') or r.stdout.strip()
+        # a refusal or an answer with no place in it: the verb's own words are the answer — its text form when the
+        # document carries no prose (test-impact over edits no graph follows), never the JSON it was asked for
+        prose = '\n'.join(doc.get('prose') or []) or doc.get('refusal')
+        if not prose:
+            import ax_exec
+            t = subprocess.run(ax_exec.program([a for a in cmd if a != '--json']), stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+            prose = t.stdout.strip() or r.stdout.strip()
         extra = [l for l in unknown(doc, repo) if l not in prose]
         print('\n'.join([prose] + extra)); return r.returncode
     print('\n'.join(lines))

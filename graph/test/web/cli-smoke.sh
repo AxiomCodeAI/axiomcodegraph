@@ -120,6 +120,30 @@ if (cd "$T/srcrepo" && "$AX" index "$T/srcrepo" --lang web --src site >"$T/index
   check R1-23-src-link-list 'site/parts/card.html → site/host.html:4  taken yes' "$AX" link
   T="$T0"
 else fail=$((fail+1)); echo "FAIL index (--src site)"; tail -5 "$T/index4.log"; fi
+# EDITS: `impact` with no name answers for edited pages and stylesheets (the rule or element each hunk is in), alone and
+# with --json; `changed` and `tests` name them as the web graph's, not as files outside every language, and `tests` answers
+# in text. And `path` to a class no element carries reaches the selector naming it; `context` finds a page by its number
+mkdir -p "$T/edits"
+printf '<!doctype html>\n<html><head><link rel="stylesheet" href="s.css"></head>\n<body>\n<p>hello</p>\n</body></html>\n' > "$T/edits/index.html"
+printf '<!doctype html>\n<html><head><title>Not found</title></head><body><p>gone</p></body></html>\n' > "$T/edits/404.html"
+printf '.a{color:red}\n.hidden{\n  display:none\n}\n' > "$T/edits/s.css"
+if (cd "$T/edits" && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init && "$AX" index "$T/edits" --lang web >"$T/index5.log" 2>&1); then
+  T0="$T"; T="$T0/edits-run"; mkdir -p "$T"; ln -s "$T0/edits" "$T/site"
+  check E-no-edits 'your edits: none' "$AX" impact --no-refresh
+  check E-path-selector-only 'selector  .hidden' "$AX" path index.html .hidden
+  check E-context-404 '404.html' "$AX" context "what styles the 404 page"
+  printf '.a{color:red}\n.hidden{\n  opacity:0;\n  display:none\n}\n' > "$T0/edits/s.css"
+  sed -i.bak 's|<p>hello</p>|<p class="hidden">hello</p>|' "$T0/edits/index.html" && rm -f "$T0/edits/index.html.bak"
+  check E-impact-edits 's.css: rule at line 2' "$AX" impact --no-refresh
+  check E-impact-edits-element 'index.html: element at line 4' "$AX" impact --no-refresh
+  check E-impact-edits-stale 'the graph predates the edit' "$AX" impact --no-refresh
+  check E-impact-edits-json '"s.css:2"' "$AX" impact --json --no-refresh
+  check E-changed-web 'your edits — 2 page(s)/stylesheet(s)' "$AX" changed --no-refresh
+  nocheck E-changed-not-outside 'outside every indexed language' "$AX" changed --no-refresh
+  check E-tests-text 'selects no tests' "$AX" tests --no-refresh
+  nocheck E-tests-not-json '"test_files"' "$AX" tests --no-refresh
+  T="$T0"
+else fail=$((fail+1)); echo "FAIL index (edits site)"; tail -5 "$T/index5.log"; fi
 # R1-12: through MCP, custom-property and attribute lines survive the no-options filter; advice to pass a flag does not
 mcp_out=$(python3 - "$ROOT/plugins/axiomcode/mcp/server.py" <<'PY'
 import re, sys
