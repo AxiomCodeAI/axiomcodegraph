@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: nodes/23-template-before-doctype   kinds: page,loads_sheet,styles
+# shape: Django pages whose first line is {% load i18n static %} before <!DOCTYPE html>, next to a partial that
+loads_sheet	templates/page.html	templates/site.css	link	1	0	match	-
+page	templates/page.html	DOCUMENT
+page	templates/part.html	FRAGMENT
+styles	templates/site.css:1:1/0	templates/page.html:8:1	match	-	-

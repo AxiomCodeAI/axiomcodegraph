@@ -1,0 +1,32 @@
+# shape: a gulp-file-include theme: @@include("./partials/x.html", { ...context... }) partials in <body>, a context
+# object spread over several lines with nested arrays, a double-quoted path with no context
+kinds=page,include,host_styles,unknown
+@@@ file: src/css/site.css
+.nav a { a: 1 }
+body > .nav { a: 2 }
+.crumbs li { a: 3 }
+.m > .hero h1 { a: 4 }
+.hero + .crumbs { a: 5 }
+@@@ file: src/index.html
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+@@include("partials/nav.html")
+<main class="m">
+@@include('./partials/hero.html', {
+  "title": "Home",
+  "tags": ["a", "b"]
+})
+@@include('./partials/crumbs.html', {"items": [{"label": "Home"}]})
+</main>
+</body>
+</html>
+@@@ file: src/partials/crumbs.html
+<ol class="crumbs"><li>@@items</li></ol>
+@@@ file: src/partials/hero.html
+<section class="hero"><h1>@@title</h1></section>
+@@@ file: src/partials/nav.html
+<nav class="nav"><a href="#">x</a></nav>

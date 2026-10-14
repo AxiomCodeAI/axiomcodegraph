@@ -1,0 +1,12 @@
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (dynamic_attribute bindings, & max specificity, disabled/alternate sheets)
+# case: cascade/19-dynamic-attribute   kinds: styles,unknown
+# shape: Alpine/Vue/Angular dashboards binding ids and state attributes (:id, x-bind:data-state, [attr.aria-expanded], id="row-{{ n }}") that sheets select on
+styles	s.css:1:1/0	index.html:5:1	unknown	dynamic_attribute	-
+styles	s.css:1:1/0	index.html:9:1	unknown	dynamic_attribute	-
+styles	s.css:2:1/0	index.html:6:1	unknown	dynamic_attribute	-
+styles	s.css:2:1/0	index.html:7:1	match	-	-
+styles	s.css:3:1/0	index.html:8:1	unknown	dynamic_attribute	-
+styles	s.css:4:1/0	index.html:5:1	unknown	dynamic_attribute	-
+styles	s.css:4:1/0	index.html:9:1	unknown	dynamic_attribute	-
+styles	s.css:5:1/0	index.html:10:1	unknown	dynamic_attribute;dynamic_class	-
+styles	s.css:6:1/0	index.html:5:1	match	-	-

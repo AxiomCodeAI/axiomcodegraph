@@ -169,6 +169,7 @@ jobs:
       - name: IR staging maps are consistent
         run: |
           fail=0
+          # web stages no library (graph/web/templates/staging.conf), so it has no maps to compare
           for lang in java typescript python javascript csharp; do
             echo "── $lang"
             python3 graph/test/tools/check_staging.py --lang "$lang" || fail=1
@@ -183,7 +184,7 @@ jobs:
       - name: engine declarations match the parser schema
         run: |
           fail=0
-          for pair in typescript:decls_base_ts.dl python:decls_base_py.dl javascript:decls_base_js.dl csharp:decls_base_cs.dl; do
+          for pair in typescript:decls_base_ts.dl python:decls_base_py.dl javascript:decls_base_js.dl csharp:decls_base_cs.dl web:decls_base_web.dl; do
             lang="${pair%%:*}"; file="${pair#*:}"
             if ! diff <(grep '^\.decl' "parser/src/schema/$lang/$file") \
                       <(grep '^\.decl' "graph/$lang/souffle/decls_base.dl"); then
@@ -308,6 +309,11 @@ jobs:
           # (graph/test/csharp/ground-truth), which the step below builds with the
           # .NET 8 SDK. No flag — scoring against the compiler is all it does.
           - lang: csharp
+            oracle: ''
+          # Web (HTML + CSS): every case is gated against the oracle's rows (parse5, postcss, css-select,
+          # graph/test/web/oracle), reviewed by hand; no flag. Its query cases go through the plugin's
+          # front door, which reads AXIOMCODE_ENGINE (set below to this checkout).
+          - lang: web
             oracle: ''
     steps:
       - uses: actions/checkout@v4
@@ -448,8 +454,14 @@ jobs:
           path: .souffle-cache
           key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-march-${{ env.AXIOM_ENGINE_MARCH }}
 
+      # the web suite records each build's peak memory with /usr/bin/time, which a runner image does not always carry
+      - name: install time (web)
+        if: matrix.lang == 'web'
+        run: sudo apt-get install -y --no-install-recommends time
+
       - name: ${{ matrix.lang }} regression suite
         env:
+          AXIOMCODE_ENGINE: ${{ github.workspace }}
           AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
           # The driver's default cache is ~/.cache/axiomcode/souffle; point it at the
           # directory the cache step above saves and restores, or it never hits.
@@ -458,11 +470,23 @@ jobs:
         # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
 
+      - name: web CLI, violation and include checks
+        if: matrix.lang == 'web'
+        env:
+          AXIOMCODE_ENGINE: ${{ github.workspace }}
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: |
+          rc=0
+          for s in cli-smoke violations includes; do bash "graph/test/web/$s.sh" || rc=1; done
+          exit $rc
+
       # THE QUERY LAYER'S CASES (tests/run.py): what impact, path, context, changed and test-impact answer on small
       # projects written for one behaviour each. Every case must pass, and a case marked pending that now passes fails
       # the run until the mark is removed, so a fix for one shape cannot quietly break another's answer. The suite
       # calls the verbs directly, so it checks their own answers, not the front-door rendering (tests/front_door.py).
       - name: ${{ matrix.lang }} query cases
+        if: matrix.lang != 'web'
         env:
           AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
           AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
@@ -572,9 +596,14 @@ jobs:
           set -euo pipefail
           command -v souffle && { echo "::error::this runner has souffle; the gate would not prove anything"; exit 1; }
           export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
-          for lang in java typescript python javascript csharp; do
+          for lang in java typescript python javascript csharp web; do
             # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
-            cases=(graph/test/"$lang"/cases/*/src)
+            # a web case is one packed file (cases/<suite>/<case>.case) unpacked first; this one has selectors the engine matches
+            if [ "$lang" = web ]; then
+              packed=(graph/test/web/cases/cascade/01-*.case)
+              python3 graph/test/web/tools/cases.py unpack "${packed[0]}" "$RUNNER_TEMP/web-case"
+              cases=("$RUNNER_TEMP/web-case/src")
+            else cases=(graph/test/"$lang"/cases/*/src); fi
             case_dir="${cases[0]}"
             [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             echo "::group::$lang ($case_dir)"
@@ -583,8 +612,8 @@ jobs:
           done
       # The smoke test above is one case per language; Windows writes paths and command lines differently enough that
       # a release passed it there with 43 case checks failing (tests not linked through a file path, an absolute
-      # file:line refused, ' and " mangled into Git Bash). Every query case, answered by the installed packages.
-      - name: every query case, installed from the tarballs, no Soufflé (Windows)
+      # file:line refused, ' and " mangled into Git Bash). The query cases, answered by the installed packages.
+      - name: the query cases, installed from the tarballs, no Soufflé (Windows)
         if: matrix.target.platform == 'win32-x64'
         shell: bash
         env:
@@ -595,7 +624,10 @@ jobs:
           mvn -q dependency:get -Dartifact=org.vineflower:vineflower:1.10.1
           dotnet tool install -g ilspycmd --version 8.2.0.7535 && export PATH="$USERPROFILE/.dotnet/tools:$PATH"
           export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
-          bash .github/scripts/e2e-cases.sh artifacts/engines "$PLATFORM" --jobs 4
+          # A release runs the cases that have failed on Windows (.github/e2e/windows-cases.txt): every case took 37 minutes
+          # of a 50-minute job. The nightly (fresh) runs them all.
+          cases=(); if [ "${{ inputs.fresh }}" != true ]; then while IFS= read -r c; do c="${c%$'\r'}"; case "$c" in ''|'#'*) ;; *) cases+=("$c");; esac; done < .github/e2e/windows-cases.txt; fi
+          bash .github/scripts/e2e-cases.sh artifacts/engines "$PLATFORM" --jobs 4 ${cases[@]+"${cases[@]}"}
 
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that

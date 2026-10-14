@@ -7,8 +7,11 @@ export class LineIndex {
   private readonly starts: number[] = [0];
 
   constructor(private readonly text: string) {
+    // A line ends at LF, at CRLF, and at a lone CR (V2-18): HTML and CSS both preprocess a lone CR into a line break,
+    // so `\r\r\n` is two line breaks, as parse5 counts them
     for (let i = 0; i < text.length; i += 1) {
-      if (text.charCodeAt(i) === 10) {
+      const c = text.charCodeAt(i);
+      if (c === 10 || (c === 13 && text.charCodeAt(i + 1) !== 10)) {
         this.starts.push(i + 1);
       }
     }

@@ -1,0 +1,22 @@
+# shape: legacy pages without a doctype (quirks mode: class and id selectors match case-insensitively) next to a standards page
+kinds=styles,unknown,usage
+@@@ file: src/quirks.html
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<p class="Nav" id="Main">q</p>
+</body>
+</html>
+@@@ file: src/s.css
+.nav { a: 1 }
+#main { a: 2 }
+.Nav { a: 3 }
+P { a: 4 }
+@@@ file: src/standards.html
+<!DOCTYPE html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<p class="Nav" id="Main">s</p>
+</body>
+</html>

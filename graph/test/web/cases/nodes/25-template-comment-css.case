@@ -1,0 +1,19 @@
+# shape: a theme page whose <style> keeps old rules inside a Django {% comment %} … {% endcomment %} block and a
+# {# #} note between live rules (iter4: commented CSS is not live)
+kinds=rule,selector,styles
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<style>
+  .live { a: 1 }
+  {% comment %}
+  .old { a: 2 }
+  .older { a: 3 }
+  {% endcomment %}
+  {# .note { a: 4 } #}
+  .also { a: 5 }
+</style>
+</head>
+<body><p class="live old also">x</p></body>
+</html>

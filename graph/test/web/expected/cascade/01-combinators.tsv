@@ -1,0 +1,15 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/01-combinators   kinds: styles,unknown
+# shape: admin layouts styled through descendant, child, adjacent and general-sibling selectors (.sidebar > ul li + li)
+styles	s.css:1:1/0	index.html:6:20	match	-	-
+styles	s.css:1:1/0	index.html:6:40	match	-	-
+styles	s.css:1:1/0	index.html:6:60	match	-	-
+styles	s.css:1:1/0	index.html:6:78	match	-	-
+styles	s.css:2:1/0	index.html:6:20	match	-	-
+styles	s.css:2:1/0	index.html:6:40	match	-	-
+styles	s.css:2:1/0	index.html:6:60	match	-	-
+styles	s.css:3:1/0	index.html:6:40	match	-	-
+styles	s.css:3:1/0	index.html:6:60	match	-	-
+styles	s.css:4:1/0	index.html:7:13	match	-	-
+styles	s.css:4:1/0	index.html:7:35	match	-	-
+styles	s.css:5:1/0	index.html:7:13	match	-	-

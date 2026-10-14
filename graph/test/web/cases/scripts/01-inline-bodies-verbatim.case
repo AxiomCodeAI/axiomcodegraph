@@ -1,0 +1,23 @@
+# shape: jQuery-era and teaching pages: inline scripts with a leading newline, a CDATA wrapper, a `</script>` inside a string (the tokenizer ends the script there), an empty and a whitespace-only script, character references that stay literal, non-ASCII text
+kinds=script,script_body
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<script>
+  var a = 1;
+  function f() { return a < 2 && a > 0; }
+</script>
+<script>//<![CDATA[
+var b = "<b>";
+//]]></script>
+<script>var s = "</script><p class='after'>x</p>";</script>
+<script></script>
+<script>   </script>
+<script>var t = "&lt;tag&gt; &amp;";</script>
+<script>var u = "café — 🚀";</script>
+</head>
+<body>
+<p>x</p>
+</body>
+</html>

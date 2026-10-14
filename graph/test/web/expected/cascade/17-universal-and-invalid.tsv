@@ -1,0 +1,24 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/17-universal-and-invalid   kinds: styles,unknown
+# shape: reset sheets and legacy IE hacks built on the universal selector (`* html #x`, `#menu > *`, `*, *::before`), and a selector a browser drops (`input:not(type="checkbox")`)
+styles	s.css:1:1/0	index.html:2:1	match	-	-
+styles	s.css:1:1/0	index.html:3:1	match	-	-
+styles	s.css:1:1/0	index.html:3:7	match	-	-
+styles	s.css:1:1/0	index.html:4:1	match	-	-
+styles	s.css:1:1/0	index.html:5:1	match	-	-
+styles	s.css:1:1/0	index.html:5:16	match	-	-
+styles	s.css:1:1/0	index.html:5:24	match	-	-
+styles	s.css:1:1/0	index.html:5:44	match	-	-
+styles	s.css:1:1/1	index.html:2:1	match	-	before
+styles	s.css:1:1/1	index.html:3:1	match	-	before
+styles	s.css:1:1/1	index.html:3:7	match	-	before
+styles	s.css:1:1/1	index.html:4:1	match	-	before
+styles	s.css:1:1/1	index.html:5:1	match	-	before
+styles	s.css:1:1/1	index.html:5:16	match	-	before
+styles	s.css:1:1/1	index.html:5:24	match	-	before
+styles	s.css:1:1/1	index.html:5:44	match	-	before
+styles	s.css:3:1/0	index.html:5:16	match	-	-
+styles	s.css:3:1/0	index.html:5:24	match	-	-
+styles	s.css:4:1/0	index.html:5:24	match	-	-
+styles	s.css:5:1/0	index.html:5:44	match	-	-
+unknown	selector_unparsed	s.css:6:1/0	index.html

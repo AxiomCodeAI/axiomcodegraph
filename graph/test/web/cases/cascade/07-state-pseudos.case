@@ -1,0 +1,26 @@
+# shape: buttons and inputs styled by :hover/:focus-visible/:active, initial form state (:checked, :disabled, :placeholder-shown), ::before/::after, legacy :after and vendor ::-webkit- pseudos
+kinds=styles
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<button class="b">b</button><button class="b" disabled>d</button>
+<input type="checkbox" class="c" checked><input type="checkbox" class="c">
+<input class="t" placeholder="p"><a class="l" href="#">l</a><a class="l">no href</a>
+</body>
+</html>
+@@@ file: src/s.css
+.b:hover { a: 1 }
+.b:focus-visible::before { a: 2 }
+.b:disabled { a: 3 }
+.b:enabled:active { a: 4 }
+.c:checked { a: 5 }
+.c:not(:checked) { a: 6 }
+.t:placeholder-shown { a: 7 }
+.t::-webkit-input-placeholder { a: 8 }
+.l:link { a: 9 }
+.l:visited { a: 10 }
+.l:after { a: 11 }
+.b:-moz-focusring { a: 12 }
+.b:not(:hover) { a: 13 }

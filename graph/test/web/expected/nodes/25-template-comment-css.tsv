@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-12 iter 4 — a fragment's own <style> applies on the composed page; a commented {% extends %} ({% comment %}, {# #}, <!-- -->) does not compose; CSS inside a template comment is not live
+# case: nodes/25-template-comment-css   kinds: rule,selector,styles
+# shape: a theme page whose <style> keeps old rules inside a Django {% comment %} … {% endcomment %} block and a
+rule	index.html:11:3	style	.also	-
+rule	index.html:5:3	style	.live	-
+selector	index.html:11:3/0	.also	0,1,0
+selector	index.html:5:3/0	.live	0,1,0
+styles	index.html:11:3/0	index.html:14:7	match	-	-
+styles	index.html:5:3/0	index.html:14:7	match	-	-

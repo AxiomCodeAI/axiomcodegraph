@@ -1,0 +1,24 @@
+# shape: two SSI partials that include each other (a menu that pulls in a submenu that pulls the menu back) and a
+# partial that includes itself; the server stops at its depth limit, a static reader must cut the cycle
+kinds=page,include,host_styles,unknown
+@@@ file: src/css/s.css
+.l1 { a: 1 }
+.l2 { a: 2 }
+.self { a: 3 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/s.css">
+</head>
+<body>
+<div class="host"><!--#include file="loop1.html" --></div>
+<!--#include file="self.html" -->
+</body>
+</html>
+@@@ file: src/loop1.html
+<div class="l1"><!--#include file="loop2.html" --></div>
+@@@ file: src/loop2.html
+<div class="l2"><!--#include file="loop1.html" --></div>
+@@@ file: src/self.html
+<div class="self"><!--#include file="self.html" --></div>

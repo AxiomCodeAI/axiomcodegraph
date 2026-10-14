@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: includes/11-ssi-directives   kinds: ssi_directive,template_expr,include
+# shape: an SSI site that sets a page title with <!--#set -->, echoes it in <title> and the header, and branches on
+include	index.shtml	inc/beta.html	ssi:virtual	index.shtml:9:1	0	index.shtml:9:19	-	match	-
+ssi_directive	index.shtml:3:1	set	index.shtml:4:1	|<!--#set var="title" value="Home" -->
+ssi_directive	index.shtml:5:1	echo	index.shtml:5:8	|<!--#echo var="title" -->
+ssi_directive	index.shtml:7:1	endif	index.shtml:10:1	|<!--#endif -->
+ssi_directive	index.shtml:7:1	if	index.shtml:8:1	|<!--#if expr="$HTTP_HOST = /beta/" -->

@@ -11,7 +11,7 @@ import { WebRow, bool, boundedText, num, text } from '../web/web-row';
  */
 export class HtmlAttribute extends WebRow {
   static readonly COLUMNS = [
-    'name', 'prefix', 'value', 'attributeKind', 'hasValue', 'startLine', 'startColumn',
+    'name', 'prefix', 'value', 'attributeKind', 'hasValue', 'startLine', 'startColumn', 'valueRaw',
     'ownerElementLinkHash', 'documentLinkHash', 'serviceVersionLinkHash', 'htmlAttributeUniqueHash',
   ] as const;
 
@@ -21,6 +21,8 @@ export class HtmlAttribute extends WebRow {
   readonly name: string;
   readonly prefix: string;
   readonly value: string;
+  /** The value as written when entity decoding changed it (`&amp;` -> `&`); '' when it reads the same (V3-10a). */
+  readonly valueRaw: string;
   readonly attributeKind: HtmlAttributeKind;
   readonly hasValue: boolean;
   readonly startLine: number;
@@ -30,7 +32,7 @@ export class HtmlAttribute extends WebRow {
   readonly serviceVersionLinkHash: string;
 
   constructor(props: {
-    name: string; prefix: string; value: string; attributeKind: HtmlAttributeKind; hasValue: boolean;
+    name: string; prefix: string; value: string; valueRaw?: string; attributeKind: HtmlAttributeKind; hasValue: boolean;
     startLine: number; startColumn: number; ownerElementLinkHash: string; documentLinkHash: string;
     serviceVersionLinkHash: string;
   }) {
@@ -38,6 +40,7 @@ export class HtmlAttribute extends WebRow {
     this.name = props.name;
     this.prefix = props.prefix;
     this.value = props.value;
+    this.valueRaw = props.valueRaw ?? '';
     this.attributeKind = props.attributeKind;
     this.hasValue = props.hasValue;
     this.startLine = props.startLine;
@@ -57,6 +60,7 @@ export class HtmlAttribute extends WebRow {
     return [
       text(this.name), text(this.prefix), boundedText(this.value, WEB_ATTRIBUTE_VALUE_LIMIT),
       this.attributeKind, bool(this.hasValue), num(this.startLine), num(this.startColumn),
+      boundedText(this.valueRaw, WEB_ATTRIBUTE_VALUE_LIMIT),
       this.ownerElementLinkHash, this.documentLinkHash, this.serviceVersionLinkHash, this.hash,
     ];
   }

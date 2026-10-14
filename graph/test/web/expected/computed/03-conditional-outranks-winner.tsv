@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: computed/03-conditional-outranks-winner   kinds: computed,cascade_entry
+# shape: a button styled by a plain rule and overridden on :hover and inside @media by more specific rules, plus a
+cascade_entry	index.html:4:7	-	color	s.css:1:8	won	-
+cascade_entry	index.html:4:7	-	color	s.css:2:16	conditional	-
+cascade_entry	index.html:4:7	-	color	s.css:3:39	conditional	-
+cascade_entry	index.html:4:7	-	text-decoration	s.css:2:28	conditional	-
+computed	index.html:4:7	-	color	s.css:1:8	match	3	2	-
+computed	index.html:4:7	-	text-decoration	-	conditional_only	1	1	-

@@ -1,0 +1,17 @@
+// ============================================================================
+// Projections · ELEMENTS
+//
+// Column reads of the parser's HTML facts: each element's page and parent (the tree as the
+// parser wrote it), its tag, id and class tokens. No logic here.
+// ============================================================================
+
+// (element, page, parent or "")
+web_el(el, page, parent) :-
+  html_element(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, parent, page, _, el).
+// HTML elements only: the parser writes a type selector's name lower-cased, which decides an HTML tag (compared
+// case-insensitively) but not an SVG or MathML one (compared as written) — on a page with those the bundle keeps its own
+// matcher for every selector with a type part
+web_el_tag(el, tag) :- html_element(tag, "HTML", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
+web_el_tag(el, tag) :- html_element(tag, "", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, el).
+web_el_id(el, id) :- html_element(_, _, _, _, id, _, _, _, _, _, _, _, _, _, _, _, _, _, el), id != "".
+web_el_class(el, c) :- html_class_reference(c, _, _, el, _, _, _, _).

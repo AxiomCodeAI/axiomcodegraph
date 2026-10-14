@@ -1,0 +1,33 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/12-css-node-kinds   kinds: rule,keyframes,font_face,layer,container,custom_property,comment
+# shape: framework sheets with @font-face, @keyframes and -webkit-keyframes, @layer statement/block/nested, @container, @property, @supports, @media and comments
+comment	app.css:10:29
+comment	app.css:1:1
+container	card
+custom_property	--angle
+custom_property	--gap
+font_face	app.css:4:1	Brand Sans
+keyframes	app.css:5:1	spin
+keyframes	app.css:6:1	spin
+layer	base
+layer	base.inner
+layer	reset
+rule	app.css:10:1	@media	(max-width: 600px)	-
+rule	app.css:10:42	style	.m	app.css:10:1
+rule	app.css:11:1	style	.c	-
+rule	app.css:2:1	@layer	reset, base	-
+rule	app.css:3:1	@property	--angle	-
+rule	app.css:4:1	@font-face	-	-
+rule	app.css:5:1	@keyframes	spin	-
+rule	app.css:5:19	keyframe	from	app.css:5:1
+rule	app.css:5:49	keyframe	to	app.css:5:1
+rule	app.css:6:1	@-webkit-keyframes	spin	-
+rule	app.css:6:27	keyframe	0%	app.css:6:1
+rule	app.css:6:45	keyframe	100%	app.css:6:1
+rule	app.css:7:1	@layer	base	-
+rule	app.css:7:15	@layer	inner	app.css:7:1
+rule	app.css:7:30	style	.x	app.css:7:15
+rule	app.css:8:1	@container	card (min-width: 300px)	-
+rule	app.css:8:38	style	.t	app.css:8:1
+rule	app.css:9:1	@supports	(display: grid)	-
+rule	app.css:9:29	style	.g	app.css:9:1

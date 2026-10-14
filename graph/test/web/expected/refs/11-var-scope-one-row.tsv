@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter2 — selector-grain usage, V1-21 aliases, V1-12 var scope rows read against the source
+# case: refs/11-var-scope-one-row   kinds: var,var_scope
+# shape: (V1-12) Bootstrap-style components where one element is styled by several rules that all read the same custom property, nested under two defining ancestors: exactly one var-scope row per (page, element, name)
+var	s.css:3:8	--c	s.css:1:10	index.html	match	-
+var	s.css:3:8	--c	s.css:2:9	index.html	match	-
+var	s.css:4:16	--c	s.css:1:10	index.html	match	-
+var	s.css:4:16	--c	s.css:2:9	index.html	match	-
+var	s.css:5:9	--c	s.css:1:10	index.html	match	-
+var	s.css:5:9	--c	s.css:2:9	index.html	match	-
+var_scope	index.html	index.html:7:38	--c	index.html:7:20	match	-	-

@@ -1,0 +1,36 @@
+# shape: a vendor sheet loaded by three pages: selectors matched everywhere, only under :hover, only through a dynamic binding, on no page (with and without a static carrier anywhere), plus a sheet no page loads; usage and the unmatched-page list at the selector grain (SPEC 3.5 iter2, 9.9)
+kinds=usage,rule_usage,unknown
+check=unknown_budget
+@@@ file: src/a.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="card"><p class="x">a</p></div>
+</body>
+</html>
+@@@ file: src/b.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="card" :class="{ open: o }"><p>b</p></div>
+</body>
+</html>
+@@@ file: src/c.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="card"><span class="x">c</span></div>
+</body>
+</html>
+@@@ file: src/orphan.css
+.o { a: 1 }
+@@@ file: src/s.css
+.card { a: 1 }
+.card:hover { a: 2 }
+.card.open { a: 3 }
+.card > p.x { a: 4 }
+.never { a: 5 }
+.card .missing, .card { a: 6 }

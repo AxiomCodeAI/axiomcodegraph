@@ -1,0 +1,19 @@
+# shape: a page that links the same vendor sheet twice (once in <head>, once again before </body>) with a page
+# sheet between them: one styles/cascade row per (selector, element, page), the later load decides (V2-22, V1-07)
+kinds=styles,cascade,styles_loads
+@@@ file: src/css/a.css
+.x { color: red }
+@@@ file: src/css/b.css
+.x { color: blue }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/a.css">
+<link rel="stylesheet" href="css/b.css">
+</head>
+<body>
+<p class="x">x</p>
+<link rel="stylesheet" href="css/a.css">
+</body>
+</html>

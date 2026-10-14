@@ -1,0 +1,42 @@
+# The query cases the Windows release gate runs (.github/scripts/e2e-cases.sh), by name: a name runs in every language
+# that has a case of it. Every one has failed on Windows: a path written with `\`, a command line msys parsed by its own
+# rules (`'`, `"`, `*`), the build lock that locked nothing, a path on another drive. The nightly runs every case.
+a-helper-is-the-route-not-the-test
+a-test-that-never-imports-the-change
+a-test-that-never-loads-the-change
+approx-outside-graph
+asserted-links
+asserted-links-derive
+assigned-interface-members
+assigned-onto-an-instance
+chained-route-verbs
+config-key-by-section-path
+decorator-endpoint
+decorator-keyword-is-no-key
+derived-test-attribute
+entry-points-by-reason
+fileline-dotted-basename
+fileline-line-outside-file
+fileline-partial-path-in-scope
+fileline-partial-path-two-files
+lambda-is-named-by-its-place
+library-auto-discovers-imported-dependencies
+mocha-load-time-fails-the-whole-run
+no-name-yet
+one-row-per-dependent
+path-crosses-framework-and-byname
+path-through-interface
+receiver-from-an-importlib-module
+registration-key
+route-table-reaches-view
+runner-setup-files
+runs-at-import
+runs-at-import-through-a-chain
+shape-chained-access
+test-runs-a-script-by-path
+text-interpolated-phrase
+text-when-the-graph-has-no-answer
+topic-bound-by-string
+undeclared-name-is-not-a-type
+where-the-graph-stops
+why-no-caller-one-reader

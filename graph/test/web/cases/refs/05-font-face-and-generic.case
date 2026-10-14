@@ -1,0 +1,19 @@
+# shape: (G13) icon-font and brand-font sheets: @font-face families used by font-family and the font shorthand, generic families, and a web font loaded from a CDN
+kinds=font_face,font_use,value_ref
+@@@ file: src/fonts/brand.woff2
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<p class="a">a</p>
+</body>
+</html>
+@@@ file: src/s.css
+@font-face { font-family: "Brand Sans"; src: url("fonts/brand.woff2"); }
+@font-face { font-family: Icons; src: url(fonts/icons.woff); }
+.a { font-family: "brand sans", Helvetica, sans-serif; }
+.b { font: italic bold 12px/30px Icons, serif; }
+.c { font-family: system-ui; }

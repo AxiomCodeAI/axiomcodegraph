@@ -1,0 +1,26 @@
+# shape: multi-page admin template: every page links the same theme sheet; pages differ in markup
+kinds=loads_sheet,styles
+@@@ file: src/about.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+<div class="box wide">about</div><p class="note">n</p>
+</body>
+</html>
+@@@ file: src/css/theme.css
+.box { a: 1 }
+.box.wide { a: 2 }
+.note { a: 3 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+<div class="box">home</div>
+</body>
+</html>

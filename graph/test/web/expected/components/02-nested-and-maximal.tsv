@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: components/02-nested-and-maximal   kinds: component
+# shape: card widgets built from a header/body pair that never appears outside a card (folded into the card group as its part) and a badge that also appears on its own (kept as its own group)
+component	exact	index.html:10:1,index.html:9:1	3	2	1
+component	exact	index.html:7:1,index.html:8:1	7	2	1
+component	shape	index.html:10:1,index.html:9:1	3	2	1
+component	shape	index.html:7:1,index.html:8:1	7	2	1

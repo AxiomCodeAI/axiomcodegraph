@@ -1,0 +1,22 @@
+# shape: native CSS nesting in component sheets: &-suffix, & as descendant, implicit nesting, nesting inside @media, and a nested selector list
+kinds=styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="btn primary"><span class="icon">i</span></div>
+<div class="btn"><b>x</b></div>
+<div class="card"><div class="btn">in card</div></div>
+</body>
+</html>
+@@@ file: src/s.css
+.btn {
+  &.primary { a: 1 }
+  & .icon { a: 2 }
+  b { a: 3 }
+  > b { a: 4 }
+  .card & { a: 5 }
+  @media (min-width: 1px) { & { a: 6 } }
+}
+.card, .btn.primary { .icon, & > .btn { a: 7 } }

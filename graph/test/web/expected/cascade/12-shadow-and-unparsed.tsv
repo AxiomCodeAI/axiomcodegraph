@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/12-shadow-and-unparsed   kinds: styles,unknown
+# shape: component sheets with ::part/::slotted/:host, a column combinator, and selectors a browser would drop
+styles	s.css:5:1/0	index.html:5:1	conditional	state:unknown-thing	-
+styles	s.css:5:1/0	index.html:5:26	conditional	state:unknown-thing	-
+styles	s.css:6:1/0	index.html:5:26	match	-	-
+unknown	column_combinator	s.css:4:1/0	index.html
+unknown	shadow_dom	s.css:1:1/0	index.html
+unknown	shadow_dom	s.css:2:1/0	index.html
+unknown	shadow_dom	s.css:3:1/0	index.html

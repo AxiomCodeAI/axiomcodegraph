@@ -1,0 +1,19 @@
+# shape: theme-builder sheets that annotate every value with a comment holding braces (`#ddd/*{borderColor}*/;`), loaded by most pages of a widget-library project
+kinds=rule,selector,declaration
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body>
+<div class="w">w</div>
+</body>
+</html>
+@@@ file: src/theme.css
+.w {
+	border: 1px solid #dddddd/*{borderColorContent}*/;
+	background: #ffffff/*{bgColorContent}*/;
+	color: #333333/*{fcContent}*/;
+}
+.w a { color: #333333/*{fcContent}*/; }

@@ -1,0 +1,14 @@
+# shape: attributes that only look like handlers on a page with no Vue/Alpine dialect: data-on*, onboarding/once, on-<not an event>, a stray @ attribute, ng-if, a data-action without a # descriptor, handler text inside another attribute; exactly one real handler beside them
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<div data-onclick="a()" data-on-show="b()" onboarding="c()" once on-foo="d()" @media="x">x</div>
+<div ng-if="vm.ok" data-action="open" title="onclick=e()" alt="javascript:f()">y</div>
+<button onclick="real()">z</button>
+</body>
+</html>

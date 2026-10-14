@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Grade one --json answer against one expected answer of the queries/ suite (SPEC 6.2 / 6.3).
+
+  grade_query.py <answer.json> <expected Qn.tsv>        exit 0 correct, 1 wrong, 4 truncated (re-ask with --limit 0),
+                                                        5 skipped (iteration-2 template, never counted correct)
+
+The answer contract (SPEC 6.2): web rows are JSON objects carrying at least `at` ("file:line" or a file), `role`,
+`status` and, for ordered sections, `rank`. Only the web graph's part of an answer is graded (HTML and CSS only;
+other_languages is never read). Field aliases: event = event | event_name; names may be a list.
+An expected `at` without a line compares the answer's file part only.
+"""
+import collections
+import json
+import re
+import sys
+
+ALIASES = {'event': ['event', 'event_name'], 'code': ['code', 'body'], 'display': ['display', 'name'],
+           'path': ['path'], 'kind': ['kind'], 'attr': ['attribute_name', 'attr'], 'name': ['name', 'class_name'],
+           'styled': ['styled'], 'lost_reason': ['lost_reason'], 'source_kind': ['source_kind', 'source'], 'property': ['property', 'prop'], 'reason': ['reason'], 'conditions': ['conditions'],
+           'action': ['action'], 'names': ['names', 'inputs']}
+
+
+def walk(o, out):
+    if isinstance(o, dict):
+        if 'at' in o:
+            out.append(o)
+        for k, v in o.items():
+            if k == 'other_languages':
+                continue
+            walk(v, out)
+    elif isinstance(o, list):
+        for v in o:
+            walk(v, out)
+
+
+def section_of(ans, section):
+    if section != 'web':
+        raise SystemExit(f'grade_query: section {section}: only the web graph is graded')
+    return ans
+
+
+def field(row, name):
+    for k in ALIASES.get(name, [name]):
+        if k in row:
+            v = row[k]
+            v = ','.join(sorted(map(str, v))) if isinstance(v, list) else str(v)
+            # SPEC 9.1: a component display carries `#n` only to tell two groups of one display apart; the grader
+            # compares the display itself
+            return re.sub(r'#\d+$', '', v) if name == 'display' else v
+    return None
+
+
+def unesc(v):
+    out, i = [], 0
+    while i < len(v):
+        if v[i] == '\\' and i + 1 < len(v):
+            out.append({'n': '\n', 't': '\t', 'r': '\r', '\\': '\\'}.get(v[i + 1], v[i + 1])); i += 2
+        else:
+            out.append(v[i]); i += 1
+    return ''.join(out)
+
+
+def num(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def keep(row, filt):
+    """The per-question row filter written by query_oracle.py (header `filter=`), over the SPEC 3.3 key fields."""
+    status = row.get('status'); reason = str(row.get('reason') or '-'); cond = row.get('conditions')
+    important = num(row.get('important_count', row.get('important')))
+    if filt in ('-', None):
+        return True
+    if filt == 'exact_non_important':
+        return status == 'match' and important == 0
+    if filt == 'has_conditions':
+        return cond not in (None, '', '-', [])
+    if filt == 'state':
+        return status == 'conditional' and any(x.startswith('state:') for x in reason.split(';'))
+    if filt == 'important':
+        return important > 0
+    if filt == 'lost':
+        return row.get('outcome') == 'lost'
+    if filt == 'asserted':
+        # SPEC 11.2: rows a `link` assertion produced are labelled asserted (tier, status, certainty or a flag)
+        return 'asserted' in (row.get('tier'), row.get('status'), row.get('certainty')) or row.get('asserted') in (True, 'true', 1)
+    if filt == 'onclick':
+        return str(row.get('source_kind') or row.get('source')) == 'on_attribute' and row.get('event') == 'click'
+    if filt == 'click':
+        return row.get('event') == 'click'
+    raise SystemExit(f'grade_query: unknown filter {filt}')
+
+
+def norm_line(v):
+    """A position field as file:line (a file:line:col answer is cut to its line; absent -> '')."""
+    if v is None:
+        return ''
+    parts = str(v).rsplit(':', 2)
+    return f'{parts[0]}:{parts[1]}' if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit() else str(v)
+
+
+def norm_at(a, want_line):
+    a = str(a)
+    return a if want_line else a.rsplit(':', 1)[0] if a.rsplit(':', 1)[-1].isdigit() else a
+
+
+def main():
+    ans_path, exp_path = sys.argv[1:3]
+    head = {}
+    exp = []
+    for line in open(exp_path, encoding='utf-8'):
+        line = line.rstrip('\n')
+        if line.startswith('# grade='):
+            head = dict(kv.split('=', 1) for kv in line[2:].split())
+        elif line and not line.startswith('#'):
+            exp.append(tuple(unesc(x) for x in line.split('\t')))
+    grade, section, role, fields = head['grade'], head['section'], head['role'], head['fields'].split(',')
+    if exp == [('skipped_not_built',)]:  # (no LINK question is skipped since iteration 3)
+        print('  skipped_not_built (iteration-2 template)')
+        return 5
+    if grade == 'ABSENT':
+        # owner rule (iter4): web queries add no flag-like syntax; `impact --name` is an unknown flag, so its answer
+        # (JSON or not) must hold none of the custom property's rows
+        if not exp:
+            print('  0 expected tuples: not gradable (a 0/0 is not a pass)')
+            return 1
+        try:
+            ans = json.load(open(ans_path, encoding='utf-8'))
+        except (OSError, ValueError):
+            print('  no JSON answer: nothing returned (as wanted)')
+            return 0
+        rows = []
+        walk(ans, rows)
+        hit = [r for r in rows if r.get('role') == role and (str(r.get('at')), ) in set(exp)]
+        if hit:
+            print(f'  role {role}: a flag-shaped target returned {len(hit)} row(s) of the custom property')
+        return 1 if hit else 0
+    try:
+        ans = json.load(open(ans_path, encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f'  answer is not JSON: {e}')
+        return 1
+    if isinstance(ans, dict) and any(isinstance(v, int) and v > 0 for k, v in ans.items() if k == 'more'):
+        return 4
+    rows = []
+    walk(section_of(ans, section), rows)
+    if any(isinstance(r.get('more'), int) and r['more'] > 0 for r in rows):
+        return 4
+    want_line = bool(exp) and grade not in ('CHAIN', 'TOP-k') and 'at' in fields and ':' in exp[0][fields.index('at')] and exp[0][fields.index('at')].rsplit(':', 1)[1].isdigit()
+
+    if grade == 'TOP-k':
+        places = []
+        for r in rows:
+            f = norm_at(r.get('at') or r.get('file') or '', False) if (r.get('at') or r.get('file')) else str(r.get('value') or '')
+            if f and f not in places:
+                places.append(f)
+        top = places[:10]
+        want = {e[0] for e in exp}
+        hit = want & set(top)
+        print(f'  top-10 places: {top}')
+        # TOP-k (iter4): |expected ∩ top-10| >= min(10, |expected|); with 10 or more expected places, every one of
+        # the top 10 must also be expected (with fewer, the top 10 may hold other places around them)
+        ok = bool(want) and len(hit) >= min(10, len(want)) and (len(want) < 10 or all(p in want for p in top))
+        return 0 if ok else 1
+
+    if grade == 'CHAIN':
+        start, end = exp[0][1], exp[0][2]
+        edges = {(e[1], e[2]) for e in exp[1:]}
+        chains = []
+
+        def lists(o):
+            if isinstance(o, list) and len(o) >= 2 and all(isinstance(x, dict) and 'at' in x for x in o):
+                chains.append(o)
+            if isinstance(o, dict):
+                for v in o.values():
+                    lists(v)
+            elif isinstance(o, list):
+                for v in o:
+                    lists(v)
+        lists(section_of(ans, section))
+        for c in chains:
+            files = [norm_at(h['at'], False) for h in c]
+            hops = [(a, b) for a, b in zip(files, files[1:]) if a != b]
+            if files[0] == start and files[-1] == end and hops and all(h in edges for h in hops):
+                print(f'  chain ok: {" -> ".join(files)}')
+                return 0
+        print(f'  no chain {start} -> {end} made only of oracle edges among {len(chains)} chain(s)')
+        return 1
+
+    picked = [r for r in rows if r.get('role') == role and keep(r, head.get('filter', '-'))]
+    got = []
+    exp_by_prefix = {}
+    for e in exp:
+        exp_by_prefix.setdefault(e[:-1], []).append(e)
+    for r in sorted(picked, key=lambda r: r.get('rank', 0)) if grade == 'ORDER' else picked:
+        # `at` and every *_at position field (rule_at, via_at) compare as file:line
+        t = tuple(norm_at(r['at'], want_line) if f == 'at' else norm_line(field(r, f)) if f.endswith('_at') else (field(r, f) if field(r, f) is not None else '') for f in fields)
+        # SPEC 10: a body cut at the line limit says `cut: true` with body_lines; it counts as the expected body
+        # when it is that body's first lines and body_lines equals the expected line count
+        if fields[-1] == 'code' and r.get('cut') in (True, 'true', 1):
+            for e in exp_by_prefix.get(t[:-1], []):
+                full = e[-1]
+                nlines = 0 if full == '' else len(full.splitlines()) + (1 if full.endswith(('\n', '\r')) else 0)
+                if full.startswith(t[-1]) and num(r.get('body_lines')) == nlines:
+                    t = e
+        got.append((t, r.get('status')))
+    got_set = {t for t, _ in got}
+    exp_set = set(exp)
+    # review-1 #30: SET and SET>= compare MULTISETS: a duplicated answer row is an extra and fails; an expectation lists
+    # a tuple as many times as the oracle has distinct nodes behind it
+    got_ms = collections.Counter(t for t, _ in got)
+    exp_ms = collections.Counter(exp)
+    if not exp:
+        print('  0 expected tuples: not gradable (a 0/0 is not a pass)')
+        return 1
+    if grade in ('SET', 'LINK'):
+        # LINK (SPEC 11.2, Q36): the asserted include's rows, graded as a SET (the filter keeps asserted rows only)
+        ok = got_ms == exp_ms
+    elif grade == 'SET>=':
+        extra_match = {t for t, st in got if t not in exp_set and st == 'match'}
+        dup = {t for t in exp_ms if got_ms[t] > exp_ms[t]}
+        ok = all(got_ms[t] >= n for t, n in exp_ms.items()) and not extra_match and not dup
+    elif grade == 'ORDER':
+        # the full sequence, repeats included (an outline lists several rows on one line)
+        seq = [t for t, _ in got]
+        ok = seq == exp
+    else:
+        print(f'  unknown grade {grade}')
+        return 1
+    if not ok and grade != 'ORDER':
+        dups = sorted(t for t in got_ms if got_ms[t] > max(1, exp_ms[t]))
+        if dups:
+            print(f'  role {role}: duplicated answer rows {[(t, got_ms[t]) for t in dups]}')
+    if not ok:
+        print(f'  role {role}: expected {sorted(exp_set) if grade != "ORDER" else exp}')
+        print(f'  role {role}: answer   {sorted(got_set) if grade != "ORDER" else [t for t, _ in got]}')
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

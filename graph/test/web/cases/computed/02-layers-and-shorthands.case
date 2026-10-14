@@ -1,0 +1,18 @@
+# shape: a layered design-system sheet: unlayered beats layered for normal declarations, the earlier layer wins for !important, and a later `margin` shorthand overrides an earlier `margin-left` (recorded, not expanded)
+kinds=computed
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<p class="p">x</p>
+</body>
+</html>
+@@@ file: src/s.css
+@layer base, theme;
+@layer base { .p { color: red !important; padding: 1px; } }
+@layer theme { .p { color: blue !important; padding: 2px; margin-left: 5px; } }
+.p { padding: 3px; }
+.p { margin: 0; }

@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: nodes/26-single-quoted-attributes   kinds: attribute,class_token,handler
+# shape: legacy pages with single-quoted attribute values (class='a b', style='color: red;', title='x "y" z',
+attribute	index.html:5:1	class	a b
+attribute	index.html:5:1	onclick	go("q")
+attribute	index.html:5:1	style	color: red;
+attribute	index.html:5:1	title	x "y" z
+class_token	index.html:5:1	0	a
+class_token	index.html:5:1	1	b
+handler	index.html:5:1	onclick	click	written	-	on_attribute	7	|go("q")

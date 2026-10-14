@@ -1,0 +1,404 @@
+@@@ file: Q1.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q1: rules styling E in cascade order
+# grade=ORDER section=web role=styled_by fields=at filter=exact_non_important
+# ask: impact index.html:24
+css/base.css:2
+index.html:10
+@@@ file: Q10d.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q10d: where @keyframes k is defined
+# grade=SET section=web role=defines fields=at filter=-
+# ask: impact "@keyframes pulse"
+css/app.css:3
+css/app.css:4
+@@@ file: Q10u.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q10u: rules using @keyframes k (vendor forms too)
+# grade=SET section=web role=uses fields=at filter=-
+# ask: impact "@keyframes pulse"
+css/app.css:10
+@@@ file: Q11d.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q11d: @font-face declaring family f
+# grade=SET section=web role=defines fields=at filter=-
+# ask: impact "@font-face Brand Sans"
+css/app.css:2
+@@@ file: Q11u.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q11u: rules using family f
+# grade=SET section=web role=uses fields=at filter=-
+# ask: impact "@font-face Brand Sans"
+css/base.css:2
+@@@ file: Q12.tsv
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
+# Q12: on* handler attributes on P and their events
+# grade=SET section=web role=handler fields=at,event filter=-
+# ask: impact index.html
+index.html:26	click
+@@@ file: Q15w.tsv
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
+# Q15w: elements carrying C
+# grade=SET section=web role=carries fields=at filter=-
+# ask: impact .card-primary
+index.html:22
+@@@ file: Q16.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q16: pages linking to P
+# grade=SET section=web role=linked_from fields=at filter=-
+# ask: impact about.html
+index.html:16
+index.html:17
+@@@ file: Q17.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q17: how index.html reaches P by links
+# grade=CHAIN section=web role=links_to fields=at filter=-
+# ask: path index.html contact.html
+endpoints	index.html	contact.html
+edge	about.html	contact.html
+edge	index.html	about.html
+edge	index.html	contact.html
+edge	shop.html	contact.html
+edge	shop.html	index.html
+@@@ file: Q18.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q18: inline styles on P and their properties
+# grade=SET section=web role=inline_style fields=at,property filter=-
+# ask: impact index.html
+index.html:24	color
+index.html:24	font-weight
+@@@ file: Q19.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q19: unresolved script/link on P and why
+# grade=SET section=web role=unknown fields=at,reason filter=-
+# ask: impact index.html
+index.html:40	unresolved_url
+index.html:6	external_url
+@@@ file: Q2.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q2: pages loading S
+# grade=SET section=web role=loaded_by fields=at filter=-
+# ask: impact css/app.css
+about.html
+contact.html
+index.html
+shop.html
+@@@ file: Q20.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q20: stylesheets no page loads
+# grade=TOP-k section=web role=- fields=at filter=-
+# ask: context "stylesheets no page loads"
+css/old.css
+@@@ file: Q21.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q21: duplicated id on P
+# grade=SET section=web role=carries fields=at filter=-
+# ask: impact "#dup" --in index.html
+index.html:29
+index.html:30
+@@@ file: Q22.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q22: what points at #x on P
+# grade=SET section=web role=referenced_by fields=at filter=-
+# ask: impact "#email" --in index.html
+index.html:28
+index.html:31
+@@@ file: Q23.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q23: rules styling E only under a media query
+# grade=SET section=web role=styled_by fields=at,conditions filter=has_conditions
+# ask: impact index.html:24
+css/app.css:9	@media (max-width: 600px)
+@@@ file: Q24.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q24: rules styling E only on hover/focus
+# grade=SET section=web role=styled_by fields=at filter=state
+# ask: impact index.html:24
+css/app.css:7
+@@@ file: Q25.tsv
+# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
+# Q25: Alpine/Vue event directives on P and their events
+# grade=SET section=web role=template_expr fields=at,event filter=-
+# ask: impact index.html
+index.html:27	click
+@@@ file: Q26.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q26: files S references via url()
+# grade=SET section=web role=uses_resource fields=at filter=-
+# ask: impact css/app.css
+fonts/brand.woff2
+img/bg.png
+@@@ file: Q28.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q28: !important rules reaching E
+# grade=SET section=web role=styled_by fields=at filter=important
+# ask: impact index.html:24
+css/app.css:8
+@@@ file: Q29.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q29: where is the card styled
+# grade=TOP-k section=web role=- fields=at filter=-
+# ask: context "where is the card styled"
+css/app.css
+@@@ file: Q3.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q3: sheets P loads, in order
+# grade=ORDER section=web role=loads fields=at filter=-
+# ask: impact contact.html
+css/base.css
+css/app.css
+css/contact.css
+@@@ file: Q30.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q30: inert elements on P
+# grade=SET section=web role=inert fields=at filter=-
+# ask: impact index.html
+index.html:33
+@@@ file: Q32.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q32: form on P: action and named inputs
+# grade=SET section=web role=form fields=at,action,names filter=-
+# ask: impact index.html
+index.html:32	contact.html	page,q
+@@@ file: Q33.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q33: preload/icon/manifest resources of P
+# grade=SET section=web role=uses_resource fields=at filter=-
+# ask: impact index.html
+favicon.ico
+@@@ file: Q35.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q35: how P reaches S (link / @import chain)
+# grade=CHAIN section=web role=loads fields=at filter=-
+# ask: path contact.html css/base.css
+endpoints	contact.html	css/base.css
+edge	about.html	css/app.css
+edge	contact.html	css/contact.css
+edge	css/app.css	css/base.css
+edge	css/contact.css	css/app.css
+edge	index.html	css/app.css
+edge	shop.html	css/app.css
+@@@ file: Q36.tsv
+# reviewed: yes 2026-10-12 iter 5 — [iter5 orchestrator] element-styled answers are one row per (element, rule): (at, rule_at, status), read against the site
+# Q36: selector matches if fragment F were included in P
+# grade=LINK section=web role=styled fields=at,rule_at,status filter=asserted
+# ask: link partials/row.html:1 index.html:22 ;; impact ".card .title" --in index.html ;; link partials/row.html:1 -
+partials/row.html:1	css/app.css:8	match
+partials/row.html:1	css/app.css:9	conditional
+partials/row.html:1	index.html:10	match
+@@@ file: Q37.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q37: what is the task about: make the card title responsive
+# grade=TOP-k section=web role=- fields=at filter=-
+# ask: context "make the card title responsive"
+css/app.css
+@@@ file: Q38o.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q38o: occurrences of a component candidate
+# grade=SET section=web role=occurrences fields=at filter=-
+# ask: impact component:div.card.product
+shop.html:11
+shop.html:12
+shop.html:13
+@@@ file: Q38s.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q38s: varying slots of a component candidate
+# grade=SET section=web role=slots fields=path,kind,attr filter=-
+# ask: impact component:div.card.product
+1	text	-
+2	text	-
+3	attr	onclick
+@@@ file: Q39.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q39: components page P is built from
+# grade=SET section=web role=components fields=display filter=-
+# ask: impact shop.html
+div.card.product
+@@@ file: Q4.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q4: elements carrying class C
+# grade=SET section=web role=carries fields=at filter=-
+# ask: impact .card
+contact.html:5
+index.html:22
+index.html:23
+index.html:33
+partials/row.html:1
+shop.html:11
+shop.html:12
+shop.html:13
+@@@ file: Q40c.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q40c: winning value per property on E
+# grade=SET section=web role=computed fields=property,at filter=-
+# ask: impact index.html:24 --why
+color	css/app.css:8
+font-family	css/base.css:2
+font-weight	index.html:24
+margin	index.html:10
+@@@ file: Q40l.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q40l: losing declarations on E and why
+# grade=SET section=web role=cascade fields=at,lost_reason filter=lost
+# ask: impact index.html:24 --why
+index.html:24	importance
+@@@ file: Q41.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q41: where a colour token is used
+# grade=SET section=web role=uses fields=at filter=-
+# ask: impact "#0055ff"
+css/base.css:1
+@@@ file: Q41t.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q41t: theme colours, most used first
+# grade=TOP-k section=web role=- fields=at filter=-
+# ask: context "theme colours"
+\#0055ff
+\#222222
+gray
+red
+@@@ file: Q42.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q42: elements on P that change at a breakpoint
+# grade=SET section=web role=elements fields=at filter=-
+# ask: impact "@media (max-width: 600px)" --in index.html
+index.html:22
+index.html:24
+@@@ file: Q43.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q43: form controls on P with no label
+# grade=SET section=web role=forms fields=at filter=-
+# ask: impact shop.html
+shop.html:11
+shop.html:12
+shop.html:13
+shop.html:17
+shop.html:18
+@@@ file: Q44.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q44: landmark/heading outline of P
+# grade=ORDER section=web role=outline fields=at filter=-
+# ask: impact shop.html
+shop.html:8
+shop.html:8
+shop.html:8
+shop.html:9
+shop.html:10
+shop.html:11
+shop.html:12
+shop.html:13
+@@@ file: Q45.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q45: repeated lists on P needing a loop
+# grade=SET section=web role=lists fields=at,count filter=-
+# ask: impact shop.html
+shop.html:10	3
+@@@ file: Q46c.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q46c: is class C styled
+# grade=SET section=web role=class fields=name,styled filter=-
+# ask: impact .flex
+flex	0
+@@@ file: Q46u.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q46u: selectors in S matching nothing (usage)
+# grade=SET section=web role=unmatched fields=at filter=-
+# ask: impact css/app.css
+css/app.css:11
+@@@ file: Q47.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q47: every script on P in order, verbatim
+# grade=ORDER section=web role=scripts fields=at,code filter=-
+# ask: impact shop.html --limit 0
+shop.html:5	
+shop.html:22	\n    function addToCart(name) { cart.push(name); }\n  
+shop.html:25	\n    var chart = makeChart();\n    chart.add(0, "point-0");\n    chart.add(1, "point-1");\n    chart.add(2, "point-2");\n    chart.add(3, "point-3");\n    chart.add(4, "point-4");\n    chart.add(5, "point-5");\n    chart.add(6, "point-6");\n    chart.add(7, "point-7");\n    chart.add(8, "point-8");\n    chart.add(9, "point-9");\n    chart.add(10, "point-10");\n    chart.add(11, "point-11");\n    chart.add(12, "point-12");\n    chart.add(13, "point-13");\n    chart.add(14, "point-14");\n    chart.add(15, "point-15");\n    chart.add(16, "point-16");\n    chart.add(17, "point-17");\n    chart.add(18, "point-18");\n    chart.add(19, "point-19");\n    chart.add(20, "point-20");\n    chart.add(21, "point-21");\n    chart.add(22, "point-22");\n    chart.add(23, "point-23");\n    chart.add(24, "point-24");\n    chart.add(25, "point-25");\n    chart.add(26, "point-26");\n    chart.add(27, "point-27");\n    chart.add(28, "point-28");\n    chart.add(29, "point-29");\n    chart.add(30, "point-30");\n    chart.add(31, "point-31");\n    chart.add(32, "point-32");\n    chart.add(33, "point-33");\n    chart.add(34, "point-34");\n    chart.add(35, "point-35");\n    chart.add(36, "point-36");\n    chart.add(37, "point-37");\n    chart.add(38, "point-38");\n    chart.add(39, "point-39");\n    chart.add(40, "point-40");\n    chart.add(41, "point-41");\n    chart.add(42, "point-42");\n    chart.add(43, "point-43");\n    chart.add(44, "point-44");\n    chart.add(45, "point-45");\n    chart.add(46, "point-46");\n    chart.add(47, "point-47");\n    chart.add(48, "point-48");\n    chart.add(49, "point-49");\n    chart.add(50, "point-50");\n    chart.add(51, "point-51");\n    chart.add(52, "point-52");\n    chart.add(53, "point-53");\n    chart.add(54, "point-54");\n    chart.add(55, "point-55");\n    chart.add(56, "point-56");\n    chart.add(57, "point-57");\n    chart.add(58, "point-58");\n    chart.add(59, "point-59");\n    chart.add(60, "point-60");\n    chart.add(61, "point-61");\n    chart.add(62, "point-62");\n    chart.add(63, "point-63");\n    chart.add(64, "point-64");\n    chart.add(65, "point-65");\n    chart.add(66, "point-66");\n    chart.add(67, "point-67");\n    chart.add(68, "point-68");\n    chart.add(69, "point-69");\n    chart.add(70, "point-70");\n    chart.add(71, "point-71");\n    chart.add(72, "point-72");\n    chart.add(73, "point-73");\n    chart.add(74, "point-74");\n    chart.add(75, "point-75");\n    chart.add(76, "point-76");\n    chart.add(77, "point-77");\n    chart.add(78, "point-78");\n    chart.add(79, "point-79");\n  
+@@@ file: Q47d.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q47d: every script on P in order, default line cap
+# grade=ORDER section=web role=scripts fields=at,code filter=-
+# ask: impact shop.html
+shop.html:5	
+shop.html:22	\n    function addToCart(name) { cart.push(name); }\n  
+shop.html:25	\n    var chart = makeChart();\n    chart.add(0, "point-0");\n    chart.add(1, "point-1");\n    chart.add(2, "point-2");\n    chart.add(3, "point-3");\n    chart.add(4, "point-4");\n    chart.add(5, "point-5");\n    chart.add(6, "point-6");\n    chart.add(7, "point-7");\n    chart.add(8, "point-8");\n    chart.add(9, "point-9");\n    chart.add(10, "point-10");\n    chart.add(11, "point-11");\n    chart.add(12, "point-12");\n    chart.add(13, "point-13");\n    chart.add(14, "point-14");\n    chart.add(15, "point-15");\n    chart.add(16, "point-16");\n    chart.add(17, "point-17");\n    chart.add(18, "point-18");\n    chart.add(19, "point-19");\n    chart.add(20, "point-20");\n    chart.add(21, "point-21");\n    chart.add(22, "point-22");\n    chart.add(23, "point-23");\n    chart.add(24, "point-24");\n    chart.add(25, "point-25");\n    chart.add(26, "point-26");\n    chart.add(27, "point-27");\n    chart.add(28, "point-28");\n    chart.add(29, "point-29");\n    chart.add(30, "point-30");\n    chart.add(31, "point-31");\n    chart.add(32, "point-32");\n    chart.add(33, "point-33");\n    chart.add(34, "point-34");\n    chart.add(35, "point-35");\n    chart.add(36, "point-36");\n    chart.add(37, "point-37");\n    chart.add(38, "point-38");\n    chart.add(39, "point-39");\n    chart.add(40, "point-40");\n    chart.add(41, "point-41");\n    chart.add(42, "point-42");\n    chart.add(43, "point-43");\n    chart.add(44, "point-44");\n    chart.add(45, "point-45");\n    chart.add(46, "point-46");\n    chart.add(47, "point-47");\n    chart.add(48, "point-48");\n    chart.add(49, "point-49");\n    chart.add(50, "point-50");\n    chart.add(51, "point-51");\n    chart.add(52, "point-52");\n    chart.add(53, "point-53");\n    chart.add(54, "point-54");\n    chart.add(55, "point-55");\n    chart.add(56, "point-56");\n    chart.add(57, "point-57");\n    chart.add(58, "point-58");\n    chart.add(59, "point-59");\n    chart.add(60, "point-60");\n    chart.add(61, "point-61");\n    chart.add(62, "point-62");\n    chart.add(63, "point-63");\n    chart.add(64, "point-64");\n    chart.add(65, "point-65");\n    chart.add(66, "point-66");\n    chart.add(67, "point-67");\n    chart.add(68, "point-68");\n    chart.add(69, "point-69");\n    chart.add(70, "point-70");\n    chart.add(71, "point-71");\n    chart.add(72, "point-72");\n    chart.add(73, "point-73");\n    chart.add(74, "point-74");\n    chart.add(75, "point-75");\n    chart.add(76, "point-76");\n    chart.add(77, "point-77");\n    chart.add(78, "point-78");\n    chart.add(79, "point-79");\n  
+@@@ file: Q48.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q48: handlers on P with event, kind and code
+# grade=SET section=web role=handlers fields=at,event,source_kind,code filter=-
+# ask: impact shop.html
+shop.html:11	click	on_attribute	addToCart('Mug')
+shop.html:12	click	on_attribute	addToCart('Cap')
+shop.html:13	click	on_attribute	addToCart('Tee')
+shop.html:18	click	alpine	track('checkout')
+shop.html:20	navigate	javascript_url	openHelp()
+@@@ file: Q48c.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q48c: every click handler on P with its code
+# grade=SET section=web role=handlers fields=at,event,source_kind,code filter=click
+# ask: impact shop.html
+shop.html:11	click	on_attribute	addToCart('Mug')
+shop.html:12	click	on_attribute	addToCart('Cap')
+shop.html:13	click	on_attribute	addToCart('Tee')
+shop.html:18	click	alpine	track('checkout')
+@@@ file: Q48o.tsv
+# reviewed: yes 2026-10-10 iter2 Q38-Q48 — answers checked by hand against the site (shop.html added; Q2, Q4, Q17, Q35 gain its rows)
+# Q48o: elements with an onclick on P and its code
+# grade=SET section=web role=handlers fields=at,event,source_kind,code filter=onclick
+# ask: impact shop.html
+shop.html:11	click	on_attribute	addToCart('Mug')
+shop.html:12	click	on_attribute	addToCart('Cap')
+shop.html:13	click	on_attribute	addToCart('Tee')
+@@@ file: Q5.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q5: rules mentioning class C
+# grade=SET section=web role=selectors fields=at filter=-
+# ask: impact .card
+css/app.css:6
+css/app.css:7
+css/app.css:8
+css/app.css:9
+css/contact.css:2
+index.html:10
+@@@ file: Q6.tsv
+# reviewed: yes 2026-10-12 iter 5 — [iter5 orchestrator] element-styled answers are one row per (element, rule): (at, rule_at, status), read against the site
+# Q6: elements selector X matches on P
+# grade=SET>= section=web role=styled fields=at,rule_at,status filter=-
+# ask: impact ".card .title" --in index.html
+index.html:22	css/app.css:8	match
+index.html:22	css/app.css:9	conditional
+index.html:22	index.html:10	match
+index.html:24	css/app.css:8	match
+index.html:24	css/app.css:9	conditional
+index.html:24	index.html:10	match
+@@@ file: Q7.tsv
+# reviewed: yes 2026-10-10 iter 1b — answer checked by hand against the site source; Q1 re-read as the exact non-important set (filter header added to all)
+# Q7: selectors in S matching nothing
+# grade=SET section=web role=unmatched fields=at filter=-
+# ask: impact css/app.css
+css/app.css:11
+@@@ file: Q8d.tsv
+# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
+# Q8d: where --x is defined
+# grade=SET section=web role=defines fields=at filter=-
+# ask: impact 'var(--brand)'
+css/base.css:1
+@@@ file: Q8n.tsv
+# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
+# Q8n: a bare --name is a flag, not a custom property (owner rule: no flag-like web syntax)
+# grade=ABSENT section=web role=defines fields=at filter=-
+# ask: impact --brand
+css/base.css:1
+@@@ file: Q8u.tsv
+# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
+# Q8u: where --x is used
+# grade=SET section=web role=uses fields=at filter=-
+# ask: impact 'var(--brand)'
+css/app.css:5
+css/app.css:6
+@@@ file: Q9.tsv
+# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
+# Q9: elements on P affected by --x
+# grade=SET>= section=web role=affects fields=at filter=-
+# ask: impact 'var(--gap)' --in index.html
+index.html:22
+index.html:24

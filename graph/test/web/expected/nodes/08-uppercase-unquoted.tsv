@@ -1,0 +1,15 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/08-uppercase-unquoted   kinds: element,attribute,class_token
+# shape: legacy pages: uppercase tags and attribute names, unquoted attribute values, attributes without values
+attribute	index.html:3:1	bgcolor	white
+attribute	index.html:4:1	class	Foo
+attribute	index.html:4:1	data-x	1
+attribute	index.html:4:1	hidden	-
+attribute	index.html:4:1	id	Bar
+attribute	index.html:5:1	checked	-
+attribute	index.html:5:1	type	checkbox
+class_token	index.html:4:1	0	Foo
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:1	div	Bar	Foo
+element	index.html:5:1	input	-	-
