@@ -79,7 +79,7 @@ def main():
         open(os.path.join(site, 'sitecustomize.py'), 'w').write(WINDOWS_EXEC % SCRIPTS)
         plain = dict(os.environ)
         win = dict(plain, PYTHONPATH=site + os.pathsep + os.environ.get('PYTHONPATH', ''))
-        ax = ['bash', os.path.join(SCRIPTS, 'axiomcode')]
+        ax = [os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(SCRIPTS, 'axiomcode')]   # Windows: a bare `bash` is WSL's
         checks = [  # (why, argv, what the answer holds, exit status 0?)
             ('impact answers', ax + ['impact', 'Rates.rate', repo], 'Quote.total', True),
             ('impact --json answers', ax + ['impact', 'Rates.rate', repo, '--json'], '"Quote.total', True),

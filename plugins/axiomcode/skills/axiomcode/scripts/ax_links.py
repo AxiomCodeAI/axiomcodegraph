@@ -1119,7 +1119,9 @@ def site_arg(repo, s):
     m = re.fullmatch(r'(.+?):(\d+)(?::(\d+))?', s or '')
     if not m: return None, None, None
     f = m.group(1)
-    if os.path.isabs(f): f = os.path.relpath(os.path.realpath(f), repo)
+    if os.path.isabs(f):
+        try: f = os.path.relpath(os.path.realpath(f), repo)
+        except ValueError: pass                               # another drive (Windows): not in this repository, kept as given
     f = f[2:] if f.startswith('./') else f
     return f.replace(os.sep, '/'), int(m.group(2)), (int(m.group(3)) if m.group(3) else None)
 
