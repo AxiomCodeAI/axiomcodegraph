@@ -24,6 +24,7 @@ Five rules, and every verb obeys all five:
      partial list is not read as a complete one.
 """
 import collections, difflib, os, re, subprocess, sys, time
+import ax_exec
 
 SPLIT = re.compile(r'[^A-Za-z0-9]+')
 CAMEL = re.compile(r'[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+')
@@ -492,7 +493,8 @@ def ensure_graph(repo, db):
     if nowait:
         os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
         log = open(os.path.join(repo, '.axiomcode', 'first-build.log'), 'w')
-        p = _start_build([bash, build, repo], log, env)
+        argv, benv = ax_exec.bash_argv(build, [repo], env, bash)
+        p = _start_build(argv, log, benv)
         # until the build holds its lock a second query would see no build and start another, so that much is always waited
         up = time.time() + 10
         while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
@@ -508,7 +510,8 @@ def ensure_graph(repo, db):
     os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
     logp = os.path.join(repo, '.axiomcode', 'first-build.log')
     with open(logp, 'w') as log:
-        p = _start_build([bash, build, repo], log, env)
+        argv, benv = ax_exec.bash_argv(build, [repo], env, bash)
+        p = _start_build(argv, log, benv)
     shown = [0]
     def relay():
         try:
@@ -597,8 +600,8 @@ def _rebuild_in_background(repo):
     try:
         log = open(os.path.join(repo, '.axiomcode', 'refresh.log'), 'a')
         kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)
-        subprocess.Popen([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                         close_fds=True, env=env, **kw)
+        argv, env = ax_exec.bash_argv(build, [repo], env)
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
     except OSError: pass
 
 

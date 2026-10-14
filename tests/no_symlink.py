@@ -30,7 +30,7 @@ def main():
         subprocess.run(['git', 'init', '-q', '.'], cwd=repo, check=True)
         subprocess.run(['git', 'add', '-A'], cwd=repo, check=True)
         subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x'], cwd=repo, check=True)
-        r = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode-build'), repo], capture_output=True, text=True, timeout=600)
+        r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(SCRIPTS, 'axiomcode-build'), repo], capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             print('no_symlink: index failed\n' + (r.stdout + r.stderr)[-1500:]); return 1
         site = os.path.join(work, 'site'); os.makedirs(site)

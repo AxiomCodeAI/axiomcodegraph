@@ -50,7 +50,12 @@ if (error) fail(error);
 const py = findPython();
 // AXIOMCODE_BASH too, for the builds Python starts: a bare `bash` from Python on Windows is WSL's or nothing.
 const env = { ...(py.exe ? withPython(process.env, py) : process.env), AXIOMCODE_BASH: bash };
-const r = spawnSync(bash, [path.join(__dirname, 'axiomcode'), ...args], { stdio: 'inherit', env });
+// On Windows the arguments travel in AXIOMCODE_ARGV, each ended by \x1f, not on the command line: Git Bash parses a
+// command line by msys rules, where `'` quotes too and `\"` is no escape, so `context "the user's cart"` lost every
+// argument after the apostrophe and a quoted string arrived as \Key\. bin/axiomcode turns them back into "$@".
+const win = process.platform === 'win32';
+const r = spawnSync(bash, [path.join(__dirname, 'axiomcode'), ...(win ? [] : args)],
+  { stdio: 'inherit', env: win ? { ...env, AXIOMCODE_ARGV: args.map((a) => `${a}\x1f`).join('') } : env });
 if (r.error) fail(`could not start bash: ${r.error.message}`);
 // Die of the same signal the CLI died of, so a caller sees what really happened.
 if (r.signal) process.kill(process.pid, r.signal);
