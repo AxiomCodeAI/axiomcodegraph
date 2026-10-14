@@ -129,31 +129,30 @@ fi
 case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}" ;; esac
 [ -d "$SRC" ] || { echo "axiomcode index: no such directory: $SRC (--src ${AXIOMCODE_SRC:-}, under $REPO). Nothing was built." >&2; exit 2; }
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
-# rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
+# rules (ax_fresh.py choose). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
-read -r ja ts py js cs wb <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0 0)"
-wb="${wb:-0}"
+# With the counts come the main language, the languages to build and the incidental ones left out (ax_fresh.py choose).
+read -r ja ts py js cs wb AUTO_MAIN AUTO_LANGS SKIPPED <<< "$(python3 "$H/ax_fresh.py" choose "$SRC" 2>/dev/null || echo 0 0 0 0 0 0 java java -)"
+wb="${wb:-0}"; SKIPPED="${SKIPPED:--}"
 LANG_ARG="${AXIOMCODE_LANG:-}"
-# EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
-# without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
-# main language (its graph is the one every older reader knows); LANGS is all of them, main first.
+# EVERY LANGUAGE THE REPOSITORY IS WRITTEN IN IS INDEXED; AN INCIDENTAL ONE IS NOT. Only the one with the most files used
+# to be, and the rest were dropped without a word: a Python edit in a TypeScript repository touched "no declaration the
+# graph knows". Then every language was, and three .js build scripts in a Python backend got a graph of their own, a
+# section in every answer and a cold JavaScript compile. LANG_ARG is the main language, the one with the most code (its
+# graph is the one every older reader knows); LANGS is the languages built, main first. A language under 20 files and
+# 5% of the code (ax_fresh.py choose) is left out AND NAMED, with the --lang that includes it; --lang always wins.
 if [ -z "$LANG_ARG" ]; then
-  LANG_ARG=java; best=$ja
-  [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
-  [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
-  [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
-  [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
-  # WEB (HTML + CSS, #1908) is the main language only when no other language has a file: an older reader of the main
-  # graph expects a call graph there.
-  [ "$best" -eq 0 ] && [ "$wb" -gt 0 ] && { LANG_ARG=web; best=$wb; }
-  LANGS="$LANG_ARG"
-  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs web:$wb; do
-    [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
-  done
+  LANG_ARG="$AUTO_MAIN"; LANGS="$AUTO_LANGS"
   export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
 else
-  LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
+  LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO; SKIPPED=-
 fi
+skipped_note(){
+  [ "$SKIPPED" != - ] || return 0
+  local what="" l
+  for l in ${SKIPPED//,/ }; do IFS=: read -r ln lf ll <<< "$l"; what="$what${what:+, }$ln ($lf file$([ "$lf" = 1 ] || echo s), $ll lines)"; done
+  echo "not indexed, incidental to this $LANG_ARG repository (under 20 files, and under 5% of its code or 100 lines): $what; to include: axiomcode index --lang $LANGS,$(for l in ${SKIPPED//,/ }; do printf '%s,' "${l%%:*}"; done | sed 's/,$//')"
+}
 unset AXIOMCODE_GRAPH_LANG               # a build writes every language's graph, never one chosen for a query
 OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 # THE ORDER THE ENGINE SOLVES IN (#1555): the main language first, then the rest by file count, most first. Each graph is
@@ -321,7 +320,7 @@ if [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] 
   set_base_files
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
-  echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; exit 0
+  echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; skipped_note; exit 0
 fi
 if [ ! -f "$OUT/corrupt" ] && [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
@@ -330,7 +329,7 @@ if [ ! -f "$OUT/corrupt" ] && [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] 
 python3 "$H/dl_program.py" --no-wait || true   # say whether the query rules are compiled (started at the top); never wait
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
   AXIOMCODE_BUILT_BY_UNKNOWN=1 python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
-  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
+  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; skipped_note; exit 0; fi
 if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"
 else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"; fi
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
@@ -612,3 +611,4 @@ if [ ${#READY[@]} -gt 0 ]; then
 else
   echo "graph at $OUT/graph.sqlite"
 fi
+[ -n "${AXIOMCODE_BACKGROUND:-}" ] || skipped_note
