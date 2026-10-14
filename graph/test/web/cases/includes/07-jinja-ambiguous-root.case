@@ -1,0 +1,16 @@
+# shape: a multi-app Django project where two apps ship a templates/ directory holding the same partial name
+# (shop/templates/row.html, blog/templates/row.html): the loader order decides, a static reader cannot
+kinds=page,include,reference,unknown
+@@@ file: src/blog/templates/row.html
+<li class="row blog">b</li>
+@@@ file: src/shop/templates/list.html
+<!doctype html>
+<html>
+<body>
+<ul class="list">
+{% include "row.html" %}
+</ul>
+</body>
+</html>
+@@@ file: src/shop/templates/row.html
+<li class="row shop">s</li>

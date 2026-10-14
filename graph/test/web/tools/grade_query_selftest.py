@@ -2,14 +2,20 @@
 """Self-test of grade_query.py's per-question filters: ONE full styled_by answer for index.html:24 (every row with
 its SPEC 3.3 key, as the engine prints it) must satisfy Q1, Q23, Q24 and Q28 at once, and dropping or corrupting
 one row must fail the question it belongs to. Runs on the committed expectations; exit 1 on any surprise."""
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXP = os.path.join(HERE, '..', 'expected', 'queries', '01-admin-site')
+sys.path.insert(0, HERE)
+import cases  # noqa: E402  the answers are packed: expected/queries/01-admin-site.answers
+EXP = tempfile.mkdtemp(prefix='grade-selftest.')
+atexit.register(shutil.rmtree, EXP, True)
+cases.unpack_file(os.path.join(HERE, '..', 'expected', 'queries', '01-admin-site.answers'), EXP)
 ROWS = [  # cascade order, lowest precedence first (rank)
     dict(at='css/base.css:2', status='match', reason='-', conditions='-', important_count=0),
     dict(at='css/app.css:9', status='conditional', reason='at_rule:media', conditions='@media (max-width: 600px)', important_count=0),

@@ -1,0 +1,21 @@
+# shape: a typical admin page mixing markup, a stylesheet, an external and an inline <script> and an onclick attribute: the web graph holds HTML/CSS nodes only (scripts and handlers as plain HTML: src, type, body range, event, raw text), no JavaScript id, and building it leaves the javascript graph of the same tree byte-for-byte unchanged
+kinds=script,script_body,handler,styles
+check=crosslang
+@@@ file: src/app.js
+export function boot() { document.getElementById('x'); }
+boot();
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+<script src="app.js"></script>
+<script>function go() { document.querySelector('.btn').classList.add('on'); }</script>
+</head>
+<body>
+<button class="btn" onclick="go()">go</button>
+</body>
+</html>
+@@@ file: src/s.css
+.btn { a: 1 }
+.btn.on { a: 2 }

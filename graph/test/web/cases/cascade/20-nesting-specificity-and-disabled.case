@@ -1,0 +1,19 @@
+# shape: component sheets nesting under a mixed id/class parent list (`#app, .shell { & .q }`), and a page with a <link disabled> and an alternate theme sheet
+kinds=selector,styles,cascade,loads_sheet
+@@@ file: src/dark.css
+.q { a: 4 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"><link rel="stylesheet" href="off.css" disabled><link rel="alternate stylesheet" href="dark.css" title="dark"></head>
+<body>
+<div id="app"><p class="q">1</p></div><div class="shell"><p class="q">2</p></div>
+</body>
+</html>
+@@@ file: src/off.css
+.q { a: 3 }
+@@@ file: src/s.css
+#app, .shell {
+  & .q { a: 1 }
+  .q & { a: 2 }
+}

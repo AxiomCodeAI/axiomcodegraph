@@ -1,0 +1,14 @@
+# shape: a button styled by a plain rule and overridden on :hover and inside @media by more specific rules, plus a
+# property set only on :hover: the winner is the best exact contender, the conditional ones above it are counted
+# (V2-03)
+kinds=computed,cascade_entry
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body><a class="btn x" href="#">b</a></body>
+</html>
+@@@ file: src/s.css
+.btn { color: blue; }
+.btn.x:hover { color: red; text-decoration: underline; }
+@media (max-width: 600px) { a.btn.x { color: green; } }

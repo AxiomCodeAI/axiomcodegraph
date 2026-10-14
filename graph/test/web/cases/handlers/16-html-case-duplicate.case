@@ -1,0 +1,13 @@
+# shape: hand-edited HTML with the same handler twice in different case: the first wins, the second is a duplicate-attribute parse gap
+kinds=handler,html_gap
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<button onclick="a()" onClick="b()">x</button>
+<button onclick="c()" onclick="d()">y</button>
+</body>
+</html>

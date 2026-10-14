@@ -1,0 +1,17 @@
+# shape: component sheets with ::part/::slotted/:host, a column combinator, and selectors a browser would drop
+kinds=styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<my-el class="w"></my-el><p class="w">p</p>
+</body>
+</html>
+@@@ file: src/s.css
+my-el::part(label) { a: 1 }
+:host(.w) { a: 2 }
+::slotted(p) { a: 3 }
+col.selected || td { a: 4 }
+.w:unknown-thing { a: 5 }
+p.w { a: 6 }

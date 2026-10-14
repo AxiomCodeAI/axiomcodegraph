@@ -1,0 +1,7 @@
+# shape: build-time partials (no doctype, no <html>) that carry a <link> to the site sheet
+kinds=styles,unknown,page
+@@@ file: src/partials/nav.html
+<link rel="stylesheet" href="../s.css">
+<nav class="n">n</nav>
+@@@ file: src/s.css
+.n { a: 1 }

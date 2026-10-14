@@ -1,5 +1,0 @@
-# reviewed: yes 2026-10-12 iter 4 — owner rule: a custom property is asked as var(--name); tuples unchanged, ABSENT for the bare flag form
-# Q8d: where --x is defined
-# grade=SET section=web role=defines fields=at filter=-
-# ask: impact 'var(--brand)'
-css/base.css:1

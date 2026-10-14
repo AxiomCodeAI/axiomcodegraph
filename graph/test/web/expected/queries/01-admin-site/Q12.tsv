@@ -1,5 +1,0 @@
-# reviewed: yes 2026-10-10 HTML/CSS-only scope — read against the source (script body ranges, event names and raw handler text as HTML)
-# Q12: on* handler attributes on P and their events
-# grade=SET section=web role=handler fields=at,event filter=-
-# ask: impact index.html
-index.html:26	click

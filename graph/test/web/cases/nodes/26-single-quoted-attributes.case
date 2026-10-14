@@ -1,0 +1,11 @@
+# shape: legacy pages with single-quoted attribute values (class='a b', style='color: red;', title='x "y" z',
+# onclick='go("q")') after a script holding `{{` with the closing `}}` lines later (iter4 stress oracle regression)
+kinds=attribute,class_token,handler
+@@@ file: src/index.html
+<!doctype html>
+<html><head><script>var o = {{a:1}};
+function f(){ if (x) {{ y(); }
+</script></head><body>
+<p class='a b' style='color: red;' title='x "y" z' onclick='go("q")'>t</p>
+<i>}}</i>
+</body></html>

@@ -1,0 +1,8 @@
+# shape: pages saved with a UTF-8 byte-order mark and CRLF line endings
+kinds=page,element,declaration
+@@@ file: src/css/bom.css base64
+77u/LmIgew0KICBjb2xvcjogYmx1ZTsNCn0NCg==
+@@@ file: src/index.html base64
+77u/PCFET0NUWVBFIGh0bWw+DQo8aHRtbCBsYW5nPSJlbiI+DQo8aGVhZD4NCjxzdHlsZT4NCiAg
+LmEgeyBjb2xvcjogcmVkIH0NCjwvc3R5bGU+DQo8L2hlYWQ+DQo8Ym9keT4NCiAgPHAgY2xhc3M9
+ImEiPng8L3A+DQo8L2JvZHk+DQo8L2h0bWw+DQo=

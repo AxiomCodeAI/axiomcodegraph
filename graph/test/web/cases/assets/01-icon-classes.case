@@ -1,0 +1,24 @@
+# shape: icon-font sheets: classes defined by `.x::before { content: "\f00c" }` (font from the `.fa` rule the same elements carry), a one- and a two-character glyph, a legacy :before, a compound with a type selector, and rules that are NOT icon definitions (three characters, long content, two classes, no pseudo-element, and empty content: a clearfix or spacer)
+kinds=icon_class
+@@@ file: src/icons.css
+.fa { font-family: FontAwesome; }
+.fa-check::before { content: "\f00c"; }
+.fa-user:before { content: "\f007"; font-family: "Icons"; }
+i.ok::after { content: "✓"; }
+.caret::after { content: "abc"; }
+.arrow::after { content: "ab"; }
+.label::before { content: "Read more"; }
+.fa.fa-x::before { content: "\f00d"; }
+.no-pseudo { content: "x"; }
+.clearfix::after { content: ""; }
+.spacer::before { content: ; }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="icons.css">
+</head>
+<body>
+<i class="fa fa-check"></i><i class="fa fa-user"></i><span class="caret"></span>
+</body>
+</html>

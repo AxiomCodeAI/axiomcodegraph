@@ -1,0 +1,21 @@
+# shape: a Django theme partial that carries its own <style> block for its widget and is {% include %}d into pages
+# loading the site sheet: the browser applies the partial's rules on the served page, to the partial's elements and
+# the host's alike (iter4)
+kinds=include,host_styles,styles
+@@@ file: src/static/site.css
+.card { a: 1 }
+@@@ file: src/templates/page.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="/static/site.css"></head>
+<body>
+<p class="note">n</p>
+{% include "widgets/card.html" %}
+</body>
+</html>
+@@@ file: src/templates/widgets/card.html
+<style>
+  .card .title { b: 1 }
+  .note { b: 2 }
+</style>
+<div class="card"><h3 class="title">t</h3></div>

@@ -1,0 +1,8 @@
+# shape: pages saved on Windows: CRLF line endings inside an inline script, and a fragment file whose very first bytes after the BOM are a <script> tag
+kinds=script,script_body
+@@@ file: src/index.html base64
+PCFET0NUWVBFIGh0bWw+DQo8aHRtbD4NCjxoZWFkPg0KPHNjcmlwdD4NCiAgdmFyIGEgPSAxOw0K
+DQogIHZhciBiID0gMjsNCjwvc2NyaXB0Pg0KPC9oZWFkPg0KPGJvZHk+PC9ib2R5Pg0KPC9odG1s
+Pg0K
+@@@ file: src/partial.html base64
+77u/PHNjcmlwdD5pbml0KCk7PC9zY3JpcHQ+DQo8ZGl2Png8L2Rpdj4NCg==

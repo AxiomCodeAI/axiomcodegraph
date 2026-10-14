@@ -1,0 +1,24 @@
+# shape: a page loading a framework sheet, a theme that @imports a reset, and an inline <style> after them; ties broken by source order; !important
+kinds=cascade,loads_sheet
+@@@ file: src/framework.css
+.k { a: 1 }
+p.k { a: 2 }
+.k.j { a: 3 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<style>#x { a: 0 }</style>
+<link rel="stylesheet" href="framework.css">
+<link rel="stylesheet" href="theme.css">
+<style>.k { a: 9 !important; b: 1 !important }</style>
+</head>
+<body>
+<p id="x" class="k j">x</p>
+</body>
+</html>
+@@@ file: src/reset.css
+p { a: 5 }
+@@@ file: src/theme.css
+@import "reset.css";
+.k { a: 4 }

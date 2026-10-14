@@ -1,0 +1,14 @@
+# shape: icon sprites carrying an SVG <script> (inline, with `<` in the code, and external via href), and row templates whose <template> holds a script
+kinds=script,script_body
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<svg><script>if (a < b) { draw(); }</script><script href="js/svg.js"></script></svg>
+<template id="row"><script>bindRow();</script><tr><td>c</td></tr></template>
+</body>
+</html>
+@@@ file: src/js/svg.js

@@ -1,0 +1,24 @@
+# shape: component-scoped design-system sheets: @scope (.card) to (.content) donut scopes, :scope and & for the root, a prelude-less @scope in a component <style>, nested cards (nearest root wins)
+kinds=styles,scope,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="card"><img class="a"><div class="content"><img class="b"></div>
+  <div class="card inner"><img class="c"></div>
+</div>
+<img class="d">
+<section class="widget"><style>@scope { p { color: red } :scope { margin: 0 } }</style><p class="e">in</p></section>
+<p class="f">out</p>
+</body>
+</html>
+@@@ file: src/s.css
+@scope (.card) to (.content) {
+  img { a: 1 }
+  :scope { a: 2 }
+  & > img { a: 3 }
+  .card img { a: 4 }
+}
+@scope (.card:hover) { img { a: 5 } }
+@scope (:host) { img { a: 6 } }

@@ -1,0 +1,18 @@
+# shape: Tailwind dashboard pages assembling the layout from <include src="./partials/..."> partials at build time
+kinds=page,reference,unknown
+@@@ file: src/src/css/style.css
+.sb { a: 1 }
+.m { a: 2 }
+@@@ file: src/src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<include src="./partials/sidebar.html"></include>
+<main class="m">m</main>
+</body>
+</html>
+@@@ file: src/src/partials/sidebar.html
+<aside class="sb">s</aside>

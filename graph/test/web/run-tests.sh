@@ -2,7 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # axiom-code-graph — web engine torture suites (HTML and CSS only; <script> and on* are HTML nodes)
 #
-# For every case graph/test/web/cases/<suite>/<case>/ (src/ + case.conf):
+# For every case graph/test/web/cases/<suite>/<case>.case (case.conf + src/ in one file; tools/cases.py
+# unpacks them into .work/cases/<suite>/<case>/ before a run, and packs a new case: cases.py pack <dir> <file> --conf):
 #   1. build the graph:      bin/axiomcode <case>/src <work>/out --language web --debug
 #   2. normalize:            tools/normalize.py <work>/out --kinds=<case kinds>
 #                            (the engine's tables, in the oracle's row vocabulary; the contract
@@ -26,8 +27,9 @@
 #                                    "# reviewed: no" — read them, then flip the header by hand
 #   ./run-tests.sh --keep            keep the per-case work dirs (graph/test/web/.work)
 #
-# mode=queries cases (SPEC 6): cases/queries/<case>/questions.tsv lists SPEC 6.4 templates instantiated on the
-# case's site; tools/query_oracle.py derives each answer from the oracle's rows into expected/queries/<case>/<qid>.tsv
+# mode=queries cases (SPEC 6): the case's questions.tsv lists SPEC 6.4 templates instantiated on the
+# case's site; tools/query_oracle.py derives each answer from the oracle's rows into expected/queries/<case>.answers
+# (one <qid>.tsv per question, packed like a case)
 # (reviewed by hand); the engine run indexes a copy of the site and asks each question through bin/axiomcode
 # <context|impact|path|link> ... --json, graded by tools/grade_query.py (SET, SET>=, ORDER, CHAIN, TOP-k, LINK).
 # A LINK question (SPEC 11.2, Q36) asks `link F:1 H:<line> ;; <query> ;; link F:1 -`: its expectation comes from an
@@ -92,10 +94,18 @@ if git -C "$HERE" rev-parse --git-dir >/dev/null 2>&1; then
     echo "$ignored" | sed 's/^/  /' | head -20; exit 1
   fi
 fi
+# The cases and the query answers, unpacked: .work/cases/<suite>/<case>/ and .work/answers/queries/<case>/
+CASEROOT="$WORK/cases"; ANSWERS="$WORK/answers"
+rm -rf "$CASEROOT" "$ANSWERS"
+python3 "$HERE/tools/cases.py" unpack "$HERE/cases" "$CASEROOT" || { echo "FAIL: cases did not unpack"; exit 1; }
+for a in "$HERE"/expected/*/*.answers; do
+  [ -f "$a" ] || continue
+  r="${a#"$HERE"/expected/}"; python3 "$HERE/tools/cases.py" unpack "$a" "$ANSWERS/${r%.answers}" || { echo "FAIL: $a did not unpack"; exit 1; }
+done
 CASES=()
-for d in "$HERE"/cases/*/*/; do
+for d in "$CASEROOT"/*/*/; do
   [ -f "$d/case.conf" ] || continue
-  rel="${d#"$HERE"/cases/}"; rel="${rel%/}"
+  rel="${d#"$CASEROOT"/}"; rel="${rel%/}"
   selected "$rel" && CASES+=("$rel")
 done
 if [ ${#CASES[@]} -eq 0 ]; then echo "FAIL: no case matched (${FILTERS[*]:-all})"; exit 1; fi
@@ -105,7 +115,7 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
   ensure_oracle
   pass=0; fail=0; failed=()
   for rel in "${CASES[@]}"; do
-    d="$HERE/cases/$rel"; exp="$HERE/expected/$rel.tsv"; mode=$(conf "$d" mode)
+    d="$CASEROOT/$rel"; exp="$HERE/expected/$rel.tsv"; mode=$(conf "$d" mode)
     printf '%-52s ' "$rel"
     if [ "$mode" = "scale" ]; then echo "skip (scale: counts come from the generator)"; continue; fi
     if [ "$mode" = "queries" ]; then
@@ -121,7 +131,7 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
       done < "$d/questions.tsv"
       [ $link_ok = 1 ] && node "$ORACLE_DIR/oracle.mjs" "$d/src" "$qd/o" --walk=parser 2>>"$qd/log" && python3 "$HERE/tools/query_oracle.py" "$qd/o/rows.tsv" "$d/questions.tsv" "$qd/q" --link-rows="$qd" 2>>"$qd/log" \
         || { echo "FAIL (query oracle — see $qd/log)"; fail=$((fail+1)); failed+=("$rel"); continue; }
-      expd="$HERE/expected/$rel"; nq=0; bad=0
+      expd="$ANSWERS/$rel"; nq=0; bad=0
       # self-check: every ask step parses as shell words (an unquoted `var(--x)` once failed the whole case)
       while IFS=$'\t' read -r pq _t _g _s _r _f pask _d; do
         case "$pq" in ''|'#'*) continue;; esac
@@ -143,7 +153,7 @@ if [ "$ORACLE" = "1" ] || [ "$BLESS" = "1" ]; then
           bad=$((bad+1)); echo; printf '    %s differs from the oracle' "$qn"; continue; fi
         grep -q '^# reviewed: yes' "$expd/$qn" || { bad=$((bad+1)); echo; printf '    %s not reviewed' "$qn"; }
       done
-      [ "$BLESS" = "1" ] && { echo; echo "  ($nq questions)"; continue; }
+      [ "$BLESS" = "1" ] && { python3 "$HERE/tools/cases.py" pack "$expd" "$HERE/expected/$rel.answers"; echo; echo "  ($nq questions)"; continue; }
       if [ $bad -eq 0 ] && [ $nq -ge 1 ]; then echo "ok ($nq questions)"; pass=$((pass+1)); else echo; echo "  FAIL ($bad of $nq)"; fail=$((fail+1)); failed+=("$rel"); fi
       continue
     fi
@@ -190,7 +200,7 @@ fi
 ensure_oracle
 pass=0; fail=0; skipped=0; failed=()
 for rel in "${CASES[@]}"; do
-  d="$HERE/cases/$rel"; exp="$HERE/expected/$rel.tsv"; known="$HERE/expected/$rel.known-missing"
+  d="$CASEROOT/$rel"; exp="$HERE/expected/$rel.tsv"; known="$HERE/expected/$rel.known-missing"
   w="$WORK/$(echo "$rel" | tr / _)"; rm -rf "$w"; mkdir -p "$w"
   printf '%-52s ' "$rel"
   kinds=$(conf "$d" kinds); mode=$(conf "$d" mode); check=$(conf "$d" check)
@@ -213,7 +223,7 @@ for rel in "${CASES[@]}"; do
     qok=0; qgraded=0; qskip=0; qbad=()
     while IFS=$'\t' read -r qid _t _g _s _r _f ask _d; do
       case "$qid" in ''|'#'*) continue;; esac
-      exp_q="$HERE/expected/$rel/$qid.tsv"
+      exp_q="$ANSWERS/$rel/$qid.tsv"
       [ -f "$exp_q" ] && grep -q '^# reviewed: yes' "$exp_q" || { qbad+=("$qid(no reviewed expectation)"); qgraded=$((qgraded+1)); continue; }
       # an ask is one command, or several separated by ` ;; ` (a LINK question: link, the graded query, unlink); every
       # `link` step runs ungraded and must succeed, the one other step is graded, and every step runs in order

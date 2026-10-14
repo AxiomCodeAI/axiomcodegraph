@@ -1,0 +1,7 @@
+# shape: framework selectors combining type, class, id, attribute, pseudo-class and pseudo-element parts
+kinds=selector,selector_part
+@@@ file: src/index.html
+<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body></body></html>
+@@@ file: src/s.css
+nav#main > ul.menu li[data-x="1"]:hover::after, *, .a.b { color: red }
+.p { & .q { color: blue } }

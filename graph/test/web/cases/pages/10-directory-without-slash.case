@@ -1,0 +1,19 @@
+# shape: an SSI site linking sections as `href="docs"` and `href="../news"` (no trailing slash) where the directory
+# holds index.shtml / index.html (V4-07: reference.resolved_file names the index file, as links_to does)
+kinds=reference,links_to
+@@@ file: src/news/index.html
+<!doctype html>
+<html><body>n</body></html>
+@@@ file: src/sub/docs/index.shtml
+<!doctype html>
+<html><body><p id="top">d</p></body></html>
+@@@ file: src/sub/img/logo.txt
+x
+@@@ file: src/sub/page.html
+<!doctype html>
+<html><body>
+<a href="docs">d</a>
+<a href="../news">n</a>
+<a href="docs#top">t</a>
+<a href="img">i</a>
+</body></html>

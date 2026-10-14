@@ -598,8 +598,12 @@ jobs:
           export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
           for lang in java typescript python javascript csharp web; do
             # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
-            # web cases sit one level deeper (cases/<suite>/<case>); this one has selectors the engine matches
-            if [ "$lang" = web ]; then cases=(graph/test/web/cases/cascade/01-*/src); else cases=(graph/test/"$lang"/cases/*/src); fi
+            # a web case is one packed file (cases/<suite>/<case>.case) unpacked first; this one has selectors the engine matches
+            if [ "$lang" = web ]; then
+              packed=(graph/test/web/cases/cascade/01-*.case)
+              python3 graph/test/web/tools/cases.py unpack "${packed[0]}" "$RUNNER_TEMP/web-case"
+              cases=("$RUNNER_TEMP/web-case/src")
+            else cases=(graph/test/"$lang"/cases/*/src); fi
             case_dir="${cases[0]}"
             [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             echo "::group::$lang ($case_dir)"
