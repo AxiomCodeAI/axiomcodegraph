@@ -232,7 +232,9 @@ def run_build(repo, env=None):
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
     sys.stdout.flush()
-    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo], env=env)   # a bash script: Windows cannot exec it itself
+    import ax_exec
+    argv, env = ax_exec.bash_argv(b, [repo], env)
+    r = subprocess.run(argv, env=env)   # a bash script: Windows cannot exec it itself
     if r.returncode: sys.exit(r.returncode)
 
 
