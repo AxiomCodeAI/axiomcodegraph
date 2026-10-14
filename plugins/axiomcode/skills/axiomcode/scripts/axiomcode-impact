@@ -60,7 +60,7 @@ about values: a callable that is reached may or may not change behaviour; a call
 resolved chain to the change or reaches it through something the graph cannot see (reflection, a framework, a library
 callback) — the bound line says how many such sites there are.
 """
-import collections, contextlib, fnmatch, importlib.machinery, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, time
+import collections, contextlib, fnmatch, importlib.machinery, importlib.util, io, json, os, posixpath, re, shutil, subprocess, sys, tempfile, time
 PROF = os.environ.get('AXIOMCODE_PROFILE'); _t0 = time.time()
 def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
@@ -963,7 +963,7 @@ class Impact:
             k = text.find(')', m.end())
             for pat in self.JS_GLOB_PAT.findall(text[m.end():k] if k > 0 else ''):
                 if pat.startswith('!'): continue
-                full = os.path.normpath(os.path.join(os.path.dirname(f), pat)) if pat.startswith('.') else pat.lstrip('/')
+                full = posixpath.normpath(posixpath.join(posixpath.dirname(f), pat)) if pat.startswith('.') else pat.lstrip('/')
                 out.update(x for x in files if fnmatch.fnmatch(x, full))
         return out
 
@@ -1024,7 +1024,7 @@ class Impact:
         return {n for n in names if re.match(r'^[A-Za-z_$][\w$]*$', n)}
 
     def _js_resolve(self, f, raw, byfile):
-        if raw.startswith('.'): return self._js_file(os.path.normpath(os.path.join(os.path.dirname(f), raw)), byfile)
+        if raw.startswith('.'): return self._js_file(posixpath.normpath(posixpath.join(posixpath.dirname(f), raw)), byfile)
         if raw.startswith('#'): return self._pkg_imports(f, raw, byfile)
         return self._workspace_import(raw, byfile) or self._ts_alias(f, raw, byfile)
 
@@ -1047,7 +1047,7 @@ class Impact:
         self._tsc = ([], {})
         for d, dirs, fs in os.walk(self.g.repo):
             dirs[:] = sorted(x for x in dirs if x not in self.SKIP_DIR and not x.startswith('.'))
-            rd = os.path.relpath(d, self.g.repo); rd = '' if rd == '.' else rd
+            rd = os.path.relpath(d, self.g.repo).replace(os.sep, '/'); rd = '' if rd == '.' else rd
             for fn in sorted(fs):
                 if re.match(r'^[tj]sconfig.*\.json$', fn):
                     try: txt = open(os.path.join(d, fn), encoding='utf-8', errors='replace').read()
@@ -1056,10 +1056,10 @@ class Impact:
                     try: co = json.loads(re.sub(r',(\s*[}\]])', r'\1', txt))
                     except ValueError: continue
                     co = (co.get('compilerOptions') or {}) if isinstance(co, dict) else {}
-                    base = os.path.normpath(os.path.join(rd, co.get('baseUrl') or '.'))
+                    base = posixpath.normpath(posixpath.join(rd, co.get('baseUrl') or '.'))
                     for k, vs in (co.get('paths') or {}).items():
                         if not isinstance(vs, list): continue
-                        tg = [os.path.normpath(os.path.join(base, v[:-1] if v.endswith('*') else v)) + ('/' if v.endswith('/*') else '')
+                        tg = [posixpath.normpath(posixpath.join(base, v[:-1] if v.endswith('*') else v)) + ('/' if v.endswith('/*') else '')
                               for v in vs if isinstance(v, str)]
                         self._tsc[0].append((rd, k[:-1] if k.endswith('*') else k, k.endswith('*'), tg))
                 elif fn == 'package.json':
@@ -1077,7 +1077,7 @@ class Impact:
     def _ts_alias(self, f, raw, byfile):
         for cands in self._alias_matches(f, raw):
             for c in cands:
-                t = self._js_file(os.path.normpath(c), byfile)
+                t = self._js_file(posixpath.normpath(c), byfile)
                 if t: return t
         return None
 
@@ -1089,7 +1089,7 @@ class Impact:
                 ents = []; self._leaves(maps[d].get(raw), ents)
                 for e in ents:
                     e = re.sub(r'\.[mc]?js$', '', e)
-                    t = self._js_file(os.path.normpath(os.path.join(d, e)), byfile)
+                    t = self._js_file(posixpath.normpath(posixpath.join(d, e)), byfile)
                     if t: return t
                 return None
             if not d: return None
@@ -1135,7 +1135,7 @@ class Impact:
         leaves(ex.get('.') if isinstance(ex, dict) and any(k.startswith('.') for k in ex) else ex)
         entries += [x for x in (pj.get('main'), pj.get('module')) if isinstance(x, str)]
         for e in entries:
-            hit = self._js_file(os.path.normpath(os.path.join(base, e)) if base else os.path.normpath(e), byfile, False)
+            hit = self._js_file(posixpath.normpath(posixpath.join(base, e)) if base else posixpath.normpath(e), byfile, False)
             if hit: return hit
         return None
 
@@ -1179,7 +1179,7 @@ class Impact:
             entry = pick(ex) or pj.get('module') or pj.get('main') or 'index'
         else:
             entry = sub
-        t = self._js_file(os.path.normpath(os.path.join(d, entry)), byfile) if entry else None
+        t = self._js_file(posixpath.normpath(posixpath.join(d, entry)), byfile) if entry else None
         if t: return t
         # THE SOURCE AN ENTRY IS BUILT FROM. `exports` / `main` name the build output (dist/index.js,
         # dist/types/helper/x/index.d.ts), which is not in the repository; a test of the workspace that imports the package
@@ -1196,12 +1196,12 @@ class Impact:
             cands += [e, 'src/' + rest, rest]
         cands += ['src/index', 'index'] if sub == '.' else ['src/' + sub[2:], sub[2:]]
         for c in cands:
-            t = self._js_file(os.path.normpath(os.path.join(d, c)), byfile)
+            t = self._js_file(posixpath.normpath(posixpath.join(d, c)), byfile)
             if t: return t
         # …and the package's source directory as a module (its index, never its package.json again): `main: dayjs.min.js`
         # names a bundle the checkout does not hold, and its tests run the source the build starts from
         if sub == '.':
-            return next((x for x in (self._js_file(os.path.normpath(os.path.join(d, sd)) if d else sd, byfile, False)
+            return next((x for x in (self._js_file(posixpath.normpath(posixpath.join(d, sd)) if d else sd, byfile, False)
                                      for sd in ('src', 'lib', 'source')) if x), None)
         return None
 
@@ -1298,7 +1298,7 @@ class Impact:
                 text = '\n'.join(self.lines(f))                       # the raw text: code() blanks the specifiers
                 names = {a or b for _k, a, b in self.GLOBAL_EXPORT.findall(text)} - {''}
                 if names:
-                    near = {os.path.normpath(os.path.join(os.path.dirname(f), s)) for s in self.IMPORT_FROM.findall(text)}
+                    near = {posixpath.normpath(posixpath.join(posixpath.dirname(f), s)) for s in self.IMPORT_FROM.findall(text)}
                     for nf, ids in by_file.items():
                         if os.path.splitext(nf)[0] in near or nf == f:
                             fx += [i for i in ids if g.sym[i]['name'] in names]
