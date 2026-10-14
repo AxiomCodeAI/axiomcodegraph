@@ -1,0 +1,28 @@
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (dynamic_attribute bindings, & max specificity, disabled/alternate sheets)
+# case: cascade/20-nesting-specificity-and-disabled   kinds: selector,styles,cascade,loads_sheet
+# shape: component sheets nesting under a mixed id/class parent list (`#app, .shell { & .q }`), and a page with a <link disabled> and an alternate theme sheet
+cascade	index.html	dark.css:1:1/0	index.html:5:15	3	1	1	0,1,0	0	-
+cascade	index.html	dark.css:1:1/0	index.html:5:58	3	1	1	0,1,0	0	-
+cascade	index.html	off.css:1:1/0	index.html:5:15	2	1	1	0,1,0	0	-
+cascade	index.html	off.css:1:1/0	index.html:5:58	2	1	1	0,1,0	0	-
+cascade	index.html	s.css:1:1/0	index.html:5:1	1	1	1	1,0,0	0	-
+cascade	index.html	s.css:1:1/1	index.html:5:39	1	1	1	0,1,0	0	-
+cascade	index.html	s.css:2:3/0	index.html:5:15	1	2	1	1,1,0	0	-
+cascade	index.html	s.css:2:3/0	index.html:5:58	1	2	1	1,1,0	0	-
+loads_sheet	index.html	dark.css	link	3	0	conditional	alternate_sheet
+loads_sheet	index.html	off.css	link	2	0	conditional	alternate_sheet
+loads_sheet	index.html	s.css	link	1	0	match	-
+selector	dark.css:1:1/0	.q	0,1,0
+selector	off.css:1:1/0	.q	0,1,0
+selector	s.css:1:1/0	#app	1,0,0
+selector	s.css:1:1/1	.shell	0,1,0
+selector	s.css:2:3/0	& .q	1,1,0
+selector	s.css:3:3/0	.q &	1,1,0
+styles	dark.css:1:1/0	index.html:5:15	conditional	alternate_sheet	-
+styles	dark.css:1:1/0	index.html:5:58	conditional	alternate_sheet	-
+styles	off.css:1:1/0	index.html:5:15	conditional	alternate_sheet	-
+styles	off.css:1:1/0	index.html:5:58	conditional	alternate_sheet	-
+styles	s.css:1:1/0	index.html:5:1	match	-	-
+styles	s.css:1:1/1	index.html:5:39	match	-	-
+styles	s.css:2:3/0	index.html:5:15	match	-	-
+styles	s.css:2:3/0	index.html:5:58	match	-	-

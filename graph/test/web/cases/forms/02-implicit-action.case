@@ -1,0 +1,15 @@
+# shape: search and filter forms with no action attribute (they submit to the page itself), next to one with an
+# explicit empty action and one posting elsewhere (V2-11)
+kinds=form
+@@@ file: src/list.html
+<!doctype html>
+<html>
+<body>
+<form><input name="q"></form>
+<form action="" method="get"><input name="f"></form>
+<form action="save.html" method="POST"><input name="x"></form>
+</body>
+</html>
+@@@ file: src/save.html
+<!doctype html>
+<html><body>s</body></html>

@@ -445,7 +445,8 @@ const CSHARP: LanguageAdapter = {
   },
 };
 
-export const ADAPTERS: Record<Language, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON, javascript: JAVASCRIPT, csharp: CSHARP };
+/** Every language with a call graph. `web` (HTML + CSS) has none: graph/bundle/web/ builds its tables (cli.ts mainWeb). */
+export const ADAPTERS: Record<Exclude<Language, 'web'>, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON, javascript: JAVASCRIPT, csharp: CSHARP };
 
 export function adapterFor(language: string): LanguageAdapter {
   const a = (ADAPTERS as Record<string, LanguageAdapter>)[language];

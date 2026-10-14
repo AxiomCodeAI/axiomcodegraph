@@ -45,6 +45,7 @@
      "MUSTACHE",
      "PHP",
      "RAZOR",
+     "SSI",
      "THYMELEAF",
      "VUE"
     ]
@@ -92,6 +93,7 @@
     "hasValue",
     "startLine",
     "startColumn",
+    "valueRaw",
     "ownerElementLinkHash",
     "documentLinkHash",
     "serviceVersionLinkHash",
@@ -157,6 +159,7 @@
      "FORM_ACTION",
      "FRAME",
      "IMAGE",
+     "INCLUDE",
      "LINK_RESOURCE",
      "MEDIA",
      "META_REFRESH",
@@ -275,6 +278,7 @@
      "MUSTACHE",
      "PHP",
      "RAZOR",
+     "SSI",
      "THYMELEAF",
      "VUE"
     ],
@@ -363,6 +367,8 @@
     "parentRuleLinkHash",
     "stylesheetLinkHash",
     "serviceVersionLinkHash",
+    "preludeBytes",
+    "preludeTruncated",
     "cssRuleUniqueHash"
    ],
    "domains": {
@@ -450,6 +456,8 @@
     "htmlAttributeLinkHash",
     "stylesheetLinkHash",
     "serviceVersionLinkHash",
+    "valueBytes",
+    "valueTruncated",
     "cssDeclarationUniqueHash"
    ]
   },
@@ -524,6 +532,7 @@
      "GAP_LIMIT_REACHED",
      "PARSE_ERROR",
      "PREPROCESSOR_SYNTAX",
+     "UNCLOSED_BLOCK",
      "UNPARSED_FRAGMENT"
     ]
    }

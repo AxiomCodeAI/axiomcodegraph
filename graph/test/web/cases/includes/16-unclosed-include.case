@@ -1,0 +1,22 @@
+# shape: a Tailwind dashboard writing every partial as <include src="./partials/x.html" /> (not self-closing in
+# HTML, so the rest of the page parses inside it); the later partials are composed all the same (V4-02)
+kinds=include,host_styles,styles
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<include src="./partials/head.html" />
+<main class="m"><include src="./partials/frag.html" /></main>
+<footer class="f">f</footer>
+</body>
+</html>
+@@@ file: src/partials/frag.html
+<div style="max-height:1rem">x</div><p class="x">y</p>
+@@@ file: src/partials/head.html
+<header class="h">h</header>
+@@@ file: src/s.css
+.x { color: red }
+body > .m { a: 1 }
+body > .f { a: 2 }
+.m > .x { a: 3 }

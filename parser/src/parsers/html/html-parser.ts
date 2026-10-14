@@ -69,7 +69,8 @@ const VOID_ELEMENTS = new Set([
 ]);
 
 /** Elements whose content is text with character references and no markup (RCDATA). */
-const RCDATA_ELEMENTS = new Set(['title', 'textarea']);
+// `xmp` and `plaintext` hold raw text as `textarea` does: what looks like markup inside them is shown, not built (C-02)
+const RCDATA_ELEMENTS = new Set(['title', 'textarea', 'xmp', 'plaintext']);
 
 const URL_ATTRIBUTES = new Set([
   'src', 'href', 'action', 'formaction', 'poster', 'cite', 'manifest', 'ping', 'background', 'longdesc',
@@ -109,8 +110,17 @@ const SVG_ADJUSTED_ATTRIBUTES = new Map([
  * Jinja/Django/Twig `{% %}` and `{{ }}`, ERB/EJS/JSP `<% %>`, Jinja comments `{# #}`, PHP `<? ?>`.
  */
 const TEMPLATE_TAG = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|<%[\s\S]*?%>|\{#[\s\S]*?#\}|<\?[\s\S]*?\?>/g;
+/**
+ * What a START TAG's text is read around (V4-01): the template tags, and an SSI directive `<!--#echo var="a" -->` written
+ * inside an attribute value, whose own quotes do not end the value (the server replaces the directive before the browser
+ * sees the tag). Separate from TEMPLATE_TAG, which also finds template EXPRESSIONS: an SSI directive is not one (V3-10b).
+ */
+const START_TAG_OPAQUE = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|<%[\s\S]*?%>|\{#[\s\S]*?#\}|<\?[\s\S]*?\?>|<!--#[\s\S]*?-->/g;
 
 /** Text-level template markers, each naming the family it belongs to. */
+/** An SSI directive: a comment whose first character is `#` followed by a directive name (G23). */
+const SSI_DIRECTIVE_MARKER = /<!--#\s*(?:include|set|echo|if|elif|else|endif|config|exec|fsize|flastmod|printenv|comment)\b/i;
+
 const TEXT_DIALECTS: ReadonlyArray<readonly [HtmlTemplateDialect, RegExp]> = [
   [HtmlTemplateDialect.HANDLEBARS, /\{\{[#/>^]/],
   [HtmlTemplateDialect.MUSTACHE, /\{\{(?![#/>^!])/],
@@ -119,6 +129,7 @@ const TEXT_DIALECTS: ReadonlyArray<readonly [HtmlTemplateDialect, RegExp]> = [
   [HtmlTemplateDialect.PHP, /<\?php\b|<\?=/],
   [HtmlTemplateDialect.RAZOR, /(^|[\s>])@(model|using|inherits|page|section|if|foreach|for|while|switch|Html\.|Url\.|Model\b|\{)/m],
   [HtmlTemplateDialect.DOLLAR_BRACE, /\$\{[^}]*\}/],
+  [HtmlTemplateDialect.SSI, SSI_DIRECTIVE_MARKER],
 ];
 
 /**
@@ -160,7 +171,7 @@ export class HtmlParser {
     this.parser.setLanguage(Html);
   }
 
-  parse(content: string, filePath: string, baseMservPath: string, serviceVersionLinkHash: string): HtmlExtraction {
+  parse(content: string, filePath: string, baseMservPath: string, serviceVersionLinkHash: string, repoRoot: string = baseMservPath): HtmlExtraction {
     const lines = new LineIndex(content);
     const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(content)).rootNode;
     const top = namedChildrenThroughErrors(root);
@@ -197,10 +208,11 @@ export class HtmlParser {
       serviceVersionLinkHash,
     });
 
-    const walk = new Walk(this.css, content, lines, document, filePath, baseMservPath, serviceVersionLinkHash, dialects, flavour);
+    const walk = new Walk(this.css, content, lines, document, filePath, baseMservPath, serviceVersionLinkHash, dialects, flavour, repoRoot);
     const roots = new Map<string, number>();
     top.filter((n) => ELEMENT_TYPES.has(n.type)).forEach((child, index) => walk.element(child, '', '', 0, roots, index, HtmlNamespace.HTML));
     walk.recordSyntaxErrors(root);
+    walk.includesAndSsi();
     walk.finish();
     return walk.result();
   }
@@ -213,13 +225,39 @@ export class HtmlParser {
  * the grammar only, and names are read from the original text at the node's offsets.
  */
 function sanitiseForGrammar(text: string): string {
-  return text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase());
+  // A `<` THAT OPENS NOTHING (C-01, #1909): in HTML a `<` is a tag only before a letter, `/`, `!` or `?`; anywhere else
+  // (`v < list.length` in a code sample shown as text) it is text. `<%` is left alone: a template tag the walk reads. The grammar took `< cur` for a start tag, which then
+  // swallowed the next real tag's attributes and lost it (79 elements on one documentation page). Such a `<` becomes
+  // U+2039 for the grammar only, one code unit as `<` is; text is read from the source.
+  const out = text.replace(/<\/?([A-Za-z][^\s/>]*)/g, (m) => m.toLowerCase()).replace(/<(?![A-Za-z/!?%])/g, '\u2039');
+  // V4-01: an SSI directive written inside a quoted attribute value (`href="/<!--#echo var="s" -->.html"`) keeps the value
+  // whole: the server replaces it before the browser reads the tag. Its quotes become U+02BA for the grammar only (one
+  // code unit each); a directive between elements is a comment either way. Values are read from the source.
+  const ssi = out.includes('<!--#') ? out.replace(/<!--#[\s\S]*?-->/g, (m) => m.replace(/["']/g, '\u02BA')) : out;
+  return plaintextToEnd(ssi);
+}
+
+/**
+ * `<plaintext>` IS NEVER CLOSED (review #31): a browser reads everything after its start tag as text, `</plaintext>` and
+ * any later tag included. For the grammar only, the rest of the document after the first `<plaintext>` start tag
+ * (outside a comment) is blanked, newlines kept, so no element after it is built; its text is read from the source.
+ */
+function plaintextToEnd(text: string): string {
+  const re = /<!--[\s\S]*?-->|<plaintext\b[^>]*>/gi;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m[0].startsWith('<!--')) continue;
+    const at = m.index + m[0].length;
+    return text.slice(0, at) + text.slice(at).replace(/[^\n]/g, ' ');
+  }
+  return text;
 }
 
 /** One attribute as written: its name, its decoded value, and where it sits. */
 interface ReadAttribute {
   readonly name: string;
   readonly value: string;
+  /** The value as written, before entity decoding (V3-10a). */
+  readonly raw: string;
   readonly hasValue: boolean;
   /** 0-based offset of the attribute's name, and of the end of the attribute. */
   readonly start: number;
@@ -243,6 +281,10 @@ class Walk {
   private readonly gapKeys = new Set<string>();
   private readonly recovered: Array<[number, number]> = [];
   private gapOverflow = 0;
+  /** Every element's source range, in walk order: the owner of a directive written in text is the innermost one. */
+  private readonly spans: Array<{ start: number; end: number; row: HtmlElement }> = [];
+  /** `<include src>` elements (posthtml-include): the element is replaced by the fragment at build time. */
+  private readonly includeElements: Array<{ offset: number; url: string; row: HtmlElement }> = [];
 
   constructor(
     private readonly css: CssParser,
@@ -253,7 +295,8 @@ class Walk {
     private readonly projectRoot: string,
     private readonly version: string,
     private readonly dialects: Set<HtmlTemplateDialect>,
-    private readonly flavour: TemplateFlavour
+    private readonly flavour: TemplateFlavour,
+    private readonly repoRoot: string
   ) {
     // An XML document (`.xhtml`) keeps every name as written; an HTML document's tokenizer
     // lowercases tag and attribute names, foreign content included.
@@ -315,11 +358,11 @@ class Walk {
   ): void {
     const stack: Array<{
       node: SyntaxNode; parentHash: string; parentPath: string; depth: number;
-      siblingCounts: Map<string, number>; position: number; namespace: HtmlNamespace;
-    }> = [{ node, parentHash, parentPath, depth, siblingCounts, position, namespace }];
+      siblingCounts: Map<string, number>; position: number; namespace: HtmlNamespace; open: OpenElements;
+    }> = [{ node, parentHash, parentPath, depth, siblingCounts, position, namespace, open: new Map() }];
     while (stack.length > 0) {
       const frame = stack.pop()!;
-      const result = this.oneElement(frame.node, frame.parentHash, frame.parentPath, frame.depth, frame.siblingCounts, frame.position, frame.namespace);
+      const result = this.oneElement(frame.node, frame.parentHash, frame.parentPath, frame.depth, frame.siblingCounts, frame.position, frame.namespace, frame.open);
       if (result === undefined) {
         continue;
       }
@@ -327,7 +370,7 @@ class Walk {
       for (let i = result.children.length - 1; i >= 0; i -= 1) {
         stack.push({
           node: result.children[i]!, parentHash: result.row.getHash(), parentPath: result.row.path, depth: frame.depth + 1,
-          siblingCounts: counts, position: i, namespace: result.childNamespace,
+          siblingCounts: counts, position: i, namespace: result.childNamespace, open: result.childOpen,
         });
       }
     }
@@ -341,8 +384,9 @@ class Walk {
     depth: number,
     siblingCounts: Map<string, number>,
     position: number,
-    namespace: HtmlNamespace
-  ): { row: HtmlElement; children: SyntaxNode[]; childNamespace: HtmlNamespace } | undefined {
+    namespace: HtmlNamespace,
+    open: OpenElements = new Map()
+  ): { row: HtmlElement; children: SyntaxNode[]; childNamespace: HtmlNamespace; childOpen: OpenElements } | undefined {
     const tagNode = openingTagOf(node);
     const rawTag = tagNode === undefined ? undefined : tagNameOf(node, this.content);
     if (tagNode === undefined || rawTag === undefined) {
@@ -366,7 +410,15 @@ class Walk {
     // none. An RCDATA element's contents are text, whatever the grammar made of them.
     const tagEnd = startTagEnd(this.content, tagNode);
     const children = isVoid || isRcdata ? [] : contentChildren(node, childNamespace, this.content).filter((c) => c.startIndex >= tagEnd);
-    const elementChildren = children.filter((c) => ELEMENT_TYPES.has(c.type));
+    // the ancestors whose open element makes a later start tag of theirs ignored (V1-19); a template's contents are a
+    // document fragment of their own, with no form open
+    const childOpen: OpenElements = lower === 'template' ? new Map() : ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower) ? new Map(open) : open;
+    const openTags = new Set(childOpen.keys());
+    if (lower !== 'template' && ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower)) openTags.add(lower);
+    const lifted = childNamespace === HtmlNamespace.HTML
+      ? this.withoutIgnoredStartTags(children.filter((c) => ELEMENT_TYPES.has(c.type)), openTags)
+      : { elements: children.filter((c) => ELEMENT_TYPES.has(c.type)), ignored: [] };
+    const elementChildren = this.treeConstructionRepairs(node, lower, ownNamespace, lifted.elements);
     const start = this.lines.positionOf(node.startIndex);
     const end = this.lines.positionOf(isVoid ? tagNode.endIndex : node.endIndex);
     const attributes = readAttributes(node, this.content, this.flavour);
@@ -393,6 +445,23 @@ class Walk {
       serviceVersionLinkHash: this.version,
     });
     this.out.elements.push(row);
+    this.spans.push({ start: node.startIndex, end: isVoid ? tagNode.endIndex : node.endIndex, row });
+    if (lower === 'include' && ownNamespace === HtmlNamespace.HTML) {
+      const src = own('src');
+      if (src !== undefined && src.value.trim() !== '') this.includeElements.push({ offset: node.startIndex, url: src.value, row });
+    }
+    if (lower !== 'template' && ownNamespace === HtmlNamespace.HTML && IGNORED_WHEN_OPEN_TAGS.has(lower)) {
+      (childOpen as Map<string, OpenElement>).set(lower, { row, names: new Set(attributes.filter((a) => !a.templateTag).map((a) => a.name.toLowerCase())) });
+    }
+    // a second <body> or <html> adds the attributes the open one lacks to it, as a browser does; a nested <form>'s are dropped
+    for (const { node: ignoredNode, tag: ignoredTag } of lifted.ignored) {
+      const host = childOpen.get(ignoredTag);
+      const ignoredTagNode = openingTagOf(ignoredNode);
+      if (host === undefined || ignoredTagNode === undefined || (ignoredTag !== 'body' && ignoredTag !== 'html')) continue;
+      const added = readAttributes(ignoredNode, this.content, this.flavour).filter((a) => !a.templateTag && !host.names.has(a.name.toLowerCase()));
+      for (const a of added) host.names.add(a.name.toLowerCase());
+      if (added.length > 0) this.attributes(ignoredNode, host.row, added, HtmlNamespace.HTML, ignoredTagNode);
+    }
     if (tag === 'title' && this.title === undefined && ownNamespace === HtmlNamespace.HTML) {
       this.title = textContent;
     }
@@ -410,7 +479,147 @@ class Walk {
     } else if (node.type === 'style_element' && ownNamespace !== HtmlNamespace.MATHML) {
       this.style(node, row, attributes, tagNode);
     }
-    return { row, children: elementChildren, childNamespace };
+    return { row, children: elementChildren, childNamespace, childOpen };
+  }
+
+  /** An `<a>`'s element children are cut at this many (C-03): the rest were moved out to follow it. Keyed by start offset. */
+  private readonly anchorCut = new Map<number, number>();
+  /** Elements written after `</body>` that a browser puts at the end of the body (C-03). Keyed by the body's start offset. */
+  private readonly bodyTail = new Map<number, SyntaxNode[]>();
+  /** A head whose children from this offset on are moved out (V3-08b): what a browser puts in the implied body. Keyed by the head's start offset. */
+  private readonly headCut = new Map<number, number>();
+
+  /**
+   * THE BODY A BROWSER IMPLIES BEFORE THE WRITTEN ONE (V3-08b, #1909). Text in the head (merge-conflict markers, a stray
+   * `>`), or an element the head cannot hold, closes the head and opens an implied body there; the written `<body>`
+   * that follows is then a second body, its tag ignored. The implied body is no row (LIMIT L1), so what it holds is
+   * the html element's: the head's children from that point, then the written body's children. Template tags are not
+   * text here (they render to nothing or to head content), and neither is a comment. Returns html's new element
+   * children, or nothing when the written body stays.
+   */
+  private impliedBodyRepair(htmlNode: SyntaxNode, out: SyntaxNode[]): SyntaxNode[] | undefined {
+    // an XML document (XHTML) implies nothing: its tree is the one written
+    if (this.xml) return undefined;
+    const tagOf = (c: SyntaxNode): string | undefined => tagNameOf(c, this.content)?.toLowerCase();
+    const bodyIdx = out.findIndex((c) => tagOf(c) === 'body');
+    if (bodyIdx < 0) return undefined;
+    const body = out[bodyIdx]!;
+    const isText = (c: SyntaxNode): boolean => {
+      if (c.type !== 'text' && c.type !== 'entity' && c.type !== 'ERROR') return false;
+      let s = this.src(c);
+      if (c.type === 'ERROR') {
+        // the elements inside an error region are elements, not text
+        const inner = c.namedChildren.filter((x) => ELEMENT_TYPES.has(x.type) || x.type === 'comment');
+        for (let k = inner.length - 1; k >= 0; k -= 1) s = s.slice(0, inner[k]!.startIndex - c.startIndex) + s.slice(inner[k]!.endIndex - c.startIndex);
+      }
+      return s.replace(TEMPLATE_OR_COMMENT_TEXT, '').trim() !== '';
+    };
+    const triggers = (c: SyntaxNode): boolean =>
+      ELEMENT_TYPES.has(c.type) ? !HEAD_CONTENT_TAGS.has(tagOf(c) ?? '') : isText(c);
+    const htmlTag = openingTagOf(htmlNode);
+    const htmlStart = htmlTag === undefined ? htmlNode.startIndex : startTagEnd(this.content, htmlTag);
+    let head: SyntaxNode | undefined;
+    let cutAt: number | undefined;
+    for (const c of contentChildren(htmlNode, HtmlNamespace.HTML, this.content)) {
+      if (c.startIndex < htmlStart || c.startIndex >= body.startIndex || c.type === 'comment') continue;
+      if (ELEMENT_TYPES.has(c.type) && tagOf(c) === 'head' && head === undefined && cutAt === undefined) {
+        head = c;
+        const headTag = openingTagOf(c);
+        const headStart = headTag === undefined ? c.startIndex : startTagEnd(this.content, headTag);
+        const inHead = contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= headStart && x.type !== 'comment');
+        const first = inHead.find(triggers);
+        if (first !== undefined) { cutAt = first.startIndex; break; }
+        continue;
+      }
+      if (c.startIndex >= (head?.startIndex ?? -1) && c.startIndex < (head?.endIndex ?? -1)) continue;
+      if (triggers(c)) { cutAt = c.startIndex; break; }
+    }
+    if (cutAt === undefined) return undefined;
+    const moved: SyntaxNode[] = [];
+    if (head !== undefined && cutAt >= head.startIndex && cutAt < head.endIndex) {
+      this.headCut.set(head.startIndex, cutAt);
+      moved.push(...contentChildren(head, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= cutAt! && ELEMENT_TYPES.has(x.type)));
+    }
+    const bodyTag = openingTagOf(body);
+    const bodyStart = bodyTag === undefined ? body.startIndex : startTagEnd(this.content, bodyTag);
+    const bodyKids = contentChildren(body, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= bodyStart && ELEMENT_TYPES.has(x.type));
+    const result: SyntaxNode[] = [];
+    for (const c of out) {
+      if (c === body) { result.push(...bodyKids); continue; }
+      result.push(c);
+      if (c === head) result.push(...moved);
+    }
+    return result;
+  }
+
+  /**
+   * BROWSER TREE CONSTRUCTION, THE REPAIRS THAT MATTER FOR MATCHING (C-03, G4, #1909). tree-sitter-html builds the tree
+   * as written; a browser does not, and a selector is matched against the browser's tree.
+   * - An `<a>` start tag while an `<a>` is open closes the open one: `<a><a class="in">x</a></a>` is two sibling
+   *   anchors. When a child `<a>` holds a direct child `<a>`, the outer one keeps the children before it, and the inner
+   *   one with everything after it follows the outer one in the same parent.
+   * - What is written after `</body>` (a late `<script>`) is put at the end of the body.
+   * The repairs the walk does not make (implied `tbody`, `<p>` closed by a block, misnested formatting elements) stay
+   * declared as G4.
+   */
+  private treeConstructionRepairs(node: SyntaxNode, lower: string, namespace: HtmlNamespace, children: SyntaxNode[]): SyntaxNode[] {
+    if (namespace !== HtmlNamespace.HTML) return children;
+    let out = children;
+    const cut = this.anchorCut.get(node.startIndex);
+    if (cut !== undefined) out = out.slice(0, cut);
+    const headCutAt = lower === 'head' ? this.headCut.get(node.startIndex) : undefined;
+    if (headCutAt !== undefined) out = out.filter((c) => c.startIndex < headCutAt);
+    const tail = this.bodyTail.get(node.startIndex);
+    if (tail !== undefined) out = [...out, ...tail];
+    const implied = lower === 'html' ? this.impliedBodyRepair(node, out) : undefined;
+    if (implied !== undefined) out = implied;
+    else if (lower === 'html') {
+      const b = out.findIndex((c) => tagNameOf(c, this.content)?.toLowerCase() === 'body');
+      if (b >= 0 && b < out.length - 1) {
+        const after = out.slice(b + 1).filter((c) => tagNameOf(c, this.content)?.toLowerCase() !== 'head');
+        if (after.length > 0) {
+          this.bodyTail.set(out[b]!.startIndex, [...(this.bodyTail.get(out[b]!.startIndex) ?? []), ...after]);
+          out = out.filter((c) => !after.includes(c));
+        }
+      }
+    }
+    const result: SyntaxNode[] = [];
+    for (const c of out) {
+      result.push(c);
+      if (tagNameOf(c, this.content)?.toLowerCase() !== 'a') continue;
+      const tagNode = openingTagOf(c); if (tagNode === undefined) continue;
+      const tagEnd = startTagEnd(this.content, tagNode);
+      const kids = contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= tagEnd && ELEMENT_TYPES.has(x.type));
+      const k = kids.findIndex((x) => tagNameOf(x, this.content)?.toLowerCase() === 'a');
+      if (k < 0) continue;
+      this.anchorCut.set(c.startIndex, k);
+      result.push(...kids.slice(k));
+    }
+    return result;
+  }
+
+  /**
+   * A START TAG THE BROWSER IGNORES (V1-19, #1909): `<form>` while a form is open, `<body>` or `<html>` inside its own
+   * kind, `<head>` once the head or body is open. The grammar keeps each as an element; a browser drops the tag and its
+   * attributes, and what it held becomes its parent's. So such an element is not an element row: its element children
+   * take its place among the parent's, in order (and are themselves checked).
+   */
+  private withoutIgnoredStartTags(elements: readonly SyntaxNode[], open: ReadonlySet<string>): { elements: SyntaxNode[]; ignored: Array<{ node: SyntaxNode; tag: string }> } {
+    const out: SyntaxNode[] = [];
+    const ignoredNodes: Array<{ node: SyntaxNode; tag: string }> = [];
+    const visit = (list: readonly SyntaxNode[]): void => {
+      for (const c of list) {
+        const tagNode = openingTagOf(c);
+        const t = tagNode === undefined ? undefined : tagNameOf(c, this.content)?.toLowerCase();
+        const ignored = t !== undefined && (t === 'head' ? open.has('head') || open.has('body') : IGNORED_WHEN_OPEN_TAGS.has(t) && open.has(t));
+        if (!ignored || tagNode === undefined) { out.push(c); continue; }
+        ignoredNodes.push({ node: c, tag: t });
+        const tagEnd = startTagEnd(this.content, tagNode);
+        visit(contentChildren(c, HtmlNamespace.HTML, this.content).filter((x) => x.startIndex >= tagEnd && ELEMENT_TYPES.has(x.type)));
+      }
+    };
+    visit(elements);
+    return { elements: out, ignored: ignoredNodes };
   }
 
   /** The text and entity children of an element, decoded, whitespace-normalised; an error region without markup is text too. */
@@ -466,10 +675,10 @@ class Walk {
         continue;
       }
       const directive = readDirective(attr.name, this.flavour);
-      const kind = this.attributeKind(name, prefix, tag, directive !== undefined);
+      const kind = this.attributeKind(name, prefix, tag, directive !== undefined, attr.hasValue);
       this.noteDialect(name, prefix, directive);
       const row = new HtmlAttribute({
-        name, prefix, value: attr.value, attributeKind: kind, hasValue: attr.hasValue,
+        name, prefix, value: attr.value, valueRaw: attr.raw !== attr.value ? attr.raw : '', attributeKind: kind, hasValue: attr.hasValue,
         startLine: at.line, startColumn: at.column, ownerElementLinkHash: element.getHash(),
         documentLinkHash: this.out.document.getHash(), serviceVersionLinkHash: this.version,
       });
@@ -532,7 +741,7 @@ class Walk {
     return rows;
   }
 
-  private attributeKind(name: string, prefix: string, tag: string, isDirective: boolean): HtmlAttributeKind {
+  private attributeKind(name: string, prefix: string, tag: string, isDirective: boolean, hasValue = true): HtmlAttributeKind {
     if (prefix === 'xmlns' || prefix === 'xml' || name === 'xmlns' || name.startsWith('xmlns:') || name.startsWith('xml:')) {
       return HtmlAttributeKind.NAMESPACE;
     }
@@ -545,7 +754,9 @@ class Walk {
     if (isDirective || TEMPLATE_DIRECTIVE.test(name)) {
       return HtmlAttributeKind.TEMPLATE_DIRECTIVE;
     }
-    if (/^on[a-z]/.test(name)) {
+    // An event handler is an on* attribute WITH a value: a bare `once` (a framework's boolean flag) runs nothing.
+    // Any case: in an XHTML page names keep their case (`onClick` is its own attribute there), and a handler it is.
+    if (/^on[a-z]/i.test(name) && hasValue) {
       return HtmlAttributeKind.EVENT_HANDLER;
     }
     if (name.startsWith('data-')) {
@@ -659,7 +870,7 @@ class Walk {
 
   private templateExpression(
     attribute: HtmlAttribute | undefined,
-    element: HtmlElement,
+    element: HtmlElement | undefined,
     dialect: HtmlTemplateDialect,
     kind: HtmlTemplateExpressionKind,
     directive: string,
@@ -688,7 +899,7 @@ class Walk {
     const row = new HtmlTemplateExpression({
       dialect, expressionKind: kind, directive, argument, modifiers, expressionText: text, calleeNames: callees,
       identifiers, declares, position, startLine: at.line, startColumn: at.column,
-      ownerElementLinkHash: element.getHash(), attributeLinkHash: attribute?.getHash() ?? '',
+      ownerElementLinkHash: element?.getHash() ?? '', attributeLinkHash: attribute?.getHash() ?? '',
       documentLinkHash: this.out.document.getHash(), serviceVersionLinkHash: this.version,
     });
     this.out.templateExpressions.push(row);
@@ -768,7 +979,7 @@ class Walk {
     }
     // A `<base href>` is what every later relative URL resolves against, as in a browser.
     const effective = kind === HtmlReferenceKind.BASE ? classified : applyBase(classified, this.baseHref);
-    const resolved = resolveUrlToFile(effective, this.filePath, this.projectRoot);
+    const resolved = resolveUrlToFile(effective, this.filePath, this.projectRoot, this.repoRoot);
     if (kind === HtmlReferenceKind.STYLESHEET) {
       this.stylesheetReferenceCount += 1;
     }
@@ -883,7 +1094,7 @@ class Walk {
     this.out.stylesheets.push(sheet);
     const extracted = this.css.parseStylesheet(body.text, {
       stylesheet: sheet, line: body.start.line, column: body.start.column, filePath: this.filePath,
-      projectRoot: this.projectRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
+      projectRoot: this.projectRoot, repoRoot: this.repoRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
     });
     // Loops, not `push(...rows)`: a spread passes every row as an argument and overflows
     // the stack on a <style> of tens of thousands of rules.
@@ -907,7 +1118,7 @@ class Walk {
     }
     const extracted = this.css.parseDeclarationList(value, {
       htmlAttributeLinkHash: attribute.getHash(), line: at.line, column: at.column, filePath: this.filePath,
-      projectRoot: this.projectRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
+      projectRoot: this.projectRoot, repoRoot: this.repoRoot, serviceVersionLinkHash: this.version, baseHref: this.baseHref,
     });
     for (const d of extracted.declarations as CssDeclaration[]) this.out.css.declarations.push(d);
     for (const v of extracted.valueReferences as CssValueReference[]) this.out.css.valueReferences.push(v);
@@ -952,6 +1163,82 @@ class Walk {
     }
   }
 
+  /**
+   * INCLUDE REFERENCES (G22) AND SSI DIRECTIVES (G23), read from the page text, since each kind lives where the tree
+   * does not look: an SSI directive is a comment, a Jinja tag or a gulp `@@include` is text. Each include is a reference
+   * of kind INCLUDE whose `attributeName` names its flavour (`ssi:virtual`, `ssi:file`, `posthtml:include`,
+   * `gulp:@@include`, `jinja:include`, `jinja:extends`, `jinja:import`). Its owner is the innermost element the directive
+   * sits in (none at the top level), or for `<include src>` the include element itself, which the fragment replaces.
+   * Paths relative to the page (`ssi:file`, posthtml, gulp) are resolved here; `ssi:virtual` (site root) and Jinja
+   * (template directories) are resolved by the engine, which sees every page. A path that is a template expression
+   * (`{% include name %}`) has url kind TEMPLATE_EXPRESSION. Every SSI directive is also a template expression of
+   * dialect SSI, with the directive's name and its arguments as written.
+   */
+  includesAndSsi(): void {
+    const text = this.content;
+    const found: Array<{ offset: number; flavour: string; url: string; expression: boolean; owner: HtmlElement | undefined }> = [];
+    const ownerAt = (offset: number): HtmlElement | undefined => {
+      let best: { start: number; end: number; row: HtmlElement } | undefined;
+      for (const sp of this.spans) if (sp.start <= offset && offset < sp.end && (best === undefined || sp.start >= best.start)) best = sp;
+      return best?.row;
+    };
+    const inRawContent = (offset: number): boolean => this.spans.some((sp) => RAW_CONTENT_TAGS.has(sp.row.tagName.toLowerCase()) && sp.start < offset && offset < sp.end);
+    for (const m of text.matchAll(/<!--#\s*([a-z]+)\b([\s\S]*?)-->/gi)) {
+      const name = m[1]!.toLowerCase();
+      const args = m[2]!.trim();
+      const owner = ownerAt(m.index);
+      if (name === 'include' && !inRawContent(m.index)) {
+        const a = /\b(virtual|file)\s*=\s*(["'])([\s\S]*?)\2/i.exec(args);
+        if (a !== null) found.push({ offset: m.index, flavour: `ssi:${a[1]!.toLowerCase()}`, url: a[3]!, expression: /\$\{?\w/.test(a[3]!), owner });
+      }
+      const kind = name === 'echo' ? HtmlTemplateExpressionKind.INTERPOLATION : name === 'set' ? HtmlTemplateExpressionKind.BINDING
+        : ['if', 'elif', 'else', 'endif'].includes(name) ? HtmlTemplateExpressionKind.CONDITION
+          : name === 'include' ? HtmlTemplateExpressionKind.REFERENCE : HtmlTemplateExpressionKind.DIRECTIVE;
+      // V4-01: every SSI directive is a row wherever it sits: at the top of the file (no owner element), between
+      // elements, or inside an attribute value; #comment included
+      if (SSI_DIRECTIVE_MARKER.test(m[0])) {
+        this.dialects.add(HtmlTemplateDialect.SSI);
+        this.templateExpression(undefined, owner, HtmlTemplateDialect.SSI, kind, name, '', [], args, m.index, this.lines.positionOf(m.index), false);
+      }
+    }
+    // V3-03: a gulp or Jinja directive written inside a comment includes nothing: an HTML comment (not an SSI one), a
+    // Jinja `{# #}` comment, a `{% comment %}…{% endcomment %}` block, or a `{% raw %}` / `{% verbatim %}` block
+    const commented: Array<[number, number]> = [];
+    for (const m of text.matchAll(/<!--(?!#)[\s\S]*?(?:-->|$)|\{#[\s\S]*?#\}|\{%-?\s*(comment|raw|verbatim)\b[\s\S]*?%\}[\s\S]*?(?:\{%-?\s*end\1\s*-?%\}|$)/g)) {
+      commented.push([m.index, m.index + m[0].length]);
+    }
+    // review #22: inside a raw-text or RCDATA element (<script>, <style>, <textarea>, <title>, <xmp>) an include's markup
+    // would be text, never elements: a directive there composes nothing. <pre> and <code> parse markup, so they keep it.
+    for (const sp of this.spans) if (RAW_CONTENT_TAGS.has(sp.row.tagName.toLowerCase())) commented.push([sp.start, sp.end]);
+    const isCommented = (offset: number): boolean => commented.some(([a, b]) => a < offset && offset < b);
+    for (const m of text.matchAll(/@@include\(\s*(["'])([^"'\n]*)\1/g)) {
+      if (isCommented(m.index)) continue;
+      found.push({ offset: m.index, flavour: 'gulp:@@include', url: m[2]!, expression: false, owner: ownerAt(m.index) });
+    }
+    for (const m of text.matchAll(/\{%-?\s*(include|extends|import|from)\s+([\s\S]*?)\s*-?%\}/g)) {
+      if (isCommented(m.index)) continue;
+      const verb = m[1] === 'from' ? 'import' : m[1]!;
+      const q = /^(["'])([^"'\n]*)\1/.exec(m[2]!);
+      const url = q !== null ? q[2]! : m[2]!.split(/\s+(?:with|without|ignore|import|as|only)\b/)[0]!.trim();
+      found.push({ offset: m.index, flavour: `jinja:${verb}`, url, expression: q === null, owner: ownerAt(m.index) });
+    }
+    for (const inc of this.includeElements) found.push({ offset: inc.offset, flavour: 'posthtml:include', url: inc.url, expression: false, owner: inc.row });
+    found.sort((a, b) => a.offset - b.offset);
+    found.forEach((f, position) => {
+      const at = this.lines.positionOf(f.offset);
+      const classified = classifyUrl(f.url);
+      const pageRelative = f.flavour === 'ssi:file' || f.flavour === 'posthtml:include' || f.flavour === 'gulp:@@include';
+      const resolved = !f.expression && pageRelative ? resolveUrlToFile(classified, this.filePath, this.projectRoot, this.repoRoot) : '';
+      this.out.references.push(new HtmlReference({
+        referenceKind: HtmlReferenceKind.INCLUDE, urlAsWritten: f.url.trim(), urlKind: f.expression ? WebUrlKind.TEMPLATE_EXPRESSION : classified.kind,
+        path: f.expression ? '' : classified.path, query: f.expression ? '' : classified.query, fragment: f.expression ? '' : classified.fragment,
+        resolvedFilePath: resolved, isResolved: resolved !== '', position, attributeName: f.flavour, startLine: at.line, startColumn: at.column,
+        ownerElementLinkHash: f.owner?.getHash() ?? '', attributeLinkHash: '', documentLinkHash: this.out.document.getHash(),
+        serviceVersionLinkHash: this.version,
+      }));
+    });
+  }
+
   private gap(kind: HtmlParseGapKind, detail: string, start: Pos, end: Pos, related: string): void {
     const key = `${kind}|${start.line}|${start.column}|${detail}`;
     if (this.gapKeys.has(key)) {
@@ -973,6 +1260,19 @@ class Walk {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 /** An error region that holds no `<`: a bare `>`, `&` or `=` in text, which HTML reads as characters. */
+/** An open element whose later start tag of the same kind is ignored, and the attribute names it already has. */
+interface OpenElement { row: HtmlElement; names: Set<string> }
+type OpenElements = ReadonlyMap<string, OpenElement>;
+
+/** Tags whose start tag is ignored while an element of the same kind is open (`head` also once `body` is). */
+const IGNORED_WHEN_OPEN_TAGS = new Set(['form', 'body', 'html', 'head']);
+/** Elements whose content is text to the browser (raw text and RCDATA): an include directive there composes no markup. */
+const RAW_CONTENT_TAGS = new Set(['script', 'style', 'textarea', 'title', 'xmp']);
+/** What the head holds without a browser opening the body (V3-08b); `include` is a build-time directive (posthtml). */
+const HEAD_CONTENT_TAGS = new Set(['base', 'basefont', 'bgsound', 'link', 'meta', 'noframes', 'noscript', 'script', 'style', 'template', 'title', 'include']);
+/** Template tags, server-side code and comments: not text a browser would read as opening the body. */
+const TEMPLATE_OR_COMMENT_TEXT = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|\{#[\s\S]*?#\}|<%[\s\S]*?%>|<\?[\s\S]*?\?>|<!--[\s\S]*?-->|@@include\([^)]*\)/g;
+
 function isTextError(text: string): boolean {
   return !text.includes('<');
 }
@@ -1047,11 +1347,11 @@ function readAttributes(node: SyntaxNode, content: string, flavour: TemplateFlav
   }
   const tagEnd = startTagEnd(content, tagNode);
   const tagText = content.slice(tagNode.startIndex, tagEnd);
-  if (tagNode.hasError || TEMPLATE_TAG.test(tagText)) {
-    TEMPLATE_TAG.lastIndex = 0;
+  if (tagNode.hasError || START_TAG_OPAQUE.test(tagText)) {
+    START_TAG_OPAQUE.lastIndex = 0;
     return rawAttributes(tagText, tagNode.startIndex);
   }
-  TEMPLATE_TAG.lastIndex = 0;
+  START_TAG_OPAQUE.lastIndex = 0;
   return tagNode.namedChildren.filter((c) => c.type === 'attribute').map((attr) => {
     const nameNode = attr.namedChildren.find((c) => c.type === 'attribute_name');
     const hasValue = attr.children.some((c) => !c.isNamed && c.type === '=');
@@ -1062,6 +1362,7 @@ function readAttributes(node: SyntaxNode, content: string, flavour: TemplateFlav
     return {
       name: nameNode === undefined ? '' : content.slice(nameNode.startIndex, nameNode.endIndex),
       value: decodeHTMLAttribute(inner === undefined ? '' : content.slice(inner.startIndex, inner.endIndex)),
+      raw: inner === undefined ? '' : content.slice(inner.startIndex, inner.endIndex),
       hasValue,
       start: attr.startIndex,
       end: attr.endIndex,
@@ -1083,21 +1384,22 @@ export function startTagEnd(content: string, tagNode: SyntaxNode): number {
   let quote = '';
   while (i < content.length) {
     const ch = content[i]!;
+    // a template tag or an SSI directive is opaque, inside a quoted value too: its own quotes end nothing (V4-01)
+    START_TAG_OPAQUE.lastIndex = i;
+    const m = START_TAG_OPAQUE.exec(content);
+    if (m !== null && m.index === i) {
+      i += m[0].length;
+      continue;
+    }
     if (quote !== '') {
       if (ch === quote) quote = '';
       i += 1;
       continue;
     }
-    TEMPLATE_TAG.lastIndex = i;
-    const m = TEMPLATE_TAG.exec(content);
-    if (m !== null && m.index === i) {
-      i += m[0].length;
-      continue;
-    }
     if (ch === '"' || ch === '\'') {
       quote = ch;
     } else if (ch === '>') {
-      TEMPLATE_TAG.lastIndex = 0;
+      START_TAG_OPAQUE.lastIndex = 0;
       return i + 1;
     } else if (ch === '<' && i > tagNode.startIndex + 1 && /[A-Za-z/!]/.test(content[i + 1] ?? '')) {
       // The next tag began: this one never closed.
@@ -1106,7 +1408,7 @@ export function startTagEnd(content: string, tagNode: SyntaxNode): number {
     }
     i += 1;
   }
-  TEMPLATE_TAG.lastIndex = 0;
+  START_TAG_OPAQUE.lastIndex = 0;
   return tagNode.endIndex;
 }
 
@@ -1124,7 +1426,7 @@ function rawAttributes(tagText: string, tagStart: number): ReadAttribute[] {
   const out: ReadAttribute[] = [];
   let masked = body;
   const tags: Array<{ start: number; end: number; text: string }> = [];
-  for (const m of body.matchAll(TEMPLATE_TAG)) {
+  for (const m of body.matchAll(START_TAG_OPAQUE)) {
     tags.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     masked = masked.slice(0, m.index) + ' '.repeat(m[0].length) + masked.slice(m.index + m[0].length);
   }
@@ -1143,14 +1445,14 @@ function rawAttributes(tagText: string, tagStart: number): ReadAttribute[] {
       valueStart = tagStart + from + m.index + valueOffsetInMatch;
       rawValue = body.slice(m.index + valueOffsetInMatch, m.index + valueOffsetInMatch + length);
     }
-    out.push({ name, value: decodeHTMLAttribute(rawValue), hasValue, start: tagStart + from + m.index, end: tagStart + from + m.index + m[0].length, valueStart, templateTag: false });
+    out.push({ name, value: decodeHTMLAttribute(rawValue), raw: rawValue, hasValue, start: tagStart + from + m.index, end: tagStart + from + m.index + m[0].length, valueStart, templateTag: false });
   }
   // A template tag standing between attributes is a directive of the template's; one inside
   // an attribute's value is that attribute's expression and is read with the attribute.
   for (const tag of tags) {
     const inside = out.some((a) => a.valueStart !== undefined && tagStart + from + tag.start >= a.valueStart && tagStart + from + tag.end <= a.end);
     if (!inside) {
-      out.push({ name: tag.text.replace(/\s+/g, ' ').trim(), value: '', hasValue: false, start: tagStart + from + tag.start, end: tagStart + from + tag.end, valueStart: undefined, templateTag: true });
+      out.push({ name: tag.text.replace(/\s+/g, ' ').trim(), value: '', raw: '', hasValue: false, start: tagStart + from + tag.start, end: tagStart + from + tag.end, valueStart: undefined, templateTag: true });
     }
   }
   return out.sort((a, b) => a.start - b.start);
@@ -1174,12 +1476,22 @@ function splitAttributeName(raw: string, namespace: HtmlNamespace, xml: boolean)
     }
     return { prefix: '', name: xml ? name : SVG_ADJUSTED_ATTRIBUTES.get(name) ?? name };
   }
-  return { prefix: '', name: TEMPLATE_DIRECTIVE.test(raw) ? raw : raw.toLowerCase() };
+  // An XML document (.xhtml) keeps every attribute name as written: `onclick` and `onClick` are two attributes there,
+  // not a duplicate (an HTML document lowercases them, and the second is then a duplicate and a parse gap).
+  return { prefix: '', name: xml || TEMPLATE_DIRECTIVE.test(raw) ? raw : raw.toLowerCase() };
 }
 
 /** The class tokens of a value, with any template tag in it set aside: `btn {{ cls }}` is one class and a template's. */
+/**
+ * The class tokens of a value. A token written with a template expression (`{{m.tag}}`, `btn-{{ kind }}`,
+ * `{% if a %}active{% endif %}`) is KEPT, whole, as written (V2-15 ruling: a dynamic class token, never dropped);
+ * whitespace inside a template tag does not split it. The engine flags such a token dynamic.
+ */
 function classTokens(value: string): string[] {
-  return value.replace(TEMPLATE_TAG, ' ').split(/[ \t\n\f\r]+/).filter((t) => t !== '');
+  const masked = value.replace(TEMPLATE_TAG, (m) => '\u0001'.repeat(m.length));
+  const out: string[] = [];
+  for (const m of masked.matchAll(/[^ \t\n\f\r]+/g)) out.push(value.slice(m.index!, m.index! + m[0].length));
+  return out;
 }
 
 /** `<!DOCTYPE html PUBLIC "…" "…">` as `html PUBLIC "…" "…"`, whitespace-normalised. */

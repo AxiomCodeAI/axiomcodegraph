@@ -1,0 +1,19 @@
+# shape: Alpine/Vue dashboards toggling classes through :class / x-bind:class, and utility classes that only JavaScript adds
+kinds=styles,unknown,usage
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="menu" :class="{ open: isOpen }"><a class="item">a</a></div>
+<div class="panel" x-bind:class="active ? 'shown' : ''">p</div>
+<div class="static">s</div>
+</body>
+</html>
+@@@ file: src/s.css
+.menu.open { a: 1 }
+.menu.open .item { a: 2 }
+.panel.shown { a: 3 }
+.static.added-by-js { a: 4 }
+.never-anywhere { a: 5 }
+.menu { a: 6 }

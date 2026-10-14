@@ -1,0 +1,34 @@
+# shape: a Flask/Django app: templates/base.html with {% block %} slots and an {% include %}d navbar, pages that
+# {% extends %} it and fill the blocks, a macros file pulled in with {% import %} (never rendered by itself)
+kinds=page,include,host_styles,styles,unknown,usage
+@@@ file: src/app/templates/base.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="/static/site.css">
+<title>{% block title %}{% endblock %}</title>
+</head>
+<body>
+{% include "partials/nav.html" %}
+<main class="content">
+{% block content %}<p class="default">d</p>{% endblock %}
+</main>
+</body>
+</html>
+@@@ file: src/app/templates/macros.html
+{% macro btn(label) %}<button class="btn">{{ label }}</button>{% endmacro %}
+@@@ file: src/app/templates/page.html
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}T{% endblock %}
+{% block content %}
+<section class="card"><button class="btn">b</button></section>
+{% endblock %}
+@@@ file: src/app/templates/partials/nav.html
+<nav class="nav">n</nav>
+@@@ file: src/static/site.css
+.content > .card { a: 1 }
+.content > .default { a: 2 }
+body > .nav { a: 3 }
+.card .btn { a: 4 }
+.side { a: 5 }

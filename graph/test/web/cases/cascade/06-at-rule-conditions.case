@@ -1,0 +1,20 @@
+# shape: responsive frameworks: rules under @media (incl. print), @supports, @container, a <link media=print> sheet and @import with a media list
+kinds=styles,cascade
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"><link rel="stylesheet" href="print.css" media="print"></head>
+<body>
+<p class="p">x</p>
+</body>
+</html>
+@@@ file: src/narrow.css
+.p { a: 4 }
+@@@ file: src/print.css
+.p { a: 5 }
+@@@ file: src/s.css
+@import url("narrow.css") screen and (max-width: 600px);
+.p { a: 0 }
+@media print { .p { a: 1 } }
+@media screen { @supports (display: grid) { .p { a: 2 } } }
+@container (min-width: 10em) { .p { a: 3 } }

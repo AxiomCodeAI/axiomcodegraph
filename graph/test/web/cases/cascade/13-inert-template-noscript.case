@@ -1,0 +1,17 @@
+# shape: pages keeping row templates in <template> and a <noscript> warning banner, both styled by the page sheet
+kinds=styles
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<template><div class="row"><span class="cell">c</span></div></template>
+<noscript><div class="row warn">enable JS</div></noscript>
+<div class="row">live</div>
+</body>
+</html>
+@@@ file: src/s.css
+.row { a: 1 }
+.row .cell { a: 2 }
+.warn { a: 3 }
+template > .row { a: 4 }

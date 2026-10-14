@@ -1,0 +1,14 @@
+# shape: SSI pages that open with #set/#if lines before the doctype, echo variables inside attribute values (two in
+# one value), and keep #comment and #config lines between elements (V4-01: every directive is a row, with its place)
+kinds=ssi_directive,attribute
+@@@ file: src/index.shtml
+<!--#set var="section" value="news" -->
+<!--#if expr="$section = news" --><!--#set var="t" value="News" --><!--#endif -->
+<!DOCTYPE html>
+<html>
+<body>
+<!--#config timefmt="%Y" -->
+<a href="/<!--#echo var="section" -->/<!--#echo var="t" -->.html" title='<!--#echo var="t" -->'>x</a>
+<!--#comment text="old menu removed" -->
+</body>
+</html>

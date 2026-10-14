@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: handlers/19-javascript-noop-links   kinds: handler
+# shape: legacy menus whose anchors are href="javascript:;" / "javascript:void(0)" / "javascript: void 0" / bare
+handler	index.html:8:1	href	navigate	written	-	javascript_url	10	|openMenu()
+handler	index.html:9:1	href	navigate	written	-	javascript_url	16	|void(openMenu())

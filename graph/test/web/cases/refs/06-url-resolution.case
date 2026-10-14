@@ -1,0 +1,18 @@
+# shape: pages under a subdirectory with <base href>, ../ paths, query strings and fragments on asset URLs, data: URIs and a missing image
+kinds=reference,value_ref
+@@@ file: src/app/css/s.css
+.a { background: url(../img/logo.png?x=1); }
+.b { background: url("data:image/svg+xml;utf8,<svg/>"); }
+.c { background: url( '../img/none.png' ); cursor: url(/app/img/logo.png), auto; }
+@@@ file: src/app/img/logo.png
+@@@ file: src/app/pages/index.html
+<!doctype html>
+<html>
+<head>
+<base href="../">
+<link rel="stylesheet" href="css/s.css?v=3">
+</head>
+<body>
+<img src="img/logo.png#frag"><img src="img/missing.png">
+</body>
+</html>

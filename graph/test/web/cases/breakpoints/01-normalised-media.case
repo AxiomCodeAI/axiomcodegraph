@@ -1,0 +1,20 @@
+# shape: responsive frameworks writing the same breakpoint with and without spaces, range syntax, em units, a print sheet loaded with media=, and nested rules under @media
+kinds=breakpoint,rule_breakpoint
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css"><link rel="stylesheet" href="p.css" media="print">
+</head>
+<body>
+<p class="a">x</p>
+</body>
+</html>
+@@@ file: src/p.css
+.p { a: 6 }
+@@@ file: src/s.css
+@media (min-width:768px) { .a { a: 1 } }
+@media (min-width: 768px) { .b { a: 2 } }
+@media screen and (max-width: 47.9375em) { .c { a: 3 } }
+@media (width >= 1200px) { @supports (display:grid) { .d { a: 4 } } }
+@media ( orientation : landscape ) , print { .e { a: 5 } }

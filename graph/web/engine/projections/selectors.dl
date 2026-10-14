@@ -1,0 +1,14 @@
+// ============================================================================
+// Projections · SELECTORS
+//
+// Column reads of the parser's CSS selector facts: one row per top-level part of a selector,
+// by compound, and the combinator before each compound after the first.
+// ============================================================================
+
+// (selector, compound, kind, name)
+web_sel_part(sel, k, kind, name) :-
+  css_selector_part(kind, name, _, _, _, _, ks, _, "0", _, _, _, _, sel, _, _, _), k = to_number(ks).
+// the combinator before compound k (k > 0), written on its first part
+web_sel_comb(sel, k, comb) :-
+  css_selector_part(_, _, _, _, _, comb, ks, _, "0", _, _, _, _, sel, _, _, _), comb != "NONE", k = to_number(ks), k > 0.
+web_sel_last(sel, n) :- web_sel_part(sel, _, _, _), n = max k : { web_sel_part(sel, k, _, _) }.

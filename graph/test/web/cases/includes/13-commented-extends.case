@@ -1,0 +1,23 @@
+# shape: a form template whose first line is a disabled `{% comment %} {% extends 'base.html' %} {% endcomment %}`,
+# next to ones disabled with {# #} and <!-- -->, and one live extends (iter4: a commented directive does not compose)
+kinds=include,host_styles
+@@@ file: src/app/templates/a.html
+{% comment %} {% extends 'base.html' %} {% endcomment %}
+{% block content %}<form class="f">a</form>{% endblock %}
+@@@ file: src/app/templates/b.html
+{# {% extends "base.html" %} #}
+{% block content %}<form class="f">b</form>{% endblock %}
+@@@ file: src/app/templates/base.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="/static/s.css"></head>
+<body><main class="c">{% block content %}{% endblock %}</main></body>
+</html>
+@@@ file: src/app/templates/c.html
+<!-- {% extends "base.html" %} -->
+{% block content %}<form class="f">c</form>{% endblock %}
+@@@ file: src/app/templates/d.html
+{% extends "base.html" %}
+{% block content %}<form class="f">d</form>{% endblock %}
+@@@ file: src/static/s.css
+.c > .f { a: 1 }

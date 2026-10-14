@@ -1,0 +1,20 @@
+# shape: admin layouts styled through descendant, child, adjacent and general-sibling selectors (.sidebar > ul li + li)
+kinds=styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="side">
+  <ul class="menu"><li class="i">1</li><li class="i">2</li><li class="i"><ul><li class="i">deep</li></ul></li></ul>
+  <h3>h</h3><p>a</p><span>b</span><p>c</p>
+</div>
+</body>
+</html>
+@@@ file: src/s.css
+.side .i { color: red }
+.side > .menu > .i { color: blue }
+.i + .i { margin: 0 }
+h3 ~ p { color: green }
+h3 + p { color: gray }
+.menu > li > .i { x: 1 }

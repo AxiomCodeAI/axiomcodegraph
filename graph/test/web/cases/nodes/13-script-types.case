@@ -1,0 +1,21 @@
+# shape: demo pages with classic, module, JSON-LD, importmap, client-side template and transpiled script blocks
+kinds=script,script_body
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+  <script src="lib.js"></script>
+  <script>var classic = 1;</script>
+  <script type="module">import x from './m.js';</script>
+  <script type="application/ld+json">{"@type": "Thing"}</script>
+  <script type="importmap">{"imports": {}}</script>
+  <script type="text/template" id="tpl"><div class="<%= cls %>"></div></script>
+  <script type="text/babel">const A = () => <div/>;</script>
+  <script type="text/javascript">var also = 2;</script>
+  <script src="missing.js"></script>
+</head>
+<body></body>
+</html>
+@@@ file: src/lib.js
+@@@ file: src/m.js
+export default 1;

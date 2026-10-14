@@ -1,0 +1,16 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: scripts/06-entity-attributes   kinds: script,script_body,attribute,attr_raw,handler
+# shape: an SSI community site's analytics and search tags with &amp; in src query strings and &quot; in handler
+attr_raw	index.html:4:1	data-x	1 &lt; 2
+attr_raw	index.html:4:1	src	https://cdn.example.org/t.js?form=a&amp;lang=b
+attr_raw	index.html:8:1	onclick	say(&quot;hi&quot;)
+attr_raw	index.html:8:1	title	Tom &amp; Jerry
+attribute	index.html:4:1	data-x	1 < 2
+attribute	index.html:4:1	src	https://cdn.example.org/t.js?form=a&lang=b
+attribute	index.html:8:1	href	#
+attribute	index.html:8:1	onclick	say("hi")
+attribute	index.html:8:1	title	Tom & Jerry
+handler	index.html:8:1	onclick	click	written	-	on_attribute	9	|say("hi")
+script	index.html:4:1	1	external	CLASSIC	-	{"data-x":"1 < 2","src":"https://cdn.example.org/t.js?form=a&lang=b"}	-	-
+script	index.html:5:1	2	inline	CLASSIC	-	{}	-	5:9-5:29
+script_body	index.html:5:1	20	1	|var s = "a &amp; b";

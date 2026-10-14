@@ -1,0 +1,15 @@
+# shape: row templates inside <template> and a <noscript> banner repeated on the page: inert elements are never component occurrences
+kinds=component
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<template><div class="row"><span>a</span><span>b</span></div><div class="row"><span>c</span><span>d</span></div></template>
+<noscript><div class="row"><span>a</span><span>b</span></div></noscript>
+<div class="row"><span>a</span><span>b</span></div>
+<div class="row"><span>e</span><span>f</span></div>
+</body>
+</html>

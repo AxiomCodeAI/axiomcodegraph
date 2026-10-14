@@ -1,0 +1,16 @@
+# shape: a posthtml dashboard whose sidebar partial carries .sb-link, styled only by the including page's sheet; a
+# class used only in a partial nothing includes (iter3 composed-tree ruling: styled through its host)
+kinds=class
+@@@ file: src/css/s.css
+.sb-link { a: 1 }
+.orphan-x { a: 2 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="css/s.css"></head>
+<body><include src="parts/side.html"></include></body>
+</html>
+@@@ file: src/parts/old.html
+<div class="orphan-x">o</div>
+@@@ file: src/parts/side.html
+<aside><a class="sb-link" href="#">x</a></aside>

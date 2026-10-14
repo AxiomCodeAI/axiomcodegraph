@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: pages/09-target-and-env-dirs   kinds: page,loads_sheet,links_to
+# shape: a Java site whose generated docs land in target/site/ and a Python project whose templates sit under env/
+links_to	index.html:2:13	href	target/site/index.html	-	match	-
+links_to	index.html:2:55	href	env/share/page.html	-	match	-
+loads_sheet	target/site/index.html	target/site/css/site.css	link	1	0	match	-
+page	env/share/page.html	DOCUMENT
+page	index.html	DOCUMENT
+page	target/site/index.html	DOCUMENT

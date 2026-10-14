@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: usage/01-classes-styled-and-unstyled   kinds: class
+# shape: Tailwind-like utility classes with no rule, classes named by rules that match no carrier, and classes styled normally
+class	badge	1	1	1	0	0	0
+class	card	1	1	2	2	1	0
+class	flex	1	1	0	0	0	0
+class	mt-4	1	1	0	0	0	0
+class	title	1	1	1	1	1	0

@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/14-svg-case-and-namespaces   kinds: styles
+# shape: icon sprites styled with camelCase SVG element names and a namespaced selector
+styles	s.css:2:1/0	index.html:5:6	match	-	-
+styles	s.css:4:1/0	index.html:5:61	match	-	-
+styles	s.css:5:1/0	index.html:5:100	match	-	-
+styles	s.css:6:1/0	index.html:5:113	match	-	-

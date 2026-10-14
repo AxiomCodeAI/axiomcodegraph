@@ -1,0 +1,14 @@
+# shape: an Alpine dashboard whose overlay partial carries @click and :class but no x-data of its own (the x-data
+# sits on the including page's <body>), next to a Vue partial (v-if) that nothing includes and so keeps its own dialect
+kinds=page,include,handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body x-data="{ open: false }">
+<include src="partials/overlay.html"></include>
+</body>
+</html>
+@@@ file: src/partials/overlay.html
+<div class="overlay" @click="open = false" :class="{ 'is-open': open }">o</div>
+@@@ file: src/partials/unused.html
+<div class="overlay" v-if="shown" @click="open = false" :class="{ 'is-open': open }">u</div>

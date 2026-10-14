@@ -1,0 +1,21 @@
+# shape: a themed admin page where one heading is styled by a framework sheet, a theme sheet and an inline style: winner per property by importance, origin, specificity and source order; conditional overrides under :hover and @media; losers with their reasons
+kinds=computed,cascade_entry
+@@@ file: src/fw.css
+.title { color: black; font-size: 20px; margin: 0; }
+h2 { color: gray !important; }
+#t { font-size: 22px; }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="fw.css"><link rel="stylesheet" href="theme.css">
+</head>
+<body>
+<div class="card"><h2 class="title" id="t" style="color: green; margin-top: 3px">x</h2></div>
+</body>
+</html>
+@@@ file: src/theme.css
+.card .title { color: blue; font-size: 18px; }
+.card .title:hover { color: red; }
+@media (max-width: 600px) { #t { font-size: 14px; } }
+.title::before { content: "*"; color: orange; }

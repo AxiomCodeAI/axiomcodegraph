@@ -1,0 +1,28 @@
+# shape: (G14) a repository holding a site inside a sub-project (its own package.json): every key and file column is repo-relative, never relative to the sub-project
+kinds=page,stylesheet,loads_sheet,styles,links_to
+@@@ file: src/css/site.css
+.x { a: 1 }
+@@@ file: src/docs/css/site.css
+.x { a: 2 }
+@@@ file: src/docs/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<a href="../index.html">home</a><p class="x">docs</p>
+</body>
+</html>
+@@@ file: src/docs/package.json
+{"name": "docs", "private": true}
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<a href="docs/index.html">docs</a><p class="x">root</p>
+</body>
+</html>

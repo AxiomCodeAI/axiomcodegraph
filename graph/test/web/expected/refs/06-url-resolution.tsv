@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/06-url-resolution   kinds: reference,value_ref
+# shape: pages under a subdirectory with <base href>, ../ paths, query strings and fragments on asset URLs, data: URIs and a missing image
+reference	app/pages/index.html:4:1	href	../	local	-
+reference	app/pages/index.html:5:1	href	css/s.css?v=3	local	app/css/s.css
+reference	app/pages/index.html:8:1	src	img/logo.png#frag	local	app/img/logo.png
+reference	app/pages/index.html:8:30	src	img/missing.png	local	-
+value_ref	app/css/s.css:1:6	URL	../img/logo.png?x=1	local	app/img/logo.png
+value_ref	app/css/s.css:2:6	URL	data:image/svg+xml;utf8,<svg/>	data	-
+value_ref	app/css/s.css:3:44	URL	/app/img/logo.png	local	app/img/logo.png
+value_ref	app/css/s.css:3:6	URL	../img/none.png	local	-

@@ -1,0 +1,17 @@
+# shape: reset sheets and legacy IE hacks built on the universal selector (`* html #x`, `#menu > *`, `*, *::before`), and a selector a browser drops (`input:not(type="checkbox")`)
+kinds=styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div id="menu"><a>1</a><span>2</span></div><input type="checkbox" class="i">
+</body>
+</html>
+@@@ file: src/s.css
+*, *::before { a: 1 }
+* html #menu { a: 2 }
+#menu > * { a: 3 }
+#menu * + * { a: 4 }
+*|* .i { a: 5 }
+input:not(type="checkbox") { a: 6 }

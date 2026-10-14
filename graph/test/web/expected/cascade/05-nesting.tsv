@@ -1,0 +1,18 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/05-nesting   kinds: styles,unknown
+# shape: native CSS nesting in component sheets: &-suffix, & as descendant, implicit nesting, nesting inside @media, and a nested selector list
+styles	s.css:1:1/0	index.html:5:1	match	-	-
+styles	s.css:1:1/0	index.html:6:1	match	-	-
+styles	s.css:1:1/0	index.html:7:19	match	-	-
+styles	s.css:2:3/0	index.html:5:1	match	-	-
+styles	s.css:3:3/0	index.html:5:26	match	-	-
+styles	s.css:4:3/0	index.html:6:18	match	-	-
+styles	s.css:5:3/0	index.html:6:18	match	-	-
+styles	s.css:6:3/0	index.html:7:19	match	-	-
+styles	s.css:7:29/0	index.html:5:1	conditional	at_rule:media	-
+styles	s.css:7:29/0	index.html:6:1	conditional	at_rule:media	-
+styles	s.css:7:29/0	index.html:7:19	conditional	at_rule:media	-
+styles	s.css:9:1/0	index.html:7:1	match	-	-
+styles	s.css:9:1/1	index.html:5:1	match	-	-
+styles	s.css:9:23/0	index.html:5:26	match	-	-
+styles	s.css:9:23/1	index.html:7:19	match	-	-

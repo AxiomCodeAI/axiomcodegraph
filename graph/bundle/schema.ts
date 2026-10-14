@@ -13,9 +13,16 @@
  * cannot point at.
  */
 
+import { WEB_TABLE_BOUNDS, WEB_TABLES, WEB_VIEW_DOCS, WEB_VIEWS } from '@/bundle/web/schema';
+
 export const SCHEMA_VERSION = '1';
 
-export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp';
+export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp' | 'web';
+/**
+ * The languages a core vocabulary row marked `all` is written for (review #18): the call-graph languages, as on dev. The
+ * web graph has no core rows (its tables are web_*), so `web` is a Language but takes no `all` vocabulary, and every
+ * other language's schema_vocab stays as it was.
+ */
 export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp'];
 
 export interface ColumnSpec {
@@ -977,6 +984,44 @@ FROM call_edges GROUP BY tier ORDER BY edges DESC`,
 
 function mdEscape(s: string): string { return s.replace(/\|/g, '\\|'); }
 
+/**
+ * THE WEB GRAPH (HTML + CSS, #1908): its own graph.sqlite with the named web_* tables and views of graph/bundle/web/schema.ts,
+ * rendered from those definitions so the document cannot drift from the code. A table without a row bound, a bound for
+ * no table, a view without a description or a description for no view is an error here, and so a stale SCHEMA.md.
+ */
+function renderWebSection(out: string[]): void {
+  const tables = new Set(WEB_TABLES.map((t) => t.name));
+  const views = WEB_VIEWS.map((v) => /CREATE VIEW (\w+)/.exec(v)?.[1]).filter((n): n is string => n !== undefined);
+  for (const t of tables) if (WEB_TABLE_BOUNDS[t] === undefined) throw new Error(`web table ${t} has no row bound in WEB_TABLE_BOUNDS`);
+  for (const t of Object.keys(WEB_TABLE_BOUNDS)) if (!tables.has(t)) throw new Error(`WEB_TABLE_BOUNDS names ${t}, which is no web table`);
+  for (const v of views) if (WEB_VIEW_DOCS[v] === undefined) throw new Error(`web view ${v} has no description in WEB_VIEW_DOCS`);
+  for (const v of Object.keys(WEB_VIEW_DOCS)) if (!views.includes(v)) throw new Error(`WEB_VIEW_DOCS names ${v}, which is no web view`);
+  out.push('## Web tables — `web_<name>` (language `web`: HTML and CSS)');
+  out.push('');
+  out.push('A `--language web` run writes its own `<out>/web/graph.sqlite`. Its core tables are empty (HTML and CSS declare no methods or types); the web graph is the named tables below, created by `graph/bundle/web/write.ts` with an index on every `idx` column, and documented in `schema_tables` / `schema_columns` inside the database like the core tables. Every `*_uid` is a kind prefix and 16 hex digits of an IR hash; every `file` is relative to `run.source_dir`. No table holds a JavaScript node or an edge to one: `<script>` bodies and `on*` code are text.');
+  out.push('');
+  for (const t of WEB_TABLES) {
+    out.push(`### \`${t.name}\``);
+    out.push('');
+    out.push(t.description);
+    out.push('');
+    out.push(`Rows: ${WEB_TABLE_BOUNDS[t.name]}.`);
+    out.push('');
+    out.push('| # | column | type | idx | meaning |');
+    out.push('|---|---|---|---|---|');
+    t.columns.forEach((c, i) => out.push(`| ${i} | \`${c.name}\` | ${c.type} | ${c.indexed ? 'yes' : ''} | ${mdEscape(c.description)} |`));
+    out.push('');
+  }
+  out.push('### Web views');
+  out.push('');
+  out.push('SQL views over the tables above, not materialized.');
+  out.push('');
+  out.push('| view | answers |');
+  out.push('|---|---|');
+  for (const v of views) out.push(`| \`${v}\` | ${mdEscape(WEB_VIEW_DOCS[v]!)} |`);
+  out.push('');
+}
+
 export function renderSchemaMarkdown(): string {
   const out: string[] = [];
   out.push('# The output bundle — schema');
@@ -1052,6 +1097,7 @@ export function renderSchemaMarkdown(): string {
       out.push('');
     }
   }
+  renderWebSection(out);
   out.push('## Extended tables — `ext_<relation>`');
   out.push('');
   out.push('Every relation in the language\'s `graph/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.');

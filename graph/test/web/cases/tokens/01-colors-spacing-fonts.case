@@ -1,0 +1,19 @@
+# shape: a theme sheet plus a vendor sheet: colours written as short and long hex, rgb() with and without spaces, named colours, a var() use that is not a colour; spacing, radius, shadow, z-index, font families and sizes; vendor uses excluded from project_uses
+kinds=token
+@@@ file: src/css/theme.css
+:root { --brand: #3c8dbc; }
+.a { color: #fff; background: rgb(0, 0, 0); border: 1px solid #3C8DBC; }
+.b { color: var(--brand); background-color: rgb(0,0,0); padding: 4px 8px; margin: 0 auto; }
+.c { font-family: "Source Sans Pro", Helvetica, sans-serif; font-size: 14px; border-radius: 4px; box-shadow: 0 1px  2px rgba(0,0,0,.2); z-index: 10; color: white; }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/theme.css"><link rel="stylesheet" href="vendor/lib.css">
+</head>
+<body>
+<p style="color: #FFF; margin: 0 4px">x</p>
+</body>
+</html>
+@@@ file: src/vendor/lib.css
+.v { color: #ffffff; padding: 4px; }

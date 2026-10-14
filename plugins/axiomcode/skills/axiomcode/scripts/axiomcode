@@ -33,7 +33,7 @@
 # AXIOMCODE_SURFACE=mcp) a query with no flag answers as places with their code (ax_blocks.py), and any flag,
 # AXIOMCODE_RAW=1 or a direct call gives the verb's own answer.
 #
-#   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
+#   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp|web] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
 #   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh]
 #       internal (the orient hook, the suites): the files and callables a task touches, from the problem statement.
@@ -233,8 +233,9 @@ case "$cmd" in
               if [ -n "$sk" ]; then sk=""; FL+=("$a"); continue; fi
               case "$a" in
                 --json) hasj=1 ;;
-                --depth|--in|--limit|--page|--budget|--tests-in|--kind) sk=1; FL+=("$a") ;;
+                --depth|--in|--limit|--page|--budget|--page-budget|--tests-in|--kind|--top) sk=1; FL+=("$a") ;;
                 --warm|--from-text|--delete|-h|--help) named=1 ;;
+                --tests|--tests-only|--why|--unknown|--depends|--*=*) FL+=("$a") ;;
                 -*) FL+=("$a") ;;
                 *) [ -d "$a" ] || named=1 ;;
               esac

@@ -32,6 +32,8 @@ export interface CssOrigin {
   /** The file a relative `url()` resolves against, and the project root for a root-relative one. */
   readonly filePath: string;
   readonly projectRoot: string;
+  /** The repository root: a relative url may climb out of projectRoot up to it (V1-05). */
+  readonly repoRoot?: string;
   readonly serviceVersionLinkHash: string;
   /** The page's `<base href>`, when the CSS sits in a page that has one: relative URLs resolve against it, as in a browser. */
   readonly baseHref?: BaseUrl;
@@ -45,6 +47,7 @@ export interface CssDeclarationListOrigin {
   readonly baseHref?: BaseUrl;
   readonly filePath: string;
   readonly projectRoot: string;
+  readonly repoRoot?: string;
   readonly serviceVersionLinkHash: string;
 }
 
@@ -118,7 +121,18 @@ const CSS_ESCAPE = /\\(?:[0-9a-fA-F]{1,6} ?|[^\n0-9a-fA-F])/g;
  * and starts a rule, so the dots of a layer name become underscores for the grammar only.
  */
 function sanitiseForGrammar(text: string): string {
-  let out = text.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
+  // A COMMENT THAT HOLDS A BRACE (#1909): theme builders write `border:1px solid #ddd/*{borderColor}*/;` inside a
+  // declaration value, and the grammar, which takes a comment there for the start of a nested rule, turned every
+  // declaration after it into a bogus nested "rule" (`font-family: Arial` read as a selector) and dropped them.
+  // The braces inside a comment are blanked for the grammar only; a comment row reads its text from the source.
+  let out = mapComments(text, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
+  // and a `/*` inside a string (`a[href*="/*"]`) is no comment either, though the grammar would take it for one there
+  out = maskCommentOpenersInStrings(out);
+  out = blankTemplateTags(out);
+  out = out.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
+  // `@keyframes "fade"`: a quoted name is legal and the grammar takes only an identifier; the quotes become
+  // underscores for the grammar, and the name is read from the text as written
+  out = out.replace(/(@(?:-[a-z]+-)?keyframes\s+)("[^"\n]*"|'[^'\n]*')/gi, (_m, kw: string, q: string) => kw + '_' + q.slice(1, -1) + '_');
   // A non-ASCII character in an identifier (`.日本語`, `.emoji-🚀`) is legal CSS the grammar
   // rejects; every code unit above ASCII becomes an underscore of the same length.
   out = out.replace(/[^\x00-\x7f]/g, '_');
@@ -131,12 +145,136 @@ function sanitiseForGrammar(text: string): string {
   out = out.replace(/'([^'"\n\\]*)'/g, (_m, inner: string) => `"${inner}"`);
   // `!IMPORTANT` is important (CSS keywords are case-insensitive); the grammar knows the lowercase spelling only.
   out = out.replace(/!\s*important\b/gi, (m) => m.toLowerCase());
+  out = compactSpacedAnPlusB(out);
+  return blankOddCustomValues(out);
+}
+
+/**
+ * A TEMPLATE TAG IN A `<style>` (V3-03 on r10, #1909): a Django/Jinja page writes `background-color: {{ theme.primary|
+ * default:"#E54F38" }};`, and the grammar ended the rule at the tag's first `}`, so every rule after it in the sheet was
+ * misread (a browser and postcss read the braces as a nested block of the value and keep the rule). For the grammar
+ * only: a `{% comment %}…{% endcomment %}` block and a `{# #}` comment become spaces (the template engine strips them
+ * before serving); a `{{ }}` / `{% %}` tag inside a declaration value (the nearest of `{ ; } :` before it is `:`)
+ * becomes underscores, a token the value keeps; any other tag becomes spaces. Every row reads its text from the source.
+ */
+function blankTemplateTags(text: string): string {
+  if (!/\{[{%#]/.test(text)) return text;
+  let out = text.replace(/\{%-?\s*comment\b[\s\S]*?\{%-?\s*endcomment\s*-?%\}|\{#[\s\S]*?#\}/g, (m) => m.replace(/[^\n]/g, ' '));
+  // left to right, so the look-back sees the tags before it already blanked (a `:` inside `default:"#x"` is no colon)
+  const tag = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = tag.exec(out)) !== null) {
+    let k = m.index - 1;
+    while (k >= 0 && !'{;}:'.includes(out[k]!)) k--;
+    const fill = k >= 0 && out[k] === ':' ? '_' : ' ';
+    out = out.slice(0, m.index) + m[0].replace(/[^\n]/g, fill) + out.slice(m.index + m[0].length);
+  }
   return out;
+}
+
+/**
+ * AN+B WRITTEN WITH SPACES (V1-09, #1909): `:nth-last-child(n + 3)` is legal, and the grammar reads only `n+3`; one such
+ * argument is a recovered error, two in one selector list made the whole rule an error, and every selector of it was
+ * lost (186 selectors on a dev project). Inside an `:nth-*(...)` argument, the An+B before any `of S` is written
+ * without its spaces and padded with them at its end, so every offset outside the argument is unchanged; the part
+ * reads its value from the source text, so it keeps `n + 3` as written.
+ */
+function compactSpacedAnPlusB(text: string): string {
+  return text.replace(/(:nth-(?:last-)?(?:child|of-type|col)\()([^()]*)\)/gi, (m, open: string, inner: string) => {
+    const of = /\bof\b/i.exec(inner);
+    const head = of === null ? inner : inner.slice(0, of.index);
+    if (!/^\s*[-+]?\d*n\s*[-+]\s*\d+\s*$/i.test(head) || !/\s[-+]|[-+]\s/.test(head)) return m;
+    const compact = head.trim().replace(/\s+/g, '');
+    return open + compact + ' '.repeat(head.length - compact.length) + inner.slice(head.length) + ')';
+  });
+}
+
+/**
+ * A CUSTOM PROPERTY'S VALUE IS ALMOST ANY TOKEN RUN (V1-04, #1909): a minified framework sheet writes `:root{--x:.}`,
+ * and the grammar, which reads a value as an ordinary one, took `.}` for the start of a selector and parented every
+ * later rule to `:root` (985 rules per file). A `--name:` value right after `{` or `;` that holds braces, or holds no
+ * letter, digit, quote or parenthesis (`.`, `,`, `{}`), is turned into underscores of the same length for the grammar;
+ * the declaration reads its value from the source text, so it keeps `.` as written.
+ */
+function blankOddCustomValues(text: string): string {
+  const re = /([{;]\s*)(--[\w-]+\s*:)/g;
+  let out = ''; let last = 0; let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const start = m.index + m[0].length;
+    let i = start; let depth = 0; let quote = '';
+    for (; i < text.length; i++) {
+      const c = text[i]!;
+      if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+      if (c === '"' || c === "'") quote = c;
+      else if (c === '(' || c === '[' || c === '{') depth++;
+      else if ((c === ')' || c === ']' || c === '}') && depth > 0) depth--;
+      else if ((c === ';' || c === '}') && depth === 0) break;
+    }
+    const value = text.slice(start, i);
+    if (value.trim() !== '' && (/[{}]/.test(value) || !/[\w"'()]/.test(value))) {
+      out += text.slice(last, start) + value.replace(/\S/g, '_'); last = i;
+    }
+    re.lastIndex = Math.max(i, re.lastIndex);
+  }
+  return out + text.slice(last);
+}
+
+/** How many `{` are still open at the end of the text (comments, strings and escapes skipped). */
+function unclosedBlocks(text: string): number {
+  const t = withoutComments(text);
+  let depth = 0; let quote = '';
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i]!;
+    if (c === '\\') { i++; continue; }
+    if (quote) { if (c === quote || c === '\n') quote = ''; continue; }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '{') depth++;
+    else if (c === '}' && depth > 0) depth--;
+  }
+  return depth;
 }
 
 /** The text with every comment's inside blanked, same length, for scans that must not read comments. */
 function withoutComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, (m) => '/*' + ' '.repeat(m.length - 4) + '*/');
+  return mapComments(text, (m) => '/*' + ' '.repeat(Math.max(0, m.length - 4)) + '*/');
+}
+
+/**
+ * Each comment of a sheet replaced by `f(comment)`, found by a scan that skips strings (review #21): `a[href*="/*"]`
+ * opens no comment, so a regex over the raw text no longer spans from a string's `/*` to the next real comment and
+ * blanks the braces of every rule between. A string ends at its quote or at a newline (CSS: a bad string); an
+ * unterminated comment runs to the end of the sheet.
+ */
+/** For the grammar only: the `*` of every `/*` inside a quoted string becomes `_`, same length (review #21). */
+function maskCommentOpenersInStrings(text: string): string {
+  if (!text.includes('/*')) return text;
+  const chars = text.split(''); let quote = '';
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i]!;
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote || c === '\n') { quote = ''; continue; }
+      if (c === '/' && chars[i + 1] === '*') chars[i + 1] = '_';
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '/' && chars[i + 1] === '*') { const end = text.indexOf('*/', i + 2); i = end < 0 ? chars.length : end + 1; }
+  }
+  return chars.join('');
+}
+
+function mapComments(text: string, f: (comment: string) => string): string {
+  let out = ''; let last = 0; let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote) { if (c === '\\') i++; else if (c === quote || c === '\n') quote = ''; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2); const stop = end < 0 ? text.length : end + 2;
+      out += text.slice(last, i) + f(text.slice(i, stop)); last = stop; i = stop - 1;
+    }
+  }
+  return out + text.slice(last);
 }
 
 /** An identifier as written, with its CSS escapes decoded: `md\:flex` is `md:flex`, `\31 23` is `123`. */
@@ -214,6 +352,7 @@ interface Sheet {
   readonly host: Pos;
   readonly filePath: string;
   readonly projectRoot: string;
+  readonly repoRoot?: string;
   readonly version: string;
   readonly stylesheetLinkHash: string;
   /** The host page's `<base href>`, for CSS written in a page. */
@@ -287,13 +426,20 @@ export class CssParser {
     };
     const sheet: Sheet = {
       text, lines: new LineIndex(text), host: { line: origin.line, column: origin.column }, filePath: origin.filePath,
-      projectRoot: origin.projectRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: origin.stylesheet.getHash(),
+      projectRoot: origin.projectRoot, repoRoot: origin.repoRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: origin.stylesheet.getHash(),
       baseHref: origin.baseHref,
     };
     const gaps = new GapCollector(out.parseGaps);
-    const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(text)).rootNode;
+    // AN UNCLOSED BLOCK AT THE END OF THE SHEET (V1-03): a browser closes every open block at EOF, so `.a { color: red;`
+    // followed by more rules is `.a` holding them as nested rules. The grammar gets the missing `}` appended (after
+    // the text, so no offset moves) and the sheet gets a gap row saying how many blocks the end of file closed.
+    const open = unclosedBlocks(text);
+    const root = parseWithTreeSitter(this.parser, sanitiseForGrammar(text) + '}'.repeat(open)).rootNode;
     this.walkBlock(root, '', 0, sheet, out, gaps, '');
     this.recordSyntaxErrors(root, sheet, gaps);
+    if (open > 0) {
+      gaps.add(sheet, CssParseGapKind.UNCLOSED_BLOCK, `${open} block(s) still open at the end of the sheet, closed there as a browser does`, text.length, text.length, '');
+    }
     const uncommented = withoutComments(text);
     for (const [name, pattern] of PREPROCESSOR_MARKERS) {
       const m = pattern.exec(uncommented);
@@ -320,7 +466,7 @@ export class CssParser {
     const out: CssDeclarationListExtraction = { declarations: [], valueReferences: [], errors: [] };
     const sheet: Sheet = {
       text, lines: new LineIndex(text), host: { line: origin.line, column: origin.column }, filePath: origin.filePath,
-      projectRoot: origin.projectRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: '', baseHref: origin.baseHref,
+      projectRoot: origin.projectRoot, repoRoot: origin.repoRoot, version: origin.serviceVersionLinkHash, stylesheetLinkHash: '', baseHref: origin.baseHref,
     };
     const collected: CssExtraction = {
       rules: [], selectors: [], selectorParts: [], declarations: [], valueReferences: [], comments: [], parseGaps: [],
@@ -455,7 +601,7 @@ export class CssParser {
     const block = node.namedChildren.find((c) => c.type === 'block');
     const preludeEnd = block?.startIndex ?? selectors?.endIndex ?? node.endIndex;
     const ruleStart = leadingCombinator?.startIndex ?? node.startIndex;
-    const preludeText = collapse(sheet.text.slice(ruleStart, preludeEnd));
+    const preludeText = sheet.text.slice(ruleStart, preludeEnd).trim(); // as written (V2-12)
     const start = this.at(sheet, ruleStart);
     const end = this.at(sheet, node.endIndex);
     const rule = new CssRule({
@@ -501,7 +647,7 @@ export class CssParser {
   /** A style rule whose header the grammar rejected, read from the header's text; its block is the declarations that follow. */
   private ruleFromText(header: SyntaxNode, position: number, depth: number, sheet: Sheet, out: CssExtraction, gaps: GapCollector): CssRule {
     const text = sourceOf(sheet, header);
-    const preludeText = collapse(text.slice(0, text.indexOf('{')));
+    const preludeText = text.slice(0, text.indexOf('{')).trim(); // as written (V2-12)
     const start = this.at(sheet, header.startIndex);
     const end = this.at(sheet, header.endIndex);
     const rule = new CssRule({
@@ -536,7 +682,7 @@ export class CssParser {
   private keyframeBlock(node: SyntaxNode, parentRule: string, position: number, depth: number, sheet: Sheet, out: CssExtraction, gaps: GapCollector, leading?: SyntaxNode): void {
     const block = node.namedChildren.find((c) => c.type === 'block');
     const ruleStart = leading?.startIndex ?? node.startIndex;
-    const preludeText = collapse(sheet.text.slice(ruleStart, block?.startIndex ?? node.endIndex));
+    const preludeText = sheet.text.slice(ruleStart, block?.startIndex ?? node.endIndex).trim(); // as written (V2-12)
     // What the grammar rejected in the selector (`68.2%`, a `10%, 20%` list) the text has read.
     gaps.recover(sheet, ruleStart, block?.startIndex ?? node.endIndex);
     const start = this.at(sheet, ruleStart);
@@ -567,7 +713,7 @@ export class CssParser {
     if (block === undefined && sheet.text[preludeEnd - 1] === ';') {
       preludeEnd -= 1;
     }
-    const preludeText = collapse(sheet.text.slice(preludeStart, preludeEnd));
+    const preludeText = sheet.text.slice(preludeStart, preludeEnd).trim(); // as written (V2-12)
     const start = this.at(sheet, node.startIndex);
     const end = this.at(sheet, node.endIndex);
     const rule = new CssRule({
@@ -693,8 +839,17 @@ export class CssParser {
     if (sheet.text[valueEnd - 1] === ';') {
       valueEnd -= 1;
     }
-    const valueText = collapse(sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)));
-    const end = error?.endIndex ?? node.endIndex;
+    // `progid:…gradient(a='#fff',GradientType=0)` (V1-10, #1909): the grammar ends the declaration before its last `)`
+    // and reports that `)` as an error of its own. A value whose parentheses are still open is read on through the
+    // text to the `)` that closes them (never past a `;` or `}`), and that stretch is recovered, not a gap.
+    const closedAt = closingOfOpenParens(sheet.text, valueStart, valueEnd);
+    if (closedAt > valueEnd) {
+      gaps.recover(sheet, valueEnd, closedAt);
+      valueEnd = closedAt;
+    }
+    // the value as written, whitespace and line breaks kept (V2-12 ruling: miss nothing); only its ends are trimmed
+    const valueText = sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)).trim();
+    const end = Math.max(error?.endIndex ?? node.endIndex, valueEnd);
     const declaration = this.declarationRow(property, valueText, important, node.startIndex, end, positions.n++, ruleLinkHash, htmlAttributeLinkHash, sheet);
     out.declarations.push(declaration);
     for (const v of this.valueReferences(sheet.text.slice(valueStart, Math.max(valueStart, valueEnd)), valueStart, property, declaration.getHash(), sheet, gaps)) {
@@ -819,7 +974,7 @@ export class CssParser {
       if (url !== undefined) {
         const written = classifyUrl(url);
         urlKind = written.kind;
-        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot);
+        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot, sheet.repoRoot);
       }
       refs.push(new CssValueReference({
         referenceKind: kind, name, fallbackText: fallback, urlKind, resolvedFilePath: resolved, isResolved: resolved !== '',
@@ -850,15 +1005,19 @@ export class CssParser {
       }
     }
     const lower = property.toLowerCase();
-    if (lower === 'animation-name' || lower === 'animation') {
-      for (const segment of commaSegments(rawValue)) {
+    // V4-06: the names are read with every comment blanked to spaces (same length, so offsets hold): `Arial/*{ff}*/` is Arial
+    const named = mapComments(rawValue, (c) => ' '.repeat(c.length));
+    // `-webkit-animation-name: spin` names a @keyframes as the unprefixed property does (V1-15, G10)
+    const unprefixed = lower.replace(/^-(?:webkit|moz|o|ms)-(?=animation(?:-name)?$)/, '');
+    if (unprefixed === 'animation-name' || unprefixed === 'animation') {
+      for (const segment of commaSegments(named)) {
         const token = tokens(segment.text).find((t) => (IDENTIFIER.test(t.text) && !ANIMATION_KEYWORDS.has(t.text.toLowerCase())) || /^["']/.test(t.text));
         if (token !== undefined) {
           emit(CssValueReferenceKind.KEYFRAMES, unquote(token.text), '', segment.offset + token.offset);
         }
       }
     } else if (lower === 'font-family') {
-      for (const segment of commaSegments(rawValue)) {
+      for (const segment of commaSegments(named)) {
         const family = familyName(segment.text);
         if (family !== undefined && !GENERIC_FONT_FAMILIES.has(family.toLowerCase())) {
           emit(CssValueReferenceKind.FONT_FAMILY, family, '', segment.offset + (segment.text.length - segment.text.trimStart().length));
@@ -867,11 +1026,11 @@ export class CssParser {
     } else if (lower === 'font') {
       // The shorthand: `[style weight variant stretch] size[/line-height] family, family`. The
       // families are everything after the size token; a system keyword (`font: menu`) has none.
-      const first = commaSegments(rawValue)[0];
+      const first = commaSegments(named)[0];
       const sizeToken = first === undefined ? undefined : tokens(first.text).find((t) => /^(\d|\.\d|[a-z-]+\/|[a-z]*\d)/.test(t.text) && /\d|\//.test(t.text) || /^(xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|larger|smaller)$/.test(t.text));
       if (first !== undefined && sizeToken !== undefined) {
         const familyStart = sizeToken.offset + sizeToken.text.length;
-        const families = rawValue.slice(familyStart);
+        const families = named.slice(familyStart);
         for (const segment of commaSegments(families)) {
           const family = familyName(segment.text);
           if (family !== undefined && !GENERIC_FONT_FAMILIES.has(family.toLowerCase())) {
@@ -902,7 +1061,7 @@ export class CssParser {
       if (url !== undefined) {
         const written = classifyUrl(url);
         urlKind = written.kind;
-        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot);
+        resolved = resolveUrlToFile(applyBase(written, sheet.baseHref), sheet.filePath, sheet.projectRoot, sheet.repoRoot);
       }
       out.valueReferences.push(new CssValueReference({
         referenceKind: kind, name: value, fallbackText: '', urlKind, resolvedFilePath: resolved, isResolved: resolved !== '',
@@ -947,7 +1106,8 @@ export class CssParser {
   private comment(node: SyntaxNode, sheet: Sheet, out: CssExtraction): void {
     const start = this.at(sheet, node.startIndex);
     const end = this.at(sheet, node.endIndex);
-    const text = node.text.replace(/^\/\*/, '').replace(/\*\/$/, '');
+    // from the SOURCE, not the node: the grammar read a sanitised copy (braces in a comment blanked, #1909)
+    const text = sourceOf(sheet, node).replace(/^\/\*/, '').replace(/\*\/$/, '');
     out.comments.push(new CssComment({
       text: text.length > WEB_COMMENT_TEXT_LIMIT ? text.slice(0, WEB_COMMENT_TEXT_LIMIT) : text,
       startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column,
@@ -1238,7 +1398,8 @@ function specificity(compounds: readonly Compound[], sheet: Sheet): { a: number;
         case CssSelectorPartKind.CLASS:
         case CssSelectorPartKind.ATTRIBUTE: b += 1; break;
         case CssSelectorPartKind.TYPE: c += 1; break;
-        case CssSelectorPartKind.PSEUDO_ELEMENT: c += 1; pseudoElement = true; break;
+        // a view-transition pseudo-element with a `*` argument has specificity zero (CSS View Transitions 1, V1-17)
+        case CssSelectorPartKind.PSEUDO_ELEMENT: if (!(part.name.startsWith('view-transition-') && part.value.trim() === '*')) c += 1; pseudoElement = true; break;
         case CssSelectorPartKind.NESTING: nesting = true; break;
         case CssSelectorPartKind.PSEUDO_CLASS: {
           if (part.name === 'where') break;
@@ -1283,6 +1444,29 @@ function blankStrings(text: string): string {
 }
 
 /** The index of the `)` matching the `(` at `open`, or the text's end. */
+/**
+ * Where the parentheses left open in text[start, end) close, reading on from `end`: the offset just past the closing
+ * `)`, or `end` when none are open or a `;` or `}` comes first (strings are skipped).
+ */
+function closingOfOpenParens(text: string, start: number, end: number): number {
+  let depth = 0; let quote = '';
+  const step = (i: number): void => {
+    const c = text[i]!;
+    if (quote) { if (c === '\\') return; if (c === quote) quote = ''; return; }
+    if (c === '"' || c === "'") quote = c; else if (c === '(') depth++; else if (c === ')' && depth > 0) depth--;
+  };
+  for (let i = start; i < end; i++) { if (text[i] === '\\' ) { i++; continue; } step(i); }
+  if (depth === 0 || quote) return end;
+  for (let i = end; i < text.length; i++) {
+    const c = text[i]!;
+    if (!quote && (c === ';' || c === '}')) return end;
+    if (c === '\\') { i++; continue; }
+    step(i);
+    if (depth === 0) return i + 1;
+  }
+  return end;
+}
+
 function matchingParen(text: string, open: number): number {
   let depth = 0;
   let quote = '';
@@ -1396,7 +1580,8 @@ function atRuleDeclaredName(name: string, preludeText: string): string {
   const bare = name.replace(/^-[a-z]+-/, '');
   if (bare === 'keyframes' || bare === 'property' || bare === 'counter-style' || bare === 'font-feature-values'
     || bare === 'font-palette-values' || bare === 'position-try' || bare === 'view-transition' || bare === 'scope') {
-    return preludeText.trim();
+    // `@keyframes "fade"` declares the name fade: the quotes are the string's, not the name's
+    return bare === 'keyframes' ? preludeText.trim().replace(/^(["'])(.*)\1$/, '$2') : preludeText.trim();
   }
   if (bare === 'container') {
     const m = /^([A-Za-z_-][\w-]*)\s*(?:\(|$)/.exec(preludeText.trim());
@@ -1452,7 +1637,9 @@ function liftedChildrenKeepingHeaders(node: SyntaxNode, sheet: Sheet): SyntaxNod
         // A run of declarations the grammar rejected whole is kept too, with whatever
         // declarations it managed to read inside it: the walk re-reads the run from its text.
         if (((isRejectedHeader(text) || LEADING_SELECTOR_FRAGMENT.test(text)) && child.namedChildren.every((c) => c.type !== 'rule_set' && c.type !== 'declaration'))
-          || (node.type === 'block' && isDeclarationRun(text) && child.namedChildren.every((c) => c.type !== 'rule_set'))) {
+          || (node.type === 'block' && isDeclarationRun(text) && child.namedChildren.every((c) => c.type !== 'rule_set'))
+          // `0%,20%,53%,` before `to{…}` in a keyframe block list: the next block's selector list, read from the text
+          || (node.type === 'keyframe_block_list' && /^[\s\d.%,]*(?:from|to)?[\s\d.%,]*$/.test(text))) {
           out.push(child);
         } else {
           visit(child);

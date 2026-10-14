@@ -10,6 +10,7 @@ className=label	position=0	startLine=2
 className=link	position=0	startLine=3
 className=nav	position=0	startLine=18
 className=partial	position=0	startLine=1
+className=ssi-host	position=0	startLine=4
 className=title	position=0	startLine=10
 className=tpl	position=0	startLine=37
 className=widget	position=0	startLine=1

@@ -1,0 +1,17 @@
+# shape: jQuery-era navigation and forms using javascript: URLs in href, iframe src, form action and button formaction, in mixed case and URL-encoded
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<svg><a xlink:href="javascript:svgGo()"><text>s</text></a></svg>
+<a href="javascript:toggleMenu(1)">m</a>
+<a href="JavaScript:void(0)">v</a>
+<iframe src="javascript:false"></iframe>
+<form action="javascript:submitIt()"><button formaction="javascript:alt%28%29">b</button></form>
+<a href="/javascript:not-a-url">p</a>
+</body>
+</html>

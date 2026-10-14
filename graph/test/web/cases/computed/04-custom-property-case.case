@@ -1,0 +1,11 @@
+# shape: a component sheet declaring --boxColor and a different --boxcolor on one element (camelCase custom
+# properties): two properties, two tokens; standard properties stay lower-cased (V2-04)
+kinds=computed,token
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body><div class="box">b</div></body>
+</html>
+@@@ file: src/s.css
+.box { --boxColor: red; --boxcolor: blue; BACKGROUND: var(--boxColor); }

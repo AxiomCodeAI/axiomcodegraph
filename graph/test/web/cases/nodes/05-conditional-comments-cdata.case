@@ -1,0 +1,21 @@
+# shape: jQuery-era admin pages loading html5shiv/respond.js inside <!--[if lt IE 9]> blocks; an SVG with a CDATA style block
+kinds=element,script,reference
+@@@ file: src/css/ie.css
+.x{}
+@@@ file: src/index.html
+<!DOCTYPE html>
+<html>
+<head>
+  <!--[if lt IE 9]>
+    <script src="js/html5shiv.js"></script>
+    <link rel="stylesheet" href="css/ie.css">
+  <![endif]-->
+  <script src="js/app.js"></script>
+</head>
+<body>
+  <svg><style><![CDATA[ .s { fill: red } ]]></style><rect class="s"/></svg>
+</body>
+</html>
+@@@ file: src/js/app.js
+var a = 1;
+@@@ file: src/js/html5shiv.js

@@ -1,0 +1,16 @@
+# shape: animated gradients declaring a registered custom property with @property and using it
+kinds=var,var_scope,custom_property,rule
+check=var_budget
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<div class="g">g</div>
+</body>
+</html>
+@@@ file: src/s.css
+@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.g { transform: rotate(var(--angle)); }

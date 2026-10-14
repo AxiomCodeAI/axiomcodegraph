@@ -1,0 +1,18 @@
+# shape: container-query layouts naming containers with container-name and the container shorthand
+kinds=container,container_use
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<div class="w"><p class="t">t</p></div>
+</body>
+</html>
+@@@ file: src/s.css
+.w { container-name: card sidebar; container-type: inline-size; }
+.z { container: main / size; }
+@container card (min-width: 400px) { .t { a: 1 } }
+@container nowhere (min-width: 1px) { .t { a: 2 } }
+@container (min-width: 1px) { .t { a: 3 } }

@@ -304,14 +304,16 @@ export const CHECKS: Check[] = [
     },
   },
   {
-    name: 'class keys: template-bearing class attributes keep the static tokens and drop the template parts',
+    // [iter3 ruling V2-15] a token a template expression produces is KEPT whole, as written (a dynamic class token,
+    // flagged by the engine), never dropped; whitespace inside a template tag does not split it
+    name: 'class keys: template-bearing class attributes keep the static tokens and keep each template token whole',
     verdict: 'DEFECT',
     run: (ir, fail) => {
-      expectList(fail, 'jinja line 8', ir.classesAtLine('templates/jinja.html', 8), ['card', 'is-active']);
-      expectList(fail, 'jinja line 12 ({{ … }} only)', ir.classesAtLine('templates/jinja.html', 12), []);
-      expectList(fail, 'index line 86 ({{ cls }} static-class)', ir.classesAtLine('index.html', 86), ['static-class']);
-      expectList(fail, 'mixed line 14 (<%= cls %>)', ir.classesAtLine('templates/mixed.html', 14), []);
-      expectList(fail, 'mixed line 15 (<?= $cls ?>)', ir.classesAtLine('templates/mixed.html', 15), []);
+      expectList(fail, 'jinja line 8', ir.classesAtLine('templates/jinja.html', 8), ['card', '{% if active %}is-active{% endif %}', '{{ extra_class }}']);
+      expectList(fail, 'jinja line 12 ({{ … }} only)', ir.classesAtLine('templates/jinja.html', 12), ["{{ 'a' if x else 'b' }}"]);
+      expectList(fail, 'index line 86 ({{ cls }} static-class)', ir.classesAtLine('index.html', 86), ['{{ cls }}', 'static-class']);
+      expectList(fail, 'mixed line 14 (<%= cls %>)', ir.classesAtLine('templates/mixed.html', 14), ['<%= cls %>']);
+      expectList(fail, 'mixed line 15 (<?= $cls ?>)', ir.classesAtLine('templates/mixed.html', 15), ['<?= $cls ?>']);
     },
   },
   {
@@ -577,7 +579,7 @@ export const CHECKS: Check[] = [
     verdict: 'DEFECT',
     run: (ir, fail) => {
       const named = (sheet: string, at: string): string[] => ir.rulesOf(sheet).filter((r) => r['atRuleName'] === at).map((r) => r['name']!);
-      expectList(fail, 'theme.css @keyframes', named('css/theme.css', 'keyframes'), ['fade', 'spin', 'spin', 'ease', 'none', 'slide', 'var-inside']);
+      expectList(fail, 'theme.css @keyframes', named('css/theme.css', 'keyframes'), ['fade', 'spin', 'spin', 'quoted-name', 'ease', 'none', 'slide', 'var-inside']);
       expectList(fail, 'theme.css @-webkit-keyframes', named('css/theme.css', '-webkit-keyframes'), ['spin']);
       expectList(fail, 'app.css @-webkit-keyframes', named('css/app.css', '-webkit-keyframes'), ['vendor-spin']);
       expectList(fail, '@container', named('css/app.css', 'container'), ['sidebar']);
@@ -838,7 +840,10 @@ export const CHECKS: Check[] = [
       const gaps = names(ir.rulesOf('css/gaps.css'), 'preludeText');
       for (const want of ['.before-gaps', '.g3', '.g4', '.g5', '.g8', '.g12', '.g13', '.g14', '.g15', '.g18', '.g19', '.g20', '.g21', '.g22', '.g23']) if (!gaps.includes(want)) fail(`gaps.css lost rule ${want}`);
       expectEq(fail, 'gaps.css unknown statement is PREPROCESSOR_SYNTAX', ir.cssGapsOf('css/gaps.css').some((g) => g['detail']!.startsWith('postcss statement')), true);
-      expectEq(fail, 'gaps.css trailing declaration outside a rule is UNPARSED_FRAGMENT', ir.cssGapsOf('css/gaps.css').some((g) => g['gapKind'] === 'UNPARSED_FRAGMENT'), true);
+      // V1-03: `.g28 { color: red` at EOF is closed there as a browser does (it was a declaration outside a rule); the
+      // block the end of file closed is an UNCLOSED_BLOCK gap
+      expectEq(fail, 'gaps.css block open at EOF is an UNCLOSED_BLOCK gap', ir.cssGapsOf('css/gaps.css').some((g) => g['gapKind'] === 'UNCLOSED_BLOCK'), true);
+      expectEq(fail, 'gaps.css .g28 closed at EOF is a rule', names(ir.rulesOf('css/gaps.css'), 'preludeText').includes('.g28'), true);
       expectEq(fail, 'sassy.css $var at top level is UNPARSED_FRAGMENT', ir.cssGapsOf('css/sassy.css').some((g) => g['gapKind'] === 'UNPARSED_FRAGMENT'), true);
       expectEq(fail, 'sassy.css line comment flagged', ir.cssGapsOf('css/sassy.css').some((g) => g['detail']!.startsWith('line comment')), true);
       expectEq(fail, 'jinja <style> keeps .item rule', ir.rulesOf('templates/jinja.html#style1').some((r) => r['preludeText'] === '.item'), true);
