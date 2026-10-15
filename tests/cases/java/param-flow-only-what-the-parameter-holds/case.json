@@ -1,0 +1,68 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a JsonElement-like parameter passed on keeps its own type: the String and Reader arguments of the sibling overloads' calls never flow into it",
+   "run": [
+    "impact",
+    "src/pkg/Codec.java:12",
+    "--depends"
+   ],
+   "want": [
+    "Codec.java:13"
+   ],
+   "avoid": [
+    "one of a set"
+   ]
+  },
+  {
+   "why": "and the String overload picks its String sibling",
+   "run": [
+    "impact",
+    "src/pkg/Codec.java:9",
+    "--depends"
+   ],
+   "want": [
+    "Codec.java:10"
+   ],
+   "avoid": [
+    "one of a set"
+   ]
+  },
+  {
+   "why": "control: a subtype argument still reaches the overload whose parameter it fits",
+   "run": [
+    "impact",
+    "src/pkg/Codec.java:16",
+    "--depends"
+   ],
+   "want": [
+    "Codec.java:13"
+   ],
+   "avoid": [
+    "one of a set"
+   ]
+  },
+  {
+   "why": "a client type that only implements an unstaged interface never flows into a StringBuffer parameter: StringBuffer's getChars is not Sb's",
+   "run": [
+    "impact",
+    "Sb.getChars"
+   ],
+   "avoid": [
+    "Sb.java:10   — calls"
+   ]
+  },
+  {
+   "why": "control: a class extending an unstaged class still flows into the unstaged parameter it may be",
+   "run": [
+    "impact",
+    "Counted.read"
+   ],
+   "want": [
+    "Counted.first"
+   ]
+  }
+ ]
+}
