@@ -16,5 +16,6 @@ public static class Use
     public static void ViaGroup() => Api.Each(Visit);
     public static void NeverRun() => Api.Keep(i => Work.Do(i));
     public static void Listed() { var r = new Rules { v => v.RuleFor("a") }; }
+    public static void ParamsLambda() { var b = new Built(v => v.RuleFor("x")); }
     private static void Visit(int i) { Work.Do(i); }
 }

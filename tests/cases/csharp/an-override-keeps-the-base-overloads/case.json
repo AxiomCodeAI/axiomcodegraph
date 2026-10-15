@@ -3,13 +3,13 @@
  "src": "src",
  "checks": [
   {
-   "why": "a type that overrides ONE overload still has its base's other overloads: `v.Check(item)` on it can bind to the base's Check(T); the argument types are not compared, so it is one of the set",
+   "why": "a type that overrides ONE overload still has its base's other overloads: `v.Check(item)` on it binds to the base's Check(T) (a string argument cannot be a Context<T>)",
    "run": [
     "impact",
     "src/Validators.cs:7"
    ],
    "want": [
-    "[one of a set] Use.ByItem"
+    "[resolved] Use.ByItem"
    ]
   },
   {
