@@ -1,0 +1,23 @@
+{"lang": "python", "src": "src",
+ "checks": [
+  {"why": "a string literal holding a double quote is found: the IR quotes such a field (RFC 4180) and the index stored it doubled, so `impact` said no literal held it (#1835)",
+   "run": ["impact", "\"Order \"Foo\" Is Late\""],
+   "want": ["(1 literal site(s), 0 decoration site(s))"],
+   "avoid": ["appears in no literal"]},
+  {"why": "a constant's value holding a quote is printed as written, in single quotes, not with each quote doubled",
+   "run": ["impact", "KEY"],
+   "want": ["const KEY = 'a \\\"b\\\" c'"],
+   "avoid": ["\"\""]},
+  {"why": "control: a constant with no quote in its value is unchanged",
+   "run": ["impact", "PLAIN"],
+   "want": ["const PLAIN = 'a plain value'"]},
+  {"why": "control: a literal with no quote in it is found as before",
+   "run": ["impact", "\"The order has shipped\""],
+   "want": ["(1 literal site(s), 0 decoration site(s))"]},
+  {"why": "a decorator's quoted path reads cleanly: it binds the function and registers it under the path",
+   "run": ["impact", "\"/orders/{code}\""],
+   "want": ["1 decoration site(s)", "binds to it through @route"]},
+  {"why": "a decorator path written as a triple-quoted string is read as the path",
+   "run": ["impact", "notify_triple"],
+   "want": ["registered by @route \"/triple/{code}\""]}
+ ]}
