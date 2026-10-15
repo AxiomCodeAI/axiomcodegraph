@@ -88,6 +88,8 @@ ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
 # shellcheck source=souffle-include.sh
 . "$SRC/pipeline/souffle-include.sh"
+# shellcheck source=stage-rows.sh
+. "$SRC/pipeline/stage-rows.sh"
 # shellcheck source=engine.conf
 . "$SRC/pipeline/engine.conf"
 # Staging config is PER-LANGUAGE (IR marker + which relations are signatures vs bodies).
@@ -817,7 +819,7 @@ while IFS=$'\t' read -r rel csv; do
   # deterministically on some inputs — takes down a run of tens of thousands of sites. The
   # header's field count is the contract; a row that does not meet it is dropped and
   # COUNTED, so the loss is visible rather than fatal and never silent.
-  if [ -f "$CLIENT/$csv.csv" ]; then awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
+  if [ -f "$CLIENT/$csv.csv" ]; then stage_rows "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
   else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
 done < <(read_map "$TPL/client-ir.map"; if [ -f "$TPL/client-extra.map" ]; then read_map "$TPL/client-extra.map"; fi)
@@ -879,7 +881,7 @@ if [ ! -d "$LIBDIR" ]; then
     : > "$TMPDIR_L/$rel.facts"
     for root in "${LIB_ROOTS[@]}"; do
       while IFS= read -r mod; do
-        [ -f "$mod/$csv.csv" ] && awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$mod/$csv.csv" >> "$TMPDIR_L/$rel.facts"
+        [ -f "$mod/$csv.csv" ] && stage_rows "$mod/$csv.csv" >> "$TMPDIR_L/$rel.facts"
       done < <(lib_modules "$root")
     done
   done < <(printf '%s' "$LIB_SIG_RELS")
