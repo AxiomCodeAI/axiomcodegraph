@@ -8,6 +8,11 @@ boundary_lib	SIMPLE_CALL	main.inner_deco.<locals>.inner_w -> builtin:str
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 boundary_lib	SIMPLE_CALL	main.outer_deco.<locals>.outer_w -> builtin:str
 boundary_lib	SIMPLE_CALL	main.wrapping.<locals>.wrapper -> builtin:str
+callback_registered	METHOD_REFERENCE	main.inner_deco -> main.inner_deco.<locals>.inner_w
+callback_registered	METHOD_REFERENCE	main.outer_deco -> main.outer_deco.<locals>.outer_w
+callback_registered	METHOD_REFERENCE	main.replacing -> main.replacing.<locals>.substitute
+callback_registered	METHOD_REFERENCE	main.route -> main.route.<locals>.register
+callback_registered	METHOD_REFERENCE	main.wrapping -> main.wrapping.<locals>.wrapper
 known_edge	DECORATOR_APPLICATION	main.<module> -> main.route.<locals>.register
 known_edge	DECORATOR_BARE	main.<module> -> main.inner_deco
 known_edge	DECORATOR_BARE	main.<module> -> main.outer_deco

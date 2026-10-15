@@ -1,8 +1,9 @@
-distinct call sites emitted: 19
+distinct call sites emitted: 20
 
 --- by tier: edge ROWS, and the distinct SITES they cover ---
       4 rows      4 sites  ambiguous_unknown
       6 rows      6 sites  boundary_lib
+      1 rows      1 sites  callback_registered
       9 rows      9 sites  known_edge
 
 --- edge rows by call kind ---
@@ -10,6 +11,7 @@ distinct call sites emitted: 19
       6  DECORATOR_BARE
       1  DECORATOR_CALL
       1  METHOD_CALL
+      1  METHOD_REFERENCE
       3  PROPERTY_READ
       7  SIMPLE_CALL
 
@@ -24,8 +26,8 @@ distinct call sites emitted: 19
       6  known_edge
 
 --- reconciling rows against the conserved site count ---
-  edge rows                                  19
+  edge rows                                  20
   minus extra rows from multi-target sites    0
-  = tier/site pairs                          19
+  = tier/site pairs                          20
   engine's conserved site total              16
   of which 3 are PROPERTY_READ, an edge with no call site (README decision 5)

@@ -14,5 +14,7 @@ boundary_lib	SIMPLE_CALL	models.Widget.check_size -> builtin:max
 boundary_lib	SIMPLE_CALL	models.Widget.dump_size -> builtin:str
 boundary_lib	SIMPLE_CALL	service.make_gizmo -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	service.make_plain -> builtin:object.__init__
+callback_registered	METHOD_REFERENCE	models.Gizmo.<classbody> -> models.new_tags
+callback_registered	METHOD_REFERENCE	models.Widget.<classbody> -> models.new_id
 known_edge	SELF_CALL	models.Gadget.__init__ -> models.Gadget.check_size
 known_edge	SIMPLE_CALL	service.make_gadget -> models.Gadget.__init__
