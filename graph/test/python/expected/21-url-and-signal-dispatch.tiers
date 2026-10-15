@@ -1,14 +1,16 @@
-distinct call sites emitted: 32
+distinct call sites emitted: 39
 
 --- by tier: edge ROWS, and the distinct SITES they cover ---
       5 rows      5 sites  ambiguous_unknown
       4 rows      4 sites  boundary_lib
+      7 rows      7 sites  callback_registered
      23 rows     23 sites  known_edge
 
 --- edge rows by call kind ---
       4  DECORATOR_APPLICATION
       4  DECORATOR_CALL
       4  METHOD_CALL
+      7  METHOD_REFERENCE
      20  SIMPLE_CALL
 
 --- unresolved reasons ---
@@ -22,7 +24,7 @@ distinct call sites emitted: 32
      23  known_edge
 
 --- reconciling rows against the conserved site count ---
-  edge rows                                  32
+  edge rows                                  39
   minus extra rows from multi-target sites    0
-  = tier/site pairs                          32
+  = tier/site pairs                          39
   engine's conserved site total              32

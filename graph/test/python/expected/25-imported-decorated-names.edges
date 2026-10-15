@@ -3,6 +3,8 @@ ambiguous_unknown	DECORATOR_ATTRIBUTE	pkg.lib.<module> -> -
 ambiguous_unknown	METHOD_CALL	main.run -> -
 ambiguous_unknown	SIMPLE_CALL	main.run -> -
 boundary_lib	DECORATOR_CALL	pkg.lib.wraps_deco -> external:functools.wraps
+callback_registered	METHOD_REFERENCE	pkg.lib.plain_deco -> pkg.lib.plain_deco.<locals>.wrapper
+callback_registered	METHOD_REFERENCE	pkg.lib.wraps_deco -> pkg.lib.wraps_deco.<locals>.wrapper
 known_edge	DECORATOR_BARE	pkg.lib.<module> -> pkg.lib.passthrough
 known_edge	DECORATOR_BARE	pkg.lib.<module> -> pkg.lib.plain_deco
 known_edge	DECORATOR_BARE	pkg.lib.<module> -> pkg.lib.wraps_deco

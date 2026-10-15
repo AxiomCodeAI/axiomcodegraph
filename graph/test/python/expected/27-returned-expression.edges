@@ -6,6 +6,9 @@ boundary_lib	METHOD_CALL	main.Expr.copy -> external:copy.copy
 boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.Expr.__init__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.Expr.label -> builtin:str
+callback_registered	METHOD_REFERENCE	main.Library.filter -> main.Library.filter.<locals>.dec
+callback_registered	METHOD_REFERENCE	main.defer_result -> main.defer_result.<locals>.decorator
+callback_registered	METHOD_REFERENCE	main.defer_result.<locals>.decorator -> main.defer_result.<locals>.decorator.<locals>.wrapper
 known_edge	DECORATOR_APPLICATION	main.<module> -> main.Library.filter.<locals>.dec
 known_edge	DECORATOR_BARE	main.<module> -> main.defer_text
 known_edge	DECORATOR_CALL	main.<module> -> main.Library.filter

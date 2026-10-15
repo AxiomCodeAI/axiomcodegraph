@@ -10,6 +10,7 @@ boundary_lib	SUPER_CALL	main.EarlyMeta.__init__ -> builtin:type.__init__
 boundary_lib	SUPER_CALL	main.EarlyMeta.__new__ -> builtin:type.__new__
 boundary_lib	SUPER_CALL	main.LateMeta.__init__ -> builtin:type.__init__
 boundary_lib	SUPER_CALL	main.LateMeta.__new__ -> builtin:type.__new__
+callback_registered	METHOD_REFERENCE	main.<module> -> main._late_new
 known_edge	CHAINED_CALL	main.main -> main.After.run
 known_edge	CHAINED_CALL	main.main -> main.AlsoBefore.run
 known_edge	CHAINED_CALL	main.main -> main.Before.run
