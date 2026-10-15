@@ -31,6 +31,7 @@ import * as os from 'os';
 import * as ts from 'typescript';
 import * as path from 'path';
 
+import { jsxTagReference } from '@/parsers/typescript/extractors/ts-expression-extractor';
 import { IrCompletenessReport } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { verifyRelationFileStreaming } from '@/workflows/typescript/ts-relation-writer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
@@ -1446,6 +1447,7 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     '      <button type="button" onClick={save} ref={setRef}>{t("go")}</button>',
     '      {flag && <input onChange={save} />}',
     '      <my-el data-x={fmt(msg)} />',
+    '      <svg:circle r="1" />',
     '    </div>',
     '  );',
     '}',
@@ -1575,6 +1577,33 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   };
   ts.forEachChild(sf, walk);
 
+  // The tag of a plain element is on its row, as written (`div`, `my-el`, `svg:circle`). The CONTROL is
+  // the component element, whose row keeps an empty potentialQualifiedName: its tag is the METHOD_NAME
+  // child that resolves, unchanged. The expectation is read off the AST.
+  let tagged = 0;
+  const walkTags = (node: ts.Node): void => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+      const at = `${p.line + 1}:${p.character + 1}`;
+      const row = exprRows.find((r) => `${r.startLine}:${r.startColumn}` === at && (r.kind ?? '').startsWith('JSX_'));
+      const tag = opening.tagName.getText(sf);
+      const want = jsxTagReference(node) === undefined ? tag : '';
+      if (row === undefined) {
+        failures.push(`no element row at ${at} for <${tag}>`);
+      } else if ((row.potentialQualifiedName ?? '') !== want) {
+        failures.push(`<${tag}> at ${at}: potentialQualifiedName "${row.potentialQualifiedName}", expected "${want}"`);
+      } else if (want !== '') {
+        tagged += 1;
+      }
+    }
+    ts.forEachChild(node, walkTags);
+  };
+  ts.forEachChild(sf, walkTags);
+  if (tagged !== intrinsics) {
+    failures.push(`${tagged} of ${intrinsics} intrinsic element(s) carry their tag`);
+  }
+
   // The edge roles that stay reserved: attributes and children are rooted trees.
   for (const [file, names] of [
     ['all-typescript-call-sites.csv', ['callKind']],
@@ -1592,7 +1621,8 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
 
   console.log(`  ${expected} call/new node(s) in JSX attributes, children, spreads and a ` +
     `nested map; ${expected - missingCalls} emitted; ${components} component element(s) as ` +
-    `calls, ${intrinsics} intrinsic element(s) as JSX_INTRINSIC_ELEMENT rows and no call; ` +
+    `calls, ${intrinsics} intrinsic element(s) as JSX_INTRINSIC_ELEMENT rows and no call ` +
+    `(${tagged} with their tag); ` +
     `${RESERVED_TSX_VALUES.size} reserved ` +
     'value(s) still empty');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
@@ -4769,7 +4799,7 @@ const CHECKS: Check[] = [
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'the JSX attribute and child edge roles carry no rows', run: tsxReservedButEmpty },
-  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site, a component element is a JSX_COMPONENT_CALL, an intrinsic element is a childless JSX_INTRINSIC_ELEMENT row and no call', run: jsxBraceExpressionsWalked },
+  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site, a component element is a JSX_COMPONENT_CALL, an intrinsic element is a childless JSX_INTRINSIC_ELEMENT row carrying its tag and no call', run: jsxBraceExpressionsWalked },
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
   { name: 'signatures link their return type', proves: 'a call through any callable shape reaches a result type, so a chain does not stop at it', run: signaturesLinkTheirReturnType },

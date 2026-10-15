@@ -106,7 +106,8 @@ export enum TsExpressionKind {
    * declaration. NOT a call: no call site, no METHOD_NAME child, so nothing can
    * resolve it into `JSX.IntrinsicElements`. The row exists so that a plain
    * tag's attributes (an event handler, a `ref` callback) have an element to
-   * belong to, as the JavaScript parser's JSX_INTRINSIC_ELEMENT does.
+   * belong to, as the JavaScript parser's JSX_INTRINSIC_ELEMENT does. The tag,
+   * as written (`div`, `svg:circle`, `my-el`), is its `potentialQualifiedName`.
    */
   JSX_INTRINSIC_ELEMENT = 'JSX_INTRINSIC_ELEMENT',
   /** `delete a`, `typeof a`, `void a` — `operatorString` says which. */
