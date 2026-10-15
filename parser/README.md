@@ -52,7 +52,10 @@ a link the parser emits is correct, and a link it cannot decide is absent rather
 There is no standalone CLI. It is consumed as a library through `extractProject()` or as a
 subprocess through `dist/index.js`.
 
-**0.2.2** makes the parse stage fit a large repository in a stock Node heap. A worker's results cross to the main
+**0.2.2** makes the parse stage fit a large repository in a stock Node heap. Python and Java parse output now streams:
+each worker writes its files' rows straight to per-worker CSV shards, the main thread copies them out in file order,
+and Python's cross-module pass reads a compact view of the rows and records its changes as patches applied while the
+shards are written, so no table is held whole on the main thread. Results are taken as they arrive. A worker's results cross to the main
 thread with repeated strings shared once, every file's rows are appended without spreading them as call arguments
 (which overflowed the stack on a file with very many rows), and each Python table is freed as soon as it is written.
 The largest files are dispatched first, a worker collects its garbage after a very large file, and the worker count
