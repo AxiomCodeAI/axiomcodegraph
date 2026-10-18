@@ -47,7 +47,9 @@ import { isVueTemplateTag } from '@/utils/vue-sfc';
  *
  * A JSX element naming a component is a call (§4.15.1): a JSX_ELEMENT or
  * JSX_SELF_CLOSING row with its tag as the METHOD_NAME child, and a
- * JSX_COMPONENT_CALL site. `JSX_ATTRIBUTE_VALUE` and `JSX_CHILD` stay reserved:
+ * JSX_COMPONENT_CALL site. An intrinsic element (`<div>`) is a
+ * JSX_INTRINSIC_ELEMENT row with no child and no call site; its tag (`div`)
+ * is the row's `potentialQualifiedName`. `JSX_ATTRIBUTE_VALUE` and `JSX_CHILD` stay reserved:
  * attribute values and children are rooted as their own trees by the walker, and
  * the gate asserts the emptiness so that switching them on shows up as a failure.
  */
@@ -174,6 +176,9 @@ export class TsExpressionExtractor {
       isTypeOnlyReachable: false,
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
     });
+    if (kind === TsExpressionKind.JSX_INTRINSIC_ELEMENT) {
+      row.setJsxTagName(jsxTagText(item.node, this.sf));
+    }
     this.expressions.push(row);
     this.rowByNode.set(nodeId(item.node, this.sf), row);
     this.emitted.push({ node: item.node, row });
@@ -453,10 +458,12 @@ export function expressionKindOf(node: ts.Node): TsExpressionKind | undefined {
     case ts.SyntaxKind.JsxElement:
     case ts.SyntaxKind.JsxSelfClosingElement: {
       // `<Badge/>` IS a call to Badge. `<div>` is an intrinsic element that no
-      // project declaration can bind, so it produces no row -- a call site that
-      // can only ever resolve into `JSX.IntrinsicElements` would be noise.
+      // project declaration can bind: a call site that can only ever resolve
+      // into `JSX.IntrinsicElements` would be noise, so it is its own kind,
+      // which is never a call (see `emit`) and carries no tag child. The row is
+      // what a plain tag's attributes -- `onClick={h}`, `ref={r}` -- belong to.
       if (jsxTagReference(node) === undefined) {
-        return undefined;
+        return TsExpressionKind.JSX_INTRINSIC_ELEMENT;
       }
       return ts.isJsxElement(node) ? TsExpressionKind.JSX_ELEMENT : TsExpressionKind.JSX_SELF_CLOSING;
     }
@@ -907,6 +914,16 @@ export function jsxTagReference(node: ts.Node): ts.Expression | undefined {
     return !isLowercaseLetter && isValidIdentifier ? tagName : undefined;
   }
   return undefined;
+}
+
+/** A JSX element's tag as written: `div`, `svg:circle`, `my-el`, `ui.Card`. */
+export function jsxTagText(node: ts.Node, sf: ts.SourceFile): string {
+  const tagName = ts.isJsxElement(node)
+    ? node.openingElement.tagName
+    : ts.isJsxSelfClosingElement(node)
+      ? node.tagName
+      : undefined;
+  return tagName === undefined ? '' : tagName.getText(sf);
 }
 
 /** The receiver of a callee, or `undefined` for an unqualified call. */

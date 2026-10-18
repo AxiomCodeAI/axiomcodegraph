@@ -172,6 +172,17 @@ export class TsExpressionRegistry implements EntityIdentifiable {
     this.potentialQualifiedName = potentialQualifiedName;
   }
 
+  /**
+   * The tag of an intrinsic element (`div`, `svg:circle`, `my-el`), written as in the source.
+   *
+   * A component tag is a METHOD_NAME child that resolves; an intrinsic one references nothing, so its
+   * name has no child to live on and goes in this slot, with `referencedEntityKind` left empty. The
+   * engine's projections never read this column, so it cannot reach name resolution.
+   */
+  setJsxTagName(tag: string): void {
+    this.potentialQualifiedName = tag;
+  }
+
   getReferencedEntityHash(): string {
     return this.referencedEntityHash;
   }
