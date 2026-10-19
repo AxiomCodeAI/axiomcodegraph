@@ -68,6 +68,11 @@ One check needs no graph and is its own script:
                                          and the refresh is expected within the budget, never on a rules compile;
                                          --fresh waits and MCP takes fresh=true; the file table prunes exactly what each
                                          parser skips, so an edit under out/ or build/ is seen (#1594, #1595; no engine)
+    python3 tests/two_versions.py        two axiomcode versions over one repository: an older one's graph is rebuilt
+                                         once, not again each time the older one rebuilds it back, and every answer says
+                                         two versions are running and to restart the agent session; an install marked
+                                         .orphaned_at, or whose files are gone, writes nothing under .axiomcode from its
+                                         hooks, timer, refresher, query or MCP server (no engine)
     python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
                                          graph pointer is repaired and keeps the baseline; a query mid-build waits for it
                                          and starts no build; a failed build never leaves the pointer dangling; a failed
