@@ -1,0 +1,56 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a call on a Narrow receiver can only run Narrow's two implementations, however wide the Lookup interface it names is",
+   "run": [
+    "impact",
+    "Plain.L5.lookup"
+   ],
+   "avoid": [
+    "viaNarrow"
+   ]
+  },
+  {
+   "why": "and it does run them: the fan under the receiver type is taken, not refused",
+   "run": [
+    "impact",
+    "Narrow.A.lookup"
+   ],
+   "want": [
+    "viaNarrow"
+   ]
+  },
+  {
+   "why": "control: a call on the wide interface itself is still one of every implementation",
+   "run": [
+    "impact",
+    "Plain.L5.lookup"
+   ],
+   "want": [
+    "viaWide"
+   ]
+  },
+  {
+   "why": "the same for a change reached through the override: a Narrow call site is no caller of what L5.lookup calls",
+   "run": [
+    "impact",
+    "Mark.mark"
+   ],
+   "avoid": [
+    "viaNarrow"
+   ]
+  },
+  {
+   "why": "control: the wide call site still reaches it through the interface method",
+   "run": [
+    "impact",
+    "Mark.mark"
+   ],
+   "want": [
+    "viaWide"
+   ]
+  }
+ ]
+}

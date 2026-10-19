@@ -30,11 +30,44 @@
 
 // concrete type flowing into callee's parameter at position `pos` (from a candidate call's
 // ARGUMENT at that position).
-param_flow_type(param, t) :-
+//
+// ONLY A TYPE THE PARAMETER CAN HOLD. The candidates at a site are every overload of the name, so
+// an argument's type also flowed into the overloads it cannot be passed to: in
+// `fromJson(JsonElement json, Type t) { return fromJson(json, TypeToken.get(t)); }` the String,
+// Reader and JsonElement arguments of the sibling overloads' recursive calls all flowed into each
+// other's `json`, every overload's parameter then held all of them, and the overload choice -- which
+// reads exactly that type -- found a contradiction at every candidate and kept them all. A flowed
+// type is kept where it is the declared type, a subtype of it, or the declared type is Object or
+// unresolved (a type variable, an unstaged type with no external node): narrowing, never widening.
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves(_, param, _, d), t = d.
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves(_, param, _, d), type_ancestor(t, d).
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves(_, param, _, d), param_is_object(d).
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x), t = x.
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x), type_ancestor(t, x).
+param_flow_type(param, t) :- param_flow_in(param, t), param_decl_untyped(param).
+// A class EXTENDING an unstaged class (an exception over an unstaged IOException, a stream over an
+// unstaged FilterInputStream) may reach an unstaged or library declared type through superclasses no
+// IR shows, so it is kept against one; never against String, which is final. Implementing an
+// unstaged interface is not enough: a builder that is a CharSequence is no StringBuffer.
+.decl param_flow_ext_super(t:symbol)
+param_flow_ext_super(t) :- java_type_reference(_, "SUPER_TYPE", t, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_external(ref, _).
+param_flow_ext_super(t) :- type_ancestor(t, a), param_flow_ext_super(a).
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x),
+    param_flow_ext_super(t), !string_type_id(x).
+param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves(_, param, _, d),
+    type_prov(d, "lib"), param_flow_ext_super(t), !string_type_id(d).
+.decl param_flow_in(param:symbol, t:symbol)
+param_flow_in(param, t) :-
     applicable_candidate(call, callee),
     java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, argE),
     expr_type(_, argE, t),
     java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param).
+.decl param_decl_typed(param:symbol)
+param_decl_typed(param) :- method_param_type_resolves(_, param, _, _).
+param_decl_typed(param) :- method_param_type_external(param, _).
+.decl param_decl_untyped(param:symbol)
+param_decl_untyped(param) :- java_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, param), !param_decl_typed(param).
 
 // PARAMETER receiver reference takes the flow-in type(s) (positive; cap drops residual fan).
 expr_type("client", recv, t) :-
