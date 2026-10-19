@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""axiomcode value <name> [<repo>] [--json]
+
+The current value of a named constant, from the graph's literals: the value, its kind (number, string, bool) and the
+line that writes it, `file:line` with that line's source. A name is written as in the code: `MAX_ITEMS`, or qualified by
+its class or object, `Pager.MAX_ITEMS`. `MAX_*` (a `*` or `?` anywhere) lists every constant whose name matches.
+
+  - an unqualified name answers for every declaration whose last part it is (the module's MAX_ITEMS and
+    Pager.MAX_ITEMS): the exact name first, then the others. A name defined in several places is listed in all of
+    them, with how many; none is chosen.
+  - a name the graph declares but holds no single literal for (a call, a dict or object, an expression) says so, and
+    prints the declaration's line, so the value can be read there.
+  - a local variable is not a constant: its first assignment is printed, and said to be a local.
+  - a name the graph does not know at all is said to be unknown (exit 1).
+
+Every language's graph of the repository is asked. --json prints one document: {name, status, count, values,
+declarations}, each row with `at` (file:line), `code` (the line) and, for a value, `value` and `kind`. status is
+`literal` (values found), `not_literal` (declared, no single literal), `local` or `unknown`.
+"""
+import fnmatch, json, os, re, sqlite3, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import ax_contract, ax_fresh, ax_langs
+
+VALUE_KINDS = ('const', 'variable', 'field', 'enum_member')
+LOCAL_EKINDS = ('LOCAL_VARIABLE', 'VARIABLE')
+
+
+def die(msg, code=2):
+    print(msg); sys.exit(code)
+
+
+def graph_dbs(repo):
+    """[(language, graph.sqlite)] to ask: the one AXIOMCODE_GRAPH names, else the main graph and every other language's"""
+    placed = os.environ.get('AXIOMCODE_GRAPH')
+    if placed:
+        return [(os.environ.get('AXIOMCODE_GRAPH_LANG') or '', os.path.join(placed, 'out', 'graph.sqlite'))]
+    gdir = ax_contract.usable_graph(repo, os.path.join(repo, '.axiomcode'))
+    db = os.path.join(gdir, 'out', 'graph.sqlite')
+    if not os.path.exists(db) and not ax_contract.ensure_graph(repo, db): die(ax_contract.no_graph(repo, db))
+    out = [(ax_langs.main_language(repo), db)]
+    for lang, d in ax_langs.graphs(repo)[1:]:
+        p = os.path.join(d, 'out', 'graph.sqlite')
+        if not ax_fresh.graph_corrupt(p): out.append((lang, p))
+    return out
+
+
+def connect(repo, db):
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True); con.row_factory = sqlite3.Row
+    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")}
+    if 'symbols' not in tables:
+        # a graph built but never indexed: the index is this tool's own and takes seconds (as every verb does it)
+        import subprocess
+        con.close(); subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index'), repo], capture_output=True)
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True); con.row_factory = sqlite3.Row
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")}
+    cols = {r[1] for r in con.execute("PRAGMA table_info(literals)")} if 'literals' in tables else set()
+    return con, tables, cols
+
+
+def matcher(name):
+    """(is_glob, test(display) -> 0 exact / 1 by its last part(s) / None no match)"""
+    glob = any(ch in name for ch in '*?[')
+    def test(display):
+        if not display: return None
+        if glob:
+            if fnmatch.fnmatchcase(display, name): return 0
+            # `MAX_*` matches Pager.MAX_ITEMS by its last part; `Pager.*` matches the members of Pager wherever it nests
+            parts = display.split('.')
+            for i in range(1, len(parts)):
+                if fnmatch.fnmatchcase('.'.join(parts[i:]), name): return 1
+            return None
+        if display == name: return 0
+        if display.endswith('.' + name): return 1
+        return None
+    return glob, test
+
+
+def candidates_sql(name, glob):
+    """a cheap SQL prefilter on the last part of the name, so a large graph is not read whole"""
+    last = name.rsplit('.', 1)[-1]
+    if glob:
+        return "GLOB ?", '*' + last if not last.startswith('*') else last
+    return "GLOB ?", '*' + last.replace('[', '[[]')
+
+
+def source_line(repo, rel, line, cache={}):
+    if rel not in cache:
+        try:
+            with open(os.path.join(repo, rel), encoding='utf-8', errors='replace') as f: cache[rel] = f.read().split('\n')
+        except OSError: cache[rel] = None
+    lines = cache[rel]
+    if not lines or not line or line > len(lines): return ''
+    return lines[line - 1].strip()
+
+
+def local_written(repo, con, name, rel, first_use):
+    """(line, 'assigned' | 'used') of a local: the refs table records where a local is USED, and in some languages
+    (TypeScript) not where it is declared, so the lines of the function that holds its first use are read up to that
+    use for `const|let|var name` or `name =`; the first use itself when none is found"""
+    r = con.execute("SELECT line FROM symbols WHERE file = ? AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? "
+                    "ORDER BY line DESC LIMIT 1", (rel, first_use, first_use)).fetchone()
+    start = r[0] if r else max(1, first_use - 50)
+    n = re.escape(name)
+    pat = re.compile(r'\b(const|let|var|final|val)\s+(\[[^\]]*|\{[^}]*)?\b%s\b|(^|[^.\w])%s\s*(:[^=]*)?(?<![=!<>])=(?!=)' % (n, n))
+    for ln in range(start, first_use + 1):
+        if pat.search(source_line(repo, rel, ln)): return ln, 'assigned'
+    return first_use, 'used'
+
+
+def shown(v, kind):
+    return f"'{v}'" if kind == 'string' else v
+
+
+def ask(repo, lang, db, name):
+    """the rows one graph holds for `name`: (values, declarations without a value, locals, other declarations)"""
+    con, tables, cols = connect(repo, db)
+    glob, test = matcher(name)
+    op, pat = candidates_sql(name, glob)
+    values, decls, locals_, others = [], [], [], []
+    try:
+        if 'literals' in tables and 'name' in cols:
+            for r in con.execute(f"SELECT value, file, line, kind, name FROM literals WHERE name IS NOT NULL AND name {op}", (pat,)):
+                rank = test(r['name'])
+                if rank is None: continue
+                values.append(dict(rank=rank, name=r['name'], value=r['value'], kind=r['kind'], file=r['file'], line=r['line'],
+                                   language=lang))
+        valued = {(v['name'], v['file'], v['line']) for v in values}
+        for r in con.execute(f"SELECT display, kind, file, line, end_line, is_test FROM symbols WHERE display {op} OR name {op}", (pat, pat)):
+            rank = test(r['display'])
+            if rank is None or (r['display'], r['file'], r['line']) in valued or '<' in r['display']: continue
+            row = dict(rank=rank, name=r['display'], kind=r['kind'], file=r['file'], line=r['line'], language=lang)
+            (decls if r['kind'] in VALUE_KINDS else others).append(row)
+        if not values and not decls and not others and 'refs' in tables and not glob and '.' not in name:
+            # a local: the graph records where it is written, not a value. Its first mention is where it is assigned
+            for r in con.execute("SELECT file, MIN(line) AS line FROM refs WHERE name = ? AND entity_kind IN (%s) GROUP BY file ORDER BY file"
+                                 % ','.join('?' * len(LOCAL_EKINDS)), (name, *LOCAL_EKINDS)):
+                line, how = local_written(repo, con, name, r['file'], r['line'])
+                locals_.append(dict(rank=0, name=name, kind='local', file=r['file'], line=line, how=how, language=lang))
+        if not values and not decls and not others and '.' in name and not glob:
+            # `CONFIG.timeout` where CONFIG is declared and its member is not: the owner's declaration holds the value
+            owner = name.rsplit('.', 1)[0]
+            _, otest = matcher(owner)
+            for r in con.execute("SELECT display, kind, file, line FROM symbols WHERE display = ? OR display GLOB ?", (owner, '*.' + owner.replace('[', '[[]'))):
+                if otest(r['display']) is not None and r['kind'] in VALUE_KINDS:
+                    decls.append(dict(rank=0, name=r['display'], kind=r['kind'], file=r['file'], line=r['line'], language=lang, owner_of=name))
+    finally:
+        con.close()
+    named = 'literals' in tables and 'name' in cols
+    return values, decls, locals_, others, named
+
+
+def order(rows):
+    return sorted(rows, key=lambda r: (r['rank'], r['file'] or '', r['line'] or 0, r['name']))
+
+
+def main(argv):
+    args = list(argv); as_json = '--json' in args
+    args = [a for a in args if a != '--json']
+    flags = [a for a in args if a.startswith('-') and a != '-']
+    if flags: die(f"axiomcode value: unknown option {flags[0]}: usage: axiomcode value <name> [<repo>]")
+    repo = '.'
+    if len(args) > 1 and os.path.isdir(args[-1]): repo = args.pop()
+    if len(args) != 1 or not args[0].strip():
+        die("usage: axiomcode value <name> [<repo>]   (the value of a named constant: MAX_ITEMS, Pager.MAX_ITEMS, MAX_*)")
+    name = args[0].strip()
+    repo = os.path.realpath(repo)
+    os.environ.setdefault('AXIOMCODE_REPO', repo)
+
+    values, decls, locals_, others, old = [], [], [], [], []
+    for lang, db in graph_dbs(repo):
+        v, d, l, o, named = ask(repo, lang, db, name)
+        values += v; decls += d; locals_ += l; others += o
+        if not named: old.append(lang or 'main')
+    values, decls, locals_, others = order(values), order(decls), order(locals_), order(others)
+    for r in values + decls + locals_ + others:
+        r['at'] = f"{r['file']}:{r['line']}"; r['code'] = source_line(repo, r['file'], r['line'])
+    status = 'literal' if values else 'not_literal' if decls else 'local' if locals_ else 'unknown'
+    stale_index = (f"the {', '.join(old)} graph's index predates named literals, so it cannot answer this; "
+                   f"`axiomcode index` rebuilds it") if old else ''
+
+    if as_json:
+        strip = lambda rows: [{k: v for k, v in r.items() if k != 'rank'} for r in rows]
+        doc = dict(name=name, status=status, count=len(values), values=strip(values),
+                   declarations=strip(decls), locals=strip(locals_), other_declarations=strip(others))
+        if stale_index: doc['note'] = stale_index
+        print(json.dumps(doc, indent=1, ensure_ascii=False))
+        return 0 if status != 'unknown' else 1
+
+    def place(r, indent='   '):
+        line = f"{indent}{r['at']}   {r['code']}" if r['code'] else f"{indent}{r['at']}"
+        # the line is read from the file now, the value from the graph: an edit since the build shows as a mismatch
+        if 'value' in r and r['code'] and r['value'] not in r['code']:
+            line += f"\n{indent}(this line no longer writes {shown(r['value'], r['kind'])}: the graph predates an edit to it)"
+        return line
+
+    out = []
+    if values:
+        if len(values) == 1:
+            v = values[0]
+            out.append(f"{v['name']} = {shown(v['value'], v['kind'])}   [{v['kind']}]")
+            out.append(place(v))
+        else:
+            if any(c in name for c in '*?['): out.append(f"{name}: {len(values)} constants match:")
+            else: out.append(f"{name} is defined in {len(values)} places, every one listed, none chosen:")
+            for i, v in enumerate(values, 1):
+                out.append(f"{i}. {v['name']} = {shown(v['value'], v['kind'])}   [{v['kind']}]")
+                out.append(place(v))
+        if decls:
+            out.append(f"\nalso declared, with no single literal value ({len(decls)}):")
+            for d in decls: out.append(f"- {d['name']}   [{d['kind']}]"); out.append(place(d))
+    elif decls:
+        for i, d in enumerate(decls):
+            if i: out.append('')
+            if d.get('owner_of'):
+                out.append(f"{name}: not a declaration the graph holds; {d['name']} is a {d['kind']} declared at {d['at']}, "
+                           f"and the value is in its initializer:")
+            else:
+                out.append(f"{d['name']} is a {d['kind']}, but not a literal-valued constant: its value is not one literal "
+                           f"(a call, an expression, a collection), so the graph records no value for it. Its declaration:")
+            out.append(place(d))
+        if len(decls) > 1: out.insert(0, f"{name}: {len(decls)} declarations, none with a single literal value:\n")
+    elif locals_:
+        out.append(f"{name} is a local variable, not a constant: the graph records no value for a local. "
+                   f"Where it is {'assigned' if all(l['how'] == 'assigned' for l in locals_) else 'first written or used'}"
+                   f"{' in each file' if len(locals_) > 1 else ''}:")
+        for l in locals_: out.append(place(l))
+    elif others:
+        out.append(f"{name} is declared, but not as a constant: " + ', '.join(sorted({o['kind'] for o in others})) + ".")
+        for o in others: out.append(f"- {o['name']}   [{o['kind']}]"); out.append(place(o))
+    else:
+        out.append(f"nothing named {name} in this graph: no constant, field, variable or other declaration by that name.")
+        if stale_index: out.append(stale_index)
+        print('\n'.join(out)); return 1
+    if values and others:
+        out.append(f"\n{name} also names {len(others)} declaration(s) that are not constants: " +
+                   ', '.join(f"{o['name']} [{o['kind']}] {o['at']}" for o in others[:5]) + (' …' if len(others) > 5 else ''))
+    if stale_index: out.append(stale_index)
+    print('\n'.join(out))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

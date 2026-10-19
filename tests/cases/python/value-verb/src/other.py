@@ -1,0 +1,2 @@
+MAX_ITEMS = 9
+MAX_RETRIES = 4

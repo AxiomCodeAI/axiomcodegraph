@@ -1,20 +1,21 @@
 ---
 name: axiomcode
 description: >-
-  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual; ask the graph for what grep cannot know — which declaration a call reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach, context(task, source=True) for how something works as a step-by-step call flow with each step's code. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`. Java, TypeScript, Python, JavaScript, C#.
+  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual; ask the graph for what grep cannot know — which declaration a call reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach, value(name) for the current value of a named constant, context(task, source=True) for how something works as a step-by-step call flow with each step's code. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode value <name>`, `axiomcode context "<task>" --source`. Java, TypeScript, Python, JavaScript, C#, and HTML + CSS (impact .class, #id, a custom property as var(…), page.html, sheet.css, page.html:LINE; each language its own graph).
 ---
 
 # axiomcode
 
 Search with grep as usual; the graph answers what grep cannot. Use the MCP tools when they are in your list (in Claude Code
-`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`, `__context`); otherwise run
+`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`, `__value`, `__context`); otherwise run
 `<this dir>/../../plugins/axiomcode/skills/axiomcode/scripts/axiomcode <verb>` from the repository root. Same answer either way.
 
 | the question | MCP tool | shell |
 |---|---|---|
 | where is the code for this task? | your own search (grep), then bring the name here | — |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
-| what is the value of constant X, and who reads it? | `impact(name)` | `axiomcode impact <name>` |
+| what is the current value of constant X (a limit, a default, a threshold)? | `value(name)` | `axiomcode value <name>` |
+| who reads constant X, and what does changing it reach? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
 | which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
@@ -49,6 +50,15 @@ With a name: who calls it, what depends on it further out, and the tests that ex
 `impact(name="PriceService.total")`. With no name: the first line is `your edits:` (each declaration you changed and
 how), then the same answer for all of them. A constant answers with its value — `change: const MAX_ITEMS = 5` —
 so a limit, a default or a threshold is read off the first line rather than from the file.
+
+## value
+
+The current value of a named constant: the value, its kind (number, string, bool) and the line that writes it, as
+`file:line` with that line's source. Example: `value(name="MAX_ITEMS")`. Qualify it by its class or object for one
+member (`Pager.MAX_ITEMS`); `MAX_*` lists every constant whose name matches. A name defined in several places is
+listed in all of them, with how many; none is chosen for you. A name declared with no single literal value (a call,
+a dict or object, an expression) prints its declaration line instead, a local says it is a local and where it is
+assigned, and a name the graph does not know says so. Who reads the constant is `impact(name)`.
 
 ## path
 

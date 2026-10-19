@@ -1467,7 +1467,7 @@ def query_names(verb, args, repo):
             i += 2; continue
         if not a.startswith('-') and not (os.path.isdir(a) and os.path.realpath(a) == repo): pos.append(a)
         i += 1
-    if verb in ('impact', 'path'): names += [p for p in pos if p != '*']
+    if verb in ('impact', 'path', 'value'): names += [p for p in pos if p != '*']
     return names
 
 def names_in_edits(repo, names, stale):
