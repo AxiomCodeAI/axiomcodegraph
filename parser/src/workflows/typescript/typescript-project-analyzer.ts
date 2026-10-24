@@ -25,6 +25,8 @@ import {
   ModuleGraphFacts,
   newCompletenessAccumulator,
 } from '@/parsers/typescript/extractors/ts-ir-completeness';
+import { isDenoVendorDirectory } from '@/parsers/typescript/deno/deno-config';
+import { resolveDenoSpecifier } from '@/parsers/typescript/deno/deno-resolver';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
@@ -83,6 +85,13 @@ import {
 export interface SharedWriteContext {
   readonly writers: Map<string, TsRelationWriter>;
   readonly writerFor: (filename: string) => TsRelationWriter;
+  /**
+   * Every file a program in this run has already taken, normalised. A file no
+   * config claims can join two programs (one it imports, one that resolves an
+   * import into it), and a module row is a pure function of its path, so a second
+   * extraction would write the same primary key twice. The first program keeps it.
+   */
+  readonly analyzedFiles: Set<string>;
 }
 
 export interface TypeScriptAnalysisOptions {
@@ -206,6 +215,7 @@ export class TypeScriptProjectAnalyzer {
     const writers = new Map<string, TsRelationWriter>();
     return {
       writers,
+      analyzedFiles: new Set<string>(),
       writerFor: (filename: string): TsRelationWriter => {
         const existing = writers.get(filename);
         if (existing) {
@@ -268,7 +278,11 @@ export class TypeScriptProjectAnalyzer {
     // Every emitted path hangs off this, not off rootDir — see pathAnchorFor.
     const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
     const rootProgram = filesOfRootProgram(rootDir, configResolver);
-    const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
+    const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort()
+      .filter((file) => !shared?.analyzedFiles.has(path.normalize(file)));
+    for (const file of files) {
+      shared?.analyzedFiles.add(path.normalize(file));
+    }
     const filesInOtherPrograms = rootProgram?.others.length ?? 0;
     const nestedProgramRoots = programRootsOf(rootProgram?.others ?? [], configResolver);
 
@@ -505,7 +519,12 @@ export class TypeScriptProjectAnalyzer {
     // A re-export's source module may be parsed after the file that re-exports
     // from it, so the link is made here. Still the MODULE graph, and
     // ts_export.resolvedSourceModuleLinkHash is the parser's own column.
-    linkReExportSources(moduleGraph);
+    linkReExportSources(moduleGraph, (fromFilePath, specifier) => {
+      const deno = resolveDenoSpecifier(specifier, path.join(pathAnchor, fromFilePath));
+      return deno === undefined || deno.resolvedFileName === ''
+        ? undefined
+        : toRelative(pathAnchor, deno.resolvedFileName);
+    });
     // Reads the accumulated rows and mutates nothing. Cross-file CALL resolution
     // used to happen here and has been retracted: following an import to a
     // declaring file is `type-resolution.dl` rewritten in TypeScript. What runs
@@ -790,8 +809,10 @@ function filesOfRootProgram(
     const sf = ts.createSourceFile(file, script.text, ts.ScriptTarget.Latest, false,
       script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : JS_JOINER.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
-      const resolved = ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
-        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, file);
+      const resolved = (resolveDenoSpecifier(specifier, file)?.resolvedFileName || undefined)
+        ?? ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
+          .resolvedModule?.resolvedFileName
+        ?? resolveVueSpecifier(specifier, file);
       if (resolved !== undefined) {
         keys.push(path.normalize(resolved));
       }
@@ -960,7 +981,7 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>, only
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
         if (!excludes.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(full)
-          && !isGeneratedOutputDirectory(current, entry.name)) {
+          && !isGeneratedOutputDirectory(current, entry.name) && !isDenoVendorDirectory(current, entry.name)) {
           walk(full);
         }
         continue;

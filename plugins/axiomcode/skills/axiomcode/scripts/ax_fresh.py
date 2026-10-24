@@ -71,7 +71,9 @@ SOURCE = {'java': ('.java',), 'typescript': ('.ts', '.tsx'), 'python': ('.py',),
           'web': WEB_EXT}
 NAMES = {
     'java': ('lombok.config',),
-    'typescript': ('package.json',),
+    # a Deno project's config and lockfile decide what its imports resolve to (its import map, workspace members and
+    # pinned jsr: / npm: versions), so an edit to either changes the graph as an edit to a source file does
+    'typescript': ('package.json', 'deno.json', 'deno.jsonc', 'deno.lock'),
     'javascript': ('package.json',),
     'python': ('pyproject.toml', 'setup.cfg', 'setup.py'),
     'csharp': ('global.json', 'Directory.Build.props'),
@@ -258,7 +260,7 @@ def snapshot(repo, lang, src):
 DEP_FILES = {'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt', 'pyproject.toml', 'setup.cfg', 'setup.py',
              'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'package.json', 'package-lock.json', 'yarn.lock',
              'pnpm-lock.yaml', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradle.lockfile', 'Directory.Packages.props',
-             'packages.lock.json', 'project.assets.json', '.package-lock.json'}
+             'packages.lock.json', 'project.assets.json', '.package-lock.json', 'deno.json', 'deno.jsonc', 'deno.lock'}
 DEP_PRUNE = {'.git', '.axiomcode', '__pycache__', '.venv', 'venv', 'env', '.env', 'dist', 'build', 'target', 'bin', '.gradle'}
 
 def dep_snapshot(repo):
