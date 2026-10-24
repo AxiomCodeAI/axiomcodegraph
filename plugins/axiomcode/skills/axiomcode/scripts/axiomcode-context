@@ -9,7 +9,8 @@ axiomcode's engine, and the answer's first line says so, why, and how to prevent
 A task that asks HOW something works ("how does X …", "explain …", "what happens when …", or --explain) also gets
 the call flow: the spine of the mechanism in the order the calls are written, each step with its edge's certainty,
 the line that makes the call, and the calls in its body the graph could not resolve. --from <name> starts the flow
-there instead of at the entry the task's words choose.
+there instead of at the entry the task's words choose. Utility code (a widely-called helper package that calls no domain
+step: logging, metrics, string and format helpers, serializers) is named on its caller's `also calls` line, not walked.
 
 THE FRONT DOOR — the context an agent needs before it can ask anything precise. Every other verb needs a name you already have — a method, a type, a file:line. That is
 the wrong first question on an unfamiliar repository, and it is measurably where an agent gives up: in a
@@ -787,6 +788,7 @@ CONTAINER = frozenset('items keys values get pop popitem append extend add updat
 DISPATCH_NAMED = 6         # the registered handlers a dispatch point names; the rest are counted
 HANDOFF = {}               # (step, registration line, file) -> the declaration that registered it
 ENTRY_NOTE = {}            # entry step -> why the flow starts there, when it is not a match of the task's words
+ALSO = {}                  # step -> [(utility callable, call sites)] collapsed onto one line under it (see UTILITY)
 
 
 def param_names(g, x):
@@ -944,7 +946,67 @@ def made_by(g, x):
     return best[1] if best else None
 
 
-def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset()):
+# ── UTILITY: logging, metrics, string and format helpers, serializers are not steps of a mechanism ───────────────────
+# Asked how a feature works, a reader wants the domain steps; a walk that descends into every logger, metrics counter,
+# string helper and serializer it passes buries them (reported: half of a cancel flow's steps were such helpers). They
+# are DEMOTED, never hidden: not walked, and named on one line under the step that calls them.
+# What makes code utility is read from the graph's SHAPE, not from its names:
+#   * its PACKAGE (the directory) is a bottom layer: no resolved call leaves it for project code other than another
+#     utility package. A data-model or repository file is a bottom layer too, but its directory holds the services
+#     that call upward, so the package is not; a helpers package holds nothing else;
+#   * the package is called from at least UTILITY_DIRS other directories: what every layer reaches for;
+#   * the callable is a SINK in the flow: nothing it calls is a domain step. A retry decorator's wrapper, which runs
+#     the function it wraps, stays a step because the domain call is beyond it; its backoff helper collapses.
+# Names only break a tie: a package or file named for logging or metrics needs UTILITY_DIRS_NAMED directories.
+# And a task that is ABOUT the utility walks into it: a callable whose own name, class, file or directory carries one
+# of the task's words is never demoted, nor is anything in a file the flow starts in.
+UTILITY_DIRS, UTILITY_DIRS_NAMED = 3, 2
+UTILITY_ROLE = frozenset('log logs logger logging metric metrics stats statsd telemetry tracing'.split())
+
+
+def _pkg(f):
+    return (f or '').rsplit('/', 1)[0] if '/' in (f or '') else ''
+
+
+def utility_steps(g, rows, out, roots, terms, project):
+    """the callables a flow collapses instead of walking (see UTILITY above)."""
+    testy = lambda x: (g.sym.get(x) or {}).get('is_test') or TESTY.search((g.sym.get(x) or {}).get('file') or '')
+    into, outof, files = collections.defaultdict(set), collections.defaultdict(set), collections.defaultdict(set)
+    for r in rows:
+        c, m = r['c'], r['m']
+        if not m or m == c or not project(m) or not project(c) or testy(c) or testy(m): continue
+        if ax_edges.direct_cert(r['t']) != 'resolved': continue      # a callback run through a value is not a dependency
+        cp, mp = _pkg(g.sym[c].get('file')), _pkg(g.sym[m].get('file'))
+        if cp == mp: continue
+        into[mp].add(cp); outof[cp].add(mp)
+    for x, sy in g.sym.items():
+        if sy.get('method_id') and project(x) and not testy(x): files[_pkg(sy.get('file'))].add((sy.get('file') or '').rsplit('/', 1)[-1])
+    def named(p):
+        return any(t in UTILITY_ROLE for t in subtokens(p.rsplit('/', 1)[-1]) + [t for f in files[p] for t in subtokens(f.rsplit('.', 1)[0])])
+    pkgs = {p for p in into if p and len(into[p]) >= (UTILITY_DIRS_NAMED if named(p) else UTILITY_DIRS)}
+    while True:                                    # a bottom layer: calls out only to other utility packages
+        drop = {p for p in pkgs if outof[p] - pkgs}
+        if not drop: break
+        pkgs -= drop
+    if not pkgs: return set()
+    tset, tstem = set(terms), {stem(t) for t in terms}
+    root_files = {(g.sym.get(x) or {}).get('file') for x in roots}
+    def asked(x):
+        sy = g.sym[x]; f = sy.get('file') or ''
+        toks = set(subtokens(sy.get('name') or '') + subtokens(sy.get('display') or '')
+                   + subtokens(f.rsplit('/', 1)[-1].rsplit('.', 1)[0]) + subtokens(_pkg(f).rsplit('/', 1)[-1]))
+        return bool(toks & tset or {stem(t) for t in toks} & tstem)
+    cand = {y for ys in out.values() for _l, y, _t, _f in ys}
+    util = {y for y in cand if y not in roots and _pkg(g.sym[y].get('file')) in pkgs
+            and g.sym[y].get('file') not in root_files and not asked(y)}
+    while True:                                    # a sink: nothing it calls is a domain step
+        drop = {y for y in util if any(z not in util and z != y for _l, z, _t, _f in out.get(y, ()))}
+        if not drop: break
+        util -= drop
+    return util
+
+
+def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset(), terms=()):
     """The call flow from `roots`, in the order the calls are written. Nothing here is ranked or scored.
 
     Where a flow STARTS is the reader's decision (--from) or the entry points this verb already chose; which of a
@@ -1014,13 +1076,14 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset
     # WHICH steps are shown is chosen breadth-first: the entry point's own calls are the outline of the mechanism and
     # their callees are detail, so the budget goes to every call of the root before any call of a call. Chosen
     # depth-first, one helper's subtree took the whole budget before the flow reached the root's later calls.
+    util = utility_steps(g, rows, out, roots, terms, project)
     keep, frontier = set(roots), list(roots)
     for _d in range(depth_cap):
         nxt = []
         for x in frontier:
             if x in shallow: continue
             for _l, y, _t, _f in out.get(x, ()):
-                if y not in keep and len(keep) < max_steps:
+                if y not in keep and y not in util and len(keep) < max_steps:
                     keep.add(y); nxt.append(y)
         frontier = nxt
         if not frontier or len(keep) >= max_steps: break
@@ -1059,6 +1122,14 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset
                      + ("; bound as text in " + ', '.join(f"{f}:{l}" for f, l, _d, _n in bound) if bound else
                         f"; `impact {g.disp(x)}` lists what implements it"))
         if m: marks[x] = m
+    # the utility calls a step makes, collapsed onto one line under it: `name ×sites`, in the order first written
+    also = {}
+    for x in {x for _d, x, _v, again in steps if again is None}:
+        seen_ = collections.OrderedDict()
+        for l, y, _t, _f in out.get(x, ()):
+            if y in util: seen_.setdefault(y, set()).add(l)
+        if seen_: also[x] = [(y, len(ls)) for y, ls in seen_.items()]
+    ALSO.clear(); ALSO.update(also)
     return roots, steps, gaps, marks
 
 
@@ -1133,6 +1204,9 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
             print(f"     {pad}   ⚠ unresolved here: " + ', '.join(f"{nm}() L{l}" for l, nm in gs))
         for mk in (marks or {}).get(x, ()):
             print(f"     {pad}   ⚠ {mk}")
+        if ALSO.get(x):
+            print(f"     {pad}   also calls (utility, not walked): "
+                  + ', '.join(g.disp(y) + (f" ×{k}" if k > 1 else '') for y, k in ALSO[x]))
         sy = g.sym.get(x) or {}
         if show_source and code_left[0] <= 0 and not code_cut[0]:
             code_cut[0] = True
@@ -1145,6 +1219,9 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
                 print(row)
             if b > a + FLOW_SOURCE_LINES - 1:
                 print(f"     {pad}   {'':5} | … +{b - a - FLOW_SOURCE_LINES + 1} more line(s) — open {sy['file']}:{a} for the rest")
+    if ALSO:
+        print("    utility calls (a widely-called helper package for logging, metrics, string, format or serialization, that calls "
+              "no domain step) are named on their caller's `also calls` line, not walked; `--from <name>` walks into one")
     if code_cut[0]:
         print("    the later steps are named without their code, to keep this answer to one page; "
               "`--from <step>` shows any of them with its code")
@@ -1411,7 +1488,7 @@ def main(argv):
         # a producer joined only by name is shown as one step: its code holds the call, and the budget goes to the
         # mechanism the task asked about rather than to everything else the producer does
         roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS,
-                                         shallow=frozenset(ENTRY_NOTE))
+                                         shallow=frozenset(ENTRY_NOTE), terms=terms)
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
                            'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]],
@@ -1419,7 +1496,9 @@ def main(argv):
                            'why_here': (ENTRY_NOTE.get(x) if not via else None),
                            'registered_by': (g.disp(HANDOFF[(x, via[0], via[2])]) if via and via[1] == 'handoff'
                                              and (x, via[0], via[2]) in HANDOFF else None),
-                           'leaves_graph': (marks.get(x, []) if again is None else [])}
+                           'leaves_graph': (marks.get(x, []) if again is None else []),
+                           'also_calls': ([{'name': g.disp(y), 'at': g.loc(y), 'sites': k} for y, k in ALSO.get(x, ())]
+                                          if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
         if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks):
             # the entry points and files were held back because the flow was to BE the answer; with no flow they are
