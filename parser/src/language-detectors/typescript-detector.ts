@@ -37,6 +37,10 @@ export class TypeScriptDetector implements LanguageDetector {
     'tsconfig.json',
     'tsconfig.base.json',
     'jsconfig.json',
+    // A Deno project's config defines its module graph the way a tsconfig does, and a
+    // workspace root's lists members that import one another: one project, not one per member.
+    'deno.json',
+    'deno.jsonc',
   ];
 
   private static readonly SKIP = new Set<string>(TS_SKIP_DIRECTORIES);
@@ -62,6 +66,7 @@ export class TypeScriptDetector implements LanguageDetector {
   async detectBuildSystem(projectPath: string): Promise<string | undefined> {
     try {
       const files = await fs.readdir(projectPath);
+      if (files.includes('deno.json') || files.includes('deno.jsonc')) return 'Deno';
       if (files.includes('pnpm-lock.yaml')) return 'pnpm';
       if (files.includes('yarn.lock')) return 'Yarn';
       if (files.includes('bun.lockb') || files.includes('bun.lock')) return 'Bun';
