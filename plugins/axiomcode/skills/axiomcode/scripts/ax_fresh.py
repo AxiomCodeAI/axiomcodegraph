@@ -28,6 +28,8 @@ the previous graph. Three pieces:
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
   ax_fresh.py hold <file> <winpid> [--try]     the same on Windows, held for the build by this process until it ends
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
+  ax_fresh.py choose <dir>                     the counts, then the main language, the languages to build and the incidental
+                                               ones left out (a build that names no --lang)
   ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
   ax_fresh.py newer <repo>                     exit 0 (saying so) when a newer axiomcode built the graph: never rebuilt by this one
   ax_fresh.py which-engine <repo> <engine> <how> [<checkout>]
@@ -224,6 +226,66 @@ def watched(root, lang):
                 if has_ext(l, f, exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
                         or (l == 'python' and python_script(os.path.join(d, f), f)):
                     yield os.path.join(d, f); break
+
+# AN INCIDENTAL LANGUAGE IS NOT BUILT UNLESS ASKED FOR. A Python backend with three .js build scripts got a second graph,
+# a second section in every answer and a cold JavaScript engine compile. A language other than the main one is left
+# out of a build that names no --lang when it has fewer than INCIDENTAL_FILES source files AND either less than
+# INCIDENTAL_SHARE of the repository's code or fewer than INCIDENTAL_LINES lines in all (a share means nothing in a repo
+# of four files). Chosen from the language mix of 42 real repositories (14 each Python, Java, C#): 79 second languages,
+# 41 of them under 20 files. Those split with a gap: 33 at 3.8% of the code or less (stray scripts, a docs theme, a
+# sample, a vendored widget), the other 8 at 6.0% or more (a small frontend, a site's pages); 5% sits in the gap.
+# An explicit --lang always wins, and the build names what it left out and how to include it.
+INCIDENTAL_FILES, INCIDENTAL_SHARE, INCIDENTAL_LINES = 20, 0.05, 100
+# THE MAIN LANGUAGE IS THE ONE WITH THE MOST CODE, not the most files: non-blank lines, each file counted up to
+# LINES_CAP, so a vendored or generated blob (a generated data table, a bundled third-party library) does not outweigh
+# the code the repository is written in. By file count alone, a repository of a few hundred Python files beside more,
+# smaller JavaScript files was a JavaScript repository.
+LINES_CAP = 1000
+ORDER = ('java', 'typescript', 'python', 'javascript', 'csharp', 'web')
+
+
+def code_lines(p):
+    """the non-blank lines of a file, up to LINES_CAP"""
+    n = 0
+    try:
+        with open(p, 'rb') as fh:
+            for line in fh:
+                if line.strip():
+                    n += 1
+                    if n >= LINES_CAP: break
+    except OSError: pass
+    return n
+
+
+def measure(root):
+    """({lang: source files}, {lang: weighted lines}) under root, walked as the parser walks; lines only counted when
+    more than one language is present, since one language needs no choosing"""
+    n = {l: 0 for l in ORDER}; files = {l: [] for l in ORDER}
+    for l in ORDER:
+        for p in watched(root, l):
+            if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)):
+                n[l] += 1; files[l].append(p)
+    present = [l for l in ORDER if n[l]]
+    lines = {l: (sum(code_lines(p) for p in files[l]) if len(present) > 1 else 0) for l in ORDER}
+    return n, lines
+
+
+def choose(n, lines):
+    """(main language, [languages to build, main first], [incidental languages left out]) from measure()'s numbers.
+    The main language has the most code (lines, then files, then ORDER); web is the main one only when no other
+    language has a file, since an older reader of the main graph expects a call graph there."""
+    calls = [l for l in ORDER if l != 'web' and n[l]]
+    if calls: main = max(calls, key=lambda l: (lines[l], n[l], -ORDER.index(l)))
+    elif n['web']: main = 'web'
+    else: main = 'java'
+    total = sum(lines.values()) or 1
+    langs, skipped = [main], []
+    for l in ORDER:
+        if l == main or not n[l]: continue
+        if n[l] < INCIDENTAL_FILES and (lines[l] < INCIDENTAL_SHARE * total or lines[l] < INCIDENTAL_LINES): skipped.append(l)
+        else: langs.append(l)
+    return main, langs, skipped
+
 
 def watched_from(repo, src, lang):
     """watched(src, lang), and the web links file at the repository root when --src leaves it outside src: the web
@@ -1674,6 +1736,13 @@ def main(argv):
                 if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
         # the 6th number is web (pages and stylesheets)
         print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp'], n['web']); return 0
+    if cmd == 'choose':
+        # the counts as `count` prints them, then the main language, the languages to build (main first) and the ones
+        # left out as incidental ("lang:files:lines", comma-separated; "-" for none): axiomcode-build reads one line
+        n, lines = measure(repo)
+        main, langs, skipped = choose(n, lines)
+        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp'], n['web'], main, ','.join(langs),
+              ','.join(f"{l}:{n[l]}:{lines[l]}" for l in skipped) or '-'); return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
         n = 0
