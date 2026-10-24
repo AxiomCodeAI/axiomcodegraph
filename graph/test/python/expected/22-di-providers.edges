@@ -3,6 +3,12 @@ ambiguous_unknown	DECORATOR_APPLICATION	routes.<module> -> -
 ambiguous_unknown	METHOD_CALL	main.read_item -> -
 boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	routes.<module> -> builtin:object.__init__
+callback_registered	METHOD_REFERENCE	deps.<module> -> deps.get_repo
+callback_registered	METHOD_REFERENCE	main.<module> -> main.get_service
+callback_registered	METHOD_REFERENCE	main.<module> -> main.get_settings
+callback_registered	METHOD_REFERENCE	main.<module> -> main.get_user
+callback_registered	METHOD_REFERENCE	routes.<module> -> deps.get_page_size
+callback_registered	METHOD_REFERENCE	routes.<module> -> deps.get_repo
 known_edge	DECORATOR_CALL	main.<module> -> main._App.get
 known_edge	DECORATOR_CALL	main.<module> -> main._App.post
 known_edge	DECORATOR_CALL	routes.<module> -> routes._Router.get

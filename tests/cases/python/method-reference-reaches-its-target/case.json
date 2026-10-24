@@ -1,0 +1,230 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a bound method handed to an executor as a VALUE (`loop.run_in_executor(None, svc.cancel, oid)`) is called by the executor, by no call site the graph sees. Its receiver is typed exactly as `svc.cancel()` would be, so the function that queues it reaches it, labelled as handed over, never as a call",
+   "run": [
+    "path",
+    "executor_svc",
+    "OrderService.cancel"
+   ],
+   "want": [
+    "executor_svc → OrderService.cancel: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "every resolved shape that hands cancel over is a dependent of it: a positional argument, a keyword argument, functools.partial, a receiver the function constructed itself",
+   "run": [
+    "impact",
+    "OrderService.cancel",
+    "--limit",
+    "50"
+   ],
+   "want": [
+    "executor_svc",
+    "keyword_register",
+    "partial_cancel",
+    "constructed_receiver",
+    "handed over as a value"
+   ],
+   "avoid": [
+    "untyped_receiver",
+    "by_string"
+   ]
+  },
+  {
+   "why": "control: a same-named cancel on an unrelated class gains none of OrderService.cancel's hand-offs",
+   "run": [
+    "impact",
+    "LedgerService.cancel",
+    "--limit",
+    "50"
+   ],
+   "avoid": [
+    "executor_svc",
+    "keyword_register",
+    "partial_cancel",
+    "constructed_receiver",
+    "handed over as a value"
+   ]
+  },
+  {
+   "why": "and the closure continues from the hand-off: the test that drives executor_svc reaches cancel",
+   "run": [
+    "impact",
+    "OrderService.cancel",
+    "--tests"
+   ],
+   "want": [
+    "test_queue.py"
+   ],
+   "avoid": [
+    "test_ledger.py"
+   ]
+  },
+  {
+   "why": "a bound method passed as a sort key, and one read inside a lambda: the lambda is the reader",
+   "run": [
+    "impact",
+    "OrderService.rank",
+    "--limit",
+    "50"
+   ],
+   "want": [
+    "sort_key",
+    "lambda_holder"
+   ],
+   "avoid": [
+    "ledger_rank"
+   ]
+  },
+  {
+   "why": "control: a same-named method on an UNRELATED class keeps its own reader and gains none of OrderService's",
+   "run": [
+    "impact",
+    "LedgerService.rank",
+    "--limit",
+    "50"
+   ],
+   "want": [
+    "ledger_rank"
+   ],
+   "avoid": [
+    "sort_key",
+    "lambda_holder"
+   ]
+  },
+  {
+   "why": "map() over a bound method and over the method read off its CLASS (an unbound reference)",
+   "run": [
+    "impact",
+    "OrderService.convert",
+    "--limit",
+    "50"
+   ],
+   "want": [
+    "map_convert",
+    "unbound_reference"
+   ]
+  },
+  {
+   "why": "threading.Thread(target=...), a list of callbacks, a signal handler, a view_func keyword",
+   "run": [
+    "path",
+    "thread_target",
+    "OrderService.run_job"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a callback stored in a list literal",
+   "run": [
+    "path",
+    "callback_list",
+    "OrderService.on_event"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a signal handler",
+   "run": [
+    "path",
+    "signal_connect",
+    "OrderService.handle"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a view function registered by keyword",
+   "run": [
+    "path",
+    "url_rule",
+    "OrderService.index"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "self-references: submitted to the instance's own pool, used as a sort key, and returned (an escaping reference)",
+   "run": [
+    "path",
+    "Worker.submit_bound_self",
+    "Worker._do_work"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a self method as a sort key",
+   "run": [
+    "path",
+    "Worker.sort_by_self_key",
+    "Worker._rank"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a returned bound method escapes to whoever called escapes()",
+   "run": [
+    "path",
+    "Worker.escapes",
+    "Worker._handle"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "a plain module function handed to a pool is now the engine's resolved reference, not a name match",
+   "run": [
+    "path",
+    "submit_plain_function",
+    "top_level_job"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "control: an UNTYPED receiver's reference resolves to nothing, exactly like `thing.cancel()`, so there is no edge to OrderService.cancel",
+   "run": [
+    "path",
+    "untyped_receiver",
+    "OrderService.cancel"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "1 of 1 target(s) reached"
+   ]
+  },
+  {
+   "why": "control: the method's name in a string, an attribute read OFF the method object (`svc.audit.__name__`), str() of it, and an identity test on it do not run it",
+   "run": [
+    "impact",
+    "OrderService.audit",
+    "--limit",
+    "50"
+   ],
+   "avoid": [
+    "by_string",
+    "reads_its_name",
+    "prints_it",
+    "compares_it"
+   ]
+  }
+ ]
+}

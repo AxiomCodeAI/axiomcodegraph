@@ -112,7 +112,7 @@ KIND = {
     # C#: a call the language writes for a statement: `using` -> Dispose, `foreach` -> GetEnumerator, `{ a, b }` -> Add
     'using_dispose': 'call', 'foreach_enumerator': 'call', 'collection_add': 'call',
     # the callable is named, not called at that line — it runs when whoever took it runs it
-    'ref': 'method-ref',
+    'ref': 'method-ref', 'METHOD_REFERENCE': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
     'DECORATOR_APPLICATION': 'decorator', 'DECORATOR_ATTRIBUTE': 'decorator',
     'DECORATOR_BARE': 'decorator', 'DECORATOR_CALL': 'decorator',
