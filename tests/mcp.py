@@ -32,7 +32,7 @@ SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 # THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
 # at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
 # answered as the verb's own flow rather than as places.
-TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target']}
+TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target'], 'value': ['name']}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -119,7 +119,9 @@ def check_arguments(label, cmd, cwd, lax=False):
              ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
              ('tests', {'why': True}, 'why: unexpected argument'),
              ('context', {}, 'task'),
-             ('context', {'task': 'x', 'budget': 3}, 'budget: unexpected argument')]
+             ('context', {'task': 'x', 'budget': 3}, 'budget: unexpected argument'),
+             ('value', {}, 'name'),
+             ('value', {'name': 'MAX_ITEMS', 'json': True}, 'json: unexpected argument')]
     for name, args, field in wrong:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
@@ -129,7 +131,7 @@ def check_arguments(label, cmd, cwd, lax=False):
     # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
     right = [('impact', {'name': 'A.f'}), ('impact', {}),
              ('path', {'start': 'a', 'end': 'b'}), ('tests', {}),
-             ('context', {'task': 'x'}), ('context', {'task': 'x', 'source': True})]
+             ('context', {'task': 'x'}), ('context', {'task': 'x', 'source': True}), ('value', {'name': 'MAX_ITEMS'})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
@@ -153,7 +155,8 @@ def check_front_door():
                            (lambda: server.impact(''), ['impact', cwd]),
                            (lambda: server.impact(), ['impact', cwd]),
                            (lambda: server.path('a', 'b'), ['path', 'a', 'b', cwd]),
-                           (lambda: server.tests(), ['tests', cwd])):
+                           (lambda: server.tests(), ['tests', cwd]),
+                           (lambda: server.value('MAX_ITEMS'), ['value', 'MAX_ITEMS', cwd])):
             seen.clear(); call()
             if seen != [want]: bad.append(f"front door: ran {seen}, want {[want]}")
             if any(a.startswith('-') for a in (seen[0] if seen else [])): bad.append(f"front door: a flag was passed: {seen}")

@@ -12,6 +12,10 @@
 #   axiomcode context "<the task, in your own words>" [--source]
 #       how something works, as a narrative: the files and callables the task touches and, for a
 #       how-does-X-work question, the call flow step by step; --source carries each step's code.
+#   axiomcode value <name>
+#       the current value of a named constant: its value, its kind and the line that writes it, file:line with the
+#       source. Pager.MAX_ITEMS for a class's; MAX_* for every one matching. A name defined in several places is listed
+#       in all of them; a name that is declared without a literal value, or is a local, or is unknown, says which.
 #   axiomcode link <file:line> <target>
 #       record where an unresolved call lands, when the code makes it certain: impact, path and tests then walk it,
 #       labelled [asserted]. Alone, lists every link and whether the graph took it; `link <file:line> -` removes one.
@@ -72,7 +76,7 @@
 # language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
 # --src limits the analysed tree (e.g. src); --library names dependency roots. --fresh (context, path, impact) waits for
 # a refresh in flight and answers from the new graph; without it an answer from a graph older than an edit marks its rows.
-# --no-refresh (every query verb: context, path, impact, changed, test-impact; MCP refresh=false) is a READ-ONLY
+# --no-refresh (every query verb: context, path, impact, value, changed, test-impact; MCP refresh=false) is a READ-ONLY
 # query: the answer comes from the graph as it is and no rebuild is started, as AXIOMCODE_NO_REFRESH=1 does for a whole
 # shell; it still says which edits the graph predates. Without it a query on a graph that is out of date (files edited
 # since, or built by another axiomcode) starts a background rebuild with the engine this axiomcode uses, and says so on
@@ -126,7 +130,7 @@ public_verbs(){ helptext | sed -n 's/^  axiomcode \([a-z][a-z-]*\).*/\1/p'; }
 # leading comment block. The verb documents itself once, where it is implemented.
 verbhelp(){
   # a verb of the small surface is explained by its own entry in the help above: what it answers, no options
-  case "$1" in impact|path|tests|link|report)
+  case "$1" in impact|path|tests|link|report|value)
     helptext | awk -v v="$1" '$0 ~ "^  axiomcode "v"( |$)" {on=1; print; next} on && /^  axiomcode / {exit} on && /^$/ {exit} on {print}'
     return 0 ;;
   esac
@@ -197,6 +201,7 @@ case "$cmd" in
   graph) case "${POS[0]:-}" in ""|build|export|draw) ;; *) [ -d "${POS[0]}" ] || gone "${POS[0]}" ;; esac ;;
   context) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
   path) if [ "${#POS[@]}" -gt 2 ] && [ ! -d "${POS[2]}" ]; then gone "${POS[2]}"; fi ;;
+  value) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
   impact) if [ "${#POS[@]}" -gt 1 ] && [ ! -e "$LASTPOS" ] && dirlike "$LASTPOS"; then gone "$LASTPOS"; fi ;;
   changed|test-impact|tests) if [ "${#POS[@]}" -gt 0 ] && [ ! -e "${POS[0]}" ] && dirlike "${POS[0]}"; then gone "${POS[0]}"; fi ;;
 esac
@@ -251,6 +256,8 @@ Q=""; [ -d "$FR/.axiomcode/lang" ] && [ -z "${AXIOMCODE_GRAPH:-}" ] && Q="$H/ax_
 # (-L too: a pointer whose target is gone is a graph to repair — the refresher does it — not a repository without one)
 if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sqlite" ]; then
   case "$cmd" in
+    # value asks every language's graph itself (one answer, its rows from all of them), so it is not fanned out
+    value) exec python3 "$H/ax_fresh.py" query "$FR" value -- python3 "$H/axiomcode-value" ${ARGS[@]+"${ARGS[@]}"} ;;
     context|path|impact) exec python3 "$H/ax_fresh.py" query "$FR" "$cmd" -- ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-$cmd" ${ARGS[@]+"${ARGS[@]}"} ;;
     changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;
   esac
@@ -263,6 +270,7 @@ case "$cmd" in
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   link) exec python3 "$H/axiomcode-link" ${ARGS[@]+"${ARGS[@]}"} ;;
+  value) exec python3 "$H/axiomcode-value" ${ARGS[@]+"${ARGS[@]}"} ;;
   report) exec python3 "$H/ax_assists.py" report ${ARGS[@]+"${ARGS[@]}"} ;;
   graph) exec python3 "$H/axiomcode-graph" ${ARGS[@]+"${ARGS[@]}"} ;;
   --verbs) verbs ;;                      # the dispatch table, internal verbs included; tests/surfaces.py audits it
