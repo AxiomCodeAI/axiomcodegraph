@@ -4708,6 +4708,46 @@ async function solutionStyleRootDelegatesToReferences(): Promise<number> {
   return 0;
 }
 
+/**
+ * A framework writes its programs' configs into a generated directory and points the
+ * root at them: Nuxt's `tsconfig.json` is `files: []` plus references to
+ * `.nuxt/tsconfig.app.json` (which includes everything under `../app`) and `.nuxt/tsconfig.server.json`.
+ * Each referenced config is a program, but its files are OUTSIDE its directory, so a
+ * program rooted at `.nuxt/` walked none of them: 2 of 63 files of a stock Nuxt 4 app
+ * were extracted, and nothing said the rest were missing.
+ */
+async function configProgramsReachOutsideTheirDirectory(): Promise<number> {
+  const bundler = { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true };
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-config-programs-', {
+    'tsconfig.json': JSON.stringify({ files: [], references: [
+      { path: './.nuxt/tsconfig.app.json' }, { path: './.nuxt/tsconfig.server.json' },
+    ] }),
+    '.nuxt/tsconfig.app.json': JSON.stringify({ compilerOptions: bundler, include: ['../app/**/*'] }),
+    '.nuxt/tsconfig.server.json': JSON.stringify({ compilerOptions: bundler, include: ['../server/**/*'] }),
+    'app/lib/greet.ts': 'export function greet(n: string): string { return `hi ${n}`; }',
+    'app/page.ts': 'import { greet } from "./lib/greet"; export function page(): string { return greet("a"); }',
+    'server/api/hello.ts': 'export function hello(): string { return "hello"; }',
+  });
+  const failures: string[] = [];
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  const governed = new Map(modules.map((r) => [r.filePath ?? '', r.tsConfigPath ?? '']));
+  const want: [string, string][] = [['app/lib/greet.ts', 'tsconfig.app.json'], ['app/page.ts', 'tsconfig.app.json'],
+    ['server/api/hello.ts', 'tsconfig.server.json']];
+  for (const [file, config] of want) {
+    const got = governed.get(file);
+    if (got === undefined) failures.push(`${file} is missing (have ${[...governed.keys()].join(', ') || 'nothing'})`);
+    else if (!got.endsWith(`.nuxt/${config}`)) failures.push(`${file} is governed by '${got}', want .nuxt/${config}`);
+  }
+  const skipped = relation(outputDir, 'skipped-typescript-files.csv').filter((r) => !(r.filePath ?? '').startsWith('.nuxt/'));
+  if (skipped.length > 0) failures.push(`skipped: ${skipped.map((r) => `${r.filePath} ${r.reason}`).join(', ')}`);
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  config programs outside their directory: ${modules.length} module row(s), app and server each under its own config`);
+  return 0;
+}
+
 // ---------------------------------------------------------------------------
 // 34. strictBindCallApply is emitted RESOLVED, not as written
 // ---------------------------------------------------------------------------
@@ -4786,6 +4826,7 @@ async function strictBindCallApplyIsResolved(): Promise<number> {
 const CHECKS: Check[] = [
   { name: 'strictBindCallApply is emitted resolved', proves: 'the flag is emitted as the checker resolves it — implied by strict, not by individual strict flags, explicit false winning — so a consumer can pick between the Function and CallableFunction overloads of call/apply/bind', run: strictBindCallApplyIsResolved },
   { name: 'a solution-style root delegates to its references', proves: 'a root tsconfig with files: [] and references extracts the files its same-directory references claim under those configs, reaches a referenced subdirectory as a nested program, and reports a file no program claims as NO_PROGRAM_CLAIMS_FILE (#660)', run: solutionStyleRootDelegatesToReferences },
+  { name: 'a referenced config claims files outside its directory', proves: 'a solution-style root whose references live in a generated directory (.nuxt/tsconfig.app.json including ../app/**) extracts every file each referenced config claims, under that config, as its own program', run: configProgramsReachOutsideTheirDirectory },
   { name: 'every program is extracted, none are merged', proves: 'each program under a root reaches one flat relation set with unique keys, while the module link passes stay inside a program so two global scopes are never merged', run: everyProgramIsExtractedAndNoneAreMerged },
   { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
   { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },
