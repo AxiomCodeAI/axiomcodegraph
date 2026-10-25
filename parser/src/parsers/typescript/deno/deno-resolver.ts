@@ -99,7 +99,73 @@ function resolveIn(specifier: string, containingFile: string, context: DenoConte
   if (target.startsWith('https:') || target.startsWith('http:')) {
     return resolveRemoteUrl(target, context.root);
   }
-  return memberExport(target, context);
+  return memberExport(target, context) ?? packageJsonDependency(target, containingFile, context);
+}
+
+// ── 2b. a package.json dependency ───────────────────────────────────────────
+
+/**
+ * A bare specifier no import map or member claims, named by the nearest
+ * package.json's dependencies: under `"nodeModulesDir": "none"` (or `auto`) Deno
+ * serves it from its npm cache (`vitest` in a member that declares it). Under
+ * `manual`, Deno's default beside a package.json, it expects node_modules and
+ * refuses otherwise, so this answers nothing and the compiler's resolution does.
+ */
+function packageJsonDependency(specifier: string, containingFile: string, context: DenoContext):
+  DenoResolution | undefined {
+  const mode = context.root.nodeModulesDir;
+  if (mode !== 'none' && mode !== 'auto') {
+    return undefined;
+  }
+  const m = /^((?:@[^/@]+\/)?[^/@]+)(\/.*)?$/.exec(specifier);
+  if (!m) {
+    return undefined;
+  }
+  const name = m[1]!;
+  const range = dependencyRange(name, path.dirname(containingFile), context.root.dir);
+  if (range === undefined) {
+    return undefined;
+  }
+  const installed = ts.resolveModuleName(specifier, containingFile, NPM_OPTIONS, ts.sys).resolvedModule;
+  if (installed !== undefined) {
+    return undefined;
+  }
+  const resolved = resolveNpm(`npm:${name}${range === '' ? '' : `@${range}`}${m[2] ?? ''}`, containingFile, context);
+  return resolved?.kind === 'NPM_CACHE' ? resolved : undefined;
+}
+
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+
+/** `name`'s range in the nearest package.json at or above `dir` (up to `top`) that declares it; '' for a non-semver value. */
+function dependencyRange(name: string, dir: string, top: string): string | undefined {
+  for (let d = dir; ; d = path.dirname(d)) {
+    const manifest = readPackageJson(path.join(d, 'package.json'));
+    for (const field of DEPENDENCY_FIELDS) {
+      const value = (manifest?.[field] as Record<string, unknown> | undefined)?.[name];
+      if (typeof value === 'string') {
+        // `workspace:*` is a member (resolved above); `catalog:`, `file:` and tags name no range.
+        return /^[\d^~<>=*xX |.-]/.test(value) && !value.startsWith('workspace:') ? value.trim() : '';
+      }
+    }
+    if (d === top || path.dirname(d) === d) {
+      return undefined;
+    }
+  }
+}
+
+const packageJsons = new Map<string, Record<string, unknown> | null>();
+
+function readPackageJson(file: string): Record<string, unknown> | undefined {
+  let known = packageJsons.get(file);
+  if (known === undefined) {
+    try {
+      known = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    } catch {
+      known = null;
+    }
+    packageJsons.set(file, known);
+  }
+  return known ?? undefined;
 }
 
 // ── 1. the import map ───────────────────────────────────────────────────────
@@ -306,9 +372,27 @@ function resolveNpm(target: string, containingFile: string, context: DenoContext
     return undefined;
   }
   const file = resolveInPackage(bare, name, packageDir);
-  return file === undefined
-    ? undefined
-    : { resolvedFileName: file.resolvedFileName, extension: file.extension, kind: 'NPM_CACHE', packageName: name };
+  if (file === undefined) {
+    return undefined;
+  }
+  // A package that ships only JavaScript is type-checked against its @types twin, as the compiler does.
+  const typed = DECLARATION.test(file.resolvedFileName) ? undefined : typesTwin(bare, name, context);
+  return { ...(typed ?? file), kind: 'NPM_CACHE', packageName: name };
+}
+
+const DECLARATION = /\.d\.[cm]?ts$/;
+
+function typesTwin(bare: string, name: string, context: DenoContext):
+  { resolvedFileName: string; extension: string } | undefined {
+  const twin = `@types/${name.startsWith('@') ? name.slice(1).replace('/', '__') : name}`;
+  const cached = cachedNpmVersions(twin);
+  if (cached.size === 0) {
+    return undefined;
+  }
+  const locked = (readLock(context.root)?.npm.get(twin) ?? []).filter((v) => cached.has(v));
+  const version = maxSatisfying(locked, '') ?? maxSatisfying(cached.keys(), '');
+  return version === undefined ? undefined
+    : resolveInPackage(twin + bare.slice(name.length), twin, cached.get(version)!);
 }
 
 /**
@@ -596,4 +680,5 @@ export function denoPackageNameOf(specifier: string, containingFile: string): st
 export function clearDenoResolutionCache(): void {
   resolutions.clear();
   materializedUrls.clear();
+  packageJsons.clear();
 }

@@ -384,6 +384,46 @@ const CHECKS: Check[] = [
     },
   },
   {
+    name: 'npm: a package.json dependency, and an @types twin',
+    proves: 'under "nodeModulesDir": "none" a bare specifier the nearest package.json declares resolves into Deno\'s npm cache, a JavaScript-only package resolves to its cached @types twin, and under "manual" (Deno\'s default beside a package.json) nothing is answered, as Deno refuses it',
+    rulesOut: 'Node-style members of a Deno workspace left unresolved, calls typed against a .js entry Deno never type-checks, or a cache answer where Deno demands node_modules',
+    run: async (tmp) => {
+      const { denoDir } = freshEnvironment(tmp, 'npm-pkgjson');
+      const registry = path.join(denoDir, 'npm', 'registry.npmjs.org');
+      write(path.join(registry, 'runner', '3.2.4'), {
+        'package.json': JSON.stringify({ name: 'runner', version: '3.2.4', exports: { '.': { types: './index.d.ts' }, './config': { types: './config.d.ts' } } }),
+        'index.d.ts': '', 'config.d.ts': '',
+      });
+      write(path.join(registry, 'runner', '4.0.0'), {
+        'package.json': JSON.stringify({ name: 'runner', version: '4.0.0', types: './index.d.ts' }), 'index.d.ts': '',
+      });
+      write(path.join(registry, 'jsonly', '0.10.9'), {
+        'package.json': JSON.stringify({ name: 'jsonly', version: '0.10.9', main: './main.js' }), 'main.js': '',
+      });
+      write(path.join(registry, '@types', 'jsonly', '0.10.8'), {
+        'package.json': JSON.stringify({ name: '@types/jsonly', version: '0.10.8', types: './index.d.ts' }), 'index.d.ts': '',
+      });
+      const root = write(path.join(tmp, 'npm-pkgjson'), {
+        'deno.json': JSON.stringify({ nodeModulesDir: 'none', workspace: ['./pkg'] }),
+        'pkg/deno.json': JSON.stringify({ name: '@x/pkg' }),
+        'manual/deno.json': '{}',
+        'manual/package.json': JSON.stringify({ name: 'manual', dependencies: { runner: '^3.2.0' } }),
+        'manual/main.ts': '',
+        'pkg/package.json': JSON.stringify({ name: '@x/pkg', devDependencies: { runner: '^3.2.0', jsonly: 'catalog:' } }),
+        'pkg/src/a.test.ts': '',
+        'main.ts': '',
+      });
+      return firstFailure([
+        expectResolved(root, 'runner', 'pkg/src/a.test.ts', relativeTo(root, path.join(registry, 'runner', '3.2.4', 'index.d.ts')), 'NPM_CACHE'),
+        expectResolved(root, 'runner/config', 'pkg/src/a.test.ts', relativeTo(root, path.join(registry, 'runner', '3.2.4', 'config.d.ts'))),
+        expectResolved(root, 'jsonly', 'pkg/src/a.test.ts', relativeTo(root, path.join(registry, '@types', 'jsonly', '0.10.8', 'index.d.ts')), 'NPM_CACHE'),
+        // Not declared by the root's (absent) package.json: the compiler's own resolution keeps it.
+        expectResolved(root, 'runner', 'main.ts', '<none>'),
+        expectResolved(root, 'runner', 'manual/main.ts', '<none>'),
+      ]);
+    },
+  },
+  {
     name: 'outside a Deno project nothing changes',
     proves: 'with no deno.json above a file the resolver answers nothing, so every other TypeScript project resolves as before',
     rulesOut: 'Deno rules leaking into Node projects, such as an unrelated import map or a stray mirror write',

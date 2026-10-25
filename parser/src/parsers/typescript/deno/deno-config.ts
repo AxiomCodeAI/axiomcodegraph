@@ -50,6 +50,12 @@ export interface DenoConfig {
   readonly workspaceMembers: readonly string[];
   /** `"vendor": true`: remote modules are kept under `<dir>/vendor`. */
   readonly vendor: boolean;
+  /**
+   * `nodeModulesDir`: `none` (also `false`) serves npm packages from Deno's cache, `auto`
+   * (also `true`) installs them on use, `manual` expects an installed node_modules.
+   * `undefined` when the config does not say (Deno then expects node_modules beside a package.json).
+   */
+  readonly nodeModulesDir: 'none' | 'auto' | 'manual' | undefined;
   /** `false` when the config turns the lockfile off; the path otherwise (it may not exist). */
   readonly lockPath: string | false;
   readonly compilerOptions: Readonly<Record<string, unknown>>;
@@ -188,6 +194,9 @@ export function readDenoConfig(configPath: string): DenoConfig | undefined {
       },
       workspaceMembers: workspaceMembersOf(json.workspace, dir),
       vendor: json.vendor === true,
+      nodeModulesDir: json.nodeModulesDir === false || json.nodeModulesDir === 'none' ? 'none'
+        : json.nodeModulesDir === true || json.nodeModulesDir === 'auto' ? 'auto'
+          : json.nodeModulesDir === 'manual' ? 'manual' : undefined,
       lockPath: lockPathOf(json.lock, dir),
       compilerOptions: json.compilerOptions !== null && typeof json.compilerOptions === 'object'
         ? json.compilerOptions as Record<string, unknown>
