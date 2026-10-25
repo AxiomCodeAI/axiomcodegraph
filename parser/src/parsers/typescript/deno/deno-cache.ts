@@ -71,9 +71,16 @@ export function readRemote(url: string, root: DenoConfig): RemoteModule | undefi
       return { url, text, headers: {} };
     }
   }
-  const cached = path.join(denoDir(), 'remote', parsed.protocol.replace(/:$/, ''), hostDir(parsed),
-    crypto.createHash('sha256').update(parsed.pathname + parsed.search).digest('hex'));
-  const raw = readText(cached);
+  const hostCache = path.join(denoDir(), 'remote', parsed.protocol.replace(/:$/, ''), hostDir(parsed));
+  let cached = '';
+  let raw: string | undefined;
+  for (const key of cacheKeysOf(parsed)) {
+    cached = path.join(hostCache, crypto.createHash('sha256').update(key).digest('hex'));
+    raw = readText(cached);
+    if (raw !== undefined) {
+      break;
+    }
+  }
   if (raw === undefined) {
     return undefined;
   }
@@ -84,6 +91,17 @@ export function readRemote(url: string, root: DenoConfig): RemoteModule | undefi
   // Deno before the inline trailer kept the headers in a sidecar file.
   const sidecar = readText(`${cached}.metadata.json`);
   return { url, text: raw, headers: sidecar === undefined ? {} : headersOf(sidecar) };
+}
+
+/**
+ * The path and query Deno hashed for `url`. Deno's URL parser leaves a `^` in a
+ * path as written (`esm.sh/type-fest@^4.11.1`), where this one escapes it to
+ * `%5E`, so the unescaped spelling is tried as well.
+ */
+function cacheKeysOf(url: URL): string[] {
+  const key = url.pathname + url.search;
+  const unescaped = url.pathname.replace(/%5E/gi, '^') + url.search;
+  return unescaped === key ? [key] : [key, unescaped];
 }
 
 function headersOf(json: string): Record<string, string> {
@@ -122,6 +140,8 @@ function readText(file: string): string | undefined {
 export interface DenoLock {
   readonly jsr: ReadonlyMap<string, readonly string[]>;
   readonly npm: ReadonlyMap<string, readonly string[]>;
+  /** Remote URL to the URL it redirected to (`esm.sh/ky@1.7` to `esm.sh/ky@1.7.5`). */
+  readonly redirects: ReadonlyMap<string, string>;
   readonly text: string;
 }
 
@@ -146,12 +166,25 @@ export function readLock(root: DenoConfig): DenoLock | undefined {
       result = {
         jsr: versionsByName(json.jsr ?? packages.jsr),
         npm: versionsByName(json.npm ?? packages.npm),
+        redirects: redirectsOf(json.redirects),
         text,
       };
     }
   }
   locks.set(root.lockPath, result ?? null);
   return result;
+}
+
+function redirectsOf(section: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (section !== null && typeof section === 'object') {
+    for (const [from, to] of Object.entries(section as Record<string, unknown>)) {
+      if (typeof to === 'string') {
+        out.set(from, to);
+      }
+    }
+  }
+  return out;
 }
 
 /** `{"@std/path@1.1.6": …, "zod@3.25.76_peer@1.0.0": …}` to name → versions. */

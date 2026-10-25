@@ -87,6 +87,9 @@ function main(): number {
   const repo = path.resolve(process.argv[2] ?? '.');
   const mirrors = new Set<string>();
   const packages = new Set<string>();
+  // Dependency specifiers that resolve to nothing: most often modules Deno has not
+  // downloaded (no `deno install` yet, or a cache the OS purged).
+  const unresolved = new Set<string>();
   for (const file of sourceFiles(repo)) {
     const context = denoContextForDir(path.dirname(file));
     if (context === undefined) {
@@ -101,6 +104,9 @@ function main(): number {
     for (const specifier of moduleSpecifiersOf(text, file)) {
       const resolved = resolveDenoSpecifier(specifier, file);
       if (resolved === undefined) {
+        if (!/^(\.{0,2}\/|[a-z][a-z0-9+.-]*:)/i.test(specifier) || /^(jsr|npm|https?):/.test(specifier)) {
+          unresolved.add(specifier);
+        }
         continue;
       }
       if (resolved.kind === 'JSR' || resolved.kind === 'REMOTE') {
@@ -115,7 +121,7 @@ function main(): number {
   }
   // A mirror exists once something was copied into it; one that stayed empty stages nothing.
   const filled = [...mirrors].filter((m) => configIn(m) !== undefined).sort();
-  process.stdout.write(`${JSON.stringify({ mirrors: filled, packages: [...packages].sort() })}\n`);
+  process.stdout.write(`${JSON.stringify({ mirrors: filled, packages: [...packages].sort(), unresolved: unresolved.size })}\n`);
   return 0;
 }
 

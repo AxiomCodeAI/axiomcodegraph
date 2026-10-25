@@ -142,6 +142,9 @@ def deno_libraries(repo, engine):
     found = [d for d in roots.get('mirrors', []) + roots.get('packages', []) if os.path.isdir(d)]
     note(f"auto: {len(roots.get('mirrors', []))} Deno mirror(s) of jsr: and URL modules, "
          f"{len(roots.get('packages', []))} npm package(s) the Deno project imports")
+    if roots.get('unresolved'):
+        note(f"auto: {roots['unresolved']} Deno dependency import(s) resolve to nothing; if Deno has not downloaded "
+             f"them (or its cache was cleared), run `deno install` and index again")
     return found
 
 
