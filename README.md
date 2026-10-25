@@ -127,7 +127,7 @@ established relationships that could lead to false positives.
 
 AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) parses a repository and builds its
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
-agent-facing frontend: a skill, four MCP tools, and hooks. Install the engine first.
+agent-facing frontend: a skill, five MCP tools, and hooks. Install the engine first.
 
 Requirements: **Node ≥ 22.13** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
 [Git for Windows](https://git-scm.com/download/win): the CLI runs under its bash. The engine ships as a prebuilt
@@ -139,7 +139,7 @@ your platform. No Soufflé and no compiler are needed, with one exception:
 > `sudo apt install build-essential python3`. The full `node:*` Docker images already include them.
 
 Before every release, the exact packages that ship are installed without Soufflé and run end to end (every CLI verb,
-five languages) on macOS arm64 and x64, Linux x64 and arm64, and Windows x64. Check an install with
+six language engines, including HTML/CSS) on macOS arm64 and x64, Linux x64 and arm64, and Windows x64. Check an install with
 `axiomcode --version`.
 
 ### Installation
@@ -259,7 +259,7 @@ looked up again in the graph before you see it; the `verified:` line is that che
 
 ### Support for agents
 
-Every agent below gets the four MCP tools and the skill; the hooks, which keep the graph current and report what an
+Every agent below gets the five MCP tools and the skill; the hooks, which keep the graph current and report what an
 edit breaks, run where the last column says so. No hook annotates the agent's own reads and searches.
 
 | Agent | Hooks |
