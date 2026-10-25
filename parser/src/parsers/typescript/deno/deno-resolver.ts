@@ -7,7 +7,7 @@ import { DenoConfig, DenoContext, DenoImportMap, denoContextFor } from '@/parser
 import {
   cachedNpmVersions, materialize, readLock, readRemote, RemoteModule,
 } from '@/parsers/typescript/deno/deno-cache';
-import { maxSatisfying } from '@/parsers/typescript/deno/deno-semver';
+import { maxSatisfying, satisfies } from '@/parsers/typescript/deno/deno-semver';
 
 /**
  * Resolves a module specifier the way Deno does, for a file inside a Deno project.
@@ -273,19 +273,33 @@ function resolveNpm(target: string, containingFile: string, context: DenoContext
   const bare = name + (m[3] ?? '');
   // A project with node_modules (`nodeModulesDir`, or a package.json) installs there.
   const installed = ts.resolveModuleName(bare, containingFile, NPM_OPTIONS, ts.sys).resolvedModule;
+  const lockedNpm = readLock(context.root)?.npm.get(name) ?? [];
   if (installed !== undefined && /[\\/]node_modules[\\/]/.test(installed.resolvedFileName)) {
-    return {
-      resolvedFileName: path.normalize(installed.resolvedFileName),
-      extension: installed.extension,
-      kind: 'NODE_MODULES',
-      packageName: installed.packageId?.name ?? name,
-    };
+    // The version is checked only on the package itself: a package without types
+    // resolves to its `@types/` twin, whose version follows its own line.
+    const installedVersion = installed.packageId?.name === name ? installed.packageId.version : undefined;
+    if (range === '' || installedVersion === undefined || satisfies(installedVersion, range)) {
+      return {
+        resolvedFileName: path.normalize(installed.resolvedFileName),
+        extension: installed.extension,
+        kind: 'NODE_MODULES',
+        packageName: installed.packageId?.name ?? name,
+      };
+    }
+    // The hoisted copy is another major (`npm:tailwindcss@^3` beside a hoisted 4): Deno
+    // keeps each version under node_modules/.deno/<name>@<version>/node_modules/<name>.
+    const side = denoNodeModulesVersions(name, containingFile);
+    const version = maxSatisfying(lockedNpm.filter((v) => side.has(v)), range) ?? maxSatisfying(side.keys(), range);
+    const file = version === undefined ? undefined : resolveInPackage(bare, name, side.get(version)!);
+    if (file !== undefined) {
+      return { resolvedFileName: file.resolvedFileName, extension: file.extension, kind: 'NODE_MODULES', packageName: name };
+    }
   }
   const cached = cachedNpmVersions(name);
   if (cached.size === 0) {
     return undefined;
   }
-  const locked = readLock(context.root)?.npm.get(name)?.filter((v) => cached.has(v)) ?? [];
+  const locked = lockedNpm.filter((v) => cached.has(v));
   const version = maxSatisfying(locked, range) ?? maxSatisfying(cached.keys(), range);
   const packageDir = version === undefined ? undefined : cached.get(version);
   if (packageDir === undefined) {
@@ -295,6 +309,39 @@ function resolveNpm(target: string, containingFile: string, context: DenoContext
   return file === undefined
     ? undefined
     : { resolvedFileName: file.resolvedFileName, extension: file.extension, kind: 'NPM_CACHE', packageName: name };
+}
+
+/**
+ * Each version of `name` under the nearest `node_modules/.deno`, with its package
+ * directory: `@scope/pkg` lives at `.deno/@scope+pkg@1.2.3[_peer]/node_modules/@scope/pkg`.
+ */
+function denoNodeModulesVersions(name: string, containingFile: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const prefix = name.replace('/', '+') + '@';
+  for (let dir = path.dirname(containingFile); ; dir = path.dirname(dir)) {
+    const store = path.join(dir, 'node_modules', '.deno');
+    let entries: string[] | undefined;
+    try {
+      entries = fs.readdirSync(store);
+    } catch {
+      entries = undefined;
+    }
+    if (entries !== undefined) {
+      for (const entry of entries) {
+        if (entry.startsWith(prefix)) {
+          const version = entry.slice(prefix.length).split('_')[0]!;
+          const packageDir = path.join(store, entry, 'node_modules', ...name.split('/'));
+          if (!out.has(version) && fs.existsSync(packageDir)) {
+            out.set(version, packageDir);
+          }
+        }
+      }
+      return out;
+    }
+    if (path.dirname(dir) === dir) {
+      return out;
+    }
+  }
 }
 
 /**
@@ -403,8 +450,15 @@ function materializeWithImports(module: RemoteModule, root: DenoConfig): string 
 }
 
 function followRedirects(url: string, root: DenoConfig): RemoteModule | undefined {
+  const redirects = readLock(root)?.redirects;
   let current = url;
   for (let hop = 0; hop < 10; hop++) {
+    // Deno 2 records a redirect in the lockfile and may keep no cache entry for it.
+    const locked = redirects?.get(current) ?? redirects?.get(current.replace(/%5E/gi, '^'));
+    if (locked !== undefined && locked !== current) {
+      current = locked;
+      continue;
+    }
     const module = readRemote(current, root);
     if (module === undefined) {
       return undefined;

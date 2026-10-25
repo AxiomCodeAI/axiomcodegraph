@@ -46,10 +46,12 @@ function write(root: string, files: Record<string, string>): string {
 }
 
 /** A module in the fake `$DENO_DIR` remote cache, keyed as Deno keys it. */
-function cacheRemote(denoDir: string, url: string, body: string, headers: Record<string, string> = {}): void {
+function cacheRemote(denoDir: string, url: string, body: string, headers: Record<string, string> = {},
+  key?: string): void {
   const u = new URL(url);
+  // `key`: the path Deno hashed, when it differs from this URL parser's spelling (`^` vs `%5E`).
   const file = path.join(denoDir, 'remote', u.protocol.replace(':', ''), u.hostname,
-    crypto.createHash('sha256').update(u.pathname + u.search).digest('hex'));
+    crypto.createHash('sha256').update(key ?? u.pathname + u.search).digest('hex'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${body}\n// denoCacheMetadata=${JSON.stringify({ headers, url, time: 0 })}`);
 }
@@ -325,6 +327,60 @@ const CHECKS: Check[] = [
       return fs.existsSync(path.join(mirror, 'deno.land/x/oak@v12.6.1/app.ts'))
         ? null
         : 'a relative import of a mirrored URL module was not copied';
+    },
+  },
+  {
+    name: 'https: lockfile redirects and a caret in the URL',
+    proves: 'a redirect Deno recorded only in deno.lock is followed, and a URL with `^` finds the cache entry Deno hashed with the `^` as written',
+    rulesOut: 'partial-version CDN URLs (`esm.sh/ky@1.7`, `type-fest@^4`) left unresolved after `deno install`',
+    run: async (tmp) => {
+      const { denoDir, mirror } = freshEnvironment(tmp, 'remote-lock');
+      cacheRemote(denoDir, 'https://esm.sh/ky@1.7.5', 'export default function ky() {}\n',
+        { 'content-type': 'application/typescript' });
+      cacheRemote(denoDir, 'https://esm.sh/type-fest@^4.11.1', '', { location: 'https://esm.sh/type-fest@4.41.0' },
+        '/type-fest@^4.11.1');
+      cacheRemote(denoDir, 'https://esm.sh/type-fest@4.41.0', 'export type Simplify<T> = T;\n',
+        { 'content-type': 'application/typescript' });
+      const root = write(path.join(tmp, 'remote-lock'), {
+        'deno.json': JSON.stringify({ imports: { ky: 'https://esm.sh/ky@1.7' } }),
+        'deno.lock': JSON.stringify({ version: '5', redirects: { 'https://esm.sh/ky@1.7': 'https://esm.sh/ky@1.7.5' } }),
+        'main.ts': '',
+      });
+      return firstFailure([
+        expectResolved(root, 'ky', 'main.ts', relativeTo(root, path.join(mirror, 'esm.sh/ky@1.7.5.ts')), 'REMOTE'),
+        expectResolved(root, 'https://esm.sh/type-fest@^4.11.1', 'main.ts',
+          relativeTo(root, path.join(mirror, 'esm.sh/type-fest@4.41.0.ts')), 'REMOTE'),
+      ]);
+    },
+  },
+  {
+    name: 'npm: the version range picks among node_modules/.deno copies',
+    proves: 'an npm: range the hoisted node_modules copy does not satisfy resolves into the matching node_modules/.deno/<name>@<version> copy, and a package typed by its @types twin keeps the twin',
+    rulesOut: 'a member mapping `npm:pkg@^3` landing on the hoisted major 4, or a types-only twin rejected for its own version line',
+    run: async (tmp) => {
+      freshEnvironment(tmp, 'npm-store');
+      const store = 'node_modules/.deno';
+      const root = write(path.join(tmp, 'npm-store'), {
+        'deno.json': JSON.stringify({ nodeModulesDir: 'manual', workspace: ['./v3'] }),
+        'v3/deno.json': JSON.stringify({ name: '@x/v3', imports: { tw: 'npm:tw@^3.4.0', babel: 'npm:@babel/core@^7.28.0' } }),
+        'v3/main.ts': '',
+        'main.ts': '',
+        'node_modules/tw/package.json': JSON.stringify({ name: 'tw', version: '4.1.0', types: './v4.d.ts' }),
+        'node_modules/tw/v4.d.ts': '',
+        [`${store}/tw@4.1.0/node_modules/tw/package.json`]: JSON.stringify({ name: 'tw', version: '4.1.0', types: './v4.d.ts' }),
+        [`${store}/tw@4.1.0/node_modules/tw/v4.d.ts`]: '',
+        [`${store}/tw@3.4.18/node_modules/tw/package.json`]: JSON.stringify({ name: 'tw', version: '3.4.18', types: './v3.d.ts' }),
+        [`${store}/tw@3.4.18/node_modules/tw/v3.d.ts`]: '',
+        'node_modules/@babel/core/package.json': JSON.stringify({ name: '@babel/core', version: '7.28.5', main: './lib/index.js' }),
+        'node_modules/@babel/core/lib/index.js': '',
+        'node_modules/@types/babel__core/package.json': JSON.stringify({ name: '@types/babel__core', version: '7.20.5', types: './index.d.ts' }),
+        'node_modules/@types/babel__core/index.d.ts': '',
+      });
+      return firstFailure([
+        expectResolved(root, 'tw', 'v3/main.ts', `${store}/tw@3.4.18/node_modules/tw/v3.d.ts`, 'NODE_MODULES'),
+        expectResolved(root, 'npm:tw@^4', 'main.ts', 'node_modules/tw/v4.d.ts', 'NODE_MODULES'),
+        expectResolved(root, 'babel', 'v3/main.ts', 'node_modules/@types/babel__core/index.d.ts', 'NODE_MODULES'),
+      ]);
     },
   },
   {
