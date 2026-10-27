@@ -5,7 +5,7 @@
 <h1 align="center">AxiomCode Graph</h1>
 
 <p align="center">
-  <strong>A god's-eye view of your codebase for AI agents. Stop grepping. Ensure correctness and completeness for any task your AI agent performs.</strong>
+  <strong>Know what each change breaks in your codebase. Stop grepping. Ensure correctness and completeness for any task your AI agent performs. Ship less buggy code.</strong>
 </p>
 
 <p align="center">
