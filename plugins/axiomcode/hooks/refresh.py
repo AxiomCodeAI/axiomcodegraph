@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _host, _where
 
 try:
-    ev = _host.read()
+    ev = _host.read(orphan_ok=True)                       # an orphaned install's hook only says so (ax_fresh.hook_kick)
 except Exception:
     sys.exit(0)
 cwd = ev.get('cwd') or os.getcwd()
