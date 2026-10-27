@@ -1,0 +1,22 @@
+# shape: a posthtml page that stamps a row partial inside a <template> used by a client-side list renderer: the
+# include is real at build time, the content is inert in the page
+kinds=page,include,host_styles,styles
+@@@ file: src/css/s.css
+.row { a: 1 }
+#tpl .row { a: 2 }
+.live { a: 3 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/s.css">
+</head>
+<body>
+<template id="tpl"><include src="parts/row.html"></include></template>
+<ul><include src="parts/live.html"></include></ul>
+</body>
+</html>
+@@@ file: src/parts/live.html
+<li class="live">l</li>
+@@@ file: src/parts/row.html
+<li class="row">r</li>

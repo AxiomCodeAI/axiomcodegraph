@@ -34,7 +34,10 @@ name: nightly
 
 on:
   schedule:
-    - cron: '0 8 * * *'    # 08:00 UTC, after the US workday
+    # 08:31 UTC is about 1 AM Pacific: 1:31 AM in daylight time, 12:31 AM in standard time
+    # (cron is UTC only). Off the hour on purpose: GitHub queues schedules that fire at :00
+    # behind everyone else's, and at '0 8' the run started 5 to 9 hours late.
+    - cron: '31 8 * * *'
   workflow_dispatch:
     inputs:
       publish:
@@ -72,10 +75,15 @@ jobs:
       - name: every language, installed from the tarballs, no Soufflé
         run: |
           set -euo pipefail
-          for pair in java:java typescript:typescript python:python javascript:javascript; do
+          for pair in java:java typescript:typescript python:python javascript:javascript web:web; do
             lang="${pair%%:*}"
             # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
-            cases=(graph/test/"$lang"/cases/*/src)
+            # a web case is one packed file (cases/<suite>/<case>.case) unpacked first; this one has selectors the engine matches
+            if [ "$lang" = web ]; then
+              packed=(graph/test/web/cases/cascade/01-*.case)
+              python3 graph/test/web/tools/cases.py unpack "${packed[0]}" "$RUNNER_TEMP/web-case"
+              cases=("$RUNNER_TEMP/web-case/src")
+            else cases=(graph/test/"$lang"/cases/*/src); fi
             case_dir="${cases[0]}"
             [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             bash .github/scripts/e2e-install.sh artifacts/engines-linux-x64 linux-x64 "$lang" "$case_dir"

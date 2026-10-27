@@ -13,9 +13,16 @@
  * cannot point at.
  */
 
+import { WEB_TABLE_BOUNDS, WEB_TABLES, WEB_VIEW_DOCS, WEB_VIEWS } from '@/bundle/web/schema';
+
 export const SCHEMA_VERSION = '1';
 
-export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp';
+export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp' | 'web';
+/**
+ * The languages a core vocabulary row marked `all` is written for (review #18): the call-graph languages, as on dev. The
+ * web graph has no core rows (its tables are web_*), so `web` is a Language but takes no `all` vocabulary, and every
+ * other language's schema_vocab stays as it was.
+ */
 export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp'];
 
 export interface ColumnSpec {
@@ -517,6 +524,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'tier', value: 'dynamic_terminal', languages: S, meaning: '`obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'fan_capped', languages: ['javascript', 'java', 'csharp'], meaning: 'More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java and C#: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count.' },
   { table: 'call_edges', column: 'tier', value: 'callback_registered', languages: ['javascript', 'typescript'], meaning: 'The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on(\'x\', h)`, `setTimeout(f)`), which may invoke it. Not the site\'s own callee; a reachability edge, labelled so it is never read as a resolved call.' },
+  { table: 'call_edges', column: 'tier', value: 'callback_registered', languages: P, meaning: 'A method or function named as a VALUE and handed over, stored or returned (`pool.submit(self.work)`, `Thread(target=svc.run)`, `sorted(xs, key=self.rank)`, `[h.on_event]`), always kind METHOD_REFERENCE. Its target is resolved the way a call on the same receiver would be; whoever receives the value calls it. A reachability edge, labelled so it is never read as a resolved call.' },
   { table: 'call_edges', column: 'tier', value: 'event_dispatch', languages: S, meaning: '`x.emit(\'name\')` reaching a handler registered by `x.on(\'name\', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one.' },
   { table: 'call_edges', column: 'tier', value: 'event_dispatch', languages: T, meaning: 'A publish on a project class\'s keyed registry reaching each function filed under the same key: `bus.publish(\'x\', p)` where `publish` (or a method it passes the key to) calls what `this.handlers.get(name)` holds, to the function a `bus.subscribe(\'x\', f)` stored there, or an entry `{ [\'x\']: f }` of a table a subscribe-all method files by key. A literal, a const or a const-object member key; a key only known at run time matches every key, and a constant the dispatch also looks up (a wildcard) matches every publish. The site is the publish call (call-edge-generation/keyed_registry.dl).' },
   { table: 'call_edges', column: 'tier', value: 'event_dispatch', languages: J, meaning: 'A Spring application event: `publishEvent(e)` reaching each listener (`@EventListener`, `@TransactionalEventListener`, `ApplicationListener<E>.onApplicationEvent`) whose declared event type e\'s static type is, or is a subtype of. Added beside the publishEvent boundary row, never in place of it (call-edge-generation/event_dispatch.dl). Also a JPA entity write (`save`, `persist`, `merge`, `delete` on a repository or EntityManager) reaching the `@PrePersist`/`@PreUpdate`/`@PreRemove`-style callbacks of the written entity\'s type and of the listeners `@EntityListeners` names on it or a superclass (kind entity_callback; call-edge-generation/entity_lifecycle.dl).' },
@@ -677,6 +685,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'SUBSCRIPT_PROTOCOL', languages: P, meaning: '`x[k]` runs `__getitem__` (and `x[k] = v` / `del x[k]` the setter and deleter) of the receiver\'s class. No written call; the site is the subscript expression. Its own kind so it is never counted as a written call.' },
   { table: 'call_edges', column: 'kind', value: 'BUILTIN_PROTOCOL', languages: P, meaning: '`repr(x)`, `str(x)`, `len(x)`, `hash(x)`, `bool(x)`, `iter(x)`, `next(x)`, `abs(x)`, `format(x)` and `reversed(x)` run the matching dunder of the argument\'s class (str falls back to `__repr__`, bool to `__len__`). The written call is to the builtin; this edge is the dunder it runs. The site is the argument expression. Its own kind so it is never counted as a written call.' },
   { table: 'call_edges', column: 'kind', value: 'OPERATOR_PROTOCOL', languages: P, meaning: 'An operator runs a dunder of its operands: `a + b` the left operand\'s `__add__` and the right one\'s `__radd__`, a comparison the left slot and the right one\'s mirror (`a < b` -> `b.__gt__`, `!=` falls back to `__eq__`), `x in c` the right operand\'s `__contains__` (or `__iter__`), `-a`/`+a`/`~a` its `__neg__`/`__pos__`/`__invert__`. No written call; the site is the operator expression.' },
+  { table: 'call_edges', column: 'kind', value: 'METHOD_REFERENCE', languages: P, meaning: 'A method or function READ AS A VALUE, not called: an argument (`pool.submit(self.work, x)`, `map(Cls.convert, rows)`, `partial(svc.cancel, oid)`), a keyword (`Thread(target=svc.run)`), an element, a stored or returned value. The target is what the expression resolves to (a typed receiver through the MRO, a class, a scoped name, a module member); an untyped receiver gives no row. Always tier callback_registered; the site is the reference expression (call-edge-generation/method-reference.dl).' },
   { table: 'call_edges', column: 'kind', value: 'TRUTH_PROTOCOL', languages: P, meaning: 'A truth test runs the tested value\'s `__bool__`, or `__len__` when its class has none: `if x:`, `while x:`, `assert x`, `not x`, a conditional or comprehension condition, and an operand of `and`/`or` (the right one only when the whole expression is tested). No written call; the site is the tested expression.' },
 
   // entry_points.reason
@@ -756,7 +765,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'typescript', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.' },
   { language: 'typescript', table: 'type_instantiated', note: 'Every row has how = `new`. Not restricted to client provenance: a type the library constructs is still a type that exists at run time, and dropping it would narrow the envelope unsoundly.' },
   { language: 'typescript', table: 'call_sites', note: 'PROPERTY_READ and PROPERTY_WRITE rows are accessor invocations with no written call: the site is the property-access expression that runs the getter or setter, positioned from the expressions table, and callee_name is NULL because nothing was written; the accessor\'s name is on the callee\'s methods row. Filter them out with kind NOT IN (…) when counting calls.' },
-  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, PROPERTY_WRITE, CONTEXT_MANAGER, ITERATION_PROTOCOL, BUILTIN_PROTOCOL, OPERATOR_PROTOCOL, TRUTH_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.' },
+  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, PROPERTY_WRITE, CONTEXT_MANAGER, ITERATION_PROTOCOL, BUILTIN_PROTOCOL, OPERATOR_PROTOCOL, TRUTH_PROTOCOL, METHOD_REFERENCE, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.' },
   { language: 'python', table: 'call_sites', note: 'The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class\'s TYPE hash for METACLASS_CREATION, positioned at the class declaration.' },
   { language: 'python', table: 'call_edges', note: 'A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.' },
   { language: 'java', table: 'call_edges', note: 'A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform\'s own subclasses, are the other possible targets. Stage the library to replace the label with the real method.' },
@@ -764,7 +773,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'python', table: 'entry_points', note: 'Framework entry points only: url, http, orm_hook, task, signal_receiver, fixture, di_provider and grpc_service. There is no test and no main reason: a pytest test is recognised by the query layer from its file and name, not here.' },
   { language: 'python', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`, and `value` for a function assigned onto an instance\'s member; the raw linearisation is in ext_mro_position.' },
   { language: 'python', table: 'type_instantiated', note: 'Every row has how = `new`: the rule set records that some client call constructs the class, not which form.' },
-  { language: 'all', table: 'call_edges', note: 'THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge and multi_inferred in every language, and boundary_lib where the library is staged (--library) — without it boundary_lib names the target in callee_label and leaves callee_method_id NULL; ALSO ambient_terminal in TypeScript, fan_capped in Java and C# (the declared base, the fan refused), and runtime_observed in C#. HANDED OVER (callee set, but the site passes the function rather than calling it): callback_registered and event_dispatch in JavaScript and TypeScript; event_dispatch in C# too, where a mediator Send or Publish runs the handler for the request type, beside the row for the site itself. CORRECT END (callee NULL, and nothing is missing): intrinsic_terminal in TypeScript; ambient_terminal, implicit_constructor and dynamic_terminal in JavaScript; known_implicit_ctor, known_builtin_operator and boundary_generated (callee_label set) in C#. BLIND SPOT (callee NULL; exactly the tiers named `ambiguous_*`, which are what unresolved_sites holds): ambiguous_unknown everywhere, ALSO ambiguous_anon in Java and ambiguous_dynamic in C#. CAPPED (callee NULL, not in unresolved_sites): fan_capped in JavaScript. Python emits only the four shared tiers. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in every language but Python — derive the set from this note or from unresolved_sites, never from a hardcoded list.' },
+  { language: 'all', table: 'call_edges', note: 'THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge and multi_inferred in every language, and boundary_lib where the library is staged (--library) — without it boundary_lib names the target in callee_label and leaves callee_method_id NULL; ALSO ambient_terminal in TypeScript, fan_capped in Java and C# (the declared base, the fan refused), and runtime_observed in C#. HANDED OVER (callee set, but the site passes the function rather than calling it): callback_registered and event_dispatch in JavaScript and TypeScript, callback_registered (kind METHOD_REFERENCE) in Python; event_dispatch in C# too, where a mediator Send or Publish runs the handler for the request type, beside the row for the site itself. CORRECT END (callee NULL, and nothing is missing): intrinsic_terminal in TypeScript; ambient_terminal, implicit_constructor and dynamic_terminal in JavaScript; known_implicit_ctor, known_builtin_operator and boundary_generated (callee_label set) in C#. BLIND SPOT (callee NULL; exactly the tiers named `ambiguous_*`, which are what unresolved_sites holds): ambiguous_unknown everywhere, ALSO ambiguous_anon in Java and ambiguous_dynamic in C#. CAPPED (callee NULL, not in unresolved_sites): fan_capped in JavaScript. Python emits the four shared tiers and callback_registered. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in every language but Python — derive the set from this note or from unresolved_sites, never from a hardcoded list.' },
   { language: 'java', table: 'call_edges', note: 'A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query. A receiver is ALSO typed by what flows into it (a local\'s initializer, the arguments callers pass to a parameter, the receivers callers invoke a method on for its `this`), and each flow-in type resolves its member directly, outside the fan: that is why a `fan_capped` site still carries edges, and why they are the types the program was seen to hand over, not the whole hierarchy.' },
   { language: 'typescript', table: 'call_edges', note: 'A multi_inferred fan is CHA-wide, as in Java: type_instantiated is computed and exported but NOT read by any rule. The fan also has sources that are not virtual dispatch at all — an overload set or a union-typed receiver produces one too.' },
   { language: 'python', table: 'call_edges', note: 'A multi_inferred fan IS narrowed by the instantiation set: type_instantiated_reachable (the constructed classes and their bases) bounds dispatch in resolution/dispatch.dl. Python is the only front end where that narrowing is applied, so a fan here is tighter than the same shape would be in Java or TypeScript.' },
@@ -977,6 +986,44 @@ FROM call_edges GROUP BY tier ORDER BY edges DESC`,
 
 function mdEscape(s: string): string { return s.replace(/\|/g, '\\|'); }
 
+/**
+ * THE WEB GRAPH (HTML + CSS, #1908): its own graph.sqlite with the named web_* tables and views of graph/bundle/web/schema.ts,
+ * rendered from those definitions so the document cannot drift from the code. A table without a row bound, a bound for
+ * no table, a view without a description or a description for no view is an error here, and so a stale SCHEMA.md.
+ */
+function renderWebSection(out: string[]): void {
+  const tables = new Set(WEB_TABLES.map((t) => t.name));
+  const views = WEB_VIEWS.map((v) => /CREATE VIEW (\w+)/.exec(v)?.[1]).filter((n): n is string => n !== undefined);
+  for (const t of tables) if (WEB_TABLE_BOUNDS[t] === undefined) throw new Error(`web table ${t} has no row bound in WEB_TABLE_BOUNDS`);
+  for (const t of Object.keys(WEB_TABLE_BOUNDS)) if (!tables.has(t)) throw new Error(`WEB_TABLE_BOUNDS names ${t}, which is no web table`);
+  for (const v of views) if (WEB_VIEW_DOCS[v] === undefined) throw new Error(`web view ${v} has no description in WEB_VIEW_DOCS`);
+  for (const v of Object.keys(WEB_VIEW_DOCS)) if (!views.includes(v)) throw new Error(`WEB_VIEW_DOCS names ${v}, which is no web view`);
+  out.push('## Web tables — `web_<name>` (language `web`: HTML and CSS)');
+  out.push('');
+  out.push('A `--language web` run writes its own `<out>/web/graph.sqlite`. Its core tables are empty (HTML and CSS declare no methods or types); the web graph is the named tables below, created by `graph/bundle/web/write.ts` with an index on every `idx` column, and documented in `schema_tables` / `schema_columns` inside the database like the core tables. Every `*_uid` is a kind prefix and 16 hex digits of an IR hash; every `file` is relative to `run.source_dir`. No table holds a JavaScript node or an edge to one: `<script>` bodies and `on*` code are text.');
+  out.push('');
+  for (const t of WEB_TABLES) {
+    out.push(`### \`${t.name}\``);
+    out.push('');
+    out.push(t.description);
+    out.push('');
+    out.push(`Rows: ${WEB_TABLE_BOUNDS[t.name]}.`);
+    out.push('');
+    out.push('| # | column | type | idx | meaning |');
+    out.push('|---|---|---|---|---|');
+    t.columns.forEach((c, i) => out.push(`| ${i} | \`${c.name}\` | ${c.type} | ${c.indexed ? 'yes' : ''} | ${mdEscape(c.description)} |`));
+    out.push('');
+  }
+  out.push('### Web views');
+  out.push('');
+  out.push('SQL views over the tables above, not materialized.');
+  out.push('');
+  out.push('| view | answers |');
+  out.push('|---|---|');
+  for (const v of views) out.push(`| \`${v}\` | ${mdEscape(WEB_VIEW_DOCS[v]!)} |`);
+  out.push('');
+}
+
 export function renderSchemaMarkdown(): string {
   const out: string[] = [];
   out.push('# The output bundle — schema');
@@ -1052,6 +1099,7 @@ export function renderSchemaMarkdown(): string {
       out.push('');
     }
   }
+  renderWebSection(out);
   out.push('## Extended tables — `ext_<relation>`');
   out.push('');
   out.push('Every relation in the language\'s `graph/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.');

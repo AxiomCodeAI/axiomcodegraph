@@ -1,0 +1,17 @@
+# shape: (G10) animation sheets of jQuery-era templates naming keyframes only through vendor-prefixed shorthands (-webkit-, -moz-, -o-animation), with the duration first
+kinds=keyframes_use,value_ref
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="s.css">
+</head>
+<body>
+<div class="bar">b</div>
+</body>
+</html>
+@@@ file: src/s.css
+@keyframes stripes { from { background-position: 40px 0 } to { background-position: 0 0 } }
+@-webkit-keyframes shake { 50% { left: 2px } }
+.bar { -webkit-animation: stripes 2s linear infinite; -o-animation: stripes 2s linear infinite; }
+.bad { -moz-animation:.7s 1 shake linear; -webkit-animation:0.7s 1 shake linear; }

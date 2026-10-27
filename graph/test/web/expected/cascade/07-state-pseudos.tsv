@@ -1,0 +1,21 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/07-state-pseudos   kinds: styles
+# shape: buttons and inputs styled by :hover/:focus-visible/:active, initial form state (:checked, :disabled, :placeholder-shown), ::before/::after, legacy :after and vendor ::-webkit- pseudos
+styles	s.css:10:1/0	index.html:7:34	conditional	state:visited	-
+styles	s.css:11:1/0	index.html:7:34	match	-	after
+styles	s.css:11:1/0	index.html:7:61	match	-	after
+styles	s.css:12:1/0	index.html:5:1	conditional	state:-moz-focusring	-
+styles	s.css:12:1/0	index.html:5:29	conditional	state:-moz-focusring	-
+styles	s.css:13:1/0	index.html:5:1	conditional	state:hover	-
+styles	s.css:13:1/0	index.html:5:29	conditional	state:hover	-
+styles	s.css:1:1/0	index.html:5:1	conditional	state:hover	-
+styles	s.css:1:1/0	index.html:5:29	conditional	state:hover	-
+styles	s.css:2:1/0	index.html:5:1	conditional	state:focus-visible	before
+styles	s.css:2:1/0	index.html:5:29	conditional	state:focus-visible	before
+styles	s.css:3:1/0	index.html:5:29	conditional	state:initial-disabled	-
+styles	s.css:4:1/0	index.html:5:1	conditional	state:active;state:initial-enabled	-
+styles	s.css:5:1/0	index.html:6:1	conditional	state:initial-checked	-
+styles	s.css:6:1/0	index.html:6:42	conditional	state:initial-checked	-
+styles	s.css:7:1/0	index.html:7:1	conditional	state:initial-placeholder-shown	-
+styles	s.css:8:1/0	index.html:7:1	match	-	-webkit-input-placeholder
+styles	s.css:9:1/0	index.html:7:34	match	-	-

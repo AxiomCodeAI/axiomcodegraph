@@ -42,5 +42,11 @@ export enum HtmlReferenceKind {
   REQUEST = 'REQUEST',
 
   /** `cite`, `ping`, `manifest`, `background`, `longdesc`, `profile`, `usemap`, `codebase`, `data`. */
+  /**
+   * A server-side or build-time include (G22): SSI `<!--#include -->`, posthtml `<include src>`, gulp `@@include`,
+   * Jinja `{% include / extends / import %}`. The flavour is in `attributeName`.
+   */
+  INCLUDE = 'INCLUDE',
+
   OTHER = 'OTHER',
 }

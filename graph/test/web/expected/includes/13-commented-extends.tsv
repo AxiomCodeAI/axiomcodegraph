@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-12 iter 4 — a fragment's own <style> applies on the composed page; a commented {% extends %} ({% comment %}, {# #}, <!-- -->) does not compose; CSS inside a template comment is not live
+# case: includes/13-commented-extends   kinds: include,host_styles
+# shape: a form template whose first line is a disabled `{% comment %} {% extends 'base.html' %} {% endcomment %}`,
+host_styles	static/s.css:1:1/0	app/templates/d.html:2:20	app/templates/base.html	match	-	-
+include	app/templates/base.html	app/templates/d.html	jinja:extends	-	-	app/templates/d.html:1:1	-	match	-

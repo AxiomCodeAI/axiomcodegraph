@@ -1,0 +1,28 @@
+# shape: snapshots whose site root is a subdirectory: a public/ admin page linking "/css/animate.css" (public/css on
+# disk), a Flask app page under app/templates linking "/static/app/x.css" (app/static/app/x.css), and a root-relative
+# link that exists nowhere (V2-21)
+kinds=reference,loads_sheet,links_to
+@@@ file: src/app/static/app/x.css
+.x { b: 2 }
+@@@ file: src/app/templates/page.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="/static/app/x.css">
+</head>
+<body>p</body>
+</html>
+@@@ file: src/public/admin.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="/css/animate.css">
+<link rel="stylesheet" href="/css/gone.css">
+</head>
+<body><a href="/index.html">home</a></body>
+</html>
+@@@ file: src/public/css/animate.css
+.a { b: 1 }
+@@@ file: src/public/index.html
+<!doctype html>
+<html><body>i</body></html>

@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 4 — read against the source and the [iter4 orchestrator] rulings (V3-11 page rule and template quotes, V3-10a DOM values + attr_raw, V3-10b SSI directives, V3-02 index files, fragment classes styled through hosts)
+# case: pages/08-directory-index   kinds: reference,links_to
+# shape: an SSI site linking sections by directory (`/firefox/`, `docs/`): the index file is index.html,
+links_to	index.html:4:1	href	firefox/index.shtml	-	match	-
+links_to	index.html:5:1	href	docs/index.htm	-	match	-
+links_to	index.html:6:1	href	legacy/default.htm	-	match	-
+links_to	index.html:7:1	href	both/index.html	-	match	-
+links_to	index.html:8:1	href	empty/	-	unknown	unresolved_url
+reference	index.html:4:1	href	/firefox/	local	firefox/index.shtml
+reference	index.html:5:1	href	docs/	local	docs/index.htm
+reference	index.html:6:1	href	legacy/	local	legacy/default.htm
+reference	index.html:7:1	href	both/	local	both/index.html
+reference	index.html:8:1	href	empty/	local	-

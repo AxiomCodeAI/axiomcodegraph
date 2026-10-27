@@ -1,0 +1,27 @@
+# shape: widget-library theme bundles: an all.css @importing base.css which @imports core.css, plus an @import cycle
+kinds=loads_sheet,imports,cascade
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="themes/all.css">
+</head>
+<body>
+<p class="p">x</p>
+</body>
+</html>
+@@@ file: src/themes/all.css
+@import "base.css";
+@import url(theme.css);
+.p { a: 1 }
+@@@ file: src/themes/base.css
+@import url("core.css");
+.p { a: 2 }
+@@@ file: src/themes/core.css
+.p { a: 3 }
+@@@ file: src/themes/cycle.css
+@import "theme.css";
+.p { a: 5 }
+@@@ file: src/themes/theme.css
+@import "cycle.css";
+.p { a: 4 }

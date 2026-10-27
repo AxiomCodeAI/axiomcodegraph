@@ -4,7 +4,7 @@
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
 #   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
-#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp, or a comma list of them, the first being
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp | web, or a comma list of them, the first being
 #                     the main one (default: every language with files; the main one is the language with the most).
 #                     A rebuild that names no language keeps the ones an earlier --lang chose (and its --src); pass
 #                     --lang again, or AXIOMCODE_REINDEX=1, to choose again
@@ -15,6 +15,12 @@
 # (the `axiomcode` dispatcher) ask each of them. Each graph is one language: no call is followed from one to another.
 # Each is published as soon as its own language is solved, the main one first, so a query never waits for another
 # language's compile; until the last one is in, .axiomcode/out/building names the languages still to come.
+# Windows: a native caller (bin/axiomcode.js, the MCP server, ax_exec.bash_argv) hands the arguments over in
+# AXIOMCODE_ARGV, each ended by \x1f, because msys misparses them on a command line. Taken once, so a script this one
+# starts gets its own.
+if [ -n "${AXIOMCODE_ARGV+x}" ]; then
+  set --; while IFS= read -r -d $'\x1f' _a; do set -- "$@" "$_a"; done < <(printf '%s' "$AXIOMCODE_ARGV"); unset AXIOMCODE_ARGV _a
+fi
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 # a repository that is not there is an error, never the working directory, and nothing is built
@@ -125,7 +131,8 @@ case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC=
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
-read -r ja ts py js cs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0)"
+read -r ja ts py js cs wb <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0 0)"
+wb="${wb:-0}"
 LANG_ARG="${AXIOMCODE_LANG:-}"
 # EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
 # without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
@@ -136,8 +143,11 @@ if [ -z "$LANG_ARG" ]; then
   [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
+  # WEB (HTML + CSS, #1908) is the main language only when no other language has a file: an older reader of the main
+  # graph expects a call graph there.
+  [ "$best" -eq 0 ] && [ "$wb" -gt 0 ] && { LANG_ARG=web; best=$wb; }
   LANGS="$LANG_ARG"
-  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs; do
+  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs web:$wb; do
     [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
   done
   export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
@@ -151,7 +161,7 @@ OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 # it is part of the stamp and the file table, and a new order there would rebuild every mixed repository once.
 SOLVE="$LANG_ARG"
 if [ -n "$OTHER_LANGS" ]; then
-  files_of(){ case "$1" in (java) echo "$ja";; (typescript) echo "$ts";; (python) echo "$py";; (javascript) echo "$js";; (csharp) echo "$cs";; (*) echo 0;; esac; }
+  files_of(){ case "$1" in (java) echo "$ja";; (typescript) echo "$ts";; (python) echo "$py";; (javascript) echo "$js";; (csharp) echo "$cs";; (web) echo "$wb";; (*) echo 0;; esac; }
   for l in $(for o in ${OTHER_LANGS//,/ }; do echo "$(files_of "$o") $o"; done | sort -s -k1,1nr | cut -d' ' -f2); do SOLVE="$SOLVE,$l"; done
 fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
@@ -159,9 +169,21 @@ OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 # write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
 # whole life, so the OS drops it when the build ends however it ends: no stale lock to time out.
 exec 9>"$REPO/.axiomcode/build.lock"
-if ! python3 "$H/ax_fresh.py" lock 9 --try; then
+# ON WINDOWS a native python cannot lock Git Bash's fd 9, so a helper holds the lock for this build until it ends
+# (ax_fresh.py hold): it answers `held` or `busy` in a file, then holds on, released when this shell's process ends.
+take_lock(){
+  if [ -r "/proc/$$/winpid" ]; then
+    local f="$REPO/.axiomcode/build.lock.$$" r=""
+    python3 "$H/ax_fresh.py" hold "$REPO/.axiomcode/build.lock" "$(cat "/proc/$$/winpid")" "$@" > "$f" 2>/dev/null &
+    local hp=$!
+    while [ -z "$r" ] && kill -0 "$hp" 2>/dev/null; do r="$(cat "$f" 2>/dev/null)"; [ -n "$r" ] || sleep 0.2; done
+    [ -n "$r" ] || r="$(cat "$f" 2>/dev/null)"
+    rm -f "$f"; [ "$r" = held ]
+  else python3 "$H/ax_fresh.py" lock 9 "$@"; fi
+}
+if ! take_lock --try; then
   [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO; waiting for it …"
-  python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
+  take_lock || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
 python3 "$H/ax_fresh.py" relink "$REPO" --locked || true   # a pointer copied from another checkout is this one's again (#1605)
 BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
@@ -309,8 +331,8 @@ python3 "$H/dl_program.py" --no-wait || true   # say whether the query rules are
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
   AXIOMCODE_BUILT_BY_UNKNOWN=1 python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
-if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
-else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"; fi
+if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"
+else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs · web $wb files)"; fi
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
 # it, and that tree need not be the commit in the stamp: uncommitted edits are indexed too. `changed` compared the
 # working tree against the COMMIT, so after an index with edits every position was off, and a span past the end of the
@@ -407,7 +429,14 @@ with sqlite3.connect(db) as c:
                   ('refreshed_tree', tree), ('refreshed_commit', commit)] + eng)
 PY
 }
-tiers(){ python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }
+# a call graph's edges by tier; a web graph (HTML + CSS) has none, so its pages, sheets and what the cascade matched
+tiers(){ python3 -c '
+import sqlite3,sys; c=sqlite3.connect(sys.argv[1])
+if c.execute("SELECT 1 FROM sqlite_master WHERE name = ?", ("web_pages",)).fetchone():
+    q = [("pages", "SELECT count(*) FROM web_pages"), ("stylesheets", "SELECT count(*) FROM web_stylesheets"),
+         ("selectors", "SELECT count(*) FROM web_selectors"), ("styled elements", "SELECT count(DISTINCT element_uid) FROM web_styles WHERE status = ?")]
+    print(", ".join("%s %d" % (k, c.execute(sql, ("match",) if "?" in sql else ()).fetchone()[0]) for k, sql in q))
+else: print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }
 # EACH LANGUAGE'S GRAPH IS PUBLISHED WHEN ITS OWN LANGUAGE IS SOLVED (#1555). The engine solves one language after
 # another, and nearly all of each is that language's Souffle compile. Published only when the whole run ended, the main
 # language's graph sat finished while three JavaScript files compiled: on a C# web application with a small ClientApp,

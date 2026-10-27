@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import {
   TS_SKIP_DIRECTORIES,
+  TS_BUILD_OUTPUT_DIRECTORIES,
   TS_SOURCE_EXTENSIONS,
   TYPESCRIPT_CSV_FILES,
 } from '@/constants/typescript-constants';
@@ -24,6 +25,8 @@ import {
   ModuleGraphFacts,
   newCompletenessAccumulator,
 } from '@/parsers/typescript/extractors/ts-ir-completeness';
+import { isDenoVendorDirectory } from '@/parsers/typescript/deno/deno-config';
+import { resolveDenoSpecifier } from '@/parsers/typescript/deno/deno-resolver';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
@@ -82,6 +85,13 @@ import {
 export interface SharedWriteContext {
   readonly writers: Map<string, TsRelationWriter>;
   readonly writerFor: (filename: string) => TsRelationWriter;
+  /**
+   * Every file a program in this run has already taken, normalised. A file no
+   * config claims can join two programs (one it imports, one that resolves an
+   * import into it), and a module row is a pure function of its path, so a second
+   * extraction would write the same primary key twice. The first program keeps it.
+   */
+  readonly analyzedFiles: Set<string>;
 }
 
 export interface TypeScriptAnalysisOptions {
@@ -98,6 +108,20 @@ export interface TypeScriptAnalysisOptions {
   /** A pre-computed hash, for a caller that already has one. */
   readonly serviceVersionLinkHash?: string;
   readonly excludeDirs?: readonly string[];
+  /**
+   * The root is a DEPENDENCY staged with `--library`, not the project under analysis.
+   * Its build-output directories (TS_BUILD_OUTPUT_DIRECTORIES) are then walked: that is
+   * where a published package keeps its declarations, and skipping them left every call
+   * into such a package unresolved. Stated by the caller, as JavaScript's `libraryRoot` is.
+   */
+  readonly libraryRoot?: boolean;
+  /**
+   * The program is this CONFIG, not the directory `rootDir`: the files it claims, found
+   * by walking `rootDir`. Set by analyzePrograms for a config whose `include` reaches
+   * outside its own directory -- a framework's generated `.nuxt/tsconfig.app.json`
+   * claims `../app/**`, so rooting that program at `.nuxt/` walked none of its files.
+   */
+  readonly programConfig?: string;
 }
 
 export interface TypeScriptAnalysisSummary {
@@ -124,6 +148,14 @@ export interface TypeScriptAnalysisSummary {
    * deliberately left out. Ordered by how many files each accounts for.
    */
   readonly nestedProgramRoots: readonly string[];
+  /**
+   * The other programs that are a CONFIG rather than a directory: each claims files
+   * outside the directory it sits in, so walking that directory would find none of
+   * them. analyzePrograms runs each over the whole root (TypeScriptAnalysisOptions.programConfig).
+   */
+  readonly nestedProgramConfigs: readonly string[];
+  /** Every file a config other than this program's claims, by that config: what the other programs owe. */
+  readonly claimedElsewhere: ReadonlyMap<string, string>;
   readonly extractionErrors: number;
   readonly counts: Record<string, number>;
   /**
@@ -174,19 +206,47 @@ export class TypeScriptProjectAnalyzer {
     // A nested program can nest further, so roots drain from a queue rather
     // than one level of walking. Keyed by resolved path because two programs
     // can decline files to each other, which would otherwise recur forever.
-    const queue = [path.resolve(options.rootDir)];
-    const visited = new Set<string>(queue);
+    // A program is a directory, or a config whose files lie outside its directory; both
+    // are keyed by their resolved path, which a directory and a config never share.
+    const top = path.resolve(options.rootDir);
+    const queue: { rootDir: string; programConfig?: string }[] = [{ rootDir: top }];
+    const visited = new Set<string>([top]);
+    const owed = new Map<string, string>();
     while (queue.length > 0) {
-      const programRoot = queue.shift()!;
-      const summary = await this.analyze({ ...options, rootDir: programRoot }, shared);
+      const program = queue.shift()!;
+      const summary = await this.analyze({ ...options, ...program }, shared);
       summaries.push(summary);
+      for (const [file, config] of summary.claimedElsewhere) {
+        owed.set(file, config);
+      }
       for (const nested of summary.nestedProgramRoots) {
         const resolved = path.resolve(nested);
         if (!visited.has(resolved)) {
           visited.add(resolved);
-          queue.push(resolved);
+          queue.push({ rootDir: resolved });
         }
       }
+      for (const config of summary.nestedProgramConfigs) {
+        const resolved = path.resolve(config);
+        if (!visited.has(resolved)) {
+          visited.add(resolved);
+          queue.push({ rootDir: top, programConfig: resolved });
+        }
+      }
+    }
+    // A file a config claims that no program run extracted would otherwise be absent from
+    // every relation with nothing saying so -- the shape that hid a whole application.
+    const anchor = pathAnchorFor(top, options.baseMservPath);
+    const hash = options.serviceVersionLink !== undefined
+      ? EntityUtils.generateEntityHash(ENTITY_IDENTIFIERS.SERVICE_VERSION, options.serviceVersionLink)
+      : options.serviceVersionLinkHash ?? '';
+    const missed = [...owed].filter(([file]) => !shared.analyzedFiles.has(path.normalize(file)));
+    for (const [file, config] of missed) {
+      this.recordSkip(file, anchor, options, hash, SkippedFileReason.PROGRAM_NOT_EXTRACTED,
+        `${toRelative(anchor, config)} claims the file, and no program run over this root extracted it`);
+    }
+    if (missed.length > 0) {
+      await this.exportSkippedFilesCsv(options.outputDir);
     }
     await this.publishShared(shared);
     return mergeSummaries(summaries);
@@ -198,6 +258,7 @@ export class TypeScriptProjectAnalyzer {
     const writers = new Map<string, TsRelationWriter>();
     return {
       writers,
+      analyzedFiles: new Set<string>(),
       writerFor: (filename: string): TsRelationWriter => {
         const existing = writers.get(filename);
         if (existing) {
@@ -246,6 +307,9 @@ export class TypeScriptProjectAnalyzer {
 
     const rootDir = path.resolve(options.rootDir);
     const excludes = new Set<string>(options.excludeDirs ?? TS_SKIP_DIRECTORIES);
+    if (options.libraryRoot === true) {
+      for (const name of TS_BUILD_OUTPUT_DIRECTORIES) excludes.delete(name);
+    }
     const configResolver = new TsConfigResolver();
     // A PROGRAM is the unit of merge scope, so when the root declares one its
     // file list wins over a directory walk. This is not an optimisation: a
@@ -256,10 +320,22 @@ export class TypeScriptProjectAnalyzer {
     // each of which has its own config and its own expectations.
     // Every emitted path hangs off this, not off rootDir — see pathAnchorFor.
     const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
-    const rootProgram = filesOfRootProgram(rootDir, configResolver);
-    const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
+    const rootProgram = filesOfRootProgram(rootDir, configResolver, options.programConfig);
+    const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort()
+      .filter((file) => !shared?.analyzedFiles.has(path.normalize(file)));
+    for (const file of files) {
+      shared?.analyzedFiles.add(path.normalize(file));
+    }
     const filesInOtherPrograms = rootProgram?.others.length ?? 0;
-    const nestedProgramRoots = programRootsOf(rootProgram?.others ?? [], configResolver);
+    const { roots: nestedProgramRoots, configs: nestedProgramConfigs } =
+      programsOf(rootProgram?.others ?? [], configResolver);
+    const claimedElsewhere = new Map<string, string>();
+    for (const file of rootProgram?.others ?? []) {
+      const governing = configResolver.resolve(file).configPath;
+      if (governing !== '') {
+        claimedElsewhere.set(path.normalize(file), path.resolve(governing));
+      }
+    }
 
     // Every module hash up front, from PATHS ALONE. This is what lets a module
     // augmentation in file B key its declarations under file A's hash without
@@ -494,7 +570,12 @@ export class TypeScriptProjectAnalyzer {
     // A re-export's source module may be parsed after the file that re-exports
     // from it, so the link is made here. Still the MODULE graph, and
     // ts_export.resolvedSourceModuleLinkHash is the parser's own column.
-    linkReExportSources(moduleGraph);
+    linkReExportSources(moduleGraph, (fromFilePath, specifier) => {
+      const deno = resolveDenoSpecifier(specifier, path.join(pathAnchor, fromFilePath));
+      return deno === undefined || deno.resolvedFileName === ''
+        ? undefined
+        : toRelative(pathAnchor, deno.resolvedFileName);
+    });
     // Reads the accumulated rows and mutates nothing. Cross-file CALL resolution
     // used to happen here and has been retracted: following an import to a
     // declaring file is `type-resolution.dl` rewritten in TypeScript. What runs
@@ -555,6 +636,8 @@ export class TypeScriptProjectAnalyzer {
       filesAnalysed: analysed,
       filesInOtherPrograms,
       nestedProgramRoots,
+      nestedProgramConfigs,
+      claimedElsewhere,
       extractionErrors: this.skippedFiles.filter(
         (f) => f.reason === SkippedFileReason.EXTRACTION_ERROR
       ).length,
@@ -692,7 +775,8 @@ export class TypeScriptProjectAnalyzer {
  */
 function filesOfRootProgram(
   rootDir: string,
-  configResolver: TsConfigResolver
+  configResolver: TsConfigResolver,
+  programConfig?: string
 ): {
   readonly files: string[];
   readonly others: string[];
@@ -700,7 +784,9 @@ function filesOfRootProgram(
   /** What the closure walk already read, so the extraction pass reads nothing twice. */
   readonly texts: Map<string, string>;
 } | undefined {
-  const configPath = path.join(rootDir, 'tsconfig.json');
+  // A config program (programConfig) is that config's files wherever they lie under
+  // rootDir; a directory program is rootDir's own tsconfig.json.
+  const configPath = programConfig ?? path.join(rootDir, 'tsconfig.json');
   if (!fs.existsSync(configPath)) {
     return undefined;
   }
@@ -719,7 +805,7 @@ function filesOfRootProgram(
       continue;
     }
     seenReferences.add(referenced);
-    if (path.dirname(referenced) === path.resolve(rootDir)) {
+    if (path.dirname(referenced) === path.dirname(path.resolve(configPath))) {
       rootConfigs.add(referenced);
       pending.push(...(configResolver.configAt(referenced)?.references ?? []));
     }
@@ -732,7 +818,11 @@ function filesOfRootProgram(
     if (governing.configPath !== '' && rootConfigs.has(path.resolve(governing.configPath))) {
       claimed.push(file);
     } else if (governing.configPath === '') {
-      unclaimed.push(file);
+      // A file no config claims is the directory program's to pull in or report; a
+      // config program that also walked it would report it twice.
+      if (programConfig === undefined) {
+        unclaimed.push(file);
+      }
     } else {
       others.push(file);
     }
@@ -779,8 +869,10 @@ function filesOfRootProgram(
     const sf = ts.createSourceFile(file, script.text, ts.ScriptTarget.Latest, false,
       script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : JS_JOINER.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
-      const resolved = ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
-        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, file);
+      const resolved = (resolveDenoSpecifier(specifier, file)?.resolvedFileName || undefined)
+        ?? ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
+          .resolvedModule?.resolvedFileName
+        ?? resolveVueSpecifier(specifier, file);
       if (resolved !== undefined) {
         keys.push(path.normalize(resolved));
       }
@@ -841,28 +933,43 @@ function filesOfRootProgram(
 }
 
 /**
- * The distinct program roots that own `files`, busiest first.
+ * The other programs that own `files`: directories, busiest first, and configs.
  *
  * Reporting a count of excluded files tells a caller that something is missing
- * without telling them what to do about it. These are the directories to point
- * a further run at.
+ * without telling them what to do about it. These are what to point a further run at.
+ * A config whose files all lie under its own directory is that directory's program, as
+ * a package's tsconfig is. One that claims a file OUTSIDE its directory cannot be
+ * rooted there -- a walk of `.nuxt/` finds none of the `../app/**` files its generated
+ * config claims, and they were then extracted by no program at all -- so it is returned
+ * as a config, to be run over the whole root.
  */
-function programRootsOf(
+function programsOf(
   files: readonly string[],
   configResolver: TsConfigResolver
-): string[] {
+): { roots: string[]; configs: string[] } {
   const counts = new Map<string, number>();
+  const byConfig = new Map<string, string[]>();
   for (const file of files) {
     const governing = configResolver.resolve(file);
     if (governing.configPath === '') {
       continue;
     }
-    const root = path.dirname(path.resolve(governing.configPath));
-    counts.set(root, (counts.get(root) ?? 0) + 1);
+    const config = path.resolve(governing.configPath);
+    byConfig.set(config, [...(byConfig.get(config) ?? []), file]);
   }
-  return [...counts.entries()]
+  const configs: string[] = [];
+  for (const [config, owned] of byConfig) {
+    const dir = path.dirname(config);
+    if (owned.some((f) => !path.resolve(f).startsWith(dir + path.sep))) {
+      configs.push(config);
+    } else {
+      counts.set(dir, (counts.get(dir) ?? 0) + owned.length);
+    }
+  }
+  const roots = [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([root]) => root);
+  return { roots, configs: configs.sort() };
 }
 
 /** Every module specifier a file imports, re-exports, or imports dynamically. */
@@ -949,7 +1056,7 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>, only
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
         if (!excludes.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(full)
-          && !isGeneratedOutputDirectory(current, entry.name)) {
+          && !isGeneratedOutputDirectory(current, entry.name) && !isDenoVendorDirectory(current, entry.name)) {
           walk(full);
         }
         continue;
@@ -1026,6 +1133,8 @@ function mergeSummaries(
     // declined, so the last program's figure is what no program claims at all.
     filesInOtherPrograms: last?.filesInOtherPrograms ?? 0,
     nestedProgramRoots: [],
+    nestedProgramConfigs: [],
+    claimedElsewhere: new Map(),
     extractionErrors: sum((s) => s.extractionErrors),
     // Row counts are read from the SHARED writers, which already span every
     // program. Summing the per-program counts would multiply every relation,

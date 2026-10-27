@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 fixes — handler event_source (Stimulus defaults by tag), per-page no_static_carrier restored, 5,000-level nesting read against the source
+# case: handlers/04-alpine   kinds: handler
+# shape: Tailwind + Alpine dashboards: x-on with modifiers and the @ shorthand, which on an Alpine page is Alpine, not Vue
+handler	index.html:8:1	x-on:click.outside	click	written	outside	alpine	12	|open = false
+handler	index.html:9:1	@click	click	written	-	alpine	12	|open = !open

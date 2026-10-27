@@ -1,0 +1,12 @@
+# shape: server-template pages building classes from expressions (`class="tag label {{m.tag}}"`, `btn-{{ kind }}`,
+# Jinja `{% if a %}active{% endif %}`): every token kept, the template-built ones flagged dynamic (V2-15)
+kinds=element,class_token,dynamic_class_token
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body>
+<span class="tag label {{m.tag}}">a</span>
+<a class="btn btn-{{ kind }}" href="#">b</a>
+<li class="item {% if a %}active{% endif %} last">c</li>
+</body>
+</html>

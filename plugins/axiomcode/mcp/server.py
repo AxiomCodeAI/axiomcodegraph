@@ -164,10 +164,26 @@ SEEN = set()
 # the flags whose next argument is their value, as the dispatcher skips them when it looks for the repository
 VALUED = {'--in', '--from', '--budget', '--seeds', '--depth', '--limit', '--tests-in', '--kind', '--range', '--old',
           '--new', '--file', '--page', '--page-budget', '--out'}
+def orphaned(root=None):
+    """ax_orphan.orphaned for the install this server runs now (plugin_root): '' while it is current. An install whose
+    scripts are gone cannot be imported, so that is said here"""
+    root = root or plugin_root()
+    try: return scripts_module('ax_orphan').orphaned(root)
+    except Exception:
+        if os.path.isfile(os.path.join(root, 'skills', 'axiomcode', 'scripts', 'ax_fresh.py')): return ''
+        return (f"this is an orphaned older axiomcode (its install directory {root} is gone: a newer version was installed in "
+                "its place), still running in an agent session started before the upgrade; it writes nothing into the "
+                "repository's .axiomcode and rebuilds nothing. Restart the agent session so that only the installed axiomcode runs")
+
 def _timer(interval):
     import time
     while True:
         time.sleep(max(1.0, min(60.0, interval / 3)))
+        # AN ORPHANED SERVER STOPS (ax_orphan.orphaned): its install was replaced and no newer one is recorded to run in its
+        # place, so all it could still do is rebuild graphs with the older version, the turn-taking an upgrade started
+        o = orphaned()
+        if o:
+            sys.stderr.write(f"axiomcode mcp: {o}. This server stops.\n"); sys.stderr.flush(); os._exit(0)
         for repo in list(SEEN):
             try:
                 fresh = scripts_module('ax_fresh')
@@ -183,10 +199,19 @@ def run(args, cwd=None, timeout=900):
     env = dict(os.environ, AXIOMCODE_BUILD_NOWAIT='1', AXIOMCODE_SURFACE='mcp') if args and args[0] != 'index' else None
     root = plugin_root()
     ax = os.path.join(root, 'skills', 'axiomcode', 'scripts', 'axiomcode')
+    # an orphaned older install answers with the restart and runs nothing: its verbs would write into .axiomcode
+    o = orphaned(root)
+    if o: return f"axiomcode: {o}."
     note = stale_note(root)
     head = (note + '\n') if note else ''
     try:
-        r = subprocess.run([BASH, ax, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
+        # On Windows the arguments travel in AXIOMCODE_ARGV, not on the command line: Git Bash parses a command line by
+        # msys rules (`'` quotes, `\"` is no escape), so a question holding an apostrophe lost every argument after it.
+        # The same as ax_exec.bash_argv, which this server does not import.
+        argv = [BASH, ax, *args]
+        if os.name == 'nt':
+            argv, env = [BASH, ax], dict(env or os.environ, AXIOMCODE_ARGV=''.join(f'{a}\x1f' for a in args))
+        r = subprocess.run(argv, cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
     except OSError as e:
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
@@ -208,7 +233,13 @@ def run(args, cwd=None, timeout=900):
 
 # THE TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
 # graph, a refresh in flight) are kept for what they say; a clause that names a flag or a parameter to set is dropped.
-_OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*|\b[a-z_]+=(?:True|False|N\b|<|\d|\"|')")
+# Only the CLI's own option names count (review #12): a web answer names CSS custom properties (`custom property --brand`,
+# `:root { --brand: #fff }`, `var(--gap)`), and those lines are the answer. A name inside var( or before a colon is CSS;
+# and only the tools' own parameters count as a `name=` to set, never an HTML attribute (`style="…"`, `class="…"`).
+_CLI_OPTIONS = ('json|tests|tests-only|tests-in|why|unknown|depends|in|limit|depth|page|page-budget|budget|kind|top|warm|from-text|delete|'
+                'help|fresh|no-refresh|every|all|grep|grep-limit|paths|from|seeds|source|lang|language|languages|src|library|exclude-tests|'
+                'debug|range|selftest|version|exact|evidence|no-evidence|verbs|alongside|drop|slug')
+_OPTION = re.compile(r"(?<![\w(-])--(?:" + _CLI_OPTIONS + r")(?![\w-])(?!\s*:)|\b(?:task|source|name|start|end)=(?:True|False|N\b|<|\d|\"|')")
 def plain(text):
     out = []; code = False
     for line in (text or '').split('\n'):
@@ -260,6 +291,9 @@ def tests() -> str:
 
 if __name__ == '__main__':
     # catch up on whatever changed while no session was running (#1305): started, never waited on
+    o = orphaned()
+    if o:
+        sys.stderr.write(f"axiomcode mcp: {o}. Not starting.\n"); sys.exit(1)
     try:
         scripts_module('ax_fresh').hook_kick(os.getcwd(), 'the MCP server starting')
         if os.path.isdir(os.path.join(os.getcwd(), '.axiomcode')): SEEN.add(os.path.realpath(os.getcwd()))

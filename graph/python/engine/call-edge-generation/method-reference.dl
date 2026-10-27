@@ -1,0 +1,123 @@
+// ============================================================================
+// CALL-EDGE-GENERATION · METHOD REFERENCES  (a callable named as a VALUE, not called)
+//
+// ── THE GAP ─────────────────────────────────────────────────────────────────
+//   executor.submit(self._do_work, item)        threading.Thread(target=svc.run_job)
+//   loop.run_in_executor(None, svc.cancel, oid) sorted(xs, key=self._rank)
+//   callbacks = [handler.on_event]              functools.partial(svc.cancel, oid)
+//   app.add_url_rule("/x", view_func=views.index)          return self._handle
+// Each hands a method or function over as a value; whoever receives it calls it, later, from
+// a frame the graph cannot see (a worker thread, a builtin, a library). There is no call site
+// for it, so before this file the method had NO caller here at all, and `impact
+// OrderService.cancel` did not name the function that queued it. The engine already KNEW what
+// each of these expressions denotes -- expr_denotes_method resolves `self._do_work` through the
+// receiver's MRO exactly as it resolves `self._do_work()` -- and dropped the answer because no
+// CALL wrapped it.
+//
+// ── WHAT IT EMITS ───────────────────────────────────────────────────────────
+//   call_chain_edge(Expr, Caller, "-", Target, "client", "callback_registered", "METHOD_REFERENCE")
+// Like PROPERTY_READ and the protocol rows in call_chain.dl, an edge with no call site: Site is
+// the reference expression itself, and the kind is its own so a consumer can always tell it
+// from a written call. The tier is the one every other front end uses for a function handed
+// over (`xs.forEach(f)`, a JSX handler attribute): HANDED OVER, never `resolved`, so an answer
+// says "handed over as a value" instead of "calls it".
+//
+// ── WHAT IT REFUSES ─────────────────────────────────────────────────────────
+//   - ONLY WHAT IS RESOLVED. The target comes from the same resolution an ordinary call's
+//     callee gets: a receiver typed through expr_type and the MRO, a class named by its
+//     declaration, a name bound by its scope, a module member. `thing.cancel` on an untyped
+//     parameter denotes nothing, so it emits nothing -- the same blind spot `thing.cancel()`
+//     has. No rule here matches by name.
+//   - NOT A FLOWED VALUE. `def run(cb): pool.submit(cb)` denotes, through
+//     param_arg_method, every function any caller passed in. The reference that matters is
+//     the one the caller WROTE (`run(self._work)`), which already has its own row; crediting
+//     `run` as well would make it reach the union of every callable handed to it. The same
+//     holds for an attribute that holds a function (see (b) below).
+//   - NOT A CALLEE, NOT A WRITE, NOT AN OBJECT OF ANOTHER ATTRIBUTE. `self.m()` is a call
+//     (call_chain.dl owns it); `self.m = x` is a store; `self.m.__name__` and
+//     `self.m.cache_clear()` read the function object and never run it.
+//   - NOT A PROPERTY, NOT A DECORATOR. `order.total` on a @property (or @cached_property)
+//     reads the VALUE the getter computes: call_chain.dl already emits that as PROPERTY_READ,
+//     and the function object is never handed anywhere. `@audited` is a decorator
+//     application, which call_chain.dl emits as DECORATOR_*. Before these two guards they
+//     were the two largest wrong classes in a sampled review.
+//   - NOT THE ARGUMENT OF A ONE-DUNDER BUILTIN. `str(fn)`, `repr(fn)`, `hash(fn)`
+//     (builtins.dl's builtin_protocol_slot) run a dunder of the FUNCTION OBJECT and never call
+//     it; a test asserting on `str(svc.cancel)` is not a caller of cancel. Other inspecting
+//     builtins (`id`, `callable`, `isinstance`) are not catalogued and still count.
+//   - NOT A COMPARISON OPERAND. `assert job.on_done is svc.cancel` tests identity.
+//   - ONLY NAMES AND ATTRIBUTE READS. A lambda, a subscript (`table[k]`) and a call that
+//     returns a function (`partial(...)`, a factory) also denote methods; each already has its
+//     own edge where it is invoked, or IS a call with its own row.
+// The receiver-typing, decorator-chain and import rules this reads all live in resolution/;
+// nothing here widens them.
+// ============================================================================
+
+.decl method_ref_expr(e:symbol, m:symbol)
+// (a) a NAME: what resolution/ says it denotes -- a def bound in scope, an import, a
+//     decorated name's wrapper -- minus a name that holds a flowed VALUE: a parameter, or a
+//     local or module name assigned from an expression (`cb = job.on_done`). That
+//     assignment's right-hand side is credited where it is written when it is a reference
+//     itself; when it is a field read, what the name holds is the union of every write to that
+//     field, which was the largest wrong shape in a sampled review (`assert cb is not None`
+//     credited with every callback any job was ever given).
+method_ref_expr(e, m) :-
+    expr_node("client", "NAME_REFERENCE", _, _, e),
+    expr_denotes_method("client", e, m),
+    !expr_names_param("client", e, _),
+    !method_ref_name_holds_value(e).
+.decl method_ref_name_holds_value(e:symbol)
+method_ref_name_holds_value(e) :-
+    expr_node("client", "NAME_REFERENCE", _, _, e),
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2), binding_value_method("client", b2, _).
+// (b) an ATTRIBUTE: a method found through the typed receiver's MRO (`svc.cancel`,
+//     `self._work`), or a module member (`views.index`, decorated or not). NOT an attribute
+//     that merely HOLDS a function some write put there (`job.on_done`): that is a flowed
+//     value like a parameter's, and a sampled review found exactly that shape wrong:
+//     `job.on_done is NO_OP`, credited to whatever any write stored.
+method_ref_expr(e, m) :- expr_denotes_bound_method("client", e, m).
+method_ref_expr(e, m) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, _, e),
+    expr_attr_names_method("client", e, _),
+    expr_denotes_method("client", e, m).
+// (c) an UNBOUND method read off its class: `map(OrderService.convert, rows)`. The class
+//     object types the receiver, and the MRO names the method -- the rule
+//     callee-resolution.dl uses for `OrderService.convert(svc, row)`, without the call.
+method_ref_expr(e, m) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type_class_object("client", obj, t),
+    mro_lookup("client", t, n, m).
+
+// the shape guards: read as a value, not called, not a write, not the object of another read
+.decl method_ref_site(e:symbol, m:symbol)
+method_ref_site(e, m) :-
+    method_ref_expr(e, m),
+    !call_callee_expr(_, e),
+    !expr_name_context("client", "STORE", e), !expr_name_context("client", "DEL", e),
+    !expr_parent("client", _, "ATTRIBUTE_OBJECT", _, e),
+    !decorator_expr("client", e, _),
+    !builtin_protocol_arg(_, _, e),
+    !method_ref_compared(e),
+    method_kind("client", kind, _, m),
+    kind != "MODULE_INITIALIZER", kind != "CLASS_INITIALIZER", kind != "OVERLOAD_STUB", kind != "LAMBDA",
+    kind != "PROPERTY_GETTER", kind != "PROPERTY_SETTER", kind != "PROPERTY_DELETER".
+
+// an operand of a comparison: `job.on_done is svc.cancel`, `h in self.handlers`, `f == g` test
+// the function object's identity or equality and never call it
+.decl method_ref_compared(e:symbol)
+method_ref_compared(e) :- method_ref_expr(e, _), expr_parent("client", c, _, _, e), expr_node("client", "COMPARISON", _, _, c).
+
+// the caller: the function or lambda whose body evaluates the reference. A module-level
+// reference and a parameter default are owned by the synthetic <module>, a class-body one by
+// <classbody> -- the parser records that owner on the expression, as it does for a call.
+.decl method_ref_caller(e:symbol, c:symbol)
+method_ref_caller(e, c) :- method_ref_site(e, _), expr_owner("client", "METHOD", c, _, e).
+method_ref_caller(e, c) :- method_ref_site(e, _), expr_owner("client", "LAMBDA", c, _, e).
+method_ref_caller(e, c) :- method_ref_site(e, _),
+    !expr_owner("client", "METHOD", _, _, e), !expr_owner("client", "LAMBDA", _, _, e),
+    expr_ultimate_method("client", e, c).
+
+call_chain_edge(e, c, "-", m, "client", "callback_registered", "METHOD_REFERENCE") :-
+    method_ref_site(e, m), method_ref_caller(e, c).

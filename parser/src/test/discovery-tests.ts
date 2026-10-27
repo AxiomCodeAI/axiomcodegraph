@@ -351,6 +351,76 @@ const CHECKS: Check[] = [
     },
   },
   {
+    name: 'a-library-keeps-the-declarations-under-its-build-directory',
+    proves: 'staged with --library, a package whose root .d.ts re-exports `./dist/...` has the '
+      + 'declarations under dist/ in its TypeScript modules; the same tree analysed as the project '
+      + 'still skips dist/ (control)',
+    rulesOut: 'walking a dependency with the project skip list: dist/ was skipped, the root .d.ts '
+      + 'pointed at nothing, and every call into the package stayed ambiguous_unknown',
+    run: async (tmp) => {
+      const files = {
+        'package.json': '{"name":"reexporter","version":"1.0.0","types":"index.d.ts"}',
+        'index.d.ts': "export * from './dist/api';\n",
+        'dist/api.d.ts': 'export declare function connect(url: string): void;\n',
+      };
+      const modulesOf = async (name: string, library: boolean): Promise<string> => {
+        const root = build(tmp, name, files);
+        const out = path.join(tmp, `${name}-out`);
+        const silence = console.log;
+        console.log = () => {};
+        try {
+          await extractProject({ projectPath: root, versionLink: 'v1', outputDir: out, layout: 'per-language', library });
+        } finally {
+          console.log = silence;
+        }
+        const csv = path.join(out, 'typescript', 'all-typescript-modules.csv');
+        return fs.existsSync(csv) ? fs.readFileSync(csv, 'utf-8') : '';
+      };
+      const asLibrary = await modulesOf('reexport-lib', true);
+      if (!asLibrary.includes('index.d.ts')) return 'control: the root index.d.ts is not analysed';
+      if (!asLibrary.includes('dist/api.d.ts')) return 'as a library, dist/api.d.ts is not analysed';
+      const asProject = await modulesOf('reexport-project', false);
+      if (asProject.includes('dist/api.d.ts')) return 'as the project, dist/ is analysed: a committed build copy would double the source';
+      return null;
+    },
+  },
+  {
+    name: 'a-library-whose-declarations-all-sit-in-dist-is-typescript',
+    proves: 'staged with --library, a package with no declaration outside dist/ whose exports map '
+      + 'names a `types` condition is analysed as TypeScript; a package that declares no types '
+      + 'gets no typescript/ folder (control)',
+    rulesOut: 'detecting TypeScript only near the top of the tree: such a package was staged as '
+      + 'JavaScript alone, so TypeScript calls into it had no declaration to resolve against',
+    run: async (tmp) => {
+      const run = async (name: string, files: Record<string, string>): Promise<string> => {
+        const root = build(tmp, name, files);
+        const out = path.join(tmp, `${name}-out`);
+        const silence = console.log;
+        console.log = () => {};
+        try {
+          await extractProject({ projectPath: root, versionLink: 'v1', outputDir: out, layout: 'per-language', library: true });
+        } finally {
+          console.log = silence;
+        }
+        const csv = path.join(out, 'typescript', 'all-typescript-modules.csv');
+        return fs.existsSync(csv) ? fs.readFileSync(csv, 'utf-8') : '';
+      };
+      const typed = await run('dist-types-only', {
+        'package.json': JSON.stringify({ name: 'typedpkg', version: '1.0.0',
+          exports: { './server': { types: './dist/types/server.d.ts', import: './dist/esm/server.js' } } }),
+        'dist/types/server.d.ts': 'export declare function session(): string;\n',
+        'dist/esm/server.js': 'export function session() { return ""; }\n',
+      });
+      if (!typed.includes('dist/types/server.d.ts')) return 'a package declaring types only under dist/ has no TypeScript module';
+      const untyped = await run('dist-js-only', {
+        'package.json': '{"name":"plainpkg","version":"1.0.0","main":"dist/index.js"}',
+        'dist/index.js': 'exports.go = function go() {};\n',
+      });
+      if (untyped !== '') return 'control: a package that declares no types got TypeScript modules';
+      return null;
+    },
+  },
+  {
     name: 'per-language-keeps-the-javascript-of-a-dist-shipping-package',
     proves: 'extractProject in per-language layout writes javascript/ for a package whose only '
       + 'JavaScript is the dist/ its package.json ships from, which discovery does not call a project',

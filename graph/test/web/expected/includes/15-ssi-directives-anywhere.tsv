@@ -1,0 +1,14 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: includes/15-ssi-directives-anywhere   kinds: ssi_directive,attribute
+# shape: SSI pages that open with #set/#if lines before the doctype, echo variables inside attribute values (two in
+attribute	index.shtml:7:1	href	/<!--#echo var="section" -->/<!--#echo var="t" -->.html
+attribute	index.shtml:7:1	title	<!--#echo var="t" -->
+ssi_directive	-	endif	index.shtml:2:68	|<!--#endif -->
+ssi_directive	-	if	index.shtml:2:1	|<!--#if expr="$section = news" -->
+ssi_directive	-	set	index.shtml:1:1	|<!--#set var="section" value="news" -->
+ssi_directive	-	set	index.shtml:2:35	|<!--#set var="t" value="News" -->
+ssi_directive	index.shtml:5:1	comment	index.shtml:8:1	|<!--#comment text="old menu removed" -->
+ssi_directive	index.shtml:5:1	config	index.shtml:6:1	|<!--#config timefmt="%Y" -->
+ssi_directive	index.shtml:7:1	echo	index.shtml:7:11	|<!--#echo var="section" -->
+ssi_directive	index.shtml:7:1	echo	index.shtml:7:39	|<!--#echo var="t" -->
+ssi_directive	index.shtml:7:1	echo	index.shtml:7:74	|<!--#echo var="t" -->

@@ -1,0 +1,261 @@
+# shape: a small multi-page admin dashboard (navbar, cards, @import chain, custom properties, keyframes with a
+# vendor form, @font-face, inline and external scripts, an Alpine directive, a form, duplicate ids, a template
+# row, an orphan sheet): every SPEC 6.4 template that can be graded on a hand-written site
+mode=queries
+@@@ file: questions.tsv
+# qid	template	grade	section	role	fields	ask	derive
+Q1	rules styling E in cascade order	ORDER	web	styled_by	at	impact index.html:24	styled_by index.html:24
+Q2	pages loading S	SET	web	loaded_by	at	impact css/app.css	loaded_by css/app.css
+Q3	sheets P loads, in order	ORDER	web	loads	at	impact contact.html	loads contact.html
+Q4	elements carrying class C	SET	web	carries	at	impact .card	carries_class card
+Q5	rules mentioning class C	SET	web	selectors	at	impact .card	rules_class card
+Q6	elements selector X matches on P	SET>=	web	styled	at,rule_at,status	impact ".card .title" --in index.html	styled_by_selector index.html|.card .title
+Q7	selectors in S matching nothing	SET	web	unmatched	at	impact css/app.css	unmatched css/app.css
+Q8d	where --x is defined	SET	web	defines	at	impact 'var(--brand)'	var_defines --brand
+Q8u	where --x is used	SET	web	uses	at	impact 'var(--brand)'	var_uses --brand
+Q9	elements on P affected by --x	SET>=	web	affects	at	impact 'var(--gap)' --in index.html	var_affects index.html|--gap
+Q10d	where @keyframes k is defined	SET	web	defines	at	impact "@keyframes pulse"	keyframes_defines pulse
+Q10u	rules using @keyframes k (vendor forms too)	SET	web	uses	at	impact "@keyframes pulse"	keyframes_uses pulse
+Q11d	@font-face declaring family f	SET	web	defines	at	impact "@font-face Brand Sans"	font_defines Brand Sans
+Q11u	rules using family f	SET	web	uses	at	impact "@font-face Brand Sans"	font_uses Brand Sans
+Q12	on* handler attributes on P and their events	SET	web	handler	at,event	impact index.html	handlers index.html|EVENT_ATTRIBUTE
+Q15w	elements carrying C	SET	web	carries	at	impact .card-primary	carries_class card-primary
+Q16	pages linking to P	SET	web	linked_from	at	impact about.html	linked_from about.html
+Q17	how index.html reaches P by links	CHAIN	web	links_to	at	path index.html contact.html	chain_links index.html|contact.html
+Q18	inline styles on P and their properties	SET	web	inline_style	at,property	impact index.html	inline_style index.html
+Q19	unresolved script/link on P and why	SET	web	unknown	at,reason	impact index.html	unresolved index.html
+Q20	stylesheets no page loads	TOP-k	web	-	at	context "stylesheets no page loads"	orphans
+Q21	duplicated id on P	SET	web	carries	at	impact "#dup" --in index.html	id_carriers index.html|dup
+Q22	what points at #x on P	SET	web	referenced_by	at	impact "#email" --in index.html	id_referrers index.html|email
+Q23	rules styling E only under a media query	SET	web	styled_by	at,conditions	impact index.html:24	styled_by_conditions index.html:24
+Q24	rules styling E only on hover/focus	SET	web	styled_by	at	impact index.html:24	styled_by_state index.html:24
+Q25	Alpine/Vue event directives on P and their events	SET	web	template_expr	at,event	impact index.html	handlers index.html|TEMPLATE_EVENT
+Q26	files S references via url()	SET	web	uses_resource	at	impact css/app.css	css_resources css/app.css
+Q28	!important rules reaching E	SET	web	styled_by	at	impact index.html:24	styled_by_important index.html:24
+Q29	where is the card styled	TOP-k	web	-	at	context "where is the card styled"	sheet_most_rules card
+Q30	inert elements on P	SET	web	inert	at	impact index.html	inert index.html
+Q32	form on P: action and named inputs	SET	web	form	at,action,names	impact index.html	forms index.html
+Q33	preload/icon/manifest resources of P	SET	web	uses_resource	at	impact index.html	link_resources index.html
+Q35	how P reaches S (link / @import chain)	CHAIN	web	loads	at	path contact.html css/base.css	chain_loads contact.html|css/base.css
+Q36	selector matches if fragment F were included in P	LINK	web	styled	at,rule_at,status	link partials/row.html:1 index.html:22 ;; impact ".card .title" --in index.html ;; link partials/row.html:1 -	asserted_styles partials/row.html@index.html:22|index.html|.card .title
+Q37	what is the task about: make the card title responsive	TOP-k	web	-	at	context "make the card title responsive"	media_sheet card
+Q38o	occurrences of a component candidate	SET	web	occurrences	at	impact component:div.card.product	component_occurrences div.card.product
+Q38s	varying slots of a component candidate	SET	web	slots	path,kind,attr	impact component:div.card.product	component_slots div.card.product
+Q39	components page P is built from	SET	web	components	display	impact shop.html	page_components shop.html
+Q40c	winning value per property on E	SET	web	computed	property,at	impact index.html:24 --why	computed_winners index.html:24
+Q40l	losing declarations on E and why	SET	web	cascade	at,lost_reason	impact index.html:24 --why	cascade_losers index.html:24
+Q41	where a colour token is used	SET	web	uses	at	impact "#0055ff"	token_uses #0055ff
+Q41t	theme colours, most used first	TOP-k	web	-	at	context "theme colours"	top_tokens color
+Q42	elements on P that change at a breakpoint	SET	web	elements	at	impact "@media (max-width: 600px)" --in index.html	media_elements index.html|(max-width: 600px)
+Q43	form controls on P with no label	SET	web	forms	at	impact shop.html	unlabelled shop.html
+Q44	landmark/heading outline of P	ORDER	web	outline	at	impact shop.html	outline_order shop.html
+Q45	repeated lists on P needing a loop	SET	web	lists	at,count	impact shop.html	lists shop.html
+Q46u	selectors in S matching nothing (usage)	SET	web	unmatched	at	impact css/app.css	unmatched_usage css/app.css
+Q46c	is class C styled	SET	web	class	name,styled	impact .flex	class_styled flex
+Q47	every script on P in order, verbatim	ORDER	web	scripts	at,code	impact shop.html --limit 0	scripts_in_order shop.html
+Q47d	every script on P in order, default line cap	ORDER	web	scripts	at,code	impact shop.html	scripts_in_order shop.html
+Q48	handlers on P with event, kind and code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html
+Q48o	elements with an onclick on P and its code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html|onclick
+Q48c	every click handler on P with its code	SET	web	handlers	at,event,source_kind,code	impact shop.html	handlers_code shop.html|click
+Q8n	a bare --name is a flag, not a custom property (owner rule: no flag-like web syntax)	ABSENT	web	defines	at	impact --brand	var_defines --brand
+@@@ file: src/about.html
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="css/app.css"></head>
+<body>
+  <h2 id="team" class="title">Team</h2>
+  <a href="contact.html">Contact us</a>
+</body>
+</html>
+@@@ file: src/contact.html
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="css/contact.css"></head>
+<body>
+  <div class="card">Write to us</div>
+</body>
+</html>
+@@@ file: src/css/app.css
+@import "base.css";
+@font-face { font-family: "Brand Sans"; src: url("../fonts/brand.woff2"); }
+@keyframes pulse { from { opacity: .5 } to { opacity: 1 } }
+@-webkit-keyframes pulse { from { opacity: .5 } }
+.navbar { background: var(--brand) url("../img/bg.png"); }
+.card { border: 1px solid var(--brand); }
+.card:hover .title { text-decoration: underline; }
+.card .title { color: #222 !important; }
+@media (max-width: 600px) { .card .title { font-size: 14px; } }
+.btn { animation: pulse 1s infinite; -webkit-animation: pulse 1s infinite; }
+.sidebar-collapse { display: none; }
+.menu li + li { margin-left: 4px; }
+@@@ file: src/css/base.css
+:root { --brand: #0055ff; }
+h2 { font-family: "Brand Sans", sans-serif; }
+@@@ file: src/css/contact.css
+@import url("app.css");
+.card { padding: 2rem; }
+@@@ file: src/css/old.css
+.legacy { color: gray; }
+@@@ file: src/favicon.ico
+@@@ file: src/fonts/brand.woff2
+@@@ file: src/img/bg.png
+@@@ file: src/index.html
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Dashboard</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="https://cdn.example.org/icons.css">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    :root { --gap: 8px; }
+    .card .title { margin: var(--gap); }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="nav">
+    <ul class="menu">
+      <li><a href="about.html">About</a></li>
+      <li><a href="about.html#team">Team</a></li>
+      <li><a href="contact.html">Contact</a></li>
+    </ul>
+  </nav>
+  <main x-data="{ open: false }">
+    <div class="card card-primary"><h2 class="title">Sales</h2></div>
+    <div class="card">
+      <h2 class="title" style="color: red; font-weight: bold">Users</h2>
+    </div>
+    <button class="btn" onclick="openModal('signup'); track()">Sign up</button>
+    <button class="btn" @click="toggle()">Menu</button>
+    <label for="email">Email</label><input id="email" name="email">
+    <span id="dup">a</span>
+    <span id="dup">b</span>
+    <section aria-labelledby="email">s</section>
+    <form action="contact.html" method="post"><input name="q"><input name="page" type="hidden"></form>
+    <template><div class="card">row</div></template>
+  </main>
+  <script>
+    function openModal(name) { document.getElementById('modal-' + name); }
+    const track = () => 1;
+  </script>
+  <script src="js/app.js"></script>
+  <script src="js/missing.js"></script>
+</body>
+</html>
+@@@ file: src/js/app.js
+document.getElementById('nav').classList.add('ready');
+document.querySelectorAll('.card').forEach((el) => el.classList.toggle('card-primary'));
+document.getElementById('email');
+$('.btn').addClass('sidebar-collapse');
+@@@ file: src/partials/row.html
+<div class="card"><h2 class="title">row</h2></div>
+@@@ file: src/shop.html
+<!doctype html>
+<html lang="en">
+<head>
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body x-data="{ cart: [] }">
+  <header class="top"><h1>Shop</h1><nav aria-label="Main"><a href="index.html">Home</a></nav></header>
+  <main>
+    <section aria-label="Products" class="grid flex">
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Mug</h3><span class="price">9</span><button class="btn" onclick="addToCart('Mug')">Add</button></div>
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Cap</h3><span class="price">12</span><button class="btn" onclick="addToCart('Cap')">Add</button></div>
+      <div class="product card"><img src="img/bg.png" alt=""><h3 class="title">Tee</h3><span class="price">15</span><button class="btn" onclick="addToCart('Tee')">Add</button></div>
+    </section>
+    <form action="contact.html" method="post">
+      <label for="mail">Mail</label><input id="mail" name="mail" required>
+      <input name="coupon" placeholder="Coupon">
+      <button type="submit" @click="track('checkout')">Buy</button>
+    </form>
+    <a href="javascript:openHelp()">Help</a>
+  </main>
+  <script>
+    function addToCart(name) { cart.push(name); }
+  </script>
+  <script>
+    var chart = makeChart();
+    chart.add(0, "point-0");
+    chart.add(1, "point-1");
+    chart.add(2, "point-2");
+    chart.add(3, "point-3");
+    chart.add(4, "point-4");
+    chart.add(5, "point-5");
+    chart.add(6, "point-6");
+    chart.add(7, "point-7");
+    chart.add(8, "point-8");
+    chart.add(9, "point-9");
+    chart.add(10, "point-10");
+    chart.add(11, "point-11");
+    chart.add(12, "point-12");
+    chart.add(13, "point-13");
+    chart.add(14, "point-14");
+    chart.add(15, "point-15");
+    chart.add(16, "point-16");
+    chart.add(17, "point-17");
+    chart.add(18, "point-18");
+    chart.add(19, "point-19");
+    chart.add(20, "point-20");
+    chart.add(21, "point-21");
+    chart.add(22, "point-22");
+    chart.add(23, "point-23");
+    chart.add(24, "point-24");
+    chart.add(25, "point-25");
+    chart.add(26, "point-26");
+    chart.add(27, "point-27");
+    chart.add(28, "point-28");
+    chart.add(29, "point-29");
+    chart.add(30, "point-30");
+    chart.add(31, "point-31");
+    chart.add(32, "point-32");
+    chart.add(33, "point-33");
+    chart.add(34, "point-34");
+    chart.add(35, "point-35");
+    chart.add(36, "point-36");
+    chart.add(37, "point-37");
+    chart.add(38, "point-38");
+    chart.add(39, "point-39");
+    chart.add(40, "point-40");
+    chart.add(41, "point-41");
+    chart.add(42, "point-42");
+    chart.add(43, "point-43");
+    chart.add(44, "point-44");
+    chart.add(45, "point-45");
+    chart.add(46, "point-46");
+    chart.add(47, "point-47");
+    chart.add(48, "point-48");
+    chart.add(49, "point-49");
+    chart.add(50, "point-50");
+    chart.add(51, "point-51");
+    chart.add(52, "point-52");
+    chart.add(53, "point-53");
+    chart.add(54, "point-54");
+    chart.add(55, "point-55");
+    chart.add(56, "point-56");
+    chart.add(57, "point-57");
+    chart.add(58, "point-58");
+    chart.add(59, "point-59");
+    chart.add(60, "point-60");
+    chart.add(61, "point-61");
+    chart.add(62, "point-62");
+    chart.add(63, "point-63");
+    chart.add(64, "point-64");
+    chart.add(65, "point-65");
+    chart.add(66, "point-66");
+    chart.add(67, "point-67");
+    chart.add(68, "point-68");
+    chart.add(69, "point-69");
+    chart.add(70, "point-70");
+    chart.add(71, "point-71");
+    chart.add(72, "point-72");
+    chart.add(73, "point-73");
+    chart.add(74, "point-74");
+    chart.add(75, "point-75");
+    chart.add(76, "point-76");
+    chart.add(77, "point-77");
+    chart.add(78, "point-78");
+    chart.add(79, "point-79");
+  </script>
+</body>
+</html>

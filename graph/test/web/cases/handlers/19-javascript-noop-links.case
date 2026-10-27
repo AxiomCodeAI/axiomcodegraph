@@ -1,0 +1,14 @@
+# shape: legacy menus whose anchors are href="javascript:;" / "javascript:void(0)" / "javascript: void 0" / bare
+# "javascript:" placeholders next to real javascript: code (V4-03: the no-ops are links, not handlers)
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html><body>
+<a href="javascript:;">a</a>
+<a href="javascript:void(0)">b</a>
+<a href="javascript:void(0);">c</a>
+<a href="JavaScript: void 0">d</a>
+<a href="javascript:">e</a>
+<a href="javascript:openMenu()">f</a>
+<a href="javascript:void(openMenu())">g</a>
+</body></html>

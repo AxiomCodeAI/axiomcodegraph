@@ -1,0 +1,11 @@
+# shape: single-page dashboards wiring page life-cycle handlers on <body>
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<body onload="boot()" onbeforeunload="return warn()" onhashchange="route()" onpopstate="back(event)"
+ onmessage="recv(event)" onstorage="sync()" onpageshow="show()" onpagehide="hide()" onafterprint="after()"
+ onbeforeprint="before()" onoffline="off()" ononline="on()">
+<p>x</p>
+</body>
+</html>

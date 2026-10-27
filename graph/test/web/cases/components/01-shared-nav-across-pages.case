@@ -1,0 +1,36 @@
+# shape: multi-page admin templates repeating the same top navbar (same classes, different link targets and labels) on every page, a sidebar on two pages with different classes but the same shape, and a two-element snippet below the size floor
+kinds=component,component_slot
+@@@ file: src/about.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<nav class="main-header navbar"><ul class="nav"><li class="item"><a href="about.html">About</a></li><li class="item"><a href="#">More</a></li></ul></nav>
+<aside class="sidebar light"><ul><li><a>1</a></li></ul></aside>
+<p><b>y</b></p>
+</body>
+</html>
+@@@ file: src/contact.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<nav class="main-header navbar"><ul class="nav"><li class="item"><a href="contact.html">Contact</a></li><li class="item"><a href="#">More</a></li></ul></nav>
+</body>
+</html>
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<nav class="main-header navbar"><ul class="nav"><li class="item"><a href="index.html">Home</a></li><li class="item"><a href="#">More</a></li></ul></nav>
+<aside class="sidebar dark"><ul><li><a>1</a></li></ul></aside>
+<p><b>x</b></p>
+</body>
+</html>

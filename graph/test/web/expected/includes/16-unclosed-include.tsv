@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: includes/16-unclosed-include   kinds: include,host_styles,styles
+# shape: a Tailwind dashboard writing every partial as <include src="./partials/x.html" /> (not self-closing in
+host_styles	s.css:1:1/0	partials/frag.html:1:37	index.html	match	-	-
+host_styles	s.css:4:1/0	partials/frag.html:1:37	index.html	match	-	-
+include	index.html	partials/frag.html	posthtml:include	index.html:6:1	0	index.html:6:17	-	match	-
+include	index.html	partials/head.html	posthtml:include	index.html:4:1	0	index.html:5:1	-	match	-
+styles	s.css:2:1/0	index.html:6:1	match	-	-
+styles	s.css:3:1/0	index.html:7:1	match	-	-

@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter2 §9 — every row checked by hand against the fixture (groups, slots, winners and loser reasons, token normalisation, media normalisation, labels, outline order, icon rule, class styling)
+# case: components/03-excluded-elements   kinds: component
+# shape: row templates inside <template> and a <noscript> banner repeated on the page: inert elements are never component occurrences
+component	exact	index.html:10:1,index.html:9:1	3	2	1
+component	shape	index.html:10:1,index.html:9:1	3	2	1

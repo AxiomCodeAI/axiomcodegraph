@@ -1,0 +1,19 @@
+# shape: an SSI site that sets a page title with <!--#set -->, echoes it in <title> and the header, and branches on
+# a variable with <!--#if --> around an include (V3-10b: no template_expr rows; #include is a reference, the rest
+# ssi_directive rows)
+kinds=ssi_directive,template_expr,include
+@@@ file: src/inc/beta.html
+<p class="b">beta</p>
+@@@ file: src/index.shtml
+<!DOCTYPE html>
+<html>
+<head>
+<!--#set var="title" value="Home" -->
+<title><!--#echo var="title" --></title>
+</head>
+<body>
+<!--#if expr="$HTTP_HOST = /beta/" -->
+<div class="beta"><!--#include virtual="/inc/beta.html" --></div>
+<!--#endif -->
+</body>
+</html>

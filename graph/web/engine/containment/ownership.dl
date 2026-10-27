@@ -1,0 +1,10 @@
+// ============================================================================
+// Containment · OWNERSHIP
+//
+// Which rule contains which: a rule nested in a style rule, at any depth, has selectors that are
+// relative to its parent's (`.a { .b {} }` is `.a .b`), so they are not matched on their own.
+// ============================================================================
+
+web_rule_parent(r, p) :- css_rule(_, _, _, _, _, _, _, _, _, _, _, _, _, p, _, _, _, _, r), p != "".
+web_rule_in_style(r) :- web_rule_parent(r, p), css_rule("STYLE_RULE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+web_rule_in_style(r) :- web_rule_parent(r, p), web_rule_in_style(p).

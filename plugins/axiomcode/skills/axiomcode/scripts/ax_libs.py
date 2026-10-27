@@ -70,7 +70,7 @@ def python_sites(repo):
     return []
 
 
-def discover(repo):
+def discover(repo, engine=None):
     found, own = [], {d for d in os.listdir(repo) if os.path.isdir(os.path.join(repo, d))}
     src = os.path.join(repo, 'src')
     if os.path.isdir(src):
@@ -105,11 +105,46 @@ def discover(repo):
             if os.path.isdir(d) and not os.path.islink(d):
                 found.append(d)
         note(f'auto: {len(found) - before} JavaScript / TypeScript package(s) the project imports, from node_modules')
+    found += deno_libraries(repo, engine)
     found += java_sources(repo)
     found += csharp_sources(repo)
     if not found:
         note('auto: no dependency found (no virtual environment, node_modules, Maven or Gradle sources jar, or NuGet '
              'package for this repository)')
+    return found
+
+
+def has_deno_config(repo):
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [x for x in dirs if x not in SKIP and not x.startswith('.') and x != 'vendor']
+        if 'deno.json' in files or 'deno.jsonc' in files:
+            return True
+    return False
+
+
+def deno_libraries(repo, engine):
+    """A Deno project's dependencies: its mirror of the jsr: and URL modules it imports (copied from Deno's cache,
+    laid out as vendor/ is) and every npm: package directory, as the parser's own resolver finds them."""
+    if not engine or not has_deno_config(repo):
+        return []
+    cli = os.path.join(engine, 'parser', 'dist', 'deno-libraries.js')
+    if not os.path.isfile(cli):
+        note(f'auto: a Deno project, but {cli} is missing (parser not built); its jsr:, npm: and URL imports are not staged')
+        return []
+    try:
+        out = subprocess.run(['node', cli, repo], capture_output=True, text=True, timeout=600)
+        roots = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        roots = None
+    if roots is None:
+        note('auto: Deno dependency discovery failed; its jsr:, npm: and URL imports are not staged')
+        return []
+    found = [d for d in roots.get('mirrors', []) + roots.get('packages', []) if os.path.isdir(d)]
+    note(f"auto: {len(roots.get('mirrors', []))} Deno mirror(s) of jsr: and URL modules, "
+         f"{len(roots.get('packages', []))} npm package(s) the Deno project imports")
+    if roots.get('unresolved'):
+        note(f"auto: {roots['unresolved']} Deno dependency import(s) resolve to nothing; if Deno has not downloaded "
+             f"them (or its cache was cleared), run `deno install` and index again")
     return found
 
 
@@ -302,8 +337,9 @@ def compiled(src, engine, cache):
     log = out + '.log'
     os.makedirs(cache, exist_ok=True)
     # bin/axiomcode is a bash script: run through bash, which Windows cannot do for it (WinError 193)
-    rc = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(engine, 'bin', 'axiomcode'), 'parser', src, out, '--library'],
-                        stdout=open(log, 'w'), stderr=subprocess.STDOUT).returncode
+    import ax_exec
+    argv, env = ax_exec.bash_argv(os.path.join(engine, 'bin', 'axiomcode'), ['parser', src, out, '--library'])
+    rc = subprocess.run(argv, env=env, stdout=open(log, 'w'), stderr=subprocess.STDOUT).returncode
     if rc != 0 or not is_ir(out):
         note(f'{src} did not compile (rc {rc}, see {log}); not staged')
         return None
@@ -317,7 +353,7 @@ def main():
     cache = CACHE
     out, seen = [], set()
     for e in [x for x in spec.split(',') if x]:
-        entries = discover(repo) if e == 'auto' else [e if os.path.isabs(e) else os.path.join(repo, e)]
+        entries = discover(repo, engine) if e == 'auto' else [e if os.path.isabs(e) else os.path.join(repo, e)]
         for d in entries:
             if not os.path.isdir(d):
                 note(f'not a directory: {d}; not staged'); continue

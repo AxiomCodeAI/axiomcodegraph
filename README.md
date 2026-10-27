@@ -18,6 +18,10 @@
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java: stable"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#: engine in beta"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/html5/html5-original.svg" width="46" height="46" alt="HTML" title="HTML: beta, pages linked to their stylesheets"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/css3/css3-original.svg" width="46" height="46" alt="CSS" title="CSS: beta, the rules each page's elements match"/>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML: Spring beans, web.xml, pom.xml"/>
   &nbsp;&nbsp;
@@ -163,6 +167,9 @@ Any other agent that speaks MCP takes one entry in its MCP config; see
 [Support for agents](#support-for-agents). Start a new agent session afterward: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
+After upgrading the engine or the plugin, **restart the agent session**: a session started before the upgrade keeps the
+old version's MCP server and hooks running beside the new ones, and the two rebuild the graph in turn.
+
 ### Uninstallation
 
 ```bash
@@ -258,16 +265,14 @@ looked up again in the graph before you see it; the `verified:` line is that che
 Every agent below gets the four MCP tools and the skill; the hooks, which keep the graph current and report what an
 edit breaks, run where the last column says so. No hook annotates the agent's own reads and searches.
 
-| Agent | Install | Uninstall | Hooks |
-|---|---|---|---|
-| **Claude Code** | `claude plugin marketplace add AxiomCodeAI/axiomcodegraph` then `claude plugin install axiomcode@axiomcode` | `claude plugin uninstall axiomcode@axiomcode` | yes |
-| **Codex CLI** and desktop app | `codex plugin marketplace add AxiomCodeAI/axiomcodegraph` then `codex plugin add axiomcode@axiomcode` | `codex plugin remove axiomcode@axiomcode` | yes |
-| **Copilot CLI** | `copilot plugin marketplace add AxiomCodeAI/axiomcodegraph` then `copilot plugin install axiomcode@axiomcode` | `copilot plugin uninstall axiomcode@axiomcode` | no |
-| **VS Code** (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiomcodegraph"]` to settings | remove the setting | no |
-| **Cursor** | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegraph` | the Plugins panel | yes |
-| **Gemini CLI** | `gemini extensions install https://github.com/AxiomCodeAI/axiomcodegraph` | `gemini extensions uninstall axiomcode` | yes |
-| **Windsurf**, **Devin CLI** | `devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode` | Devin's plugin manager | no |
-| **Any MCP client** and others | the JSON below in its MCP config | remove the entry | no |
+| Agent | Hooks |
+|---|---|
+| **Claude Code**, **Codex CLI** and desktop app, **Cursor**, **Gemini CLI** | yes |
+| **Copilot CLI**, **VS Code** (Copilot agent mode), **Windsurf**, **Devin CLI** | no |
+| **Any MCP client** and others: the JSON below in its MCP config | no |
+
+The install and uninstall commands are under [Installation](#installation). In VS Code, add
+`"chat.plugins.marketplaces": ["AxiomCodeAI/axiomcodegraph"]` to settings.
 
 ```json
 { "mcpServers": { "axiomcode": { "command": "npx", "args": ["-y", "@axiomcode/code-graph", "mcp"] } } }
@@ -285,22 +290,20 @@ A language is usable end to end when both the **parser** (source → relational 
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection |
 | **JavaScript** | stable | beta | **beta**. JSDoc as the type channel, CommonJS and ESM; being scored against the TypeScript compiler |
 | **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle |
+| **HTML** | beta | beta | **beta**. With CSS, one web graph: pages, the stylesheets and scripts each loads, and which rules style which elements, each edge `match`, `conditional` (a `:hover`, an `@media`) or `unknown` |
+| **CSS** | beta | beta | **beta**. Rules, selectors with specificity and nesting, and the cascade: the winning declaration per element and property, custom properties, fonts and keyframes in use |
 
 XML, YAML, `.properties` and `META-INF/services` are part of the Java graph, so a change to a property key or a
 wiring declaration has a blast radius into methods. A repository with several languages gets one graph per
 language.
 
+HTML and CSS are one graph of their own (`web`); its keys to the JavaScript graph (a script's file, a handler's
+callee name) are kept as columns, not resolved into calls.
+
 ## Benchmark results
 
-**Call resolution.** 96.5% of Java calls and 88.8% of TypeScript calls linked to the compiler's exact target;
-the chart above and [Measured cross-file coverage](#measured-cross-file-coverage) break this down.
-
-**Test selection.** On 748 held-out bugs from Defects4J, scored once after the evaluation rules were frozen,
-the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **61.5%** for the
-best CST-based graph builder, at an F1 of **72.4** against Defects4J's own selection, which it gets by
-running the suite.
-
-The table is at the [top of this page](#what-it-does).
+Test selection and call resolution are at the [top of this page](#what-it-does); the per-metric tables are in
+[Measured cross-file coverage](#measured-cross-file-coverage).
 
 **Change impact.** On five real commits of a large JVM project (181,355 methods), the direct callers AxiomCode
 reports have precision **0.980** against 0.397 for CST-based name matching, at the same recall. An agent asked
@@ -337,7 +340,8 @@ edit, a shell command, a finished turn, at session start, and before a query, an
 background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
 command keeps reading the previous graph until the new one is indexed and swapped in. A query answers from the
 previous graph at once, with a `graph refresh:` line naming the files it predates and the rows in them marked;
-`--fresh` waits for the rebuild instead, and `AXIOMCODE_FRESH_WAIT` (seconds, default 0) lets every query wait that long. The MCP server also checks every repository it has answered for once 15 minutes have
+`--fresh` waits for the rebuild instead, and `AXIOMCODE_FRESH_WAIT` (seconds, default 0) lets every query wait
+that long. The MCP server also checks every repository it has answered for once 15 minutes have
 passed since its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while
 a session sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
 `AXIOMCODE_NO_REFRESH=1` turns the rebuilds off, not the check: an answer from a graph older than an edit still
@@ -370,7 +374,6 @@ Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 <p align="center">
   <img src="docs/images/call-resolution-accuracy.svg" width="900" alt="Call resolution accuracy. Java: AxiomCode 96.5%, GitNexus 78.9%, CodeGraph 78.5%, Code-Review-Graph 71.9%, Graphify 67.5%. TypeScript: AxiomCode 88.8%, Code-Review-Graph 71.6%, CodeGraph 65.4%, GitNexus 65.1%, Graphify 49.8%.">
 </p>
-
 
 Scored against the compiler's ground truth on five open-source projects per language. *Call resolution* is the
 share of calls with exactly one possible target that the tool links to that target. *File → file* is the F1 of

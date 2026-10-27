@@ -1,4 +1,4 @@
-import { WEB_TEXT_LIMIT } from '@/constants/web-constants';
+import { WEB_CSS_TEXT_LIMIT } from '@/constants/web-constants';
 
 import { WebRow, bool, boundedText, num } from '../web/web-row';
 
@@ -68,7 +68,7 @@ export class CssSelector extends WebRow {
 
   protected values(): string[] {
     return [
-      boundedText(this.selectorText, WEB_TEXT_LIMIT), num(this.position), num(this.specificityA),
+      boundedText(this.selectorText, WEB_CSS_TEXT_LIMIT), num(this.position), num(this.specificityA),
       num(this.specificityB), num(this.specificityC), num(this.compoundCount), bool(this.hasNesting),
       bool(this.hasPseudoElement), num(this.startLine), num(this.startColumn), num(this.endLine),
       num(this.endColumn), this.ruleLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash, this.hash,

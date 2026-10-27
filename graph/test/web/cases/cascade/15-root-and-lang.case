@@ -1,0 +1,19 @@
+# shape: theme sheets defining custom properties on :root and localisation rules using :lang(), on a page with and without a written <html>
+kinds=styles,unknown
+@@@ file: src/bare.html
+<!doctype html>
+<link rel="stylesheet" href="s.css">
+<p>no html tag</p>
+@@@ file: src/full.html
+<!doctype html>
+<html lang="de">
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<p>de</p><p lang="fr-CA">fr</p>
+</body>
+</html>
+@@@ file: src/s.css
+:root { a: 1 }
+p:lang(fr) { a: 2 }
+p:lang(de) { a: 3 }
+html:root p { a: 4 }

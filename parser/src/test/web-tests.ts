@@ -351,15 +351,19 @@ const formatChecks: FormatCheck[] = [
     },
   },
   {
-    name: 'a-root-relative-url-resolves-only-when-one-served-root-holds-it',
-    spec: 'a path-absolute URL resolves against the origin, which the repository does not record',
-    rulesOut: 'a resolver that guesses between two candidate roots, or never resolves /static/x',
+    name: 'a-root-relative-url-resolves-against-the-nearest-ancestor-that-holds-it',
+    spec: 'a path-absolute URL resolves against the origin, which the repository does not record: the nearest ancestor of the page that holds the path (V3-01), else exactly one conventionally served directory',
+    rulesOut: 'a resolver that prefers the repository root over a nearer ancestor, guesses between two served roots, or never resolves /static/x',
     run: () => {
       file('app/public/static/one.js', '');
       file('app/pages/deep/page.html', '');
       file('app/public/static/two.js', '');
       file('app/pages/static/two.js', '');
-      const content = '<script src="/static/one.js"></script><script src="/static/two.js"></script><script src="/static/none.js"></script>';
+      file('app/public/static/three.js', '');
+      file('app/static/static/three.js', '');
+      file('app/pages/docs/index.htm', '');
+      const content = '<script src="/static/one.js"></script><script src="/static/two.js"></script><script src="/static/none.js"></script>'
+        + '<script src="/static/three.js"></script><a href="/pages/docs/"></a>';
       const p = file('app/pages/deep/page.html', content);
       const x = new HtmlParser().parse(content, p, path.join(TMP, 'app'), 'V');
       const by = Object.fromEntries(x.references.map((r) => [r.urlAsWritten, r]));
@@ -367,8 +371,14 @@ const formatChecks: FormatCheck[] = [
       if (by['/static/one.js']?.resolvedFilePath !== path.join(TMP, 'app/public/static/one.js')) {
         bad += fail(`one candidate: resolved to ${JSON.stringify(by['/static/one.js']?.resolvedFilePath)}`);
       }
-      if (by['/static/two.js']?.isResolved !== false) bad += fail('two candidates were not refused');
+      if (by['/static/two.js']?.resolvedFilePath !== path.join(TMP, 'app/pages/static/two.js')) {
+        bad += fail(`the nearest ancestor did not win: ${JSON.stringify(by['/static/two.js']?.resolvedFilePath)}`);
+      }
+      if (by['/static/three.js']?.isResolved !== false) bad += fail('two served-root candidates were not refused');
       if (by['/static/none.js']?.isResolved !== false) bad += fail('no candidate reads as resolved');
+      if (by['/pages/docs/']?.resolvedFilePath !== path.join(TMP, 'app/pages/docs/index.htm')) {
+        bad += fail(`a directory URL did not resolve to its index file: ${JSON.stringify(by['/pages/docs/']?.resolvedFilePath)}`);
+      }
       const script = x.scripts.find((s) => s.src === '/static/one.js')!;
       if (script.resolvedFilePath !== by['/static/one.js']!.resolvedFilePath || script.referenceLinkHash !== by['/static/one.js']!.getHash()) {
         bad += fail('the script row does not carry its reference\'s resolution');
@@ -672,7 +682,8 @@ const formatChecks: FormatCheck[] = [
     run: () => {
       const x = parseCss(':root { --Brand: #09f; -webkit-font-smoothing: antialiased; background: url(a.png)   no-repeat !important; color: RED }');
       const got = x.declarations.map((d) => `${d.position}:${d.property}=${d.valueText}${d.isImportant ? '!' : ''}${d.isCustomProperty ? '~' : ''}${d.vendorPrefix ? '(' + d.vendorPrefix + ')' : ''}`).join(' ');
-      const want = '0:--Brand=#09f~ 1:-webkit-font-smoothing=antialiased(-webkit-) 2:background=url(a.png) no-repeat! 3:color=RED';
+      // V2-12 ruling: the value is kept as written, its inner whitespace included
+      const want = '0:--Brand=#09f~ 1:-webkit-font-smoothing=antialiased(-webkit-) 2:background=url(a.png)   no-repeat! 3:color=RED';
       return got === want ? 0 : fail(`got  ${got}\n      want ${want}`);
     },
   },
@@ -929,6 +940,7 @@ const UNREACHABLE_BY_CONSTRUCTION: Readonly<Record<string, string>> = {};
 const MERELY_UNOBSERVED: Readonly<Record<string, string>> = {
   'HtmlParseGapKind.GAP_LIMIT_REACHED': 'needs 200+ errors in one page; the format check gaps-are-capped produces it',
   'CssParseGapKind.GAP_LIMIT_REACHED': 'needs 200+ gaps in one stylesheet; the HTML cap check covers the collector shape',
+  'CssParseGapKind.UNCLOSED_BLOCK': 'the fixture sheets all close their blocks; web-plumbing-tests unclosed-eof and the torture gaps.css produce it',
   'CssSelectorPartKind.RAW': 'a selector node of a kind this reader does not classify; the grammar\'s own node set is covered, so the fixture produces none',
   'HtmlNamespace.MATHML': 'no fixture page holds <math>; the namespace is decided from context exactly as SVG is',
 };
@@ -998,7 +1010,7 @@ function fixtureChecks(out: string, root: string): number {
   let bad = 0;
   const docs = tsv(out, WEB_CSV_FILES.HTML_DOCUMENTS);
   const rel = docs.map((d) => d['relativePath']).sort();
-  const want = ['index.html', 'page.html', 'partials/frame.html', 'templates/fragment.html', 'templates/layout.html', 'templates/mixed.html'];
+  const want = ['index.html', 'page.html', 'partials/frame.html', 'ssi.shtml', 'templates/fragment.html', 'templates/layout.html', 'templates/mixed.html'];
   if (rel.join(' ') !== want.join(' ')) bad += fail(`documents=${rel.join(' ')}\n      expected ${want.join(' ')}`);
   // Attribution: a page under site/ belongs to site/, never to the root target that also reaches it.
   for (const d of docs) {

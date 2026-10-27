@@ -62,6 +62,24 @@ grep -q "using packaged engine" "$W/run.log" || fail "the run did not use the in
 
 db="$(find "$W/out" -name graph.sqlite | head -1)"
 [ -n "$db" ] || fail "no graph.sqlite was written"
+
+# WEB (HTML + CSS) has no call graph: the installed package must have used its packaged web engine (checked above) and
+# written pages, selectors and the rows that link them; then every query verb on .github/e2e/web (e2e-web-queries.sh).
+if [ "$lang" = "web" ]; then
+  counts="$(node -e '
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(process.argv[1], { readOnly: true });
+    const n = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+    console.log([n("web_pages"), n("web_selectors"), n("web_styles"), n("ext_web_selector_match")].join(" "));
+  ' "$db" 2>/dev/null)"
+  read -r pages sels styles matches <<<"${counts:-0 0 0 0}"
+  [ "${pages:-0}" -gt 0 ] && [ "${sels:-0}" -gt 0 ] && [ "${styles:-0}" -gt 0 ] && [ "${matches:-0}" -gt 0 ] \
+    || fail "the web graph is missing rows (pages ${pages:-?}, selectors ${sels:-?}, styles ${styles:-?}, engine matches ${matches:-?})"
+  echo "── every query verb on the web fixture, answers checked, no souffle"
+  PATH="$SANDBOX_PATH" bash "$root/.github/scripts/e2e-web-queries.sh" "$bin" "$root/.github/e2e/web" "$W/q" || fail "a web query verb answered wrongly (above)"
+  echo "e2e: ok — installed from the tarballs, used the packaged $platform web engine; $pages page(s), $sels selector(s), $styles style row(s), $matches engine match(es); every query verb answered correctly from the package"
+  exit 0
+fi
 edges="$(node -e '
   const { DatabaseSync } = require("node:sqlite");
   const db = new DatabaseSync(process.argv[1], { readOnly: true });

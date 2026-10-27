@@ -382,8 +382,12 @@ module_export_runtime_row(prov, mod, en) :- export_decl(prov, en, _, _, mod, h),
 module_export(prov, mod, en, k, h) :- module_export_any(prov, mod, en, k, h),
     !module_export_type_only(prov, mod, en).
 
+// EXPORT_STAR_AS_NAMESPACE is not a star. `export * as core from "./m"` exports ONE
+// name, `core`, whose value is m's namespace; m's members are reachable only as
+// `core.x`. Expanding it here put every member of m on this module's own surface, so
+// a barrel holding `export * as coerce` beside `export * from "./schemas"` exported
+// two `string`s. It is module_export_namespace's rule (b) instead.
 export_kind_is_star("EXPORT_STAR").
-export_kind_is_star("EXPORT_STAR_AS_NAMESPACE").
 export_kind_is_star("TYPE_ONLY_STAR").
 export_kind_is_local_name("NAMED_EXPORT").
 export_kind_is_local_name("NAMED_ALIAS").
@@ -725,6 +729,75 @@ import_binds_namespace_any(h, prov, m) :- import_binding("client", ik, _, _, _, 
     import_target_module(h, prov, m).
 import_binds_namespace(h, prov, m) :- import_binds_namespace_any(h, prov, m),
     !import_is_type_only("client", h).
+
+// ── module_export_namespace(NsProv, Module, ExportedName, NsModule) ─────────
+// A module can export a NAMESPACE under a name, not only a declaration:
+//
+//   import * as z from "./external"; export { z }; export default z;
+//   export * as core from "./core";
+//
+// module_export_any cannot carry it — its rows name an entity, and a namespace is a
+// module — so an importer's `import { z } from "pkg"` bound nothing, and every
+// `z.string()` after it had an untyped receiver. Kept as its own relation for the
+// reason import_binds_namespace is: the value is an export table, not a type.
+//
+// (a) a bare `export { z }` / `export { z as y }` / `export default z` whose local
+// name is a namespace import binding in the same module. The import row resolves to
+// its target, so this is a join, as in module_export_any (b2).
+module_export_namespace(prov, mod, en, ns) :- export_decl(eprov, en, ln, ek, mod, h),
+    export_kind_names_local_binding(ek),
+    export_source(eprov, "", _, h),
+    ln != "",
+    import_binding(eprov, ik, ln, _, mod, ih),
+    import_kind_binds_namespace(ik),
+    namespace_import_target(eprov, ih, prov, ns).
+// (b) `export * as core from "./m"`: the row's exported name is the namespace.
+module_export_namespace(prov, mod, en, ns) :- export_decl(_, en, _, "EXPORT_STAR_AS_NAMESPACE", mod, h),
+    en != "",
+    export_target_module(h, prov, ns).
+// (c) the name travels on: `export { z } from "./barrel"` and `export * from "./barrel"`
+// carry a namespace export exactly as they carry a declaration (module_export_any (c), (d)).
+module_export_namespace(prov, mod, en, ns) :- export_decl(_, en, ln, ek, mod, h),
+    export_kind_is_local_name(ek),
+    ln != "",
+    export_target_module(h, _, src),
+    module_export_namespace(prov, src, ln, ns).
+module_export_namespace(prov, mod, en, ns) :- export_decl(_, _, _, ek, mod, h),
+    export_kind_is_star(ek),
+    export_target_module(h, _, src),
+    module_export_namespace(prov, src, en, ns),
+    en != "default".
+// (d) a barrel that imports the namespace by name and exports it bare:
+// `import { z } from "./inner"; export { z }`.
+module_export_namespace(prov, mod, en, ns) :- export_decl(eprov, en, ln, ek, mod, h),
+    export_kind_names_local_binding(ek),
+    export_source(eprov, "", _, h),
+    ln != "",
+    import_binding(eprov, ik, ln, orig, mod, ih),
+    import_kind_binds_named(ik),
+    orig != "",
+    namespace_import_target(eprov, ih, _, m),
+    module_export_namespace(prov, m, orig, ns).
+
+export_kind_names_local_binding(ek) :- export_kind_is_local_name(ek).
+export_kind_names_local_binding("DEFAULT_EXPRESSION").
+
+// A client import row resolves through import_target_module, a library's own through
+// lib_import_target; the barrel above may be either.
+namespace_import_target("client", ih, prov, m) :- import_target_module(ih, prov, m).
+namespace_import_target("lib", ih, prov, m) :- lib_import_target(ih, prov, m).
+
+// The importer's side: a named or default import of a name its target module exports
+// as a namespace binds that namespace, and member calls on it read its export table.
+import_binds_namespace_any(h, prov, ns) :- import_binding("client", ik, _, orig, _, h),
+    import_kind_binds_named(ik),
+    orig != "",
+    import_target_module(h, _, m),
+    module_export_namespace(prov, m, orig, ns).
+import_binds_namespace_any(h, prov, ns) :- import_binding("client", ik, _, _, _, h),
+    import_kind_binds_default(ik),
+    import_target_module(h, _, m),
+    module_export_namespace(prov, m, "default", ns).
 // An export-assignment module imported as a namespace still exposes its members by
 // name, so it is reachable through the same relation.
 import_kind_binds_namespace("NAMESPACE").

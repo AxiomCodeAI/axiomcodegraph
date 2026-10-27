@@ -1,0 +1,17 @@
+# shape: pages mixing inline style="" attributes (with var() and url()) and <style> blocks in head and body
+kinds=declaration,value_ref,stylesheet,rule
+@@@ file: src/img/hero.png
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+  <style>
+    .hero { background: url("img/hero.png") no-repeat; color: var(--fg, #000) !important; }
+  </style>
+</head>
+<body>
+  <div class="hero" style="margin: 0 auto; --fg: red;background-image:url(img/x.png)">h</div>
+  <p style="">empty style</p>
+  <style>p { margin: 0 }</style>
+</body>
+</html>

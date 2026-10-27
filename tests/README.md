@@ -12,6 +12,9 @@ the behaviour it is about, so a failure says what broke rather than which number
 One check needs no graph and is its own script:
 
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
+    python3 tests/answer_head.py         the places view (MCP, the installed command) opens with what the question resolved
+                                         to: a closure's size and count per hop, and a name that matched several
+                                         declarations; a single declaration adds nothing (#1939; no graph needed)
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape, on a small
                                          Python case by default; --lang java|csharp|typescript for the others
                                          (typescript needs the TypeScript engine; indexes, so it needs the engine)
@@ -65,6 +68,11 @@ One check needs no graph and is its own script:
                                          and the refresh is expected within the budget, never on a rules compile;
                                          --fresh waits and MCP takes fresh=true; the file table prunes exactly what each
                                          parser skips, so an edit under out/ or build/ is seen (#1594, #1595; no engine)
+    python3 tests/two_versions.py        two axiomcode versions over one repository: an older one's graph is rebuilt
+                                         once, not again each time the older one rebuilds it back, and every answer says
+                                         two versions are running and to restart the agent session; an install marked
+                                         .orphaned_at, or whose files are gone, writes nothing under .axiomcode from its
+                                         hooks, timer, refresher, query or MCP server (no engine)
     python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
                                          graph pointer is repaired and keeps the baseline; a query mid-build waits for it
                                          and starts no build; a failed build never leaves the pointer dangling; a failed
@@ -72,6 +80,9 @@ One check needs no graph and is its own script:
                                          no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/windows_argv.py        an argument holding ' or " reaches the verb as written when a native program starts
+                                         Git Bash the Windows way (AXIOMCODE_ARGV, ax_exec.bash_argv), through both entry
+                                         points; taken once; the command-line branch is the control (no engine)
     python3 tests/no_exec.py             impact, path and context answer, with their exit status, where os.exec* does not
                                          replace the process, as on Windows; no script or hook calls os.exec* but
                                          ax_exec.py (#1640; indexes a case, so it needs the engine)

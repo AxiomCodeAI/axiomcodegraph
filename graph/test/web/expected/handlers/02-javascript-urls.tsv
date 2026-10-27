@@ -1,0 +1,8 @@
+# reviewed: yes 2026-10-12 iter 5 — read against the source and the [iter5 orchestrator] rulings (V4-01 SSI anywhere, V4-02 unclosed include, V4-03 javascript: no-ops, V4-05 stored text, V4-07 directory without slash, V4-08 walk) and the single-quote regression
+# case: handlers/02-javascript-urls   kinds: handler
+# shape: jQuery-era navigation and forms using javascript: URLs in href, iframe src, form action and button formaction, in mixed case and URL-encoded
+handler	index.html:10:1	src	navigate	written	-	javascript_url	5	|false
+handler	index.html:11:1	action	navigate	written	-	javascript_url	10	|submitIt()
+handler	index.html:11:38	formaction	navigate	written	-	javascript_url	9	|alt%28%29
+handler	index.html:7:6	xlink:href	navigate	written	-	javascript_url	7	|svgGo()
+handler	index.html:8:1	href	navigate	written	-	javascript_url	13	|toggleMenu(1)

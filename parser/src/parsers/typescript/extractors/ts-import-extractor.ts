@@ -4,6 +4,7 @@ import * as ts from 'typescript';
 
 import { TsImportRegistry } from '@/analysis-types/typescript/TsImportRegistry';
 import { TsImportKind, TsImportResolutionKind } from '@/enums/typescript/imports';
+import { denoPackageNameOf, DenoResolutionKind, resolveDenoSpecifier } from '@/parsers/typescript/deno/deno-resolver';
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
 import { resolveVueSpecifier, VUE_EXTENSION } from '@/utils/vue-sfc';
 
@@ -436,6 +437,30 @@ export class TsImportExtractor {
     return result;
   }
 
+  /**
+   * A Deno project's own resolution, tried before the compiler's: an import map,
+   * a workspace member, a `jsr:` / `npm:` package or a URL. `undefined` for a file
+   * outside any Deno project and for a specifier Deno resolves as Node would.
+   */
+  private resolveDeno(specifier: string): ResolvedSpecifier | undefined {
+    const deno = resolveDenoSpecifier(specifier, this.options.absoluteFilePath);
+    if (deno === undefined) {
+      return undefined;
+    }
+    if (deno.kind === 'BUILTIN') {
+      return { ...UNRESOLVED, kind: TsImportResolutionKind.BUILTIN_NODE };
+    }
+    const absolute = path.normalize(deno.resolvedFileName);
+    return {
+      absolutePath: absolute,
+      relativePath: this.options.toProjectRelative(absolute),
+      moduleHash: this.options.projectModuleHashes.get(absolute) ?? '',
+      kind: DENO_RESOLUTION_KINDS[deno.kind](deno.extension),
+      extension: deno.extension,
+      packageName: deno.packageName,
+    };
+  }
+
   private doResolve(specifier: string): ResolvedSpecifier {
     // A Node builtin, with or without the `node:` prefix. Both forms must be
     // classified, and the unprefixed form is the common one: `import * as path
@@ -446,6 +471,10 @@ export class TsImportExtractor {
     // different treatment, and only one of them is a problem.
     if (specifier.startsWith('node:') || NODE_BUILTIN_SPECIFIERS.has(specifier)) {
       return { ...UNRESOLVED, kind: TsImportResolutionKind.BUILTIN_NODE };
+    }
+    const deno = this.resolveDeno(specifier);
+    if (deno !== undefined) {
+      return deno;
     }
     const resolved = ts.resolveModuleName(
       specifier,
@@ -498,7 +527,10 @@ export class TsImportExtractor {
       // import, and a consumer had to re-derive it from the specifier to answer
       // "which package would close these hops". The name is pure syntax, so it
       // is filled here whether resolution succeeded or not.
-      return { ...UNRESOLVED, packageName: packageNameOf(specifier) };
+      return {
+        ...UNRESOLVED,
+        packageName: denoPackageNameOf(specifier, this.options.absoluteFilePath) ?? packageNameOf(specifier),
+      };
     }
     return {
       absolutePath: absolute,
@@ -558,6 +590,19 @@ function isDeclarationExtension(extension: string): boolean {
     || extension === ts.Extension.Dcts;
 }
 
+/** Each Deno answer as the `resolutionKind` the engine reads. */
+const DENO_RESOLUTION_KINDS: Record<DenoResolutionKind, (extension: string) => TsImportResolutionKind> = {
+  IMPORT_MAP: () => TsImportResolutionKind.PATHS_ALIAS,
+  WORKSPACE_MEMBER: () => TsImportResolutionKind.WORKSPACE_PACKAGE,
+  JSR: () => TsImportResolutionKind.JSR_PACKAGE,
+  NPM_CACHE: () => TsImportResolutionKind.DENO_NPM_CACHE,
+  NODE_MODULES: (extension) => isDeclarationExtension(extension)
+    ? TsImportResolutionKind.NODE_MODULES_TYPES
+    : TsImportResolutionKind.NODE_MODULES_SOURCE,
+  REMOTE: () => TsImportResolutionKind.REMOTE_MODULE,
+  BUILTIN: () => TsImportResolutionKind.BUILTIN_NODE,
+};
+
 interface ResolvedSpecifier {
   readonly absolutePath: string;
   readonly relativePath: string;
@@ -596,16 +641,25 @@ const NODE_BUILTIN_SPECIFIERS = new Set([
  * Node builtins never reach this: they are classified BUILTIN_NODE before
  * resolution is attempted, and they are not packages to stage.
  */
-function packageNameOf(specifier: string): string {
+function packageNameOf(specifierIn: string): string {
+  // `npm:zod@^3/v4` and `jsr:@std/path@1/join` name a package after the scheme,
+  // with a version range glued to it; any other scheme (`https:`, `data:`) names none.
+  const scheme = /^(?:npm|jsr):\/?/.exec(specifierIn);
+  if (scheme === null && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(specifierIn)) {
+    return '';
+  }
+  const specifier = scheme === null ? specifierIn : specifierIn.slice(scheme[0].length);
   if (specifier === '' || specifier.startsWith('.') || specifier.startsWith('/')
     || specifier.includes('*')) {
     return '';
   }
   const segments = specifier.split('/');
+  const unversioned = (segment: string | undefined): string =>
+    scheme === null || segment === undefined ? segment ?? '' : segment.replace(/(.)@.*$/, '$1');
   if (specifier.startsWith('@')) {
-    return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : '';
+    return segments.length >= 2 ? `${segments[0]}/${unversioned(segments[1])}` : '';
   }
-  return segments[0] ?? '';
+  return unversioned(segments[0]);
 }
 
 const UNRESOLVED: ResolvedSpecifier = {

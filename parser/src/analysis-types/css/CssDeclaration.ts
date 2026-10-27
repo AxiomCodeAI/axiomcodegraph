@@ -1,6 +1,6 @@
-import { WEB_TEXT_LIMIT } from '@/constants/web-constants';
+import { WEB_CSS_TEXT_LIMIT } from '@/constants/web-constants';
 
-import { WebRow, bool, boundedText, num, text } from '../web/web-row';
+import { WebRow, bool, num, text, writtenText } from '../web/web-row';
 
 /**
  * One `property: value` pair.
@@ -17,7 +17,10 @@ export class CssDeclaration extends WebRow {
   static readonly COLUMNS = [
     'property', 'valueText', 'isImportant', 'isCustomProperty', 'vendorPrefix', 'position',
     'startLine', 'startColumn', 'endLine', 'endColumn', 'ruleLinkHash', 'htmlAttributeLinkHash',
-    'stylesheetLinkHash', 'serviceVersionLinkHash', 'cssDeclarationUniqueHash',
+    'stylesheetLinkHash', 'serviceVersionLinkHash',
+    // V2-12: the value is kept in full (cut only past WEB_CSS_TEXT_LIMIT); its UTF-8 size and whether it was cut
+    'valueBytes', 'valueTruncated',
+    'cssDeclarationUniqueHash',
   ] as const;
 
   readonly relation = 'css_declaration';
@@ -68,10 +71,11 @@ export class CssDeclaration extends WebRow {
 
   protected values(): string[] {
     return [
-      text(this.property), boundedText(this.valueText, WEB_TEXT_LIMIT), bool(this.isImportant),
+      text(this.property), writtenText(this.valueText, WEB_CSS_TEXT_LIMIT), bool(this.isImportant),
       bool(this.isCustomProperty), text(this.vendorPrefix), num(this.position), num(this.startLine),
       num(this.startColumn), num(this.endLine), num(this.endColumn), this.ruleLinkHash,
-      this.htmlAttributeLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash, this.hash,
+      this.htmlAttributeLinkHash, this.stylesheetLinkHash, this.serviceVersionLinkHash,
+      num(Buffer.byteLength(this.valueText, 'utf8')), bool(this.valueText.length > WEB_CSS_TEXT_LIMIT), this.hash,
     ];
   }
 }

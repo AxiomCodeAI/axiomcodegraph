@@ -1,0 +1,10 @@
+# shape: theme CSS with build comments inside values (`.6em /*{radius}*/`, `Arial/*{ff}*/`), a CRLF inside a
+# function value, and a comment inside a grouped selector (V4-05: text as stored, bytes = its UTF-8 length)
+kinds=value_text,prelude_text
+@@@ file: src/index.html
+<!doctype html>
+<html><head><link rel="stylesheet" href="s.css"></head><body><p class="a b">x</p></body></html>
+@@@ file: src/s.css base64
+LmEgeyBsZWZ0OiAuNmVtIC8qe3JhZGl1c30qLzsgZm9udC1mYW1pbHk6IEFyaWFsLyp7ZmZ9Ki87
+IH0NCi5iIHsgZmlsdGVyOiB4KA0KIGEpIH0NCmJ1dHRvbiwgLyogMSAqLyBpbnB1dCB7IGNvbG9y
+OiByZWQgfQ0K

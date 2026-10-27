@@ -464,10 +464,14 @@ class G:
         its leading `/` dropped as before, so a root-relative `/src/a.js` still matches — and is named as outside when not."""
         while f.startswith('./'): f = f[2:]
         if not os.path.isabs(f): return f, False
+        # Containment by commonpath on normcased paths, not a `root + '/'` prefix: on Windows abspath writes `\\` and
+        # either case for the drive, so a file under the repository was refused as outside it.
         real = os.path.realpath(f)
-        for root in {self.repo, os.path.abspath(self.repo)}:
+        for root in {self.repo, os.path.abspath(self.repo), os.path.realpath(self.repo)}:
             for p in (real, os.path.abspath(f)):
-                if p == root or p.startswith(root.rstrip('/') + '/'):
+                try: inside = os.path.commonpath([os.path.normcase(p), os.path.normcase(root)]) == os.path.normcase(root)
+                except ValueError: inside = False                      # another drive
+                if inside:
                     return os.path.relpath(p, root).replace(os.sep, '/'), False
         return f.lstrip('/'), True
     def file_lines(self, f):
@@ -1642,6 +1646,14 @@ def closure(g, sel, upstream, limit=40, depth=40):
     agree = bfs == dict(rows)
     word = 'can reach' if upstream else 'is reached from'
     print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (f" within {depth} hop(s)" if depth < 40 else ''))
+    # THE SUMMARY AS DATA. The places view (ax_blocks: MCP and the CLI's default) is built from this document, not from
+    # the line above, and without these fields it opened at row 1 of thousands: a start that named 22 declarations read
+    # as one, and nothing said how many places there were per hop.
+    RESULT['closure'] = {'direction': 'up' if upstream else 'down', 'label': label, 'declarations': len(ids),
+                         'methods': len(rows), 'files': len({g.sym[m]['file'] for m, _ in rows}),
+                         'test': sum(1 for m, _ in rows if g.sym[m]['is_test']),
+                         'by_hop': {str(d): n for d, n in sorted(collections.Counter(d for _, d in rows).items())},
+                         'depth': depth if depth < 40 else None}
     # HOW MUCH OF IT IS CERTAIN. The closure follows every edge the graph holds, and most of a large one arrives through a
     # dispatch choice: a call to an interface method "reaches" every implementation's callers, so one repository interface
     # turned 3 exact callers into 342 methods. Both numbers are true -- the first is what must run it, the second what may --
@@ -1973,6 +1985,9 @@ def never_loads(g, A, B):
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
+    # what each end named, as data: the places view shows the hops, and a name that matched several declarations
+    # has to say so there too (ax_grep.head)
+    RESULT['ends'] = {'from': {'label': la, 'declarations': len(A)}, 'to': {'label': lb, 'declarations': len(B)}}
     nl = never_loads(g, A, B)
     if nl:
         RESULT['never_loads'] = {'test_file': nl[0], 'target_files': nl[1]}
@@ -2339,6 +2354,8 @@ def why_around(g, query):
     return code
 
 if __name__ == '__main__':
+    # a WEB graph (HTML + CSS) has no call graph: its own module answers (ax_web.py), per language
+    import ax_web; ax_web.maybe_answer('path', sys.argv[1:])
     import ax_pages; ax_pages.install('path')         # pages and a next step (#1202)
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)

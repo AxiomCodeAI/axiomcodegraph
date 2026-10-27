@@ -36,3 +36,22 @@ def become(argv):
     except KeyboardInterrupt:
         rc = 130
     sys.exit(rc)
+
+
+ARGV_ENV = 'AXIOMCODE_ARGV'
+
+
+def bash_argv(script, args, env=None, bash=None):
+    """(argv, env) that run the bash script `script` with exactly `args`. ON WINDOWS THE COMMAND LINE CANNOT CARRY THEM:
+    Git Bash's msys runtime parses it by its own rules, where `'` quotes too and `\\"` is no escape, so `it's` swallowed
+    every argument after it and `"Widgets:MinCount"` arrived as `\\Widgets:MinCount\\`. There they travel in
+    AXIOMCODE_ARGV, each ended by \\x1f, and the script's prologue turns them back into "$@": an environment value
+    reaches bash as written. Elsewhere they are passed on the command line as before. WINDOWS_ARGV is read at call time,
+    so a test can take the Windows branch on any OS."""
+    bash = bash or os.environ.get('AXIOMCODE_BASH') or 'bash'
+    if not WINDOWS_ARGV: return [bash, script, *args], env
+    e = dict(os.environ if env is None else env); e[ARGV_ENV] = ''.join(f'{a}\x1f' for a in args)
+    return [bash, script], e
+
+
+WINDOWS_ARGV = os.name == 'nt'

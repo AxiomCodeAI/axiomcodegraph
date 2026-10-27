@@ -1,0 +1,16 @@
+# shape: embedding tutorials: <iframe srcdoc="<p>..."> and fallback markup written between <iframe> and </iframe> (G11: text to a browser, never styled)
+kinds=element,attribute,reference,styles,unknown
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+  <iframe srcdoc="<p class='inner'>hello</p>" title="a"></iframe>
+  <iframe src="other.html"><p class="fallback"><a href="https://example.org/">fallback</a></p></iframe>
+</body>
+</html
+@@@ file: src/other.html
+<!doctype html><title>o</title>
+@@@ file: src/s.css
+.fallback a { a: 1 }
+iframe { a: 2 }

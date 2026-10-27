@@ -1,0 +1,29 @@
+# shape: multi-sheet admin template: a CDN stylesheet, a link to a sheet that does not exist, a link to the compiled sheet in dist/ (read by the web walk since #1909), a link into a Maven target/ directory the walk still skips, an alternate stylesheet, and a sheet no page loads
+kinds=loads_sheet,unknown,imports
+@@@ file: src/css/dark.css
+p { a: 2 }
+@@@ file: src/css/main.css
+@import "gone.css";
+@import url(https://fonts.example.org/f.css);
+p { a: 1 }
+@@@ file: src/css/unused.css
+.u { a: 3 }
+@@@ file: src/dist/app.css
+p { a: 4 }
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="https://cdn.example.org/lib.css">
+<link rel="stylesheet" href="css/nope.css">
+<link rel="stylesheet" href="dist/app.css">
+<link rel="stylesheet" href="target/site.css">
+<link rel="alternate stylesheet" href="css/dark.css" title="dark">
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<p>x</p>
+</body>
+</html>
+@@@ file: src/target/site.css
+p { a: 5 }

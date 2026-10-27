@@ -1,0 +1,15 @@
+# shape: Tailwind + Alpine dashboards: x-on with modifiers and the @ shorthand, which on an Alpine page is Alpine, not Vue
+kinds=handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+
+</head>
+<body>
+<div x-data="{ open: false }">
+<button x-on:click.outside="open = false">a</button>
+<button @click="open = !open">b</button>
+</div>
+</body>
+</html>

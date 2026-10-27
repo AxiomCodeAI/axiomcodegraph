@@ -1,0 +1,45 @@
+# shape: an SSI community site (.shtml pages, header/footer/menu partials pulled in with <!--#include virtual="/inc/..." -->
+# from pages several directories deep, a section that overrides the site header, .inc partials, a dead include)
+kinds=page,include,reference,host_styles,styles,unknown
+@@@ file: src/css/site.css
+.hdr { a: 1 }
+.hdr .logo { a: 2 }
+body > .hdr { a: 3 }
+.m > .note { a: 4 }
+.note + p { a: 5 }
+.sec { a: 6 }
+@@@ file: src/docs/guide/note.html
+<div class="note">n</div>
+@@@ file: src/docs/guide/page.shtml
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="../../css/site.css">
+</head>
+<body>
+<!--#include virtual="/inc/header.html" -->
+<main class="m">
+<!--#include file="note.html" -->
+<p>t</p>
+</main>
+<!--#include virtual="/inc/menu.inc" -->
+<!--#include virtual="/inc/gone.html" -->
+</body>
+</html>
+@@@ file: src/docs/inc/header.html
+<header class="hdr sec">docs</header>
+@@@ file: src/inc/header.html
+<header class="hdr"><a class="logo" href="/">x</a></header>
+@@@ file: src/inc/menu.inc
+<ul class="menu"><li>a</li></ul>
+@@@ file: src/index.shtml
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<!--#include virtual="inc/header.html" -->
+<p>home</p>
+</body>
+</html>

@@ -9,4 +9,5 @@ boundary_lib	DECORATOR_CALL	models.<module> -> external:receiver
 boundary_lib	METHOD_CALL	models.<module> -> external:post_save.connect
 boundary_lib	METHOD_CALL	models.Invoice.<classbody> -> external:models.IntegerField
 boundary_lib	METHOD_CALL	models.Order.<classbody> -> external:models.CharField
+callback_registered	METHOD_REFERENCE	models.<module> -> models.audit_order
 known_edge	METHOD_CALL	views.save_cache -> views.Cache.save

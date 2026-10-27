@@ -41,6 +41,8 @@ export const TEMPLATE_MARKER = /\{\{|\{%|<%|<\?|\$\{|@\{|\{#/;
  * `build` and `out` are not here because the walks never enter them.
  */
 export const WEB_ROOT_DIRECTORIES = ['public', 'static', 'www', 'wwwroot', 'web', 'htdocs', 'site', 'assets', 'src', 'app', 'resources'] as const;
+/** The files a server serves for a URL naming a directory, in the order it tries them (V3-02). */
+export const DIRECTORY_INDEX_FILES = ['index.html', 'index.htm', 'index.shtml', 'default.htm'] as const;
 const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /**
@@ -106,17 +108,25 @@ function split(url: string): { base: string; query: string; fragment: string } {
  *
  * A relative URL resolves against the referring file's directory, as a browser does.
  * A root-relative one resolves against the served root, which the parser cannot know:
- * it tries the project root, every directory between the file and that root, and the
- * conventionally served directory names (`public/`, `static/`, `www/`, …) under each of
- * those, and accepts the answer only when EXACTLY ONE of them holds the file —
- * `/static/app.js` under `public/static/app.js` is that case, and two candidates is a
- * guess the parser refuses to make. Nothing outside the project root is ever returned: a `../../etc`
+ * the NEAREST ancestor directory of the file (its own first) that holds the path wins, up to
+ * the repository root (V3-01). Only when no ancestor holds it are the conventionally served
+ * directory names (`public/`, `static/`, `www/`, …) under each ancestor tried, and that answer
+ * is accepted only when EXACTLY ONE of them holds the file — `/static/app.js` under
+ * `public/static/app.js` is that case, and two candidates is a guess the parser refuses to make.
+ * A URL naming a directory resolves to its index file (V3-02: index.html, index.htm,
+ * index.shtml, default.htm, in that order). Nothing outside the project root is ever returned: a `../../etc`
  * URL that escapes the root is a reference to nothing the repository holds.
  */
 export function resolveUrlToFile(
   url: ClassifiedUrl,
   fromFile: string,
-  projectRoot: string
+  projectRoot: string,
+  /**
+   * The repository the walk read (V1-05): a RELATIVE url may climb out of the sub-project the file belongs to
+   * (`../shared.css` from a page in a folder that holds its own main.js) as a browser serving the repository would.
+   * A root-relative url still resolves inside `projectRoot`. Defaults to `projectRoot`.
+   */
+  repoRoot?: string
 ): string {
   if (url.path === '') {
     return '';
@@ -132,18 +142,57 @@ export function resolveUrlToFile(
     const rel = path.relative(root, candidate);
     return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
   };
-  const isFile = (candidate: string): boolean => {
+  const stat = (candidate: string): fs.Stats | undefined => {
     try {
-      return fs.statSync(candidate).isFile();
+      return fs.statSync(candidate);
     } catch {
-      return false;
+      return undefined;
     }
+  };
+  /** the file a candidate names: itself, or a directory's index file (V3-02); '' when neither */
+  const fileOf = (candidate: string): string => {
+    const st = stat(candidate);
+    if (st?.isFile()) {
+      return candidate;
+    }
+    if (st?.isDirectory()) {
+      for (const index of DIRECTORY_INDEX_FILES) {
+        const f = path.join(candidate, index);
+        if (stat(f)?.isFile()) {
+          return f;
+        }
+      }
+    }
+    return '';
+  };
+  const isFile = (candidate: string): boolean => fileOf(candidate) !== '';
+  const repo = path.resolve(repoRoot ?? projectRoot);
+  const insideRepo = (candidate: string): boolean => {
+    const rel = path.relative(repo, candidate);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
   };
   if (url.kind === WebUrlKind.RELATIVE) {
     const candidate = path.resolve(path.dirname(fromFile), decoded);
-    return inside(candidate) && isFile(candidate) ? candidate : '';
+    return inside(candidate) || insideRepo(candidate) ? fileOf(candidate) : '';
   }
   if (url.kind === WebUrlKind.ROOT_RELATIVE) {
+    // the nearest ancestor of the file that holds the path, the repository root last (V3-01)
+    for (let dir = path.dirname(path.resolve(fromFile)); ; dir = path.dirname(dir)) {
+      if (dir !== repo && !insideRepo(dir)) {
+        break;
+      }
+      const candidate = path.resolve(dir, '.' + decoded);
+      // `/` names the directory itself: its index file (the repository root included)
+      if (candidate === repo || insideRepo(candidate)) {
+        const hit = fileOf(candidate);
+        if (hit !== '') {
+          return hit;
+        }
+      }
+      if (dir === repo || path.dirname(dir) === dir) {
+        break;
+      }
+    }
     const hits: string[] = [];
     let dir = path.dirname(path.resolve(fromFile));
     const bases = new Set<string>();
@@ -172,7 +221,7 @@ export function resolveUrlToFile(
       }
       tried.add(candidate);
       if (inside(candidate) && isFile(candidate)) {
-        hits.push(candidate);
+        hits.push(fileOf(candidate));
       }
     }
     return hits.length === 1 ? hits[0]! : '';

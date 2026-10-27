@@ -350,6 +350,11 @@ boundary_lib	SUBSCRIPT_CALL	f30_builtin_elements.an_annotated_local -> builtin:s
 boundary_lib	SUBSCRIPT_CALL	f30_builtin_elements.annotated_parameter_indexed -> builtin:str.upper
 boundary_lib	SUBSCRIPT_CALL	f30_builtin_elements.through_any_object -> builtin:str.upper
 boundary_lib	SUPER_CALL	f41_class_attribute_absent.ModelMeta.__new__ -> builtin:type.__new__
+callback_registered	METHOD_REFERENCE	f12_value_flow.method_alias_on_class -> f12_value_flow.Widget.make
+callback_registered	METHOD_REFERENCE	f12_value_flow.method_alias_on_instance -> f12_value_flow.Widget.emit
+callback_registered	METHOD_REFERENCE	rxfacade.<module> -> rxaccel.boost
+callback_registered	METHOD_REFERENCE	rxfacade.<module> -> rxlib.fallback
+callback_registered	METHOD_REFERENCE	rxfacade.<module> -> rxlib.slow
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalBase.kind
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalLeaf.kind
 known_edge	CHAINED_CALL	f02_callables.attribute_callables -> f02_callables.HoldsCallables.run

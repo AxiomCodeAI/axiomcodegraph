@@ -1,0 +1,6 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a namespace import re-exported by name (export { z }, export { z as zz }, export default z) binds the importer's name to that namespace, so z.alpha() reaches the declaration", "run": ["impact", "ns/impl#alpha"], "want": ["src/app.ts:5"], "avoid": ["calls a method of this name", "src/app.ts:10"]},
+  {"why": "the alias and the default forms bind the same namespace", "run": ["impact", "beta"], "want": ["src/app.ts:6", "src/app.ts:11"], "avoid": ["calls a method of this name"]},
+  {"why": "export * as core is one name whose value is the namespace, and it survives a further export * barrel", "run": ["impact", "delta"], "want": ["src/app.ts:8", "src/app.ts:9"], "avoid": ["calls a method of this name"]},
+  {"why": "and it is not a star: impl's alpha is not exported at the top level of the barrel, so the bare alpha() is other.ts's alone", "run": ["impact", "ns/other#alpha"], "want": ["src/app.ts:10"], "avoid": ["calls a method of this name"]}]}

@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/17-brace-comments-in-values   kinds: rule,selector,declaration
+# shape: theme-builder sheets that annotate every value with a comment holding braces (`#ddd/*{borderColor}*/;`), loaded by most pages of a widget-library project
+declaration	theme.css:2:2	theme.css:1:1	border	1px solid #dddddd	0
+declaration	theme.css:3:2	theme.css:1:1	background	#ffffff	0
+declaration	theme.css:4:2	theme.css:1:1	color	#333333	0
+declaration	theme.css:6:8	theme.css:6:1	color	#333333	0
+rule	theme.css:1:1	style	.w	-
+rule	theme.css:6:1	style	.w a	-
+selector	theme.css:1:1/0	.w	0,1,0
+selector	theme.css:6:1/0	.w a	0,1,1

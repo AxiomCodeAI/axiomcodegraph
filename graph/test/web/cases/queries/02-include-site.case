@@ -1,0 +1,60 @@
+# shape: an SSI site (.shtml pages sharing a header partial by <!--#include virtual -->, a section page several
+# directories deep, a card partial a posthtml page and an SSI page both pull in, each with its own stylesheet): the
+# SPEC 11.2 questions an agent converting partials into components asks (hosts of a partial, what a page is
+# assembled from, how one selector styles a partial on each host)
+mode=queries
+@@@ file: questions.tsv
+# qid	template	grade	section	role	fields	ask	derive
+Q36c	selector matches if fragment F were included in P at a placeholder comment	LINK	web	styled	at,rule_at,status	link parts/promo.html:1 shop.html:8 ;; impact ".card" --in shop.html ;; link parts/promo.html:1 -	asserted_styles parts/promo.html@shop.html:8|shop.html|.card
+Q49	where is fragment F included (its hosts, at the directive)	SET	web	included_by	at	impact parts/card.html	included_by parts/card.html
+Q50	which fragments page P includes, and where	SET	web	includes	at,fragment	impact index.shtml	includes index.shtml
+Q51	how selector X styles a fragment on each host	SET	web	styled	at,rule_at,host,status	impact .card	host_styled .card
+@@@ file: src/css/shop.css
+.card { b: 1 }
+.shop > .card .t { b: 2 }
+@@@ file: src/css/site.css
+.hdr { a: 1 }
+.hdr .logo { a: 2 }
+.card { a: 3 }
+.dark .card .t { a: 4 }
+@@@ file: src/docs/guide/page.shtml
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="../../css/site.css">
+</head>
+<body>
+<!--#include virtual="/inc/header.html" -->
+<p>guide</p>
+</body>
+</html>
+@@@ file: src/inc/header.html
+<header class="hdr"><a class="logo" href="index.shtml">x</a></header>
+@@@ file: src/index.shtml
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body class="dark">
+<!--#include virtual="/inc/header.html" -->
+<main>
+<!--#include file="parts/card.html" -->
+</main>
+</body>
+</html>
+@@@ file: src/parts/card.html
+<div class="card"><h3 class="t">c</h3></div>
+@@@ file: src/parts/promo.html
+<div class="card promo"><h3 class="t">p</h3></div>
+@@@ file: src/shop.html
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" href="css/shop.css">
+</head>
+<body>
+<div class="shop"><include src="parts/card.html"></include></div>
+<!-- the promo card goes here -->
+</body>
+</html>

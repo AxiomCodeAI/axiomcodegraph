@@ -1,0 +1,14 @@
+# shape: an SSI community site's analytics and search tags with &amp; in src query strings and &quot; in handler
+# code (V3-10a: values as the DOM sees them, the written text in attr_raw; script bodies verbatim)
+kinds=script,script_body,attribute,attr_raw,handler
+@@@ file: src/index.html
+<!doctype html>
+<html>
+<head>
+<script src="https://cdn.example.org/t.js?form=a&amp;lang=b" data-x="1 &lt; 2"></script>
+<script>var s = "a &amp; b";</script>
+</head>
+<body>
+<a href="#" title="Tom &amp; Jerry" onclick="say(&quot;hi&quot;)">x</a>
+</body>
+</html>

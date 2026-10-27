@@ -1,0 +1,19 @@
+# reviewed: yes 2026-10-10 iter 3 — every row read against the case source and the iter3 orchestrator rulings (V2-21, V1-06, V2-15, V2-11, V2-06/V2-05, V2-22, V2-03, V2-04)
+# case: nodes/21-template-class-tokens   kinds: element,class_token,dynamic_class_token
+# shape: server-template pages building classes from expressions (`class="tag label {{m.tag}}"`, `btn-{{ kind }}`,
+class_token	index.html:4:1	0	tag
+class_token	index.html:4:1	1	label
+class_token	index.html:4:1	2	{{m.tag}}
+class_token	index.html:5:1	0	btn
+class_token	index.html:5:1	1	btn-{{ kind }}
+class_token	index.html:6:1	0	item
+class_token	index.html:6:1	1	{% if a %}active{% endif %}
+class_token	index.html:6:1	2	last
+dynamic_class_token	index.html:4:1	2	{{m.tag}}
+dynamic_class_token	index.html:5:1	1	btn-{{ kind }}
+dynamic_class_token	index.html:6:1	1	{% if a %}active{% endif %}
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:1	span	-	tag label {{m.tag}}
+element	index.html:5:1	a	-	btn btn-{{ kind }}
+element	index.html:6:1	li	-	item {% if a %}active{% endif %} last

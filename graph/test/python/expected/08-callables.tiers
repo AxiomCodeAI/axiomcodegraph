@@ -1,13 +1,15 @@
-distinct call sites emitted: 20
+distinct call sites emitted: 23
 
 --- by tier: edge ROWS, and the distinct SITES they cover ---
       1 rows      1 sites  ambiguous_unknown
       8 rows      8 sites  boundary_lib
+      3 rows      3 sites  callback_registered
      11 rows     11 sites  known_edge
 
 --- edge rows by call kind ---
       2  CHAINED_CALL
       3  METHOD_CALL
+      3  METHOD_REFERENCE
       3  SELF_CALL
      11  SIMPLE_CALL
       1  SUBSCRIPT_CALL
@@ -22,7 +24,7 @@ distinct call sites emitted: 20
      11  known_edge
 
 --- reconciling rows against the conserved site count ---
-  edge rows                                  20
+  edge rows                                  23
   minus extra rows from multi-target sites    0
-  = tier/site pairs                          20
+  = tier/site pairs                          23
   engine's conserved site total              20
