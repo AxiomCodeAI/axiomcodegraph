@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# A pull request that merges into a release or integration branch (0.2.1, a
+# perf branch) never closes the issues it names: GitHub acts on "Closes #N" only
+# when the merge lands on the default branch. This closes them when that work
+# reaches `dev`.
+#
+# On every push to dev it looks at pull requests merged into any other branch,
+# keeps those whose merge commit is now part of dev, and closes each open issue
+# their description closes ("Closes", "Fixes", "Resolves" #N), with a comment
+# naming the pull request. "Part of #N" and "Refs #N" are not closing words, so
+# umbrella issues stay open.
+# ─────────────────────────────────────────────────────────────────────────────
+name: close-issues-on-dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: list what would be closed, close nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close:
+    name: close issues whose pull request reached dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: close the issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+        run: .github/scripts/close-issues-on-dev.sh

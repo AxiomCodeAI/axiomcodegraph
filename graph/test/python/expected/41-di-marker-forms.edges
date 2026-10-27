@@ -8,3 +8,11 @@ boundary_lib	SIMPLE_CALL	handlers.<module> -> external:APIRouter
 boundary_lib	SIMPLE_CALL	handlers.<module> -> external:Depends
 boundary_lib	SIMPLE_CALL	handlers.<module> -> external:FastAPI
 boundary_lib	SIMPLE_CALL	other.<module> -> external:Depends
+callback_registered	METHOD_REFERENCE	deps.<module> -> deps.load_cart
+callback_registered	METHOD_REFERENCE	deps.ShapeFilter.<classbody> -> deps.load_shape_size
+callback_registered	METHOD_REFERENCE	handlers.<module> -> deps.check_app
+callback_registered	METHOD_REFERENCE	handlers.<module> -> deps.check_quota
+callback_registered	METHOD_REFERENCE	handlers.<module> -> deps.check_region
+callback_registered	METHOD_REFERENCE	handlers.<module> -> deps.load_owner
+callback_registered	METHOD_REFERENCE	handlers.<module> -> deps.load_user
+callback_registered	METHOD_REFERENCE	other.<module> -> other.check_other

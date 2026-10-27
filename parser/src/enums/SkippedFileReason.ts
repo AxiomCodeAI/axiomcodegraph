@@ -66,4 +66,11 @@ export enum SkippedFileReason {
    * a consumer could not tell an unparsed file from an empty one (#660).
    */
   NO_PROGRAM_CLAIMS_FILE = 'NO_PROGRAM_CLAIMS_FILE',
+
+  /**
+   * A file a tsconfig claims that no program run over the root extracted. The program
+   * that owns it was never reached, so the file is absent from every relation; this
+   * says so instead of leaving it to look like a file with nothing in it.
+   */
+  PROGRAM_NOT_EXTRACTED = 'PROGRAM_NOT_EXTRACTED',
 }

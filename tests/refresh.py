@@ -3,7 +3,7 @@
 
 Each language gets a throwaway git repository with a real graph. Then, per language:
 
-  up to date     `index` with nothing changed does not rebuild
+  up to date     `index` with nothing changed does not rebuild; with AXIOMCODE_REINDEX=1 it does
   query          an edit adds a function; a query verb, which starts the refresher and waits for it, finds it
   baseline       `changed` answers the same before and after the refresh absorbed the edit: the refresh moves the
                  graph, not the baseline edits are measured against. The answer must name the edit (a pass on two
@@ -110,6 +110,13 @@ def main(argv):
             check(m.get('refresh_reason') == 'axiomcode index' and m.get('refreshed_at', '').endswith('Z'), f'{lang}: the graph records when and why it was built', json.dumps(m))
             t0 = time.time(); again = sh(repo, AX, 'index', '.', '--lang', lang, env=env); took = time.time() - t0
             check('graph up to date' in again.stdout, f'{lang}: `index` with nothing changed does not rebuild ({took:.1f}s)', again.stdout + again.stderr)
+            # AXIOMCODE_REINDEX=1 rebuilds with nothing changed, as SKILL.md and the build's own messages promise; it used to
+            # answer "graph up to date" whenever the files matched the table. The control is the check above: the same
+            # `index` without it does not rebuild
+            built = meta().get('refreshed_at')
+            rx = sh(repo, AX, 'index', '.', '--lang', lang, env=dict(env, AXIOMCODE_REINDEX='1'))
+            check(rx.returncode == 0 and 'graph up to date' not in rx.stdout and 'building' in rx.stdout and meta().get('refreshed_at') != built,
+                  f'{lang}: AXIOMCODE_REINDEX=1 `index` rebuilds although nothing changed', rx.stdout + rx.stderr)
 
             # ── built by an older axiomcode ────────────────────────────────────────────────────────────────────
             # no file changed, but the table says another engine built the graph (what an update leaves behind): not up

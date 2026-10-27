@@ -5,7 +5,7 @@
 <h1 align="center">AxiomCode Graph</h1>
 
 <p align="center">
-  <strong>A god's-eye view of your codebase for AI agents. Stop grepping. Ensure correctness and completeness for any task your AI agent performs.</strong>
+  <strong>Know what each change breaks in your codebase. Stop grepping. Ensure correctness and completeness for any task your AI agent performs. Ship less buggy code.</strong>
 </p>
 
 <p align="center">
@@ -166,6 +166,9 @@ devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode
 Any other agent that speaks MCP takes one entry in its MCP config; see
 [Support for agents](#support-for-agents). Start a new agent session afterward: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
+
+After upgrading the engine or the plugin, **restart the agent session**: a session started before the upgrade keeps the
+old version's MCP server and hooks running beside the new ones, and the two rebuild the graph in turn.
 
 ### Uninstallation
 

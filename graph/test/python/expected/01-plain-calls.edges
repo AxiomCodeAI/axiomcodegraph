@@ -1,4 +1,5 @@
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+callback_registered	METHOD_REFERENCE	main.make_adder -> main.make_adder.<locals>.add
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	main.main -> main.make_adder
 known_edge	SIMPLE_CALL	main.main -> main.make_adder.<locals>.add
