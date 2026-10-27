@@ -2,6 +2,8 @@ ambiguous_unknown	SELF_CALL	main.Holder.use_partial -> -
 boundary_lib	METHOD_CALL	main.Holder.__init__ -> external:functools.partial
 boundary_lib	METHOD_CALL	main.main -> external:functools.partial
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+callback_registered	METHOD_REFERENCE	main.Holder.__init__ -> main.add
+callback_registered	METHOD_REFERENCE	main.main -> main.add
 known_edge	CHAINED_CALL	main.main -> main.Holder.use
 known_edge	CHAINED_CALL	main.main -> main.Holder.use_partial
 known_edge	SELF_CALL	main.Holder.use -> main.add

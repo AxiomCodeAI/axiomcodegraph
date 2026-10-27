@@ -167,6 +167,9 @@ Any other agent that speaks MCP takes one entry in its MCP config; see
 [Support for agents](#support-for-agents). Start a new agent session afterward: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
+After upgrading the engine or the plugin, **restart the agent session**: a session started before the upgrade keeps the
+old version's MCP server and hooks running beside the new ones, and the two rebuild the graph in turn.
+
 ### Uninstallation
 
 ```bash

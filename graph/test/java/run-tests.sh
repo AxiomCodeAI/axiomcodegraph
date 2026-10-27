@@ -99,6 +99,13 @@ fi
 if ! bash "$ROOT/graph/test/tools/lib-cache-key-test.sh"; then
   echo "FAIL: the library-facts cache key is not a function of the staged modules' content (#588)"; exit 1
 fi
+# ── Staging must not depend on which row filter the machine has ─────────────
+# graph/pipeline/stage-rows.sh runs perl where it exists and awk where it does not; both must stage
+# the same bytes, or the facts every language solves from would differ by machine.
+if ! bash "$ROOT/graph/test/tools/stage-rows-test.sh"; then
+  echo "aborting: perl and awk stage different rows from the same IR"
+  exit 1
+fi
 # ── The -I for soufflé's headers must be the one that actually compiles ──────
 # Also a preflight, and for the same reason: the old resolution returned a path that only built on
 # the machine it was written on, and every run here compiles the engine through it.

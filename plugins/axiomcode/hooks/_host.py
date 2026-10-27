@@ -34,10 +34,22 @@ GEMINI_TOOLS = {'read_file': 'Read', 'grep_search': 'Grep', 'grep': 'Grep', 'glo
 GEMINI = None        # the Gemini event name this hook was called for, once read() has seen one
 
 
-def read():
-    """the event from stdin, with Cursor's or Gemini's names mapped onto the ones the hooks use"""
+def orphaned():
+    """ax_orphan.orphaned for the install these hooks belong to: '' while it is current"""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
+        import ax_orphan
+        return ax_orphan.orphaned()
+    except Exception:
+        return ''
+
+def read(orphan_ok=False):
+    """the event from stdin, with Cursor's or Gemini's names mapped onto the ones the hooks use. A hook of an ORPHANED
+    older install (ax_orphan.orphaned: an agent session that outlived an upgrade) exits here, silent, so it writes nothing
+    into a repository's .axiomcode; only the refresh hook (orphan_ok) goes on, to say at a session start and on a prompt that the session wants a restart"""
     global GEMINI
     ev = json.load(sys.stdin)
+    if not orphan_ok and orphaned(): sys.exit(0)
     if isinstance(ev, dict) and ev.get('hook_event_name') in GEMINI_EVENTS:
         GEMINI = ev['hook_event_name']
         ev['hook_event_name'] = GEMINI_EVENTS[GEMINI]

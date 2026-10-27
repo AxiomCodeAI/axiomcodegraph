@@ -13,7 +13,9 @@ WHAT IS ALLOWED, and why each category is safe:
   provenance                "client" / "lib" -- assigned by which fact file a row is staged
                             into, not by anything in the source.
   confidence tiers          "known_edge", "multi_inferred", "boundary_lib",
-                            "ambiguous_unknown" -- the engine's own output vocabulary.
+                            "ambiguous_unknown", "callback_registered" (a method
+                            reference, call-edge-generation/method-reference.dl) -- the
+                            engine's own output vocabulary.
   diagnostic labels         "no_rule", "escape_hatch", ... These are OUTPUT arguments of
                             call_unresolvable / site_reason / expr_type_untypable and are
                             never matched against input, so they cannot bias resolution.
@@ -48,7 +50,7 @@ if not os.path.isdir(ENGINE):
     raise SystemExit(f"literal gate: engine dir not found at {ENGINE} -- refusing to pass vacuously")
 
 PROVENANCE = {"client", "lib", "external", "builtin"}
-TIERS = {"known_edge", "multi_inferred", "boundary_lib", "ambiguous_unknown"}
+TIERS = {"known_edge", "multi_inferred", "boundary_lib", "ambiguous_unknown", "callback_registered"}
 SCAFFOLD = {"", "-", ".", "/", "true", "false", "lib:", "builtin:", "external:",
             "untyped_receiver:", "builtin:object.__init__", "_total_sites"}
 # "/" joins "." above: both are separators fixed by a specification (a dotted name, a URL

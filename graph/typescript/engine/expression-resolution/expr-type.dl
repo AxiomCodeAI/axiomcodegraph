@@ -477,6 +477,10 @@ expr_static_type(e, prov, t) :- property_access_recv(e, n, q),
 expr_callable(e, cm) :- property_access_recv(e, n, q),
     expr_namespace(q, _, m),
     module_export(_, m, n, "METHOD", cm).
+// A namespace exported from a namespace — `z.coerce`, `z.iso` — is itself a module.
+expr_namespace(e, prov, ns) :- property_access_recv(e, n, q),
+    expr_namespace(q, _, m),
+    module_export_namespace(prov, m, n, ns).
 
 // A STATIC METHOD read as a VALUE — `Util.inSorted` on its own, not called. The
 // receiver is the class itself, so the member comes from the STATIC table, exactly

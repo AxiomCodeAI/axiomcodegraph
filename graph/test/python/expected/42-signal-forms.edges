@@ -4,6 +4,7 @@ ambiguous_unknown	METHOD_CALL	orders.close -> -
 ambiguous_unknown	METHOD_CALL	orders.ship -> -
 boundary_lib	DECORATOR_CALL	handlers.<module> -> external:receiver
 boundary_lib	SIMPLE_CALL	signals.<module> -> builtin:object.__init__
+callback_registered	METHOD_REFERENCE	handlers.<module> -> handlers.on_closed
 known_edge	DECORATOR_CALL	handlers.<module> -> handlers.remember
 known_edge	METHOD_CALL	orders.not_a_signal -> orders.Outbox.asend
 known_edge	METHOD_CALL	orders.pay -> signals.Signal.asend

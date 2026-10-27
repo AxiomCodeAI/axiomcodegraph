@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 
 import { TsDecoratorSystem } from '@/enums/typescript/decorators';
+import { denoContextFor } from '@/parsers/typescript/deno/deno-config';
 import { TsModuleResolutionMode } from '@/enums/typescript/modules';
 
 /**
@@ -151,7 +152,7 @@ export class TsConfigResolver {
       dir = parent;
     }
 
-    const result: GoverningTsConfig = found ?? {
+    const result: GoverningTsConfig = found ?? denoGoverned(normalised) ?? {
       configPath: '',
       options: DEFAULT_OPTIONS,
       moduleResolutionMode: TsModuleResolutionMode.NODE10,
@@ -267,6 +268,42 @@ export class TsConfigResolver {
     this.parsed.set(configPath, result);
     return result;
   }
+}
+
+/**
+ * A file no tsconfig claims but a `deno.json` governs compiles under Deno's
+ * defaults, not Node's: ES modules, explicit `.ts` extensions, strict mode, and
+ * whatever `compilerOptions` the config sets (`jsx`, `jsxImportSource`,
+ * `experimentalDecorators`, `strict`). `configPath` stays `""`, because no
+ * tsconfig governs the file and that fact stays visible in `ts_module`.
+ */
+function denoGoverned(file: string): GoverningTsConfig | undefined {
+  const context = denoContextFor(file);
+  if (context === undefined) {
+    return undefined;
+  }
+  const written = { ...context.root.compilerOptions, ...context.member.compilerOptions };
+  const converted = ts.convertCompilerOptionsFromJson(written, context.member.dir).options;
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    noEmit: true,
+    strict: true,
+    jsx: ts.JsxEmit.React,
+    ...converted,
+  };
+  return {
+    configPath: '',
+    options,
+    moduleResolutionMode: TsModuleResolutionMode.BUNDLER,
+    decoratorSystem: options.experimentalDecorators === true
+      ? TsDecoratorSystem.LEGACY_EXPERIMENTAL
+      : TsDecoratorSystem.STANDARD_TC39,
+    fileNames: new Set<string>(),
+    references: [],
+  };
 }
 
 /**
