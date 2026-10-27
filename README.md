@@ -353,8 +353,10 @@ hooks and the MCP server's timer never rebuild a graph another axiomcode built (
 
 ## Graph output
 
-The graph is one SQLite database, `.axiomcode/out/graph.sqlite`, with the **same schema for
-every language** and its documentation inside it (`schema_guide`, `schema_queries`, `schema_vocab`). The main
+Each language has its own SQLite database: the main language at `.axiomcode/out/graph.sqlite`, and other
+languages at `.axiomcode/lang/<lang>/out/graph.sqlite`. The CLI queries all of them; calls are not followed
+across languages. Each database has the **same schema for every language** and its documentation inside it
+(`schema_guide`, `schema_queries`, `schema_vocab`). The main
 tables are `call_edges` (one row per call site and possible target), `methods`, `types`, `call_sites`,
 `field_access`, `type_use`, and `unresolved_sites`, the calls the engine declares it could not resolve.
 
