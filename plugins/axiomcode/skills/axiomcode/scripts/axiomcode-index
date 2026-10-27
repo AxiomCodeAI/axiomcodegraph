@@ -794,14 +794,14 @@ c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.g
 # Who calls a method and what it calls are looked up by call_edges(callee_method_id) and call_edges(caller_id); the
 # fields a caller reads by field_access(caller_id): via_base_rows asks per single-target call site, and without that
 # index each ask scanned the whole table (65,797 rows × 5,162 sites on an 8,619-file repository = 24 s of a 171 s warm
-# → 1.4 s). The bundle indexes all three columns itself (idx_<table>_<column>, schema.ts `indexed`), so they are made
-# here only for a graph that lacks one: building the same index twice cost a second pass over the largest tables.
-def has_index_on(table, cols):
-    for row in c.execute(f"PRAGMA index_list({table})").fetchall():
-        if row[4] == 0 and [r[2] for r in c.execute(f"PRAGMA index_info({row[1]})")] == cols: return True   # not partial
-    return False
-for _name, _table, _col in (('ce_callee', 'call_edges', 'callee_method_id'), ('ce_caller', 'call_edges', 'caller_id'), ('fa_caller', 'field_access', 'caller_id')):
-    if not has_index_on(_table, [_col]): c.execute(f"CREATE INDEX IF NOT EXISTS {_name} ON {_table}({_col})")
+# → 1.4 s). The bundle indexes the same columns (idx_<table>_<column>), but these are made anyway, and LAST: the graph
+# has no ANALYZE statistics, so SQLite picks among equal-cost indexes by creation order, and with the bundle's alone
+# `caller_id=? AND access=?` planned on idx_field_access_access and `caller_id=? AND ... AND tier=?` on
+# idx_call_edges_tier. Skipping them made the impact warm 1.5-1.9x slower on large Java repositories (warm 79 s → 54 s on ~8k files).
+c.executescript('''
+CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+CREATE INDEX IF NOT EXISTS fa_caller ON field_access(caller_id);
+''')
 c.executescript('''
 CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
 CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
