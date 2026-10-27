@@ -26,9 +26,11 @@ One check needs no graph and is its own script:
                                          signature edit is reported before it lands with nothing upstream did; `--range`
                                          from a branch left behind its remote reads from the remote's fork (indexes a small
                                          project)
-    python3 tests/index_reader.py        axiomcode-index's IR reader returns the same rows csv.DictReader did, on quoted tabs
-                                         and newlines, CRLF, a lone CR, a short or long row and invalid UTF-8; pass IR
-                                         directories to compare them too (no graph needed)
+    python3 tests/index_reader.py        axiomcode-index's IR reader decodes the IR's RFC 4180 quoting as csv.DictReader and
+                                         the bundle's reader do (a literal, decoration or name holding a `"`, a C# raw
+                                         string), and agrees with them on quoted tabs and newlines, CRLF, a lone CR, a
+                                         short or long row and invalid UTF-8; pass IR directories to compare them too
+                                         (no graph needed; the bundle half runs node on dist/bundle/csv.js)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)
