@@ -14,43 +14,120 @@ import * as fs from 'fs';
 
 const TAB = '\t';
 
-/** One RFC 4180 (tab-delimited) file as an async stream of rows. A zero-byte file yields nothing. */
-export async function* readRfc4180(path: string): AsyncGenerator<string[]> {
+/** One RFC 4180 (tab-delimited) file as an async stream of rows. A zero-byte file yields nothing.
+ *
+ *  A LINE WITH NO QUOTE IN IT IS A WHOLE ROW, and nearly every line is one, so it is split on tabs as it
+ *  stands: a quote is the only thing that can make a field hold a tab or a newline. Only a line that holds
+ *  a quote, and the lines a quoted field carries it across, goes through the character-by-character reader
+ *  (`Rfc4180Row`), which is the definition. Reading every character that way cost most of the bundle's time
+ *  on a GB-scale expression table. */
+export async function* readRfc4180(path: string, pick?: Pick): AsyncGenerator<string[]> {
   const stream = fs.createReadStream(path, { encoding: 'utf8', highWaterMark: 1 << 20 });
-  let field = '';
-  let row: string[] = [];
-  let quoted = false; // inside a quoted field
-  let afterQuote = false; // just saw a quote inside a quoted field — next char decides
-  let atFieldStart = true;
+  const slow = new Rfc4180Row();
+  let rest = '';
+  let first = true; // the first row, a header in a headered file, is never filtered
   for await (const chunk of stream as AsyncIterable<string>) {
-    for (let i = 0; i < chunk.length; i++) {
+    const text = rest.length > 0 ? rest + chunk : chunk;
+    let at = 0;
+    let quote = text.indexOf('"'); // the next quote at or after `at`, -1 when the chunk holds no more
+    for (;;) {
+      const nl = text.indexOf('\n', at);
+      if (nl < 0) break;
+      if (quote >= 0 && quote < at) quote = text.indexOf('"', at);
+      if (slow.open || (quote >= 0 && quote < nl)) {
+        // the line holds a quote, or a quoted field opened on an earlier line runs on into it
+        const row = slow.feed(text, at, nl + 1);
+        if (row) yield row;
+      } else if (first || !pick || pick.has(fieldAt(text, at, nl, pick.column))) {
+        yield splitLine(text, at, nl);
+      }
+      first = false;
+      at = nl + 1;
+    }
+    rest = text.slice(at);
+  }
+  // final row without a trailing newline
+  if (slow.open || rest.indexOf('"') >= 0) {
+    slow.feed(rest, 0, rest.length);
+    const row = slow.end();
+    if (row) yield row;
+  } else if (rest.length > 0 && (first || !pick || pick.has(fieldAt(rest, 0, rest.length, pick.column)))) {
+    yield splitLine(rest, 0, rest.length);
+  }
+}
+
+/** Rows the caller will drop, skipped before they are split: a row is read only when `has` holds for its
+ *  `column`th field ('' when the row is shorter, as `row[column] ?? ''` reads it). A row a quote touches is
+ *  always returned, so the caller must still test every row it gets; this only saves the split of the rest. */
+export interface Pick { column: number; has: (value: string) => boolean }
+
+/** The `col`th tab-separated field of text[a, b), a line holding no quote; a trailing \r on the last field dropped. */
+function fieldAt(text: string, a: number, b: number, col: number): string {
+  let start = a;
+  for (let i = 0; i < col; i++) {
+    const t = text.indexOf(TAB, start);
+    if (t < 0 || t >= b) return '';
+    start = t + 1;
+  }
+  const t = text.indexOf(TAB, start);
+  if (t >= 0 && t < b) return text.slice(start, t);
+  const v = text.slice(start, b);
+  return v.endsWith('\r') ? v.slice(0, -1) : v;
+}
+
+/** text[a, b) — one line holding no quote, without its newline — as a row: split on tabs, a trailing \r dropped. */
+function splitLine(text: string, a: number, b: number): string[] {
+  const line = text.slice(a, b);
+  const row = line.split(TAB);
+  const last = row[row.length - 1]!;
+  if (last.endsWith('\r')) row[row.length - 1] = last.slice(0, -1);
+  return row;
+}
+
+/** The RFC 4180 reader, a character at a time: fed whole lines, it returns a row when one ends on a newline outside quotes. */
+class Rfc4180Row {
+  private field = '';
+  private row: string[] = [];
+  private quoted = false; // inside a quoted field
+  private afterQuote = false; // just saw a quote inside a quoted field — next char decides
+  private atFieldStart = true;
+  /** a row has begun and not ended: a quoted field crossed a newline */
+  get open(): boolean { return this.quoted || this.afterQuote || this.row.length > 0 || this.field.length > 0 || !this.atFieldStart; }
+  feed(chunk: string, from: number, to: number): string[] | null {
+    let out: string[] | null = null;
+    for (let i = from; i < to; i++) {
       const ch = chunk[i]!;
-      if (quoted) {
-        if (afterQuote) {
-          afterQuote = false;
-          if (ch === '"') { field += '"'; continue; } // doubled quote → literal quote
-          quoted = false; // the closing quote — fall through to unquoted handling
+      if (this.quoted) {
+        if (this.afterQuote) {
+          this.afterQuote = false;
+          if (ch === '"') { this.field += '"'; continue; } // doubled quote → literal quote
+          this.quoted = false; // the closing quote — fall through to unquoted handling
         } else {
-          if (ch === '"') afterQuote = true; else field += ch;
+          if (ch === '"') this.afterQuote = true; else this.field += ch;
           continue;
         }
       }
-      if (ch === '"' && atFieldStart) { quoted = true; atFieldStart = false; continue; }
-      atFieldStart = false;
-      if (ch === TAB) { row.push(field); field = ''; atFieldStart = true; continue; }
+      if (ch === '"' && this.atFieldStart) { this.quoted = true; this.atFieldStart = false; continue; }
+      this.atFieldStart = false;
+      if (ch === TAB) { this.row.push(this.field); this.field = ''; this.atFieldStart = true; continue; }
       if (ch === '\n') {
-        row.push(field.endsWith('\r') ? field.slice(0, -1) : field);
-        field = ''; atFieldStart = true;
-        yield row; row = [];
+        this.row.push(this.field.endsWith('\r') ? this.field.slice(0, -1) : this.field);
+        this.field = ''; this.atFieldStart = true;
+        out = this.row; this.row = [];
         continue;
       }
-      field += ch;
+      this.field += ch;
     }
+    return out;
   }
-  // final row without a trailing newline
-  if (field.length > 0 || row.length > 0) {
-    row.push(field.endsWith('\r') ? field.slice(0, -1) : field);
-    yield row;
+  /** end of input: the row in progress, if any */
+  end(): string[] | null {
+    if (this.field.length > 0 || this.row.length > 0) {
+      this.row.push(this.field.endsWith('\r') ? this.field.slice(0, -1) : this.field);
+      const r = this.row; this.row = []; this.field = '';
+      return r;
+    }
+    return null;
   }
 }
 
