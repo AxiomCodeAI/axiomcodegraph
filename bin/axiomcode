@@ -55,6 +55,10 @@ set -eu
 if [ -n "${AXIOMCODE_ARGV+x}" ]; then
   set --; while IFS= read -r -d $'\x1f' _a; do set -- "$@" "$_a"; done < <(printf '%s' "$AXIOMCODE_ARGV"); unset AXIOMCODE_ARGV _a
 fi
+# and Git Bash's runtime rewrites an argument that looks like a POSIX path as it starts a native program, so
+# `impact '"/orders/{code}"'` reached Python as "C:/Program Files/Git/orders/{code}". A quoted query is never a path:
+# an argument that starts with a quote is left as written, and every other one (a repository path) is converted as before.
+case "${OSTYPE:-}" in msys*|cygwin*) export MSYS2_ARG_CONV_EXCL="\"${MSYS2_ARG_CONV_EXCL:+;$MSYS2_ARG_CONV_EXCL}";; esac
 # RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
 # node_modules/.bin, so under `npx axiomcode` or a global install $0 is that link and
 # dirname "$0" is .bin/, a directory this package does not live under. The walk below then
