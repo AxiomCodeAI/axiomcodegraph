@@ -86,6 +86,10 @@
 if [ -n "${AXIOMCODE_ARGV+x}" ]; then
   set --; while IFS= read -r -d $'\x1f' _a; do set -- "$@" "$_a"; done < <(printf '%s' "$AXIOMCODE_ARGV"); unset AXIOMCODE_ARGV _a
 fi
+# and Git Bash's runtime rewrites an argument that looks like a POSIX path as it starts a native program, so
+# `impact '"/orders/{code}"'` reached Python as "C:/Program Files/Git/orders/{code}". A quoted query is never a path:
+# an argument that starts with a quote is left as written, and every other one (a repository path) is converted as before.
+case "${OSTYPE:-}" in msys*|cygwin*) export MSYS2_ARG_CONV_EXCL="\"${MSYS2_ARG_CONV_EXCL:+;$MSYS2_ARG_CONV_EXCL}";; esac
 H="${0//\\//}"; case "$H" in */*) H="${H%/*}";; *) H=.;; esac; H="$(cd "${H:-/}" && pwd)"   # no `dirname`: see bin/axiomcode
 
 # PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
