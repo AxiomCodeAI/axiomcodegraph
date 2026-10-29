@@ -4042,6 +4042,17 @@ public static class Parsers
         );
       }
     }
+    // THE RETURN: one root reference with context DELEGATE_RETURN, the type a call
+    // through a value of the delegate has.
+    for (const delegate of ['ParseFn', 'PlainFn']) {
+      const owner = pkOf(types, delegate, 'name');
+      const got = refs.rows
+        .filter((row) => row[r('context')] === 'DELEGATE_RETURN' && row[r('ownerLinkHash')] === owner)
+        .filter((row) => row[r('parentReferenceHash')] === '').length;
+      if (got !== 1) {
+        bad += fail(`${delegate} has ${got} DELEGATE_RETURN root references, expected 1 -- a call through it would have no type`);
+      }
+    }
     // A METHOD'S OWN TYPE PARAMETER IS IN SCOPE IN ITS BODY: `ParseFn<T>` on a local
     // inside `Closed<T>` links its `T` to Closed's parameter, as the signature's does.
     const closedT = typeParameters.rows.find(

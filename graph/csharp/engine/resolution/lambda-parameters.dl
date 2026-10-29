@@ -163,3 +163,26 @@ lambda_delegate_signature(prov, tr, pos, dr) :-
 param_type(prov, p, gk) :- lambda_param_arg_ref(prov, p, ar), type_ref_resolves(prov, ar, gk).
 param_type(prov, p, gk) :-
     lambda_param_arg_ref(prov, p, ar), type_ref_type_param(prov, ar, tp), type_param_bound(prov, tp, gk).
+// ── A LAMBDA IN A `params` ARRAY, AND AN OVERLOAD THE COUNT ALREADY DECIDES ──
+// `new TestValidator(v => v.RuleFor(..))` against `TestValidator(params
+// Action<TestValidator>[] actions)`: every argument at or after the params position is
+// an element, so it takes the array's element type -- the same reference, read without
+// its rank. And the single-candidate guard above refused it because the type also
+// declares a parameterless constructor; an overload that cannot take this many
+// arguments is not a candidate the lambda's type depends on.
+lambda_sibling_accepts(prov, m, ac) :-
+    method_in_type(prov, gk, m), method_name(prov, m, n),
+    method_in_type(prov, gk, m2), method_name(prov, m2, n), m2 != m,
+    method_accepts_argc(prov, m2, ac).
+lambda_callee_by_count(prov, e, m) :-
+    expr_target_any(prov, e, m), call_argc(prov, e, ac), !lambda_sibling_accepts(prov, m, ac).
+lambda_target_ref(prov, a, tr) :-
+    lambda_arg_at(prov, e, k, a),
+    expr_target_any(prov, e, m), lambda_callee_by_count(prov, e, m), !method_is_extension(prov, m),
+    lambda_callee_param_ref(prov, m, k, tr).
+lambda_target_ref(prov, a, tr) :-
+    lambda_arg_at(prov, e, k, a),
+    expr_target_any(prov, e, m), (lambda_callee_single(prov, m) ; lambda_callee_by_count(prov, e, m)),
+    !method_is_extension(prov, m),
+    param_decl(prov, m, pos, _, p), param_is_params(prov, p), k >= to_number(pos),
+    param_type_ref(prov, p, tr).

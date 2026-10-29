@@ -39,6 +39,8 @@
 // The declared candidates of a site, before narrowing.
 ovl_cand(prov, e, m) :- expr_call_candidate(prov, e, m).
 ovl_cand(prov, e, m) :- expr_exact_target(prov, e, m).
+// an extension method's overloads compete the same way (resolution/extensions.dl)
+ovl_cand(prov, e, m) :- extension_candidate(prov, e, m).
 
 // Only a site with a choice to make, and only where positions line up with
 // parameters: no named argument, no ref/out, no explicit type arguments, and not an

@@ -38,3 +38,10 @@ public class Rules : IEnumerable<int>
     public IEnumerator<int> GetEnumerator() { yield break; }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
+
+public class Inline { public int RuleFor(string name) => Work.Do(2); }
+public class Built : Inline
+{
+    public Built() { }
+    public Built(params Action<Built>[] actions) { foreach (var a in actions) a(this); }
+}

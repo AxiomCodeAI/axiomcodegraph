@@ -708,3 +708,30 @@ call_recv_untyped_named(prov, e, txt) :- call_recv_untyped(prov, e), call_receiv
 call_recv_type_count(prov, e, c) :-
     call_recv_type(prov, e, _),
     c = count : { call_recv_type(prov, e, _) }.
+// ── A CALL THROUGH A DELEGATE VALUE HAS THE DELEGATE'S RETURN TYPE ─────────
+// `var r = Numerics.Integer(input); r.Remainder` -- Integer is a property of the
+// delegate type `TextParser<int>`, and the call runs whatever it holds. Which body
+// runs is value flow (delegates.dl); the TYPE of the result is not: it is the
+// delegate's declared return type (the parser's DELEGATE_RETURN reference). Without
+// it every member read on such a result had an untyped receiver and no edge.
+delegate_type_return(prov, dgk, rgk) :-
+    type_group(prov, d, dgk), type_is_delegate(prov, d),
+    type_ref_owner(prov, tr, d, "TYPE"), type_ref_context(prov, tr, "DELEGATE_RETURN"),
+    !type_ref_parent(prov, tr, _, _, _), type_ref_resolves(prov, tr, rgk).
+// the value called: a bare name, or `recv.Member` / `Type.Member` naming a field or property
+delegate_called_type(prov, inv, dgk) :-
+    expr_kind(prov, inv, "INVOCATION"), call_receiver_kind(prov, inv, "NONE"),
+    expr_method_name_child(prov, inv, x), expr_type(prov, x, dgk).
+delegate_called_type(prov, inv, dgk) :-
+    call_recv_type(prov, inv, gk), call_callee_name(prov, inv, n),
+    member_lookup(prov, gk, n, "property", p), property_type(prov, p, dgk).
+delegate_called_type(prov, inv, dgk) :-
+    call_recv_type(prov, inv, gk), call_callee_name(prov, inv, n),
+    member_lookup(prov, gk, n, "field", f), field_type(prov, f, dgk).
+delegate_called_type(prov, inv, dgk) :-
+    call_receiver_expr(prov, inv, r), ref_names_type(prov, r, gk), call_callee_name(prov, inv, n),
+    member_lookup(prov, gk, n, "property", p), property_type(prov, p, dgk).
+delegate_called_type(prov, inv, dgk) :-
+    call_receiver_expr(prov, inv, r), ref_names_type(prov, r, gk), call_callee_name(prov, inv, n),
+    member_lookup(prov, gk, n, "field", f), field_type(prov, f, dgk).
+expr_type(prov, inv, rgk) :- delegate_called_type(prov, inv, dgk), delegate_type_return(prov, dgk, rgk).
