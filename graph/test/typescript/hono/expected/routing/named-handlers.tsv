@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: handler is the declaration in handlers.ts, not the reference
+# census: verb_literal_path, export_default_app
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/projects	handlers.ts:3:1	index.ts:6:13	0
+route	GET	/projects/:id	handlers.ts:7:27	index.ts:6:13	1
+route	DELETE	/projects/:id	handlers.ts:9:1	index.ts:6:13	2
+regby	index.ts:1:1	handlers.ts:3:1	GET	/projects	index.ts:6:13
+regby	index.ts:1:1	handlers.ts:7:27	GET	/projects/:id	index.ts:6:13
+regby	index.ts:1:1	handlers.ts:9:1	DELETE	/projects/:id	index.ts:6:13

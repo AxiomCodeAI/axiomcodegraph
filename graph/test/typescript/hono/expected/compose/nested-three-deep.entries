@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: comments under posts under /api basePath mounted at /: prefixes compose outer to inner
+# census: route_mount_literal, basepath
+entry	comments.ts:5:19	http
+entry	comments.ts:6:32	http
+entry	posts.ts:6:23	http

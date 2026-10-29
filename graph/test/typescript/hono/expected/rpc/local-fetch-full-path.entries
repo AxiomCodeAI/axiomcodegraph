@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-02: localhost fetches match composed full paths: /ready only to the root handler, /api/version to the sub-app, /version to nothing
+# census: route_mount_root (violation hono-3-02)
+entry	api.ts:5:18	http
+entry	api.ts:6:20	http
+entry	main.ts:8:20	http

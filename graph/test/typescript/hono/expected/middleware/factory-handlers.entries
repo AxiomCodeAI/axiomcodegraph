@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: initApp's use first, then check from createHandlers, then the handler; all three entries
+# census: create_factory, factory_create_app, create_middleware
+entry	index.ts:14:40	http
+entry	index.ts:17:48	http
+entry	index.ts:8:13	http

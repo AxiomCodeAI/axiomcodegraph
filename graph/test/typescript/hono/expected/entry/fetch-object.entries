@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: fetch-object export: the route handler plus scheduled and queue are http entries
+# census: export_default_fetch_obj, app_fetch_ref
+entry	index.ts:15:3	http
+entry	index.ts:6:14	http
+entry	index.ts:8:1	http

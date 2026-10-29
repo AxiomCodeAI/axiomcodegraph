@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: basePath clones share one route list; the original app's own route has no prefix
+# census: basepath
+entry	index.ts:10:20	http
+entry	index.ts:11:19	http
+entry	index.ts:9:14	http

@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O10/R5: upgradeWebSocket(...) is a library-call handler keyed at the call; the streamSSE route has a project handler
+# census: verb_literal_path (oracle gap O10; SPEC R5 library-call handlers)
+entry	index.ts:17:17	http

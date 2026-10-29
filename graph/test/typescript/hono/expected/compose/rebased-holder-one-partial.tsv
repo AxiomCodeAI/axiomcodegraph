@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-2-04 residue/R8: one partial with one reason (dynamic_mount_prefix) per route, mounted through a build context
+# census: prop_receiver_route (violation hono-2-04 residue, SPEC R8 / R8a)
+partial	index.ts:16:16	GET	dynamic_mount_prefix
+partial	index.ts:17:19	GET	dynamic_mount_prefix
+unknown	index.ts:38:5	dynamic_mount_prefix	index.ts:16:16
+unknown	index.ts:38:5	dynamic_mount_prefix	index.ts:17:19

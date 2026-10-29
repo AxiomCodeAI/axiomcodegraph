@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R16/hono-6-02: test-built plugins (declarative definePlugin routes, register(app), direct mountPlugin) are routes ONLY of the test app that mounted them; production serves only its core plugins; a request inside an assertion argument reaches its own app (O26); a register-only plugin's absent routes mount nothing (no unresolved_mount)
+# census: app_request_test, plugin_list_mount (SPEC R16; R6, R13b; violation hono-6-02; oracle gap O26)
+entry	__tests__/define-plugin.test.ts:10:37	http
+entry	__tests__/define-plugin.test.ts:22:47	http
+entry	__tests__/mount.test.ts:8:14	http
+entry	app.ts:10:22	http
+entry	plugins/audit.ts:5:16	http
+entry	plugins/audit.ts:6:19	http
+entry	plugins/tenants.ts:6:14	http

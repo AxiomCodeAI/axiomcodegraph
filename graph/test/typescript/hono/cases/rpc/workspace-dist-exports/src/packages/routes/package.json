@@ -1,0 +1,11 @@
+{
+  "name": "@acme/routes",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./hono": { "types": "./dist/adapters/hono.d.ts", "import": "./dist/adapters/hono.js" }
+  }
+}

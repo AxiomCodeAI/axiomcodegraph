@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O7: module.exports members through destructured require: authenticate (sets user) and isAdmin on the chain after the unresolvable limiter; user flows to /api/me
+# census: none for CommonJS (corpus gap in census; shape of a CJS-on-Bun project): oracle gap O7
+entry	app.js:11:20	http
+entry	app.js:12:39	http
+entry	auth.js:1:31	http
+entry	auth.js:5:26	http

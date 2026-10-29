@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route objects from routes.ts, {id} as :id, handler is arg 1 not the hook; param and response schemas, Task as a base of z.array(Task)
+# census: create_route, openapi_register, new_openapihono
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/tasks	index.ts:9:24	index.ts:7:13	0
+route	GET	/tasks/:id	index.ts:12:3	index.ts:7:13	1
+schema	index.ts:12:3	param	expr@routes.ts:14:22
+schema	index.ts:12:3	response	routes.ts:3:14
+schema	index.ts:9:24	response	expr@routes.ts:8:86
+schema	index.ts:9:24	response	routes.ts:3:14
+validread	index.ts:12:23	index.ts:12:3	param	expr@routes.ts:14:22
+regby	index.ts:1:1	index.ts:12:3	GET	/tasks/:id	index.ts:7:13
+regby	index.ts:1:1	index.ts:9:24	GET	/tasks	index.ts:7:13

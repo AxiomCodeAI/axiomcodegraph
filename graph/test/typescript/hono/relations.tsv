@@ -1,0 +1,22 @@
+# projection	engine relation (export_manifest.tsv name)	column=index ...
+# The ONE place the suite names the engine's relations and their columns: SPEC.md section 4.
+# A projection fed by several relations lists one line per relation (rows are unioned).
+route	http_route	handler=0	verb=1	path=2	app=3	order=4
+partial	http_route_partial	handler=0	verb=1	path=2	app=3	reason=4
+submount	http_mount	parent=0	child=1	prefix=2	order=3
+mw	middleware_applies	mw=0	handler=1	verb=2	path=3	position=4	app=5
+ctx	ctx_key_flow	setter=0	reader=1	key=2
+remote	remote_edge	from=0	to=1	transport=2	dest=3	conf=4
+unserved	remote_unserved	fn=0	transport=1	dest=2
+entry	entry_point	fn=0	kind=1
+unknown	remote_undetermined	fn=0	transport=1	reason=2
+unknown	framework_undetermined	fn=0	what=1	reason=2
+schema	route_schema	handler=0	target=1	decl=2
+validread	valid_read	read=0	handler=1	target=2	decl=3
+regby	route_registered_by	regmethod=0	handler=1	verb=2	path=3	app=4
+# chains/ suite (SPEC R18-R21): call edges, the dispatch widening of a declared base, function-value calls, and the
+# functions holding a call the engine declares unresolved (compare_chains in tools/hono_compare.py)
+chainedge	call_chain_edge	from=1	to=3	prov=4
+dispatch	method_dispatch_candidate	base=0	impl=1
+fnvalue	fn_value_call	from=0	to=1
+ccunknown	method_has_unknown_call	fn=0

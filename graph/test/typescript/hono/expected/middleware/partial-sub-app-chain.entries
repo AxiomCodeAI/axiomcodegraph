@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m34/hono-4-03/SPEC 3.3: the partial route's chain is holder use(*) 0, controller use 1, per-route 2; the holder's use(*) function is an http entry; the scoped holder use is partial_route_scope
+# census: basepath (stress-4 mutation m34 shape; violation hono-4-03, SPEC 3.3 [iter2] partial routes)
+entry	index.ts:11:21	http
+entry	index.ts:14:15	http
+entry	index.ts:17:15	http
+entry	index.ts:27:36	http

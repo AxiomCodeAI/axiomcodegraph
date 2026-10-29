@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: both branches and the loop body are emitted, each declared conditional_registration / loop_registration; /always plain
+# census: verb_literal_path (registrations behind a condition / in a loop, SPEC 3.1)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+# iteration 3: the loop over a known list runs per element (O11 loop binding): /loop is registered twice, same route row
+route	GET	/debug	index.ts:9:21	index.ts:5:13	0
+route	GET	/prod	index.ts:11:20	index.ts:5:13	1
+route	GET	/loop	index.ts:15:20	index.ts:5:13	2
+route	GET	/loop	index.ts:15:20	index.ts:5:13	3
+route	GET	/always	index.ts:18:20	index.ts:5:13	4
+regby	index.ts:1:1	index.ts:11:20	GET	/prod	index.ts:5:13
+regby	index.ts:1:1	index.ts:15:20	GET	/loop	index.ts:5:13
+regby	index.ts:1:1	index.ts:18:20	GET	/always	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:21	GET	/debug	index.ts:5:13
+unknown	index.ts:11:3	conditional_registration	index.ts:11:20
+unknown	index.ts:15:3	loop_registration	index.ts:15:20
+unknown	index.ts:9:3	conditional_registration	index.ts:9:21

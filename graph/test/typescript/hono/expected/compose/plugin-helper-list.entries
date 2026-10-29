@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O20/R13b: plugin apps reached through a filtered, push-sorted helper list mount at their element paths, exact plus conditional; never roots
+# census: app_request_test (oracle gap O20; SPEC R13 / R13b)
+entry	app.test.ts:13:19	http
+entry	app.ts:9:16	http
+entry	plugins/magic-link.ts:5:24	http
+entry	plugins/magic-link.ts:6:22	http

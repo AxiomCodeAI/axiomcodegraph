@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-06 loop form: the two known middleware at 0 and 1, the chain declared dynamic_middleware_list
+# census: use_global, use_multi (violation hono-1-06, LOOP form; SPEC 3.3 dynamic chains)
+route	GET	/x	index.ts:21:17	index.ts:8:15	3
+mw	index.ts:9:16	index.ts:21:17	GET	/x	0	index.ts:8:15
+mw	index.ts:17:16	index.ts:21:17	GET	/x	1	index.ts:8:15
+regby	index.ts:7:1	index.ts:21:17	GET	/x	index.ts:8:15
+unknown	index.ts:21:3	dynamic_middleware_list	index.ts:21:17

@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: SPEC 2 field flow: this.app (createApp() basePath /v1) gets both mounts from setupRoutes() called in the constructor; the users mount argument comes from a method; this.extra (field initializer) is its own served app
+# census: route_mount_literal, app_factory_fn (SPEC 2 [iter2] flow through fields; a class whose
+route	GET	/extra	server.ts:23:30	server.ts:13:25	0
+route	GET	/v1/health	routes/health.ts:3:43	server.ts:8:10	0
+route	GET	/v1/users/:id	routes/users.ts:6:19	server.ts:8:10	1
+submount	/v1/health	server.ts:21:14
+submount	/v1/users	server.ts:22:14
+regby	routes/health.ts:1:1	routes/health.ts:3:43	GET	/v1/health	server.ts:8:10
+regby	routes/users.ts:4:3	routes/users.ts:6:19	GET	/v1/users/:id	server.ts:8:10
+regby	server.ts:20:3	server.ts:23:30	GET	/extra	server.ts:13:25

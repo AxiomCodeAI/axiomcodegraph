@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: the mounted route is partial with dynamic_mount_prefix, attributed to its handler
+# census: route_mount_nonliteral
+entry	index.ts:11:20	http
+entry	index.ts:6:27	http

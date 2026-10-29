@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m33: both sub-apps on the rebasable holder are one partial each (dynamic_mount_prefix), no exact rows
+# census: basepath (stress-4 mutation m33 shape; violations hono-3-01, hono-4-04)
+partial	index.ts:11:30	POST	dynamic_mount_prefix
+partial	index.ts:9:29	GET	dynamic_mount_prefix
+unknown	index.ts:29:1	dynamic_mount_prefix	index.ts:9:29
+unknown	index.ts:30:1	dynamic_mount_prefix	index.ts:11:30

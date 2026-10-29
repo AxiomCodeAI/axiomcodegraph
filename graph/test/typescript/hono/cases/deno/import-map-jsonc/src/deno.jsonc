@@ -1,0 +1,6 @@
+{
+  // comments are allowed here
+  "imports": {
+    "@hono/hono": "jsr:@hono/hono@^4" /* the bare JSR name */
+  }
+}

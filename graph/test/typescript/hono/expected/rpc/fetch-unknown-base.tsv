@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R14/O18: parameter, URL-base and env-or-localhost bases join on full paths as base_unknown; a literal external host never joins
+# census: request_fetch (SPEC R14; oracle gap O18)
+route	POST	/api/oauth/register	api.ts:7:29	api.ts:6:13	0
+route	GET	/api/projects/:id	api.ts:8:26	api.ts:6:13	1
+route	GET	/api/health	api.ts:9:20	api.ts:6:13	2
+request	cli.ts:11:1	GET	/api/health	api.ts:9:20	base_unknown
+request	cli.ts:3:1	POST	/api/oauth/register	api.ts:7:29	base_unknown
+request	cli.ts:7:1	GET	/api/projects/${}	api.ts:8:26	base_unknown
+regby	api.ts:1:1	api.ts:7:29	POST	/api/oauth/register	api.ts:6:13
+regby	api.ts:1:1	api.ts:8:26	GET	/api/projects/:id	api.ts:6:13
+regby	api.ts:1:1	api.ts:9:20	GET	/api/health	api.ts:6:13

@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: spread array a then b reaches /after only; the mounted /sub/inside was copied before the use
+# census: use_multi, route_mount_literal
+entry	index.ts:12:20	http
+entry	index.ts:17:23	http
+entry	index.ts:7:30	http
+entry	index.ts:8:30	http

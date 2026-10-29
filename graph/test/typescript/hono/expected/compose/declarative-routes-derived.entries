@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R13b re-derived: sorted lists mount exact at element paths; the settings-filtered list adds conditional_registration; never roots at /; menu silent
+# census: app_request_test (SPEC R13 / R13b; violation hono-4-09 and its silent menu-list control)
+entry	app.ts:8:14	http
+entry	mount.test.ts:12:14	http
+entry	mount.test.ts:28:95	http
+entry	plugins/inbox.ts:4:38	http

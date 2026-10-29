@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: CJS twin of negative-js: only /real; Map and router callbacks absent
+# census: none for CommonJS (corpus gap); CJS twin of js/negative-js
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/real	index.js:17:18	index.js:16:13	0
+regby	index.js:1:1	index.js:17:18	GET	/real	index.js:16:13
+absent	index.js:5:17
+absent	index.js:13:25
+absent	index.js:14:12
+absent	index.js:9:3
+absent	index.js:10:3

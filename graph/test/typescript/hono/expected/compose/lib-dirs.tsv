@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: project files under lib/ and libs/ are project keys: /from-lib and /users/:id served by the lib/ app
+# census: route_mount_literal (project sources under lib/ and libs/, a common monorepo layout)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/from-lib	lib/app.ts:4:22	lib/app.ts:3:20	0
+route	GET	/users/:id	libs/users/routes.ts:4:19	lib/app.ts:3:20	1
+submount	/users	index.ts:6:5
+regby	lib/app.ts:1:1	lib/app.ts:4:22	GET	/from-lib	lib/app.ts:3:20
+regby	libs/users/routes.ts:1:1	libs/users/routes.ts:4:19	GET	/users/:id	lib/app.ts:3:20

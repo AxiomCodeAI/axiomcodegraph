@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-06 loop form: the two known middleware at 0 and 1, the chain declared dynamic_middleware_list
+# census: use_global, use_multi (violation hono-1-06, LOOP form; SPEC 3.3 dynamic chains)
+entry	index.ts:17:16	http
+entry	index.ts:21:17	http
+entry	index.ts:9:16	http

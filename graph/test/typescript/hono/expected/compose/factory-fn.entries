@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: factory results are distinct apps; /items mounted on the factory-made app
+# census: app_factory_fn
+entry	app.ts:9:21	http
+entry	index.ts:7:16	http

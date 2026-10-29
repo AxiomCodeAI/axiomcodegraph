@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: zod with no Hono app: zero rows; route table and route_schema must still be exported
+# census: zvalidator (negative partition: zod with no Hono route, SPEC 3.9)
+absent	forms.ts:7:1
+absent	forms.ts:12:1

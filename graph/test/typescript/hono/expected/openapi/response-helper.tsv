@@ -1,0 +1,17 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-04: response and body schemas written through helpers name the helper argument (Account, ErrorBody), as inline ones do
+# census: create_route (violation hono-3-04, SPEC 3.9)
+route	GET	/accounts/:id	index.ts:38:25	index.ts:37:13	0
+route	GET	/accounts	index.ts:39:27	index.ts:37:13	1
+route	POST	/accounts	index.ts:40:28	index.ts:37:13	2
+schema	index.ts:38:25	param	expr@index.ts:22:22
+schema	index.ts:38:25	response	index.ts:15:7
+schema	index.ts:38:25	response	index.ts:16:7
+schema	index.ts:39:27	response	index.ts:15:7
+schema	index.ts:39:27	response	index.ts:17:7
+schema	index.ts:40:28	json	index.ts:15:7
+schema	index.ts:40:28	response	index.ts:15:7
+validread	index.ts:38:45	index.ts:38:25	param	expr@index.ts:22:22
+validread	index.ts:40:42	index.ts:40:28	json	index.ts:15:7
+regby	index.ts:1:1	index.ts:38:25	GET	/accounts/:id	index.ts:37:13
+regby	index.ts:1:1	index.ts:39:27	GET	/accounts	index.ts:37:13
+regby	index.ts:1:1	index.ts:40:28	POST	/accounts	index.ts:37:13

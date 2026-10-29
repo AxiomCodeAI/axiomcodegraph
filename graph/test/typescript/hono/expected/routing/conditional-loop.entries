@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: both branches and the loop body are emitted, each declared conditional_registration / loop_registration; /always plain
+# census: verb_literal_path (registrations behind a condition / in a loop, SPEC 3.1)
+entry	index.ts:11:20	http
+entry	index.ts:15:20	http
+entry	index.ts:18:20	http
+entry	index.ts:9:21	http

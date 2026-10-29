@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O7: module.exports members through destructured require: authenticate (sets user) and isAdmin on the chain after the unresolvable limiter; user flows to /api/me
+# census: none for CommonJS (corpus gap in census; shape of a CJS-on-Bun project): oracle gap O7
+route	GET	/api/me	app.js:11:20	app.js:8:13	2
+route	DELETE	/api/users/:id	app.js:12:39	app.js:8:13	4
+mw	lib:acme-rate-limit.limiter@app.js:9:19	app.js:11:20	GET	/api/me	0	app.js:8:13
+mw	auth.js:1:31	app.js:11:20	GET	/api/me	1	app.js:8:13
+mw	lib:acme-rate-limit.limiter@app.js:9:19	app.js:12:39	DELETE	/api/users/:id	0	app.js:8:13
+mw	auth.js:1:31	app.js:12:39	DELETE	/api/users/:id	1	app.js:8:13
+mw	auth.js:5:26	app.js:12:39	DELETE	/api/users/:id	2	app.js:8:13
+ctx	auth.js:1:31	app.js:11:20	user
+regby	app.js:1:1	app.js:11:20	GET	/api/me	app.js:8:13
+regby	app.js:1:1	app.js:12:39	DELETE	/api/users/:id	app.js:8:13

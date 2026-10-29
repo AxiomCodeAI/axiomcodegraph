@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-2-01, re-derived: the map's instances are known, so each override mounts exactly under its key (runtime agrees); never a root
+# census: route_mount_nonliteral (violation hono-2-01)
+entry	index.ts:13:24	http
+entry	index.ts:20:22	http

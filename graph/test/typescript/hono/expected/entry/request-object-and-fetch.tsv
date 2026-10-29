@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: app.request(new Request(url)), app.fetch(new Request(url, {method}), env) and request with init each reach their route
+# census: app_request_test, app_fetch_ref
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/ping	app.ts:4:18	app.ts:3:20	0
+route	PUT	/items/:id	app.ts:5:23	app.ts:3:20	1
+request	app.test.ts:10:1	PUT	/items/7	app.ts:5:23
+request	app.test.ts:15:1	PUT	/items/8	app.ts:5:23
+request	app.test.ts:5:1	GET	/ping	app.ts:4:18
+regby	app.ts:1:1	app.ts:4:18	GET	/ping	app.ts:3:20
+regby	app.ts:1:1	app.ts:5:23	PUT	/items/:id	app.ts:3:20

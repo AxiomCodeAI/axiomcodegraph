@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-05: worker.request('/posts') and hc<typeof todos>.todos.$get match relative to the sub-app they root at
+# census: app_request_test, hc_client (violation hono-1-05)
+entry	api.ts:4:19	http
+entry	api.ts:5:47	http

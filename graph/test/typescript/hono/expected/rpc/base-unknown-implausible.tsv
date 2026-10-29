@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O21: an unknown-base request joins /api/users as base_unknown; never a test-only app from non-test code, never the catch-all, never import.meta.url, never a path with no literal segment
+# census: request_fetch, app_request_test (SPEC R14; oracle rule O21)
+route	GET	/__test/probe	server.test.ts:7:28	server.test.ts:6:15	0
+route	GET	/api/users	server.ts:9:23	server.ts:8:13	0
+route	GET	/api/users/:id	server.ts:10:27	server.ts:8:13	1
+route	GET	/*	server.ts:11:14	server.ts:8:13	2
+request	client.ts:1:1	GET	/api/users	server.ts:9:23	base_unknown
+request	server.test.ts:5:42	GET	/__test/probe	server.test.ts:7:28
+regby	server.test.ts:5:42	server.test.ts:7:28	GET	/__test/probe	server.test.ts:6:15
+regby	server.ts:1:1	server.ts:10:27	GET	/api/users/:id	server.ts:8:13
+regby	server.ts:1:1	server.ts:11:14	GET	/*	server.ts:8:13
+regby	server.ts:1:1	server.ts:9:23	GET	/api/users	server.ts:8:13

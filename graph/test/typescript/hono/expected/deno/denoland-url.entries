@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: deno.land/x URL mod.ts app, etag from middleware.ts; export default app
+# census: none (corpus gap). https://deno.land/x/hono@v3.x/mod.ts and /middleware.ts: shape from Hono's Deno docs (v3 era), corpus gap.
+entry	main.ts:8:17	http

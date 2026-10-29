@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: registerUsers' routes spliced at the call (order 1-2); typeof-param registration mounted at /v1
+# census: app_factory_fn
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.ts:9:14	index.ts:8:13	0
+route	GET	/users	users.ts:4:21	index.ts:8:13	1
+route	POST	/users	users.ts:5:22	index.ts:8:13	2
+route	GET	/v1/monitors	monitors.ts:6:24	index.ts:8:13	3
+route	GET	/last	index.ts:13:18	index.ts:8:13	4
+submount	/v1	index.ts:12:5
+regby	index.ts:1:1	index.ts:13:18	GET	/last	index.ts:8:13
+regby	index.ts:1:1	index.ts:9:14	GET	/	index.ts:8:13
+regby	monitors.ts:5:1	monitors.ts:6:24	GET	/v1/monitors	index.ts:8:13
+regby	users.ts:3:1	users.ts:4:21	GET	/users	index.ts:8:13
+regby	users.ts:3:1	users.ts:5:22	POST	/users	index.ts:8:13

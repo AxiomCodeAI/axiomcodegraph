@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O6: authSdk.middleware() from an unresolvable package stays at position 0 ahead of tag
+# census: builtin_mw_import (oracle gap O6: a library middleware whose package cannot be resolved)
+entry	index.js:13:20	http
+entry	index.js:6:13	http

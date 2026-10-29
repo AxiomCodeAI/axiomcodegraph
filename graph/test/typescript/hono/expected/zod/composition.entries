@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: each derived schema plus Base (and Extra for merge); .openapi('Person') keeps the same schema with Base as base
+# census: zvalidator (SPEC 3.9 composition)
+entry	index.ts:19:53	http
+entry	index.ts:20:49	http
+entry	index.ts:21:49	http
+entry	index.ts:22:51	http
+entry	index.ts:23:52	http
+entry	index.ts:24:44	http
+entry	index.ts:25:47	http

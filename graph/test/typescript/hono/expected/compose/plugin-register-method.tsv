@@ -1,0 +1,19 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R13b re-derived: plugin apps mounted by register(app) over a filtered list of known plugins are exact at their prefixes with conditional_registration
+# census: route_mount_literal (oracle gap O11 residual; SPEC 2 a mount argument is never a root)
+route	GET	/	index.ts:19:14	index.ts:18:13	0
+route	GET	/api/media	plugins/media.ts:6:16	index.ts:18:13	1
+route	DELETE	/api/media/:id	plugins/media.ts:7:22	index.ts:18:13	2
+route	GET	/api/variables/:key	plugins/variables.ts:5:24	index.ts:18:13	3
+route	POST	/admin/variables	plugins/variables.ts:8:23	index.ts:18:13	4
+submount	/api/media	plugins/media.ts:14:9
+submount	/api/variables	plugins/variables.ts:13:9
+submount	/admin/variables	plugins/variables.ts:14:9
+regby	index.ts:1:1	index.ts:19:14	GET	/	index.ts:18:13
+regby	plugins/media.ts:4:1	plugins/media.ts:6:16	GET	/api/media	index.ts:18:13
+regby	plugins/media.ts:4:1	plugins/media.ts:7:22	DELETE	/api/media/:id	index.ts:18:13
+regby	plugins/variables.ts:1:1	plugins/variables.ts:5:24	GET	/api/variables/:key	index.ts:18:13
+regby	plugins/variables.ts:1:1	plugins/variables.ts:8:23	POST	/admin/variables	index.ts:18:13
+unknown	plugins/media.ts:14:5	conditional_registration	plugins/media.ts:6:16
+unknown	plugins/media.ts:14:5	conditional_registration	plugins/media.ts:7:22
+unknown	plugins/variables.ts:13:5	conditional_registration	plugins/variables.ts:5:24
+unknown	plugins/variables.ts:14:5	conditional_registration	plugins/variables.ts:8:23

@@ -1,0 +1,1109 @@
+// ============================================================================
+// CONFIG-RESOLUTION · HTTP ROUTER APPLICATIONS  (which values are apps)
+//
+// An application object is built once (`new X()` of a class a knob names, imported
+// from the module the knob names) and then carries a LIST of registrations: routes,
+// middleware, mounted sub-applications. This file answers "which expressions hold an
+// app, and which list do registrations on them land in"; http-router-routes.dl turns
+// the lists into the route table.
+//
+// ── THE LIST, NOT THE OBJECT ────────────────────────────────────────────────
+// `basePath(p)` returns a NEW object that shares the original's route list, its own
+// registrations prefixed by p. So an app value is (List, Base): the list a registration
+// lands in, and the prefix it gets there. A list is identified by the expression that
+// created it:
+//   * a construction `new X()`;
+//   * a CALL of a function that constructs and returns one (`createApp()`): every call
+//     is its own list, which INCLUDES the registrations the function made on the one it
+//     constructed (the template), at the call's position;
+//   * a PARAMETER an app is passed into (`registerUsers(app)`): its registrations are
+//     included into each passing caller's list, at the call's position, under the
+//     passed value's base. A parameter declared with the app class and passed nothing
+//     is a list of its own, whose paths cannot be completed.
+//
+// ── TWO STRATA ──────────────────────────────────────────────────────────────
+// hr_app(Expr, List) knows no strings. It is what decides which path arguments are
+// worth evaluating (rd_demand), so it may not depend on the evaluation itself, or the
+// program would read a string to decide whether to read that string. hr_val(Expr,
+// List, Base) repeats the same flow with the base attached, after rd_val.
+//
+// Framework names live in knobs.dl only (router_*).
+// ============================================================================
+
+// ── a specifier as the package it names ─────────────────────────────────────
+// `npm:x@4/sub` and `jsr:@s/x@^4/sub` are `x/sub` and `@s/x/sub`; a URL under a knob
+// prefix is the package (`/mod.ts`) or its subpath; anything else is itself.
+.decl hr_spec_raw(c0:symbol)
+hr_spec_raw(raw) :- rd_import_path(_, raw).
+.decl hr_unscheme(c0:symbol, c1:symbol)
+hr_unscheme(raw, x) :- hr_spec_raw(raw), router_spec_scheme(s), strlen(raw) > strlen(s),
+    substr(raw, 0, strlen(s)) = s, x = substr(raw, strlen(s), strlen(raw) - strlen(s)).
+.decl hr_ver_at(c0:symbol, c1:number)
+hr_ver_at(x, i) :- hr_unscheme(_, x), i = range(1, strlen(x)), substr(x, i, 1) = "@".
+.decl hr_slash_after(c0:symbol, c1:number, c2:number)
+hr_slash_after(x, i, j) :- hr_ver_at(x, i), j = range(i, strlen(x)), substr(x, j, 1) = "/".
+.decl hr_ver_end(c0:symbol, c1:number, c2:number)
+hr_ver_end(x, i, j) :- hr_ver_at(x, i), j = min y : { hr_slash_after(x, i, y) }.
+hr_ver_end(x, i, strlen(x)) :- hr_ver_at(x, i), !hr_slash_after(x, i, _).
+.decl hr_spec(c0:symbol, c1:symbol)
+hr_spec(raw, raw) :- hr_spec_raw(raw).
+hr_spec(raw, x) :- hr_unscheme(raw, x), !hr_ver_at(x, _).
+hr_spec(raw, y) :- hr_unscheme(raw, x), hr_ver_at(x, i), hr_ver_end(x, i, j),
+    y = cat(substr(x, 0, i), substr(x, j, strlen(x) - j)).
+.decl hr_url_rest(c0:symbol, c1:symbol, c2:symbol)
+hr_url_rest(raw, pkg, rest) :- hr_spec_raw(raw), router_spec_url(pre, pkg), strlen(raw) > strlen(pre),
+    substr(raw, 0, strlen(pre)) = pre, rest = substr(raw, strlen(pre), strlen(raw) - strlen(pre)).
+.decl hr_url_path(c0:symbol, c1:symbol, c2:symbol)
+hr_url_path(raw, pkg, rest) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "/".
+hr_url_path(raw, pkg, r2) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "@",
+    j = min y : { y = range(0, strlen(rest)), substr(rest, y, 1) = "/" }, r2 = substr(rest, j, strlen(rest) - j).
+hr_spec(raw, pkg) :- hr_url_path(raw, pkg, "/mod.ts").
+.decl hr_import_spec(c0:symbol, c1:symbol)
+hr_import_spec(ih, s) :- rd_import_path(ih, raw), hr_spec(raw, s).
+
+// ── does this program import the framework at all? ──────────────────────────
+// Every app, client and validator above is recognised through an import of a module a knob
+// names, so a program that imports none of them has no route table. hr_on() holds when one
+// is imported; each rule below that would otherwise read the whole program (every call, every
+// identifier, every return) is guarded by it, so on any other program they cost nothing. When
+// it holds the rules are exactly the unguarded ones.
+.decl hr_knob_spec(c0:symbol)
+hr_knob_spec(s) :- router_app_class(s, _).
+hr_knob_spec(s) :- router_factory(s, _).
+hr_knob_spec(s) :- router_rpc_client(s, _).
+hr_knob_spec(s) :- router_test_client(s, _).
+hr_knob_spec(s) :- router_route_def(s, _).
+hr_knob_spec(s) :- router_validator(s, _).
+hr_knob_spec(s) :- router_validator_fn(s, _).
+hr_knob_spec(s) :- router_mw_wrapper(s, _).
+hr_knob_spec(s) :- router_mw_combinator(s, _).
+hr_knob_spec(s) :- router_mw_except(s, _).
+.decl hr_on()
+hr_on() :- hr_import_spec(_, s), hr_knob_spec(s).
+
+// ── the class an app is built from ──────────────────────────────────────────
+.decl hr_class_ref(c0:symbol)
+hr_class_ref(f) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, f),
+    import_binding("client", _, _, orig, _, ih), orig != "",
+    hr_import_spec(ih, spec), router_app_class(spec, orig).
+hr_class_ref(f) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, f),
+    import_binding("client", _, local, "", _, ih),
+    hr_import_spec(ih, spec), router_app_class(spec, local).
+// `import * as h from '…'; new h.X()`
+hr_class_ref(f) :- hr_on(), property_access_name(f, n),
+    expr_child("client", f, "RECEIVER", _, r),
+    expr_referenced("client", "IMPORT_BINDING", ih, r),
+    import_binding("client", "NAMESPACE", _, _, _, ih),
+    hr_import_spec(ih, spec), router_app_class(spec, n).
+
+.decl hr_new(c0:symbol)
+hr_new(e) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, e, _),
+    expr_child("client", e, "METHOD_NAME", _, f), hr_class_ref(f).
+
+// the const an identifier denotes, here or through an import
+.decl hr_denotes_var(c0:symbol, c1:symbol)
+hr_denotes_var(e, v) :- hr_on(), expr_referenced("client", "VARIABLE", v, e).
+hr_denotes_var(e, v) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, "client", "VARIABLE", v).
+// `import routes from './routes'; export { routes as apiRoutes }` in a barrel, imported as `apiRoutes`: the
+// barrel re-exports its own DEFAULT import under an alias, which the generic export surface reads only for
+// named imports
+hr_denotes_var(e, v) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, e), import_binding("client", _, _, orig, _, ih), orig != "",
+    import_target_module(ih, _, m), export_decl(_, orig, ln, ek, m, h), export_kind_is_local_name(ek), export_source(_, "", _, h),
+    ln != "", import_binding("client", ik, ln, _, m, ih2), import_kind_binds_default(ik), import_binds(ih2, "client", "VARIABLE", v).
+// `const { app } = await import('./server')`: the module's export, as a static import gives it
+hr_denotes_var(e, v) :- hr_on(), expr_referenced("client", "VARIABLE", d, e), var_dynamic_import_binding(d, "VARIABLE", v).
+
+// a resolved call of a project function (not a handler handed to a registration)
+.decl hr_call_of(c0:symbol, c1:symbol)
+hr_call_of(ce, w) :- hr_on(), call_chain_edge(ce, _, "-", w, "client", st, _), st != "callback_registered".
+// `const { auth } = middlewares` / `const { auth } = this.middlewares` where `middlewares` is a namespace
+// import (`import * as middlewares from './middlewares'`, kept in a field): a call of `auth` calls the
+// module's export, a function or a const holding one
+.decl hr_ns_val(c0:symbol, c1:symbol)
+hr_ns_val(x, m) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, x), import_binds_namespace(ih, "client", m).
+hr_ns_val(x, m) :- ts_field_access_target(x, f), field_initializer("client", i, f), hr_ns_val(i, m).
+hr_ns_val(x, m) :- expr_kind("client", k, _, x), expr_kind_is_transparent(k), expr_child("client", x, _, _, c), hr_ns_val(c, m).
+.decl hr_ns_destr_fn(c0:symbol, c1:symbol)
+hr_ns_destr_fn(d, w) :- var_binding("client", _, "PROPERTY", src, i, d), i != "", hr_ns_val(i, m),
+    module_export_any("client", m, src, "METHOD", w).
+hr_ns_destr_fn(d, w) :- var_binding("client", _, "PROPERTY", src, i, d), i != "", hr_ns_val(i, m),
+    module_export_any("client", m, src, "VARIABLE", v), var_initializer("client", _, fx, v), expr_anon_decl("client", w, fx).
+.decl hr_has_chain_call(c0:symbol)
+hr_has_chain_call(ce) :- hr_on(), call_chain_edge(ce, _, "-", _, "client", _, _).
+hr_call_of(ce, w) :- call_site("client", "FUNCTION_CALL", _, _, _, ce, _), !hr_has_chain_call(ce),
+    expr_child("client", ce, "METHOD_NAME", _, f), expr_referenced("client", "VARIABLE", d, f), hr_ns_destr_fn(d, w).
+
+// A MOUNT ARGUMENT whose call the call graph could not resolve (`s.controller()` on an element of
+// a loop over objects of several classes, `g.build()` on a loop variable): the project methods of
+// that name. Only for the second argument of a mount, where the alternative is worse: the app the
+// method builds would otherwise be served at its own paths, as a root (SPEC 2, a mount argument is
+// never a root). A call resolved to a declaration with overrides takes the overrides too.
+.decl hr_mount_arg(c0:symbol)
+hr_mount_arg(x) :- hr_on(), call_site("client", "METHOD_CALL", rn, _, _, ce, _), router_mount_app(rn),
+    expr_child("client", ce, "ARGUMENT", "1", x).
+hr_mount_arg(x) :- hr_mount_arg(e), expr_kind("client", k, _, e), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", e, _, _, x).
+.decl hr_has_call(c0:symbol)
+hr_has_call(x) :- hr_mount_arg(x), hr_call_of(x, _).
+.decl hr_callee(c0:symbol, c1:symbol)
+hr_callee(ce, w) :- hr_call_of(ce, w).
+hr_callee(x, w) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", cn, _, _, x, _), !hr_has_call(x),
+    !hr_elem_typed(x), method_decl("client", cn, _, _, w), hr_arity_ok(x, w), hr_name_type_ok(x, cn, w).
+// …of those, the ones the call can take: as many parameters as it passes arguments, at least, and visible on the
+// receiver's declared class or overriding it there (`this.admin.getController()` on a field declared `AdminController`
+// reaches no other controller's method; `strategy.getController(auth, opts)` reaches no zero-parameter one)
+.decl hr_nargs(c0:symbol, c1:number)
+hr_nargs(x, n) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, _, x, _), n = count : { expr_child("client", x, "ARGUMENT", _, _) }.
+.decl hr_nparams(c0:symbol, c1:number)
+hr_nparams(w, n) :- hr_on(), method_decl("client", _, _, _, w), n = count : { param_decl("client", _, _, _, w, _) }.
+.decl hr_arity_ok(c0:symbol, c1:symbol)
+hr_arity_ok(x, w) :- hr_nargs(x, a), call_site("client", "METHOD_CALL", cn, _, _, x, _), method_decl("client", cn, _, _, w), hr_nparams(w, n), n >= a.
+.decl hr_name_type_ok(c0:symbol, c1:symbol, c2:symbol)
+hr_name_type_ok(x, cn, w) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", cn, _, _, x, _), !hr_rtyped(x), method_decl("client", cn, _, _, w).
+hr_name_type_ok(x, cn, w) :- hr_rtype(x, tt), call_site("client", "METHOD_CALL", cn, _, _, x, _), method_in_scope(tt, cn, _, w).
+hr_name_type_ok(x, cn, w) :- hr_rtype(x, tt), call_site("client", "METHOD_CALL", cn, _, _, x, _), method_decl("client", cn, _, _, w),
+    method_owner("client", s, w), type_ancestor(s, tt).
+// …the method of each element's class, when the receiver is a loop variable over a const array whose
+// elements have a type (`[new PingRoutes()]`): a name fallback would also take a class the array never holds
+.decl hr_elem_type(c0:symbol, c1:symbol)
+hr_elem_type(x, tt) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, r, x, _), expr_referenced("client", "VARIABLE", v, r),
+    for_binding_iterable(v, it), hr_arr(it, arr), expr_child("client", arr, _, _, el), expr_type(el, _, tt).
+.decl hr_elem_typed(c0:symbol)
+hr_elem_typed(x) :- hr_elem_type(x, _).
+hr_callee(x, w) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", cn, _, _, x, _), !hr_has_call(x),
+    hr_elem_type(x, tt), method_in_scope(tt, cn, _, w).
+hr_callee(x, w) :- hr_mount_arg(x), hr_call_of(x, w0), method_dispatch_candidate(w0, w, _), method_prov(w, "client"), hr_disp_ok(x, w).
+// …an override declared in the receiver's own static type or below it: `this.admin.getController()` on a field
+// typed AdminController, which inherits the base method, reaches no other controller's override
+.decl hr_rtype(c0:symbol, c1:symbol)
+hr_rtype(x, tt) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, r, x, _), expr_type(r, _, tt).
+// …or the class a field read is declared with (`adminController?: AdminController`)
+hr_rtype(x, tt) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, r, x, _), ts_field_access_target(r, f),
+    field_type_ref("client", tr, f), type_ref_resolves("client", tr, tt), method_owner("client", tt, _).
+// …or the class of what is written into the field (`this.adminController = new AdminController(..)`)
+hr_rtype(x, tt) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, r, x, _), ts_field_access_target(r, f),
+    hr_field_write(f, v), call_site("client", "CONSTRUCTOR_CALL", _, _, _, v, _), expr_type(v, _, tt), method_owner("client", tt, _).
+hr_rtype(x, tt) :- hr_mount_arg(x), call_site("client", "METHOD_CALL", _, _, r, x, _), ts_field_access_target(r, f),
+    hr_field_write(f, v), call_site("client", "CONSTRUCTOR_CALL", cn, _, _, v, _), type_decl("client", cn, _, _, _, _, tt), method_owner("client", tt, _).
+.decl hr_rtyped(c0:symbol)
+hr_rtyped(x) :- hr_rtype(x, _).
+.decl hr_disp_ok(c0:symbol, c1:symbol)
+hr_disp_ok(x, w) :- hr_rtype(x, tt), hr_call_of(x, w0), method_dispatch_candidate(w0, w, _), method_owner("client", s, w),
+    (s = tt ; type_ancestor(s, tt)).
+hr_disp_ok(x, w) :- hr_mount_arg(x), !hr_rtyped(x), hr_call_of(x, w0), method_dispatch_candidate(w0, w, _).
+// A mount argument whose call reaches SEVERAL methods that each build the app they return (`c.getController()` over
+// a loop of controllers of several classes): each candidate's app is its own list (SPEC ruling R6), mounted on its
+// own; merging them into the one list of the call would put one class's middleware before another class's routes
+.decl hr_fresh_cand(c0:symbol, c1:symbol, c2:symbol)
+hr_fresh_cand(x, w, t) :- hr_mount_arg(x), hr_callee(x, w), hr_ret_cand(w, t), expr_enclosing_method(t, w).
+.decl hr_multi(c0:symbol)
+hr_multi(x) :- hr_fresh_cand(x, w1, _), hr_fresh_cand(x, w2, _), w1 < w2.
+// the element of the iterated array each candidate is the method of (`[new Reports(), new Exports()]`): the loop mounts
+// them in the array's order, and a candidate no element holds is not mounted
+.decl hr_cand_elem(c0:symbol, c1:symbol, c2:symbol)
+hr_cand_elem(x, w, i) :- hr_fresh_cand(x, w, _), call_site("client", "METHOD_CALL", cn, _, r, x, _), expr_referenced("client", "VARIABLE", v, r),
+    for_binding_iterable(v, it), hr_arr(it, arr), expr_child("client", arr, _, i, el), expr_type(el, _, tt), method_in_scope(tt, cn, _, w),
+    strlen(i) <= 4.
+.decl hr_x_has_elem(c0:symbol)
+hr_x_has_elem(x) :- hr_cand_elem(x, _, _).
+// (call, candidate's list, order among the candidates)
+.decl hr_each_cand(c0:symbol, c1:symbol, c2:symbol)
+hr_each_cand(x, t, o) :- hr_multi(x), hr_fresh_cand(x, w, t), hr_cand_elem(x, w, i), o = cat(substr("0000", 0, 4 - strlen(i)), i).
+hr_each_cand(x, t, "9999") :- hr_multi(x), hr_fresh_cand(x, _, t), !hr_x_has_elem(x).
+
+// A returned list whose creating expression is evaluated inside the function itself
+// (expr_enclosing_method) is fresh per call; anything else (a module-level app, a
+// parameter) is the same list every time.
+// what a function returns: its returned expression, never a part of it. method_returns_expr
+// also lists the call sites INSIDE a returned expression (`return new X().basePath('/v1')`
+// lists the `new` too), and reading those made the base-less inner value a second return.
+.decl hr_ret_nested(c0:symbol)
+hr_ret_nested(e) :- hr_on(), method_returns_expr(w, e), expr_child("client", p, _, _, e), method_returns_expr(w, p).
+.decl hr_ret_expr(c0:symbol, c1:symbol)
+hr_ret_expr(w, e) :- hr_on(), method_returns_expr(w, e), !hr_ret_nested(e).
+.decl hr_ret_cand(c0:symbol, c1:symbol)
+hr_ret_cand(w, t) :- hr_ret_expr(w, e), hr_app(e, t).
+
+// a parameter typed with the app class itself (`(app: X) => …`, `app: X<Env>`)
+.decl hr_typed_slot(c0:symbol)
+hr_typed_slot(p) :- hr_on(), param_type_ref("client", r, p),
+    type_ref("client", _, _, tn, _, _, _, r), type_ref_module("client", m, r),
+    import_binding("client", _, tn, orig, m, ih), orig != "",
+    hr_import_spec(ih, spec), router_app_class(spec, orig).
+// …or one at the same position of a function that implements a signature declaring it so
+// (`definePlugin({ register(app) { app.route(..) } })` where the input type says `register(app: Hono)`)
+hr_typed_slot(p) :- hr_on(), param_decl("client", _, pos, _, m, p), method_dispatch_candidate(sig, m, _),
+    param_decl("client", _, pos, _, sig, ps), ps != p, param_type_ref("client", r, ps),
+    type_ref("client", _, _, tn, _, _, _, r), type_ref_module("client", mm, r),
+    import_binding("client", _, tn, orig, mm, ih), orig != "",
+    hr_import_spec(ih, spec), router_app_class(spec, orig).
+
+// ── a factory and the apps it makes ─────────────────────────────────────────
+// (factory call): `createFactory(...)` imported from its module
+.decl hr_factory_call(c0:symbol)
+hr_factory_call(f) :- hr_on(), call_site("client", "FUNCTION_CALL", _, _, _, f, _),
+    expr_child("client", f, "METHOD_NAME", _, n), expr_referenced("client", "IMPORT_BINDING", ih, n),
+    import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec), router_factory(spec, orig).
+// an expression holding that factory: the call, or a const it initialises
+.decl hr_factory_val(c0:symbol, c1:symbol)
+hr_factory_val(f, f) :- hr_factory_call(f).
+hr_factory_val(r, f) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), hr_factory_val(i, f).
+// …returned by a project function (`function createTierFactory() { return createFactory() }`)
+hr_factory_val(ce, f) :- hr_call_of(ce, w), hr_ret_expr(w, e), hr_factory_val(e, f).
+// a factory METHOD read off into a const and called later (`const mk = factory.createMiddleware; mk(fn)`):
+// (call, method name, factory)
+.decl hr_detached(c0:symbol, c1:symbol, c2:symbol)
+hr_detached(ce, n, f) :- call_site("client", "FUNCTION_CALL", _, _, _, ce, _), expr_child("client", ce, "METHOD_NAME", _, x),
+    hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "", property_access_name(i, n),
+    expr_child("client", i, "RECEIVER", _, q), hr_factory_val(q, f).
+// `<factory>.createApp()`: a new list per call
+.decl hr_factory_app(c0:symbol, c1:symbol)
+hr_factory_app(ce, f) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_factory_app(cn), hr_factory_val(r, f).
+hr_factory_app(ce, f) :- hr_detached(ce, n, f), router_factory_app(n).
+// the parameter of `initApp: (app) => {…}`: registered on every app the factory makes
+.decl hr_factory_init_param(c0:symbol, c1:symbol)
+hr_factory_init_param(f, p) :- hr_factory_call(f), expr_child("client", f, "ARGUMENT", "0", o),
+    rd_obj_prop(o, key, fn), router_factory_init(key), expr_anon_decl("client", m, fn),
+    param_decl("client", _, "0", _, m, p).
+
+// a property or field declared with the app class (`interface Ctx { server: X }`,
+// `class C { app: X }`): reading it gives an app nothing here constructs, a list of its own
+// whose paths cannot be completed (SPEC ruling R2)
+.decl hr_typed_field(c0:symbol)
+hr_typed_field(f) :- hr_on(), field_type_ref("client", r, f),
+    type_ref("client", _, _, tn, _, _, _, r), type_ref_module("client", m, r),
+    import_binding("client", _, tn, orig, m, ih), orig != "",
+    rd_import_path(ih, w), hr_spec(w, spec), router_app_class(spec, orig).
+.decl hr_field_read(c0:symbol, c1:symbol)
+hr_field_read(e, f) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, tt), field_in_scope(tt, n, _, f), hr_typed_field(f).
+
+// ── STRATUM 1: hr_app(Expr, List) ───────────────────────────────────────────
+.decl hr_app(c0:symbol, c1:symbol)
+hr_app(e, e) :- hr_new(e).
+hr_app(ce, ce) :- hr_factory_app(ce, _).
+hr_app(e, a) :- hr_app(c, a), expr_child("client", e, _, _, c),
+    expr_kind("client", k, _, e), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+hr_app(r, a) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_app(i, a).
+hr_app(ce, a) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_returns_app(cn), hr_app(r, a).
+hr_app(ce, a) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_base_path(cn), hr_app(r, a).
+// a function returning a list it created: each call is a new list
+hr_app(ce, ce) :- hr_callee(ce, w), hr_ret_cand(w, t), expr_enclosing_method(t, w).
+// …returning one it did not create: the same list
+hr_app(ce, t) :- hr_callee(ce, w), hr_ret_cand(w, t), !expr_enclosing_method(t, w), !hv_isparam(t, w).
+// …returning its own PARAMETER (`function withConfig(app) { app.use(mw); return app }`): the app this call passed,
+// never one list shared by every caller (SPEC ruling R16: each test's app serves only its own routes)
+hr_app(ce, a) :- hr_callee(ce, w), hr_ret_cand(w, t), hv_isparam(t, w), param_decl("client", _, pos, _, w, t),
+    expr_child("client", ce, "ARGUMENT", pos, x), hr_app(x, a).
+// a parameter an app is passed into, or one declared with the app class
+hr_app(e, p) :- expr_referenced("client", "PARAMETER", p, e), hr_slot(p).
+hr_app(e, f) :- hr_field_read(e, f).
+// a field an app is written into (`this.app = createApp()`, `private app = new X()`): every read of
+// the field is that app (SPEC [iter2] flow through fields)
+.decl hr_field_write(c0:symbol, c1:symbol)
+hr_field_write(f, v) :- hr_on(), (expr_kind("client", "ASSIGNMENT_EXPRESSION", _, x) ; expr_kind("client", "BINARY_EXPRESSION", _, x)),
+    expr_operator("client", "=", x),
+    expr_child("client", x, "LEFT_OPERAND", _, l), ts_field_access_target(l, f),
+    expr_child("client", x, "RIGHT_OPERAND", _, v).
+hr_field_write(f, i) :- hr_on(), field_initializer("client", i, f).
+hr_app(e, a) :- ts_field_access_target(e, f), hr_field_write(f, v), hr_app(v, a), e != v.
+// a property of an object literal holding an app (`return { dir, app: createApp(dir) }`), read
+// back through a const, an await or a function's return (`(await setup()).app`, `fixture.app`)
+.decl hr_app_obj(c0:symbol)
+hr_app_obj(o) :- rd_obj_prop(o, _, v), hr_app(v, _).
+.decl hr_objlit(c0:symbol, c1:symbol)
+hr_objlit(o, o) :- hr_app_obj(o).
+hr_objlit(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_objlit(i, o).
+// …and the result of a call of a function returning one: (expression, call, function, object). The call is
+// kept, because an app the function creates is a new one per call (SPEC ruling R6)
+.decl hr_objcall(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_objcall(ce, ce, w, o) :- hr_call_of(ce, w), hr_ret_expr(w, e), hr_objlit(e, o).
+hr_objcall(r, ce, w, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_objcall(i, ce, w, o).
+hr_objcall(e, ce, w, o) :- hr_objcall(c, ce, w, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+// an element of a const array literal, read through a for..of binding over it
+// (`for (const p of plugins) app.route(p.prefix, p.app)`)
+.decl hr_arr(c0:symbol, c1:symbol)
+hr_arr(x, x) :- hr_on(), expr_kind("client", "ARRAY_LITERAL", _, x).
+hr_arr(r, a) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_arr(i, a).
+hr_arr(e, a) :- hr_arr(c, a), expr_child("client", e, _, _, c), expr_kind("client", k, _, e), expr_kind_is_transparent(k).
+// an array method that returns some of the receiver's own elements (`[...].filter(f)`, `.sort(f)`, `.slice(1)`): a loop
+// over the result iterates elements of that array literal, each still the value written there
+.decl hr_arr_subset(c0:symbol)
+hr_arr_subset("filter"). hr_arr_subset("sort"). hr_arr_subset("slice"). hr_arr_subset("reverse").
+hr_arr_subset("toSorted"). hr_arr_subset("toReversed").
+hr_arr(e, a) :- call_site("client", "METHOD_CALL", n, _, r, e, _), hr_arr_subset(n), r != "", hr_arr(r, a).
+// …FILTERED: which elements survive is decided at run time, so what the loop registers for one is conditional (SPEC
+// ruling R13b); sorting or slicing keeps every element's routes
+.decl hr_arr_filtered(c0:symbol)
+hr_arr_filtered(e) :- call_site("client", "METHOD_CALL", "filter", _, r, e, _), r != "", hr_arr(r, _).
+hr_arr_filtered(e) :- call_site("client", "METHOD_CALL", n, _, r, e, _), hr_arr_subset(n), r != "", hr_arr_filtered(r).
+hr_arr_filtered(r) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_arr_filtered(i).
+hr_arr_filtered(e) :- hr_arr_filtered(c), expr_child("client", e, _, _, c), expr_kind("client", k, _, e), expr_kind_is_transparent(k).
+// a mount whose arguments read the variable of a loop over a filtered list: everything it mounts is registered when
+// the element survives, exactly as a registration inside `if (...)` (SPEC ruling R13b)
+.decl hr_marg_sub(c0:symbol, c1:symbol)
+hr_marg_sub(ce, x) :- hr_on(), call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn), expr_child("client", ce, "ARGUMENT", _, x).
+hr_marg_sub(ce, c) :- hr_marg_sub(ce, x), expr_child("client", x, _, _, c).
+.decl hr_cond_mount(c0:symbol)
+hr_cond_mount(ce) :- hr_marg_sub(ce, x), expr_referenced("client", "VARIABLE", v, x), for_binding_iterable(v, it), hr_arr_filtered(it).
+hr_objlit(r, o) :- hr_denotes_var(r, v), for_binding_iterable(v, it), hr_arr(it, arr), expr_child("client", arr, _, _, el),
+    hr_objlit(el, o).
+hr_objlit(e, o) :- hr_objlit(c, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+.decl hr_prop_of(c0:symbol, c1:symbol)
+hr_prop_of(e, v) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hr_objlit(q, o),
+    rd_obj_prop(o, n, v).
+hr_app(e, a) :- hr_prop_of(e, v), hr_app(v, a).
+// a name destructured from such an object (`const { app } = createTestApp()`)
+.decl hr_destr_of(c0:symbol, c1:symbol)
+hr_destr_of(e, v) :- expr_referenced("client", "VARIABLE", d, e), var_binding("client", _, "PROPERTY", src, i, d), i != "",
+    hr_objlit(i, o), rd_obj_prop(o, src, v).
+hr_app(e, a) :- hr_destr_of(e, v), hr_app(v, a).
+// a property of an object a call returned (`const { app } = createTestApp()`, `(await setup()).app`): an app
+// the function created is this call's own list, any other is the same list every time
+.decl hr_viacall(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_viacall(e, ce, w, v) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hr_objcall(q, ce, w, o),
+    rd_obj_prop(o, n, v).
+hr_viacall(e, ce, w, v) :- expr_referenced("client", "VARIABLE", d, e), var_binding("client", _, "PROPERTY", src, i, d), i != "",
+    hr_objcall(i, ce, w, o), rd_obj_prop(o, src, v).
+.decl hr_objret_inst(c0:symbol, c1:symbol)
+hr_objret_inst(ce, t) :- hr_viacall(_, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w).
+hr_app(e, ce) :- hr_viacall(e, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w).
+hr_app(e, t) :- hr_viacall(e, _, w, v), hr_app(v, t), !expr_enclosing_method(t, w).
+
+.decl hr_slot_arg(c0:symbol, c1:symbol, c2:symbol)
+hr_slot_arg(oc, p, a) :- hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a),
+    param_decl("client", _, pos, _, w, p).
+.decl hr_slot(c0:symbol)
+.decl hr_param_mounted(c0:symbol)
+hr_param_mounted(p) :- hr_reg(ce, _, cn), router_mount_app(cn), expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, p),
+    hr_slot_arg(_, p, _).
+hr_slot(p) :- hr_slot_arg(_, p, a), hr_app(a, _).
+hr_slot(p) :- hr_typed_slot(p).
+hr_slot(f) :- hr_typed_field(f).
+hr_slot(p) :- hr_factory_init_param(_, p).
+
+// ── a registration: a call on an app value ──────────────────────────────────
+.decl hr_registrar(c0:symbol)
+hr_registrar(n) :- hr_on(), router_verb(n, _).
+hr_registrar(n) :- hr_on(), router_use(n).
+hr_registrar(n) :- hr_on(), router_on(n).
+hr_registrar(n) :- hr_on(), router_mount_app(n).
+hr_registrar(n) :- hr_on(), router_mount_foreign(n).
+hr_registrar(n) :- hr_on(), router_fallback(n).
+hr_registrar(n) :- hr_on(), router_openapi(n).
+.decl hr_reg(c0:symbol, c1:symbol, c2:symbol)
+hr_reg(ce, a, cn) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), hr_registrar(cn), hr_app(r, a).
+
+// ── an OpenAPI route definition: the object `createRoute({...})` is called with ──
+.decl hr_def_val(c0:symbol, c1:symbol)
+hr_def_val(x, o) :- hr_on(), call_site("client", "FUNCTION_CALL", _, _, _, x, _),
+    expr_child("client", x, "METHOD_NAME", _, f), expr_referenced("client", "IMPORT_BINDING", ih, f),
+    import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec), router_route_def(spec, orig),
+    expr_child("client", x, "ARGUMENT", "0", o), expr_kind("client", "OBJECT_LITERAL", _, o).
+hr_def_val(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_val(i, o).
+// `import * as routes from './routes'; app.openapi(routes.get, h)`
+hr_def_val(e, o) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, r),
+    expr_referenced("client", "IMPORT_BINDING", ih, r), import_binds_namespace(ih, "client", m),
+    module_export_any("client", m, n, "VARIABLE", v), var_initializer("client", _, i, v), hr_def_val(i, o).
+.decl hr_openapi_def(c0:symbol, c1:symbol)
+hr_openapi_def(ce, o) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "0", x), hr_def_val(x, o).
+rd_demand(v) :- hr_openapi_def(_, o), rd_obj_prop(o, k, v), (router_def_key(k, "method") ; router_def_key(k, "path")).
+
+// the strings a registration may need
+rd_demand(p) :- hr_reg(ce, _, _), expr_child("client", ce, "ARGUMENT", "0", p).
+rd_demand(p) :- hr_reg(ce, _, cn), router_on(cn), expr_child("client", ce, "ARGUMENT", "1", p).
+rd_demand(p) :- hr_reg(ce, _, cn), router_on(cn), expr_child("client", ce, "ARGUMENT", pos, arr),
+    (pos = "0" ; pos = "1"), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, _, p).
+rd_demand(p) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_base_path(cn), hr_app(r, _),
+    expr_child("client", ce, "ARGUMENT", "0", p).
+
+// ── an app VARIABLE re-pointed at a basePath result (SPEC rulings R8a, R8b) ──
+// `let app = new X(); app.get(..); app = app.basePath('/api'); app.get(..)`: a read in the same function after the
+// assignment (and not inside it) sees the assignment's value, a read before it the initializer's. Syntactic only, so
+// the value rules may negate it. (assignment, variable, value)
+.decl hr_rb_asg(c0:symbol, c1:symbol, c2:symbol)
+hr_rb_asg(asg, v, val) :- hr_on(), expr_kind("client", "ASSIGNMENT_EXPRESSION", _, asg), expr_child("client", asg, "LEFT_OPERAND", _, tgt),
+    expr_referenced("client", "VARIABLE", v, tgt), expr_child("client", asg, "RIGHT_OPERAND", _, val),
+    call_site("client", "METHOD_CALL", cn, _, _, val, _), router_base_path(cn).
+.decl hr_rb_read(c0:symbol, c1:symbol)
+hr_rb_read(r, v) :- hr_rb_asg(_, v, _), expr_referenced("client", "VARIABLE", v, r).
+.decl hr_rb_pos(c0:symbol, c1:symbol)
+hr_rb_pos(x, k) :- (hr_rb_asg(x, _, _) ; hr_rb_read(x, _)),
+    ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, _, _, _, _, _, _, _, _, _, x),
+    strlen(l) <= 7, strlen(c) <= 5,
+    k = cat(cat(substr("0000000", 0, 7 - strlen(l)), l), cat(":", cat(substr("00000", 0, 5 - strlen(c)), c))).
+.decl hr_rb_sub(c0:symbol, c1:symbol)
+hr_rb_sub(asg, asg) :- hr_rb_asg(asg, _, _).
+hr_rb_sub(asg, c) :- hr_rb_sub(asg, x), expr_child("client", x, _, _, c).
+.decl hr_rb_before(c0:symbol, c1:symbol, c2:symbol)
+hr_rb_before(r, asg, ka) :- hr_rb_read(r, v), hr_rb_asg(asg, v, _), expr_enclosing_method(r, w), expr_enclosing_method(asg, w),
+    hr_rb_pos(asg, ka), hr_rb_pos(r, kr), ka < kr, !hr_rb_sub(asg, r).
+.decl hr_rb_after(c0:symbol)
+hr_rb_after(r) :- hr_rb_before(r, _, _).
+.decl hr_rb_shadowed(c0:symbol, c1:symbol)
+hr_rb_shadowed(r, asg) :- hr_rb_before(r, asg, k1), hr_rb_before(r, _, k2), k2 > k1.
+.decl hr_rb_last(c0:symbol, c1:symbol)
+hr_rb_last(r, asg) :- hr_rb_before(r, asg, _), !hr_rb_shadowed(r, asg).
+// the blocks an assignment or a read sits in, and a conditional block holding the assignment but not the read
+.decl hr_rb_up(c0:symbol, c1:symbol)
+hr_rb_up(x, b) :- (hr_rb_asg(x, _, _) ; hr_rb_read(x, _)), expr_owner("client", "BLOCK", b, _, x).
+hr_rb_up(x, p) :- hr_rb_up(x, b), block_parent("client", p, b).
+.decl hr_rb_cond(c0:symbol, c1:symbol)
+hr_rb_cond(r, asg) :- hr_rb_last(r, asg), hr_rb_up(asg, b), block_kind("client", k, b), hr_cond_kind(k), !hr_rb_up(r, b).
+
+// ── STRATUM 2: hr_val(Expr, List, Base) ─────────────────────────────────────
+.decl hr_val(c0:symbol, c1:symbol, c2:symbol)
+hr_val(e, e, "/") :- hr_new(e).
+hr_val(ce, ce, "/") :- hr_factory_app(ce, _).
+hr_val(e, a, b) :- hr_val(c, a, b), expr_child("client", e, _, _, c),
+    expr_kind("client", k, _, e), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+hr_val(r, a, b) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_val(i, a, b), !hr_rb_after(r).
+// a read AFTER the variable was re-pointed at a basePath result takes that result (SPEC rulings R8a, R8b); when the
+// re-pointing ran only under a condition the read does not enclose, the base is the run-time one (partial, never exact)
+hr_val(r, a, b) :- hr_rb_last(r, asg), !hr_rb_cond(r, asg), hr_rb_asg(asg, _, val), hr_val(val, a, b).
+hr_val(r, a, b) :- hr_rb_last(r, asg), hr_rb_cond(r, asg), hr_rb_asg(asg, _, val), hr_val(val, a, b), contains("{}", b).
+hr_val(r, a, "/{}") :- hr_rb_last(r, asg), hr_rb_cond(r, asg), hr_rb_asg(asg, _, val), hr_val(val, a, b), !contains("{}", b).
+hr_val(ce, a, b) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_returns_app(cn), hr_val(r, a, b).
+hr_val(ce, a, nb) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_base_path(cn), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "0", p), rd_val(p, pv), hr_bmerge(b, pv, nb), strlen(nb) < 300.
+hr_bmreq(b, pv) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_base_path(cn), hr_val(r, _, b),
+    expr_child("client", ce, "ARGUMENT", "0", p), rd_val(p, pv).
+// basePath's own copy of mergePath (below): a base is decided before any mount is flattened, and a mount reads
+// whether its receiver's base can be run-time (hr_dyn_base_call), so the two may not share one demand relation
+.decl hr_bmreq(c0:symbol, c1:symbol)
+.decl hr_bmerge(c0:symbol, c1:symbol, c2:symbol)
+.decl hr_blead(c0:symbol, c1:symbol)
+hr_blead(x, x) :- (hr_bmreq(x, _) ; hr_bmreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) = "/".
+hr_blead(x, y) :- (hr_bmreq(x, _) ; hr_bmreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) != "/", y = cat("/", x).
+hr_blead("", "/") :- (hr_bmreq("", _) ; hr_bmreq(_, "")).
+hr_bmerge(a, b, a1) :- hr_bmreq(a, b), hr_blead(a, a1), hr_blead(b, "/").
+hr_bmerge(a, b, r) :- hr_bmreq(a, b), hr_blead(a, a1), hr_blead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) = "/", r = cat(substr(a1, 0, strlen(a1) - 1), b1).
+hr_bmerge(a, b, r) :- hr_bmreq(a, b), hr_blead(a, a1), hr_blead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) != "/", r = cat(a1, b1).
+hr_val(ce, ce, b) :- hr_callee(ce, w), hr_ret_expr(w, e), hr_val(e, t, b), expr_enclosing_method(t, w).
+hr_val(ce, t, b) :- hr_callee(ce, w), hr_ret_expr(w, e), hr_val(e, t, b), hr_ret_cand(w, t), !expr_enclosing_method(t, w), !hv_isparam(t, w).
+hr_val(ce, a, b) :- hr_callee(ce, w), hr_ret_expr(w, e), hr_val(e, t, "/"), hv_isparam(t, w), param_decl("client", _, pos, _, w, t),
+    expr_child("client", ce, "ARGUMENT", pos, x), hr_val(x, a, b).
+hr_val(ce, a, nb) :- hr_callee(ce, w), hr_ret_expr(w, e), hr_val(e, t, rb), rb != "/", hv_isparam(t, w), param_decl("client", _, pos, _, w, t),
+    expr_child("client", ce, "ARGUMENT", pos, x), hr_val(x, a, b), hr_bmerge(b, rb, nb), strlen(nb) < 300.
+hr_bmreq(b, rb) :- hr_callee(ce, w), hr_ret_expr(w, e), hr_val(e, t, rb), rb != "/", hv_isparam(t, w), param_decl("client", _, pos, _, w, t),
+    expr_child("client", ce, "ARGUMENT", pos, x), hr_val(x, _, b).
+hr_val(e, p, "/") :- expr_referenced("client", "PARAMETER", p, e), hr_slot(p).
+hr_val(e, f, "/") :- hr_field_read(e, f).
+// A write that reads the field it writes (`this.server = this.server.basePath(b)`) is evaluated
+// once: the reads inside it see the field's OTHER writes, never the write itself, so the update is
+// not followed round as a cycle (SPEC ruling R8)
+.decl hr_fw_sub(c0:symbol, c1:symbol)
+hr_fw_sub(v, v) :- hr_field_write(_, v).
+hr_fw_sub(v, c) :- hr_fw_sub(v, x), expr_child("client", x, _, _, c).
+.decl hr_fw_self(c0:symbol, c1:symbol)
+hr_fw_self(e, v) :- hr_field_write(f, v), hr_fw_sub(v, e), ts_field_access_target(e, f).
+hr_val(e, a, b) :- ts_field_access_target(e, f), hr_field_write(f, v), hr_val(v, a, b), e != v, !hr_fw_self(e, v).
+hr_val(e, a, b) :- hr_prop_of(e, v), hr_val(v, a, b).
+hr_val(e, a, b) :- hr_destr_of(e, v), hr_val(v, a, b).
+hr_val(e, ce, b) :- hr_viacall(e, ce, w, v), hr_val(v, t, b), expr_enclosing_method(t, w).
+hr_val(e, t, b) :- hr_viacall(e, _, w, v), hr_val(v, t, b), !expr_enclosing_method(t, w).
+
+// ── INCLUSION: a list whose registrations are spliced into another ─────────
+// hr_inc(Into, From, Site, Prefix, Kind). Kind: `mount` (route(prefix, sub)),
+// `instance` (a call of a function that built the list), `param` (a function the app
+// was passed into).
+.decl hr_inc(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+hr_inc(a, s, ce, pre, "mount") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s), s != a, !hr_loop_paired(ce), !hr_multi(s),
+    !hr_elem_has_pre(ce, s), expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv), hr_merge(b, pv, pre),
+    (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+// …each candidate's own app, when the call reaches several (hr_multi)
+hr_inc(a, t, ce, pre, "mount_each") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s), s != a, !hr_loop_paired(ce), hr_multi(s), hr_each_cand(s, t, _),
+    !hr_elem_has_pre(ce, t), expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv), hr_merge(b, pv, pre),
+    (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+// …under the prefix THAT element's own method returns, when the prefix is a call on the same loop variable
+// (`app.route(g.getBasePath(V), g.getRoutes())` over `[new A(), new B()]`): element i's class answers both calls,
+// so A's routes are under A's prefix only (a call reaching several methods has no one value of its own)
+.decl hr_elem_pre(c0:symbol, c1:symbol, c2:symbol)
+hr_elem_pre(ce, s, pv) :- hr_reg(ce, _, cn), router_mount_app(cn), expr_child("client", ce, "ARGUMENT", "1", sx),
+    call_site("client", "METHOD_CALL", sn, _, r, sx, _), expr_referenced("client", "VARIABLE", v, r),
+    expr_child("client", ce, "ARGUMENT", "0", px), call_site("client", "METHOD_CALL", pn, _, pr, px, _), expr_referenced("client", "VARIABLE", v, pr),
+    for_binding_iterable(v, it), hr_arr(it, arr), expr_child("client", arr, _, _, el), expr_type(el, _, tt),
+    method_in_scope(tt, sn, _, w), hr_callee(sx, w), hr_ret_cand(w, s), method_in_scope(tt, pn, _, w2), rd_mval(w2, pv).
+.decl hr_elem_has_pre(c0:symbol, c1:symbol)
+hr_elem_has_pre(ce, s) :- hr_elem_pre(ce, s, _).
+hr_inc(a, s, ce, pre, "mount") :- hr_reg(ce, a, cn), router_mount_app(cn), call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s), s != a, !hr_loop_paired(ce), !hr_multi(s),
+    hr_elem_pre(ce, s, pv), hr_merge(b, pv, pre), (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+hr_inc(a, t, ce, pre, "mount_each") :- hr_reg(ce, a, cn), router_mount_app(cn), call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s), s != a, !hr_loop_paired(ce), hr_multi(s), hr_each_cand(s, t, _),
+    hr_elem_pre(ce, t, pv), hr_merge(b, pv, pre), (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+hr_mreq(b, pv) :- hr_reg(ce, a, _), call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_elem_pre(ce, _, pv).
+// a module list read where it is mounted (R12.1): every module the literal glob matches, its default-exported app
+hr_inc(a, s, ce, pre, "mount") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_gtied(ce, g), hr_glob_app_of(g, s), s != a,
+    expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv), hr_merge(b, pv, pre),
+    (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+// …a derived one: mounted there under a prefix that also holds what the run-time choice adds (`/{}`); every route
+// it brings is partial unresolved_mount (hr_dreach), never exact
+hr_inc(a, s, ce, pre, "mount_derived") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_gtied_d(ce, g), hr_glob_app_of(g, s), s != a,
+    expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv), hr_dpre(pv, dpv), hr_merge(b, dpv, pre).
+.decl hr_dpre(c0:symbol, c1:symbol)
+hr_dpre(pv, "/{}") :- hr_dpre_need(pv), (pv = "/" ; pv = "").
+hr_dpre(pv, cat("/{}", pv)) :- hr_dpre_need(pv), pv != "/", pv != "", substr(pv, 0, 1) = "/".
+hr_dpre(pv, cat("/{}/", pv)) :- hr_dpre_need(pv), pv != "", substr(pv, 0, 1) != "/".
+.decl hr_dpre_need(c0:symbol)
+hr_dpre_need(pv) :- hr_gtied_d(ce, _), expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv).
+hr_mreq(b, dpv) :- hr_reg(ce, a, cn), router_mount_app(cn), call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    hr_gtied_d(ce, _), expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv), hr_dpre(pv, dpv).
+// a loop over a const array of list entries: each element's app under that element's path (R13)
+hr_inc(a, s, ce, pre, "mount") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    hr_loop_sub(ce, o, s), s != a, hr_loop_pre_expr(ce, o, px), rd_val(px, pv), hr_merge(b, pv, pre),
+    (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+// a loop over the entries of a const object (`for (const [name, s] of Object.entries(strategies))`) mounting
+// `s.method()` under a prefix made from `name`: each entry's own instance runs its own class's method, under its
+// own key (the map is known, so this is value-following, not dispatch over every implementation)
+hr_inc(a, t, ce, pre, "mount") :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_kv_sub(ce, key, t), t != a, hr_kv_pre(ce, key, pv),
+    hr_merge(b, pv, pre), (contains("{}", pre) ; !hr_dyn_base_call(ce)).
+// a registration on a value that a run-time base may have reached (`if (b) this.server =
+// this.server.basePath(b)`), a route or a mount alike, is declared once, partial, and never also
+// served at its bare path (SPEC ruling R8a)
+.decl hr_dyn_base_call(c0:symbol)
+hr_dyn_base_call(ce) :- hr_reg(ce, _, _), call_site("client", _, _, _, r, ce, _), hr_val(r, _, b), contains("{}", b).
+hr_mreq(b, pv) :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b),
+    expr_child("client", ce, "ARGUMENT", "0", px), rd_val(px, pv).
+hr_mreq(b, pv) :- hr_reg(ce, a, cn), router_mount_app(cn),
+    call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_loop_pre_expr(ce, _, px), rd_val(px, pv).
+hr_inc(ce, t, ce, "/", "instance") :- hr_callee(ce, w), hr_ret_cand(w, t), expr_enclosing_method(t, w).
+hr_inc(a, p, oc, b, "param") :- hr_slot_arg(oc, p, x), hr_val(x, a, b), a != p, !hr_param_mounted(p).
+// a parameter the function MOUNTS (`function wrap(inner) { const w = new X(); w.route('/', inner); return w }`): the mount
+// takes the app the call passes, so that app is included into the parameter's list at the call (kind `arg`), the
+// other way round from a parameter registrations are made on
+hr_inc(p, s, oc, "/", "arg") :- hr_param_mounted(p), hr_slot_arg(oc, p, x), hr_app(x, s), s != p.
+hr_inc(ce, p, ce, "/", "instance") :- hr_factory_app(ce, f), hr_factory_init_param(f, p).
+hr_inc(ce, t, ce, "/", "instance") :- hr_objret_inst(ce, t).
+
+// the same links without their prefixes: which lists are roots is decided before any
+// string is read, because the strings a root's flattening needs depend on it
+.decl hr_included(c0:symbol)
+hr_included(s) :- hr_reg(ce, a, cn), router_mount_app(cn), expr_child("client", ce, "ARGUMENT", "1", sx),
+    hr_app(sx, s), s != a.
+hr_included(t) :- hr_callee(ce, w), hr_ret_cand(w, t), expr_enclosing_method(t, w), ce = ce.
+hr_included(p) :- hr_slot_arg(_, p, x), hr_app(x, a), a != p.
+hr_included(s) :- hr_param_mounted(p), hr_slot_arg(_, p, x), hr_app(x, s), s != p.
+hr_included(p) :- hr_factory_app(_, f), hr_factory_init_param(f, p).
+hr_included(t) :- hr_objret_inst(_, t).
+hr_included(t) :- hr_kv_sub(_, _, t).
+hr_included(s) :- hr_reg(ce, a, cn), router_mount_app(cn), hr_gtied(ce, g), hr_glob_app_of(g, s), s != a.
+hr_included(s) :- hr_reg(ce, a, cn), router_mount_app(cn), hr_gtied_d(ce, g), hr_glob_app_of(g, s), s != a.
+.decl hr_list(c0:symbol)
+hr_list(a) :- hr_app(_, a).
+// a list nothing includes is what a server serves
+.decl hr_root(c0:symbol)
+hr_root(a) :- hr_list(a), !hr_included(a).
+// an app mounted with route(p, it) on a receiver that is not a recognised app: it is served under a
+// prefix nothing here knows, so it is never served at its own paths (SPEC [iter2], a mount argument
+// is never a root)
+.decl hr_unknown_mount(c0:symbol)
+hr_unknown_mount(s) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_mount_app(cn), !hr_app(r, _),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s).
+
+// ── a declarative route list (SPEC ruling R13) ──────────────────────────────
+// `const routes = [{ path: '/x', handler: subApp }]; for (const r of routes) app.route(r.path, r.handler)`.
+// Values only, never key names: the loop mounts what the ELEMENTS of the array it iterates hold, one
+// element at a time, so each element's app is mounted at that element's own path.
+// (mount call, loop variable, property the mount argument reads)
+.decl hr_loop_mount(c0:symbol, c1:symbol, c2:symbol)
+hr_loop_mount(ce, v, hk) :- call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_elem_read(sx, v, hk).
+// `el.key`, also through `as X` / `!`
+.decl hr_elem_read(c0:symbol, c1:symbol, c2:symbol)
+hr_elem_read(x, v, k) :- hr_on(), property_access_name(x, k), expr_child("client", x, "RECEIVER", _, q),
+    expr_referenced("client", "VARIABLE", v, q), for_binding_iterable(v, _).
+hr_elem_read(x, v, k) :- expr_kind("client", kd, _, x), expr_kind_is_transparent(kd), expr_child("client", x, _, _, y),
+    hr_elem_read(y, v, k).
+// the element objects of a const array the loop iterates: each is mounted on its own
+.decl hr_loop_elem(c0:symbol, c1:symbol)
+hr_loop_elem(ce, o) :- hr_loop_mount(ce, v, _), for_binding_iterable(v, it), hr_arr(it, arr),
+    expr_child("client", arr, _, _, x), hr_objlit(x, o).
+.decl hr_loop_paired(c0:symbol)
+hr_loop_paired(ce) :- hr_loop_mount(ce, v, _), for_binding_iterable(v, it), hr_arr(it, _).
+hr_loop_paired(ce) :- hr_kv_sub(ce, _, _).
+// (key variable, value variable, object): `for (const [k, v] of Object.entries(o))`, o a const object literal
+.decl hr_kv_loop(c0:symbol, c1:symbol, c2:symbol)
+hr_kv_loop(vk, vv, o) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, "INDEX", "0", _, _, _, vk),
+    ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, "INDEX", "1", _, _, _, vv),
+    for_binding_iterable(vk, it), call_site("client", "METHOD_CALL", "entries", _, _, it, _),
+    expr_child("client", it, "ARGUMENT", "0", x), hr_denotes_var(x, ov), rd_init_obj(ov, o).
+.decl hr_kv_mount(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_kv_mount(ce, vk, vv, mn) :- call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx), call_site("client", "METHOD_CALL", mn, _, q, sx, _),
+    expr_referenced("client", "VARIABLE", vv, q), hr_kv_loop(vk, vv, _).
+.decl hr_kv_sub(c0:symbol, c1:symbol, c2:symbol)
+hr_kv_sub(ce, key, t) :- hr_kv_mount(ce, vk, vv, mn), hr_kv_loop(vk, vv, o), rd_obj_prop(o, key, e), expr_type(e, _, tt),
+    method_in_scope(tt, mn, _, w), hr_ret_cand(w, t), expr_enclosing_method(t, w).
+// the prefix for one entry: the key itself, or a template whose one hole is the key
+.decl hr_kv_pre(c0:symbol, c1:symbol, c2:symbol)
+hr_kv_pre(ce, key, key) :- hr_kv_sub(ce, key, _), hr_kv_mount(ce, vk, _, _), expr_child("client", ce, "ARGUMENT", "0", px),
+    expr_referenced("client", "VARIABLE", vk, px).
+hr_kv_pre(ce, key, pv) :- hr_kv_sub(ce, key, _), hr_kv_mount(ce, vk, _, _), expr_child("client", ce, "ARGUMENT", "0", px),
+    expr_literal_type("client", "TEMPLATE", px), expr_literal_value("client", raw, px),
+    expr_child("client", px, "TEMPLATE_SPAN", "0", sp), expr_referenced("client", "VARIABLE", vk, sp),
+    !expr_child("client", px, "TEMPLATE_SPAN", "1", _),
+    a = min i : { i = range(0, strlen(raw) - 1), substr(raw, i, 2) = "${" },
+    z = min j : { j = range(0, strlen(raw)), substr(raw, j, 1) = "}" },
+    pv = cat(substr(raw, 1, a - 1), cat(key, substr(raw, z + 1, strlen(raw) - z - 2))).
+hr_mreq(b, pv) :- hr_reg(ce, a, cn), router_mount_app(cn), call_site("client", _, _, _, r, ce, _), hr_val(r, a, b), hr_kv_pre(ce, _, pv).
+// the prefix expression for one element: the element's own property when the path argument reads
+// the loop variable too, else the path argument itself
+.decl hr_loop_pre_expr(c0:symbol, c1:symbol, c2:symbol)
+hr_loop_pre_expr(ce, o, px) :- hr_loop_elem(ce, o), hr_loop_mount(ce, v, _), expr_child("client", ce, "ARGUMENT", "0", a),
+    hr_elem_read(a, v, pk), rd_obj_prop(o, pk, px).
+hr_loop_pre_expr(ce, o, a) :- hr_loop_elem(ce, o), hr_loop_mount(ce, v, _), expr_child("client", ce, "ARGUMENT", "0", a),
+    !hr_elem_read(a, v, _).
+rd_demand(px) :- hr_loop_pre_expr(_, _, px).
+// the app one element holds under the property the mount reads
+.decl hr_loop_sub(c0:symbol, c1:symbol, c2:symbol)
+hr_loop_sub(ce, o, s) :- hr_loop_elem(ce, o), hr_loop_mount(ce, _, hk), rd_obj_prop(o, hk, hv), hr_app(hv, s).
+// An app written into a list entry (the value of a property of an object literal that is an element of
+// an array literal) is mounted by whatever reads that list. When no loop over a const array mounts it,
+// the reader is not known here: its routes are served under a prefix nothing here knows, never at its
+// own paths. A served shape (requested, its fetch handed out, the default export, a test client)
+// always wins.
+.decl hr_elem_obj(c0:symbol)
+hr_elem_obj(o) :- hr_on(), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, _, o),
+    expr_kind("client", "OBJECT_LITERAL", _, o).
+hr_elem_obj(o) :- hr_on(), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, _, x),
+    expr_kind("client", k, _, x), expr_kind_is_transparent(k), expr_child("client", x, _, _, o),
+    expr_kind("client", "OBJECT_LITERAL", _, o).
+.decl hr_listed(c0:symbol)
+hr_listed(a) :- hr_elem_obj(o), rd_obj_prop(o, _, v), hr_app(v, a).
+.decl hr_served_list(c0:symbol)
+hr_served_list(a) :- hr_served_use(a).
+hr_served_list(a) :- hr_default_app(_, a).
+.decl hr_default_app(c0:symbol, c1:symbol)
+hr_default_app(m, a) :- export_decl(_, "default", _, _, m, h), export_expression("client", x, h), hr_app(x, a).
+.decl hr_served_use(c0:symbol)
+hr_served_use(a) :- hr_app(r, a), call_site("client", "METHOD_CALL", cn, _, r, _, _),
+    (router_app_request(cn) ; router_served_fetch(cn)).
+// (written from the knob outward: started from hr_app, property_access_name shared no variable with it and the rule
+// enumerated every app value against every property read)
+hr_served_use(a) :- router_served_fetch(n), property_access_name(e, n), expr_child("client", e, "RECEIVER", _, r), hr_app(r, a).
+hr_served_use(a) :- call_site("client", "FUNCTION_CALL", _, _, _, tc, _), expr_child("client", tc, "METHOD_NAME", _, f),
+    expr_referenced("client", "IMPORT_BINDING", ih, f), import_binding("client", _, _, orig, _, ih),
+    hr_import_spec(ih, spec), router_test_client(spec, orig), expr_child("client", tc, "ARGUMENT", "0", x), hr_app(x, a).
+.decl hr_list_entry(c0:symbol)
+hr_list_entry(a) :- hr_listed(a), !hr_served_list(a).
+// An OPAQUE module list (SPEC ruling R12.2): `app.route(p, mod.default)` where `mod` is a module the program loads by
+// a name it computes (`await import(file)` over a directory listing). Its candidates are the default-exported apps,
+// in the mounting module's directory or below, that no module imports, nothing mounts and nothing serves; the
+// mounting module and every module importing it are the entry, never a candidate.
+.decl hr_opaque_mount(c0:symbol, c1:symbol)
+hr_opaque_mount(ce, m) :- call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx), !hr_app(sx, _), hr_default_read(sx), expr_module("client", m, ce),
+    !hr_gtied(ce, _), !hr_gtied_d(ce, _).
+.decl hr_default_read(c0:symbol)
+hr_default_read(x) :- hr_on(), property_access_name(x, "default").
+hr_default_read(x) :- expr_kind("client", k, _, x), expr_kind_is_transparent(k), expr_child("client", x, _, _, y), hr_default_read(y).
+.decl hr_entry_mod(c0:symbol)
+hr_entry_mod(m) :- hr_opaque_mount(_, m).
+hr_entry_mod(m) :- hr_entry_mod(t), import_binding("client", _, _, _, m, ih), import_target_module(ih, _, t).
+.decl hr_imported_mod(c0:symbol)
+hr_imported_mod(t) :- hr_on(), import_target_module(_, _, t).
+hr_imported_mod(t) :- hr_on(), dynamic_import_module(_, t).
+.decl hr_opaque_dir(c0:symbol)
+hr_opaque_dir(d) :- hr_opaque_mount(_, m), module_decl("client", _, _, fp, _, m), hr_mdir(fp, d).
+.decl hr_mdir_slash(c0:symbol, c1:number)
+hr_mdir_slash(fp, i) :- hr_on(), module_decl("client", _, _, fp, _, _), i = range(0, strlen(fp)), substr(fp, i, 1) = "/".
+.decl hr_mdir(c0:symbol, c1:symbol)
+hr_mdir(fp, d) :- module_decl("client", _, _, fp, _, _), hr_mdir_slash(fp, _), j = max i : { hr_mdir_slash(fp, i) },
+    d = substr(fp, 0, j + 1).
+hr_mdir(fp, "") :- hr_on(), module_decl("client", _, _, fp, _, _), !hr_mdir_slash(fp, _).
+.decl hr_opaque_cand(c0:symbol)
+hr_opaque_cand(a) :- hr_opaque_dir(d), module_decl("client", _, _, fp, _, m), strlen(fp) > strlen(d), substr(fp, 0, strlen(d)) = d,
+    !hr_entry_mod(m), !hr_imported_mod(m), hr_default_app(m, a), !hr_included(a).
+hr_list_entry(a) :- hr_opaque_cand(a), !hr_served_use(a).
+// A module list (SPEC ruling R12): `import.meta.glob('../routes/**/*.index.ts')`, the pattern a literal, is resolved
+// against the project's files; the default-exported app of each matched module is loaded to be mounted by
+// whatever iterates the list. Its default export is how the list reads it, not how a server serves it, so only a
+// served use wins here. Which mount takes it is not followed through the run-time filtering the list goes
+// through: its routes are under a prefix not known here.
+.decl hr_glob_pat(c0:symbol, c1:symbol, c2:symbol)
+hr_glob_pat(ce, m, pat) :- call_site("client", "METHOD_CALL", cn, _, "", ce, _), router_module_glob(cn),
+    expr_child("client", ce, "METHOD_NAME", _, pa), !expr_child("client", pa, "RECEIVER", _, _),
+    expr_child("client", ce, "ARGUMENT", "0", x), hr_glob_lit(x, pat), expr_module("client", m, ce).
+.decl hr_glob_lit(c0:symbol, c1:symbol)
+hr_glob_lit(x, v) :- hr_on(), expr_kind("client", "LITERAL", _, x), expr_literal_value("client", v, x).
+hr_glob_lit(x, v) :- hr_on(), expr_kind("client", "ARRAY_LITERAL", _, x), expr_child("client", x, _, _, y),
+    expr_kind("client", "LITERAL", _, y), expr_literal_value("client", v, y), substr(v, 0, 1) != "!".
+// the pattern made relative to the source root: `./` dropped, each `../` takes a directory off the module's own
+.decl hr_glob_res(c0:symbol, c1:symbol, c2:symbol)
+hr_glob_res(ce, dir, pat) :- hr_glob_pat(ce, m, pat), module_decl("client", _, _, fp, _, m), hr_dir_of(fp, dir).
+hr_glob_res(ce, dir, r) :- hr_glob_res(ce, dir, x), strlen(x) > 2, substr(x, 0, 2) = "./", r = substr(x, 2, strlen(x) - 2).
+hr_glob_res(ce, up, r) :- hr_glob_res(ce, dir, x), strlen(x) > 3, substr(x, 0, 3) = "../", dir != "",
+    hr_dir_of(dir, up), r = substr(x, 3, strlen(x) - 3).
+.decl hr_dir_need(c0:symbol)
+hr_dir_need(fp) :- hr_glob_pat(_, m, _), module_decl("client", _, _, fp, _, m).
+// …and every directory above it (decided from the path alone, so the walk up reads no result of itself)
+hr_dir_need(d) :- hr_glob_pat(_, m, _), module_decl("client", _, _, fp, _, m), i = range(1, strlen(fp)), substr(fp, i, 1) = "/",
+    d = substr(fp, 0, i).
+.decl hr_dir_slash(c0:symbol, c1:number)
+hr_dir_slash(p, i) :- hr_dir_need(p), i = range(0, strlen(p)), substr(p, i, 1) = "/".
+.decl hr_dir_of(c0:symbol, c1:symbol)
+hr_dir_of(p, d) :- hr_dir_need(p), hr_dir_slash(p, _), j = max i : { hr_dir_slash(p, i) }, d = substr(p, 0, j).
+hr_dir_of(p, "") :- hr_dir_need(p), !hr_dir_slash(p, _).
+.decl hr_glob_full(c0:symbol, c1:symbol)
+hr_glob_full(ce, f) :- hr_glob_res(ce, dir, x), substr(x, 0, 1) != ".", dir != "", f = cat(dir, cat("/", x)).
+hr_glob_full(ce, x) :- hr_glob_res(ce, "", x), substr(x, 0, 1) != ".".
+// the glob as a regular expression: `**/` any directories, `*` within one, `?` one character, `{a,b}` either
+.decl hr_glob_re(c0:symbol, c1:number, c2:symbol, c3:number)
+hr_glob_re(f, 0, "", 0) :- hr_glob_full(_, f).
+hr_glob_re(f, i + 3, cat(acc, "(.*/)?"), b) :- hr_glob_re(f, i, acc, b), i + 3 <= strlen(f), substr(f, i, 3) = "**/".
+hr_glob_re(f, i + 2, cat(acc, ".*"), b) :- hr_glob_re(f, i, acc, b), i + 2 <= strlen(f), substr(f, i, 2) = "**",
+    (i + 2 = strlen(f) ; substr(f, i + 2, 1) != "/").
+hr_glob_re(f, i + 1, cat(acc, "[^/]*"), b) :- hr_glob_re(f, i, acc, b), i < strlen(f), substr(f, i, 1) = "*",
+    (i + 1 = strlen(f) ; substr(f, i + 1, 1) != "*").
+hr_glob_re(f, i + 1, cat(acc, "[^/]"), b) :- hr_glob_re(f, i, acc, b), i < strlen(f), substr(f, i, 1) = "?".
+hr_glob_re(f, i + 1, cat(acc, "("), 1) :- hr_glob_re(f, i, acc, 0), i < strlen(f), substr(f, i, 1) = "{".
+hr_glob_re(f, i + 1, cat(acc, ")"), 0) :- hr_glob_re(f, i, acc, 1), i < strlen(f), substr(f, i, 1) = "}".
+hr_glob_re(f, i + 1, cat(acc, "|"), 1) :- hr_glob_re(f, i, acc, 1), i < strlen(f), substr(f, i, 1) = ",".
+hr_glob_re(f, i + 1, cat(acc, cat("\\", ch)), b) :- hr_glob_re(f, i, acc, b), i < strlen(f), ch = substr(f, i, 1),
+    (ch = "." ; ch = "(" ; ch = ")" ; ch = "+" ; ch = "$" ; ch = "^" ; ch = "[" ; ch = "]" ; ch = "|").
+hr_glob_re(f, i + 1, cat(acc, ch), b) :- hr_glob_re(f, i, acc, b), i < strlen(f), ch = substr(f, i, 1),
+    ch != "*", ch != "?", ch != "{", ch != "}", ch != ".", ch != "(", ch != ")", ch != "+", ch != "$", ch != "^",
+    ch != "[", ch != "]", ch != "|", (ch != "," ; b = 0).
+hr_glob_re(f, i + 1, cat(acc, ","), 0) :- hr_glob_re(f, i, acc, 0), i < strlen(f), substr(f, i, 1) = ",".
+.decl hr_glob_mod(c0:symbol, c1:symbol)
+hr_glob_mod(ce, m2) :- hr_glob_full(ce, f), hr_glob_re(f, strlen(f), re, 0), module_decl("client", _, _, fp, _, m2), match(re, fp).
+.decl hr_glob_app_of(c0:symbol, c1:symbol)
+hr_glob_app_of(ce, a) :- hr_glob_mod(ce, m), hr_default_app(m, a).
+.decl hr_glob_app(c0:symbol)
+hr_glob_app(a) :- hr_glob_app_of(_, a).
+// The list read where it is mounted: `for (const mod of Object.values(G)) app.route(p, mod.default)` (eager) or
+// `const mod = await G[key](); app.route(p, mod.default)` (lazy), G the glob's value through consts, element reads,
+// the loader's call, an await, and the language's own Object.values / Object.entries. A project function in
+// between (a run-time filter) is not followed: then the modules stay candidates under an unknown prefix.
+.decl hr_gflow(c0:symbol, c1:symbol)
+hr_gflow(g, g) :- hr_glob_pat(g, _, _).
+hr_gflow(r, g) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_gflow(i, g).
+hr_gflow(r, g) :- expr_referenced("client", "VARIABLE", v, r), for_binding_iterable(v, it), hr_gflow(it, g).
+hr_gflow(e, g) :- hr_gflow(c, g), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION" ; k = "ELEMENT_ACCESS").
+hr_gflow(e, g) :- hr_gflow(c, g), expr_child("client", e, "METHOD_NAME", _, c), call_site("client", _, _, _, _, e, _).
+hr_gflow(e, g) :- hr_gflow(c, g), expr_child("client", e, "ARGUMENT", "0", c), call_site("client", "METHOD_CALL", n, _, r, e, _),
+    (n = "values" ; n = "entries"), r != "".
+// …and the same list after a project function took it (a run-time filter, `pick(tier, all)`): DERIVED, its
+// modules are mounted there, but which of them is decided at run time (SPEC R13 derived lists)
+.decl hr_gflow_d(c0:symbol, c1:symbol)
+hr_gflow_d(e, g) :- hr_gflow(c, g), expr_child("client", e, "ARGUMENT", _, c), hr_call_of(e, _).
+hr_gflow_d(e, g) :- hr_gflow_d(c, g), expr_child("client", e, "ARGUMENT", _, c), hr_call_of(e, _).
+hr_gflow_d(r, g) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_gflow_d(i, g).
+hr_gflow_d(r, g) :- expr_referenced("client", "VARIABLE", v, r), for_binding_iterable(v, it), hr_gflow_d(it, g).
+hr_gflow_d(e, g) :- hr_gflow_d(c, g), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION" ; k = "ELEMENT_ACCESS").
+hr_gflow_d(e, g) :- hr_gflow_d(c, g), expr_child("client", e, "METHOD_NAME", _, c), call_site("client", _, _, _, _, e, _).
+hr_gflow_d(e, g) :- hr_gflow_d(c, g), expr_child("client", e, "ARGUMENT", "0", c), call_site("client", "METHOD_CALL", n, _, r, e, _),
+    (n = "values" ; n = "entries"), r != "".
+.decl hr_gdefault_d(c0:symbol, c1:symbol)
+hr_gdefault_d(x, g) :- property_access_name(x, "default"), expr_child("client", x, "RECEIVER", _, q), hr_gflow_d(q, g).
+hr_gdefault_d(x, g) :- expr_kind("client", k, _, x), expr_kind_is_transparent(k), expr_child("client", x, _, _, y), hr_gdefault_d(y, g).
+.decl hr_gtied_d(c0:symbol, c1:symbol)
+hr_gtied_d(ce, g) :- call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_gdefault_d(sx, g), !hr_gtied(ce, _).
+.decl hr_gtied(c0:symbol, c1:symbol)
+hr_gtied(ce, g) :- call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx), hr_gdefault(sx, g).
+.decl hr_gdefault(c0:symbol, c1:symbol)
+hr_gdefault(x, g) :- property_access_name(x, "default"), expr_child("client", x, "RECEIVER", _, q), hr_gflow(q, g).
+hr_gdefault(x, g) :- expr_kind("client", k, _, x), expr_kind_is_transparent(k), expr_child("client", x, _, _, y), hr_gdefault(y, g).
+hr_list_entry(a) :- hr_glob_app(a), !hr_served_use(a).
+
+
+// ── list elements followed through functions (SPEC ruling R13b) ─────────────
+// A loop mounts the elements of a list a function was HANDED (`function mountPlugin(app, plugin) { for (const r of
+// plugin.routes ?? []) app.route(r.path, r.handler) }`), or a list built by a helper (a push-built result, a sort, a
+// `map` round trip). Values only: an expression's value is an object or array literal, reached by an ACCESS PATH
+// (`|.routes|[]`: the property `routes`, then an element), or the same of a parameter. A parameter of a function that
+// mounts (hv_ctx) is kept symbolic and bound per call, so each call mounts what it passes (/solo into the app of the
+// call that passes it, never into every caller's); any other function's parameter is every value passed to it.
+// The last column is 1 when the value went through a `filter` (its registrations are conditional).
+.decl hv_ctx(c0:symbol)
+hv_ctx(f) :- hr_loop_mount(ce, _, _), expr_enclosing_method(ce, f).
+hv_ctx(f) :- hv_hsite(ce, _, _), expr_enclosing_method(ce, f).
+hv_ctx(f) :- expr_enclosing_method(oc, f), hr_call_of(oc, g), hv_ctx(g).
+// A function that RETURNS an object literal (`definePlugin(input) { return { routes: input.routes } }`) builds a fresh
+// object per call: its result is the CALL (hv_objcall), and what the object holds is read with that call's own
+// arguments, so its parameters are never the union of every caller's (one test's plugin is no other app's)
+.decl hv_objret(c0:symbol, c1:symbol)
+hv_objret(w, x) :- hr_ret_expr(w, x), expr_kind("client", "OBJECT_LITERAL", _, x).
+.decl hv_nounion(c0:symbol)
+hv_nounion(f) :- hv_ctx(f).
+hv_nounion(w) :- hv_objret(w, _).
+.decl hv_need(c0:symbol)
+.decl hv(c0:symbol, c1:symbol, c2:symbol, c3:number)
+hv_need(it) :- hr_loop_mount(ce, v, _), !hr_loop_paired(ce), for_binding_iterable(v, it).
+hv_need(i) :- hv_need(e), hr_denotes_var(e, v), var_initializer("client", _, i, v), i != "".
+hv_need(c) :- hv_need(e), expr_kind("client", k, _, e), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"), expr_child("client", e, _, _, c).
+hv_need(q) :- hv_need(e), property_access_name(e, _), expr_child("client", e, "RECEIVER", _, q).
+hv_need(it) :- hv_need(e), expr_referenced("client", "VARIABLE", v, e), for_binding_iterable(v, it).
+hv_need(r) :- hv_need(e), call_site("client", "METHOD_CALL", n, _, r, e, _), hr_arr_subset(n), r != "".
+hv_need(r) :- hv_need(e), call_site("client", "METHOD_CALL", n, _, r, e, _), hv_map(n), r != "".
+hv_need(c) :- hv_need(e), expr_kind("client", "BINARY_EXPRESSION", _, e), (expr_operator("client", "??", e) ; expr_operator("client", "||", e)),
+    expr_child("client", e, _, _, c).
+hv_need(c) :- hv_need(e), expr_kind("client", "TERNARY_EXPRESSION", _, e), (expr_child("client", e, "TERNARY_THEN", _, c) ; expr_child("client", e, "TERNARY_ELSE", _, c)).
+hv_need(x) :- hv_need(e), hr_call_of(e, w), hr_ret_expr(w, x), !hv_objret(w, x).
+hv_need(a) :- hv_need(e), expr_referenced("client", "PARAMETER", p, e), param_decl("client", _, pos, _, w, p), !hv_nounion(w),
+    hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a).
+hv_need(r) :- hv_need(e), hv_cbparam(e, mc), call_site("client", "METHOD_CALL", _, _, r, mc, _).
+// the methods whose result is the receiver's elements (hr_arr_subset), and those whose result is the callback's return
+.decl hv_map(c0:symbol)
+hv_map("map"). hv_map("flatMap").
+// a reference to the first parameter of a callback handed to a list method (`routes.map((r) => ..)`): an element
+.decl hv_cbparam(c0:symbol, c1:symbol)
+hv_cbparam(e, mc) :- expr_referenced("client", "PARAMETER", p, e), param_decl("client", _, "0", _, f, p), expr_anon_decl("client", f, fx),
+    expr_child("client", mc, "ARGUMENT", "0", fx), call_site("client", "METHOD_CALL", n, _, _, mc, _), (hv_map(n) ; hr_arr_subset(n) ; n = "forEach").
+hv(e, e, "", 0) :- hv_need(e), (expr_kind("client", "OBJECT_LITERAL", _, e) ; expr_kind("client", "ARRAY_LITERAL", _, e)).
+hv(e, e, "", 0) :- hv_need(e), call_site("client", "METHOD_CALL", n, _, r, e, _), hv_map(n), r != "".
+hv(e, b, p, c) :- hv_need(e), hr_denotes_var(e, v), var_initializer("client", _, i, v), i != "", hv(i, b, p, c).
+hv(e, b, p, c) :- hv_need(e), expr_kind("client", k, _, e), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"), expr_child("client", e, _, _, x),
+    hv(x, b, p, c).
+hv(e, b, cat(p, cat("|.", n)), c) :- hv_need(e), property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hv(q, b, p, c),
+    strlen(p) < 120.
+hv(e, b, cat(p, "|[]"), c) :- hv_need(e), expr_referenced("client", "VARIABLE", v, e), for_binding_iterable(v, it), hv(it, b, p, c), strlen(p) < 120.
+hv(e, b, p, c) :- hv_need(e), call_site("client", "METHOD_CALL", n, _, r, e, _), hr_arr_subset(n), n != "filter", hv(r, b, p, c).
+hv(e, b, p, 1) :- hv_need(e), call_site("client", "METHOD_CALL", "filter", _, r, e, _), hv(r, b, p, _).
+hv(e, b, p, c) :- hv_need(e), expr_kind("client", "BINARY_EXPRESSION", _, e), (expr_operator("client", "??", e) ; expr_operator("client", "||", e)),
+    expr_child("client", e, _, _, x), hv(x, b, p, c).
+hv(e, b, p, c) :- hv_need(e), expr_kind("client", "TERNARY_EXPRESSION", _, e),
+    (expr_child("client", e, "TERNARY_THEN", _, x) ; expr_child("client", e, "TERNARY_ELSE", _, x)), hv(x, b, p, c).
+hv(e, e, "", 0) :- hv_need(e), hr_call_of(e, w), hv_objret(w, _).
+hv(e, b, p, c) :- hv_need(e), hr_call_of(e, w), hr_ret_expr(w, x), !hv_objret(w, x), hv(x, b, p, c), !hv_isparam(b, w).
+hv(e, b2, cat(p2, p), max(c, c2)) :- hv_need(e), hr_call_of(e, w), hr_ret_expr(w, x), !hv_objret(w, x), hv(x, b, p, c), hv_isparam(b, w),
+    param_decl("client", _, pos, _, w, b), expr_child("client", e, "ARGUMENT", pos, a), hv(a, b2, p2, c2), strlen(p2) + strlen(p) < 160.
+hv(e, p, "", 0) :- hv_need(e), expr_referenced("client", "PARAMETER", p, e), !hv_cbparam(e, _).
+hv(e, b, p, c) :- hv_need(e), expr_referenced("client", "PARAMETER", pp, e), param_decl("client", _, pos, _, w, pp), !hv_nounion(w),
+    !hv_cbparam(e, _), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a), hv(a, b, p, c).
+hv(e, b, cat(p, "|[]"), c) :- hv_need(e), hv_cbparam(e, mc), call_site("client", "METHOD_CALL", _, _, r, mc, _), hv(r, b, p, c), strlen(p) < 120.
+.decl hv_isparam(c0:symbol, c1:symbol)
+hv_isparam(b, w) :- hr_on(), param_decl("client", _, _, _, w, b).
+.decl hv_param(c0:symbol)
+hv_param(b) :- hr_on(), param_decl("client", _, _, _, _, b).
+// stepping a path from a literal: (base, path) -> (base', path') one step further, and whether a filter was crossed
+.decl hv_step(c0:symbol, c1:symbol, c2:symbol)
+hv_step(pth, tok, rest) :- hv_todo(_, pth), strlen(pth) > 1, substr(pth, 0, 1) = "|", j = range(2, strlen(pth) + 1),
+    (j = strlen(pth) ; substr(pth, j, 1) = "|"), tok = substr(pth, 1, j - 1), !contains("|", tok), rest = substr(pth, j, strlen(pth) - j).
+// (a literal base, a path still to walk)
+.decl hv_todo(c0:symbol, c1:symbol)
+// the value one step reaches: a property of an object literal (also through `...spread`), an element of an array literal
+// (also one `push`ed onto the variable it initialises), the callback's return for a `map` result
+.decl hv_elem(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hv_elem(o, tok, v, "own") :- hv_todo(o, pth), hv_step(pth, tok, _), substr(tok, 0, 1) = ".", rd_obj_prop(o, substr(tok, 1, strlen(tok) - 1), v).
+hv_elem(o, tok, v, "spread") :- hv_todo(o, pth), hv_step(pth, tok, _), substr(tok, 0, 1) = ".", expr_kind("client", "OBJECT_LITERAL", _, o),
+    expr_child("client", o, "SPREAD_OPERAND", _, x), hv_spread_src(x, v).
+hv_elem(a, "[]", x, "own") :- hv_todo(a, pth), hv_step(pth, "[]", _), expr_kind("client", "ARRAY_LITERAL", _, a), expr_child("client", a, _, _, x),
+    !expr_kind("client", "SPREAD_ELEMENT", _, x).
+hv_elem(a, "[]", x, "own") :- hv_todo(a, pth), hv_step(pth, "[]", _), expr_kind("client", "ARRAY_LITERAL", _, a), var_initializer("client", _, a, d),
+    call_site("client", "METHOD_CALL", "push", _, r, pc, _), expr_referenced("client", "VARIABLE", d, r), expr_child("client", pc, "ARGUMENT", _, x).
+hv_elem(mc, "[]", x, "own") :- hv_todo(mc, pth), hv_step(pth, "[]", _), call_site("client", "METHOD_CALL", n, _, _, mc, _), hv_map(n),
+    expr_child("client", mc, "ARGUMENT", "0", fx), expr_anon_decl("client", f, fx), hr_ret_expr(f, x).
+// …a property of the object a builder call returns (kind `call`: read with that call's arguments, hv_cv)
+hv_elem(e, tok, v, "call") :- hv_todo(e, pth), hv_step(pth, tok, _), substr(tok, 0, 1) = ".", hr_call_of(e, w), hv_objret(w, x),
+    rd_obj_prop(x, substr(tok, 1, strlen(tok) - 1), v).
+// …the elements of a list an array literal spreads (`[...routes].sort(..)`): looked up in the spread list
+hv_elem(a, "[]", y, "spread") :- hv_todo(a, pth), hv_step(pth, "[]", _), expr_kind("client", "ARRAY_LITERAL", _, a), expr_child("client", a, _, _, x),
+    expr_kind("client", "SPREAD_ELEMENT", _, x), expr_child("client", x, _, _, y).
+// …a method the object holds, as the LAST step (`plugin.register`, handed an app): the function itself
+hv_elem(o, tok, f, "fn") :- hv_todo(o, pth), hv_step(pth, tok, ""), substr(tok, 0, 1) = ".", objlit_member_fn(o, substr(tok, 1, strlen(tok) - 1), f).
+// a value read inside a builder, seen from one call of it: its parameters are that call's arguments
+.decl hv_cv(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+// …a property the builder's object takes from an object it spreads (`return { ...input, defined: true }`): looked up
+// in the spread value, as seen from the call (kind `callspread`)
+hv_elem(e, tok, y, "callspread") :- hv_todo(e, pth), hv_step(pth, tok, _), substr(tok, 0, 1) = ".", hr_call_of(e, w), hv_objret(w, x),
+    expr_child("client", x, "SPREAD_OPERAND", _, sx), hv_spread_src(sx, y).
+.decl hv_callk(c0:symbol)
+hv_callk("call"). hv_callk("callspread").
+hv_cv(e, v, b2, p2, c) :- hv_elem(e, _, v, k), hv_callk(k), hv(v, b2, p2, c), hr_call_of(e, w), !hv_isparam(b2, w).
+hv_cv(e, v, b4, cat(p4, p2), max(c, c4)) :- hv_elem(e, _, v, k), hv_callk(k), hv(v, b2, p2, c), hr_call_of(e, w), param_decl("client", _, pos, _, w, b2),
+    expr_child("client", e, "ARGUMENT", pos, a), hv(a, b4, p4, c4), strlen(p4) + strlen(p2) < 160.
+hv_need(a) :- hv_elem(e, _, _, k), hv_callk(k), hr_call_of(e, w), param_decl("client", _, pos, _, w, _), expr_child("client", e, "ARGUMENT", pos, a).
+// a spread source stands for the object it spreads: a property lookup continues in it (marked so the step repeats there)
+.decl hv_spread_src(c0:symbol, c1:symbol)
+hv_spread_src(x, y) :- hr_on(), expr_kind("client", "OBJECT_LITERAL", _, o), expr_child("client", o, "SPREAD_OPERAND", _, x),
+    expr_kind("client", "SPREAD_ELEMENT", _, x), expr_child("client", x, _, _, y).
+hv_spread_src(x, x) :- hr_on(), expr_kind("client", "OBJECT_LITERAL", _, o), expr_child("client", o, "SPREAD_OPERAND", _, x),
+    !expr_kind("client", "SPREAD_ELEMENT", _, x).
+hv_need(v) :- hv_elem(_, _, v, _).
+// hv_res(base, path, base', path', filtered): the path walked from a literal until a parameter or the end
+.decl hv_res(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+hv_res(b, p, b, p, 0) :- hv_todo(b, p), (p = "" ; hv_param(b)).
+hv_res(b, p, b3, p3, max(c1, c2)) :- hv_todo(b, p), !hv_param(b), hv_step(p, tok, rest), hv_elem(b, tok, v, "own"),
+    hv(v, b2, p2, c1), hv_res(b2, cat(p2, rest), b3, p3, c2).
+// …a property found in a spread object: look the same property up there
+hv_res(b, p, b3, p3, max(c1, c2)) :- hv_todo(b, p), hv_step(p, tok, _), hv_elem(b, tok, v, "spread"), hv(v, b2, p2, c1),
+    hv_res(b2, cat(p2, p), b3, p3, c2).
+hv_todo(b2, cat(p2, rest)) :- hv_todo(b, p), !hv_param(b), hv_step(p, tok, rest), hv_elem(b, tok, v, "own"), hv(v, b2, p2, _),
+    strlen(p2) + strlen(rest) < 160.
+hv_res(b, p, b3, p3, max(c1, c2)) :- hv_todo(b, p), hv_step(p, tok, rest), hv_elem(b, tok, v, "call"), hv_cv(b, v, b2, p2, c1),
+    hv_res(b2, cat(p2, rest), b3, p3, c2).
+hv_todo(b2, cat(p2, rest)) :- hv_todo(b, p), hv_step(p, tok, rest), hv_elem(b, tok, v, "call"), hv_cv(b, v, b2, p2, _), strlen(p2) + strlen(rest) < 160.
+hv_res(b, p, b3, p3, max(c1, c2)) :- hv_todo(b, p), hv_step(p, _, _), hv_elem(b, tok, v, "callspread"), hv_step(p, tok, _), hv_cv(b, v, b2, p2, c1),
+    hv_res(b2, cat(p2, p), b3, p3, c2).
+hv_todo(b2, cat(p2, p)) :- hv_todo(b, p), hv_step(p, tok, _), hv_elem(b, tok, v, "callspread"), hv_cv(b, v, b2, p2, _), strlen(p2) + strlen(p) < 160.
+hv_res(b, p, f, "", 0) :- hv_todo(b, p), !hv_param(b), hv_step(p, tok, ""), hv_elem(b, tok, f, "fn").
+hv_todo(b2, cat(p2, p)) :- hv_todo(b, p), hv_step(p, tok, _), hv_elem(b, tok, v, "spread"), hv(v, b2, p2, _), strlen(p2) + strlen(p) < 160.
+
+// PENDING MOUNTS: (mount, inclusion site, receiver expression, element base, path, filtered, prefix key, app key). A mount
+// in a loop over a list that is not a literal here: the element base is walked to an object literal, or, when it is a
+// parameter of the function the pending sits in, bound at every call of that function (and so is a receiver that is a
+// parameter of it, the call becoming the inclusion site)
+.decl hv_pm(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number, c6:symbol, c7:symbol)
+hv_pm(ce, ce, r, b, cat(p, "|[]"), c, kp, kh) :- hr_loop_mount(ce, v, kh), !hr_loop_paired(ce), call_site("client", _, _, _, r, ce, _),
+    for_binding_iterable(v, it), hv(it, b, p, c), expr_child("client", ce, "ARGUMENT", "0", a0), hr_elem_read(a0, v, kp).
+hv_todo(b, p) :- hv_pm(_, _, _, b, p, _, _, _).
+hv_pm(om, s, r, b2, p2, max(c, c2), kp, kh) :- hv_pm(om, s, r, b, p, c, kp, kh), !hv_param(b), hv_res(b, p, b2, p2, c2), (b2 != b ; p2 != p).
+// the receiver is a parameter of the function the element parameter belongs to: both bound at each call
+.decl hv_recv_param(c0:symbol, c1:symbol, c2:symbol)
+hv_recv_param(r, w, pos) :- hv_rx(r), hr_app(r, pr), param_decl("client", _, pos, _, w, pr).
+.decl hv_rx(c0:symbol)
+hv_rx(r) :- hr_on(), call_site("client", "METHOD_CALL", cn, _, r, _, _), router_mount_app(cn), r != "".
+hv_rx(r) :- hr_on(), call_site("client", _, _, _, _, oc, _), expr_child("client", oc, "ARGUMENT", _, r).
+hv_pm(om, oc, r2, b2, cat(p2, p), max(c, c2), kp, kh) :- hv_pm(om, _, r, b, p, c, kp, kh), param_decl("client", _, pos, _, w, b),
+    hv_recv_param(r, w, rpos), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a), hv_need_arg(a), hv(a, b2, p2, c2),
+    expr_child("client", oc, "ARGUMENT", rpos, r2), strlen(p2) + strlen(p) < 160.
+hv_pm(om, s, r, b2, cat(p2, p), max(c, c2), kp, kh) :- hv_pm(om, s, r, b, p, c, kp, kh), param_decl("client", _, pos, _, w, b),
+    !hv_recv_param(r, w, _), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a), hv_need_arg(a), hv(a, b2, p2, c2),
+    strlen(p2) + strlen(p) < 160.
+.decl hv_need_arg(c0:symbol)
+hv_need_arg(a) :- hv_pm(_, _, _, b, _, _, _, _), param_decl("client", _, pos, _, w, b), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a).
+hv_need(a) :- hv_need_arg(a).
+// the element objects each pending mount takes, with the receiver it is mounted on
+.decl hv_fin(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number, c5:symbol, c6:symbol)
+hv_fin(om, s, r, o, c, kp, kh) :- hv_pm(om, s, r, o, "", c, kp, kh), expr_kind("client", "OBJECT_LITERAL", _, o).
+.decl hv_fin_sub(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hv_fin_sub(s, r, o, t) :- hv_fin(_, s, r, o, _, _, kh), rd_obj_prop(o, kh, hx), hr_app(hx, t).
+hr_included(t) :- hv_fin_sub(_, r, _, t), hr_app(r, a), a != t.
+rd_demand(px) :- hv_fin(_, _, _, o, _, kp, _), rd_obj_prop(o, kp, px).
+hr_inc(a, t, s, pre, "mount") :- hv_fin(_, s, r, o, _, kp, kh), rd_obj_prop(o, kh, hx), hr_app(hx, t), hr_val(r, a, b), a != t,
+    rd_obj_prop(o, kp, px), rd_val(px, pv), hr_merge(b, pv, pre), (contains("{}", pre) ; !hr_dyn_base_call_r(r)).
+hr_mreq(b, pv) :- hv_fin(_, _, r, o, _, kp, _), hr_val(r, _, b), rd_obj_prop(o, kp, px), rd_val(px, pv).
+.decl hr_dyn_base_call_r(c0:symbol)
+hr_dyn_base_call_r(r) :- hv_fin(_, _, r, _, _, _, _), hr_val(r, _, b), contains("{}", b).
+// filtered on the way: what it brings is conditional (SPEC R13b)
+.decl hr_cond_inc(c0:symbol, c1:symbol)
+hr_cond_inc(t, s) :- hv_fin(_, s, _, o, 1, _, kh), rd_obj_prop(o, kh, hx), hr_app(hx, t).
+.decl hv_fin_mount(c0:symbol)
+hv_fin_mount(om) :- hv_fin(om, _, _, _, _, _, _).
+
+// A method HANDED an app by a call through a list element (`for (const p of plugins) p.register?.(app)`): the element
+// objects the loop iterates name the method; its app parameter is included into the passed app (kind `param`), each
+// call where it is made (SPEC R13b; the element list filtered makes it conditional)
+.decl hv_hcall(c0:symbol, c1:symbol)
+hv_hcall(ce, q) :- call_site("client", k, n, _, q, ce, _), (k = "METHOD_CALL" ; k = "OPTIONAL_CALL"), q != "", expr_referenced("client", "VARIABLE", v, q), for_binding_iterable(v, _),
+    !hr_registrar(n), expr_child("client", ce, "ARGUMENT", _, x), hr_app(x, _).
+hv_need(q) :- hv_hcall(_, q).
+.decl hv_hobj(c0:symbol, c1:symbol, c2:number)
+hv_hobj(ce, o, max(c, c2)) :- hv_hcall(ce, q), hv(q, b, p, c), hv_todo2(b, p), hv_res(b, p, o, "", c2), expr_kind("client", "OBJECT_LITERAL", _, o).
+.decl hv_todo2(c0:symbol, c1:symbol)
+hv_todo2(b, p) :- hv_hcall(_, q), hv(q, b, p, _).
+hv_todo(b, p) :- hv_todo2(b, p).
+// the method the element names: its own member, or one of an object it spreads
+.decl hv_member(c0:symbol, c1:symbol, c2:symbol)
+hv_member(o, n, f) :- hv_hobj(ce, o, _), call_site("client", _, n, _, _, ce, _), objlit_member_fn(o, n, f).
+hv_member(o0, n, f) :- hv_hobj(ce, o0, _), call_site("client", _, n, _, _, ce, _), hv_spreads(o0, o), objlit_member_fn(o, n, f).
+.decl hv_spreads(c0:symbol, c1:symbol)
+hv_spreads(o, o2) :- hv_hobj(_, o, _), expr_child("client", o, "SPREAD_OPERAND", _, x), hv_spread_src(x, y), hv_need_sp(y), hv(y, b, p, _), hv_todo3(b, p),
+    hv_res(b, p, o2, "", _), expr_kind("client", "OBJECT_LITERAL", _, o2).
+.decl hv_need_sp(c0:symbol)
+hv_need_sp(y) :- hv_hobj(_, o, _), expr_child("client", o, "SPREAD_OPERAND", _, x), hv_spread_src(x, y).
+hv_need(y) :- hv_need_sp(y).
+.decl hv_todo3(c0:symbol, c1:symbol)
+hv_todo3(b, p) :- hv_need_sp(y), hv(y, b, p, _).
+hv_todo(b, p) :- hv_todo3(b, p).
+.decl hv_handed(c0:symbol, c1:symbol, c2:symbol, c3:number)
+hv_handed(ce, f, pf, c) :- hv_hobj(ce, o, c), hv_member(o, n, f), call_site("client", _, n, _, _, ce, _),
+    expr_child("client", ce, "ARGUMENT", pos, x), hr_app(x, _), param_decl("client", _, pos, _, f, pf).
+hr_included(pf) :- hv_handed(_, _, pf, _).
+hr_inc(a, pf, ce, b, "param") :- hv_handed(ce, f, pf, _), param_decl("client", _, pos, _, f, pf), expr_child("client", ce, "ARGUMENT", pos, x),
+    hr_val(x, a, b), a != pf.
+hr_cond_inc(pf, ce) :- hv_handed(ce, _, pf, 1).
+
+// …the same through a PARAMETER (`function mountPlugin(app, plugin) { plugin.register?.(app) }`): the call names the
+// member of whatever object each call of the function passes, so it is bound per call like a pending mount (hv_pm),
+// rebinding the app argument too when it is a parameter of the same function; the outermost call is the inclusion
+// site. (call, receiver parameter, position of the app argument)
+.decl hv_hsite(c0:symbol, c1:symbol, c2:symbol)
+hv_hsite(ce, q, xpos) :- call_site("client", k, n, _, q, ce, _), (k = "METHOD_CALL" ; k = "OPTIONAL_CALL"), q != "",
+    (expr_referenced("client", "PARAMETER", _, q) ; expr_referenced("client", "VARIABLE", v, q), for_binding_iterable(v, _)),
+    !hr_registrar(n), expr_child("client", ce, "ARGUMENT", xpos, x), hr_app(x, _).
+hv_need(q) :- hv_hsite(_, q, _).
+// (handed call, inclusion site, app expression, element base, path, filtered)
+.decl hv_hpm(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number)
+hv_hpm(ce, ce, x, b, cat(p, cat("|.", n)), c) :- hv_hsite(ce, q, xpos), call_site("client", _, n, _, _, ce, _), expr_child("client", ce, "ARGUMENT", xpos, x),
+    hv(q, b, p, c), strlen(p) < 120.
+hv_todo(b, p) :- hv_hpm(_, _, _, b, p, _).
+hv_hpm(ce, s, x, b2, p2, max(c, c2)) :- hv_hpm(ce, s, x, b, p, c), !hv_param(b), hv_res(b, p, b2, p2, c2), (b2 != b ; p2 != p).
+hv_hpm(ce, oc, x2, b2, cat(p2, p), max(c, c2)) :- hv_hpm(ce, _, x, b, p, c), param_decl("client", _, pos, _, w, b),
+    hv_recv_param(x, w, rpos), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a), hv_hneed_arg(a), hv(a, b2, p2, c2),
+    expr_child("client", oc, "ARGUMENT", rpos, x2), strlen(p2) + strlen(p) < 160.
+hv_hpm(ce, s, x, b2, cat(p2, p), max(c, c2)) :- hv_hpm(ce, s, x, b, p, c), param_decl("client", _, pos, _, w, b),
+    !hv_recv_param(x, w, _), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a), hv_hneed_arg(a), hv(a, b2, p2, c2),
+    strlen(p2) + strlen(p) < 160.
+.decl hv_hneed_arg(c0:symbol)
+hv_hneed_arg(a) :- hv_hpm(_, _, _, b, _, _), param_decl("client", _, pos, _, w, b), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, a).
+hv_need(a) :- hv_hneed_arg(a).
+// the method each call reaches, and its app parameter included into the app the inclusion site passes
+.decl hv_hfin(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+hv_hfin(ce, s, x, pf, c) :- hv_hpm(ce, s, x, f, "", c), hv_hsite(ce, _, xpos), param_decl("client", _, xpos, _, f, pf).
+hr_included(pf) :- hv_hfin(_, _, _, pf, _).
+hr_inc(a, pf, s, b, "param") :- hv_hfin(_, s, x, pf, _), hr_val(x, a, b), a != pf.
+hr_cond_inc(pf, s) :- hv_hfin(_, s, _, pf, 1).
+
+// ── mergePath: how the router joins a prefix and a path ────────────────────
+// Each piece gets a leading `/`; a prefix's trailing `/` is dropped before a non-root
+// path and kept before `/`; a `/` path adds nothing; the empty result is `/`.
+.decl hr_mreq(c0:symbol, c1:symbol)
+.decl hr_merge(c0:symbol, c1:symbol, c2:symbol)
+.decl hr_lead(c0:symbol, c1:symbol)
+hr_lead(x, x) :- (hr_mreq(x, _) ; hr_mreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) = "/".
+hr_lead(x, y) :- (hr_mreq(x, _) ; hr_mreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) != "/", y = cat("/", x).
+hr_lead("", "/") :- (hr_mreq("", _) ; hr_mreq(_, "")).
+// prefix ends with `/`
+hr_merge(a, b, a1) :- hr_mreq(a, b), hr_lead(a, a1), hr_lead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) = "/".
+hr_merge(a, b, r) :- hr_mreq(a, b), hr_lead(a, a1), hr_lead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) = "/", r = cat(substr(a1, 0, strlen(a1) - 1), b1).
+// prefix does not end with `/`
+hr_merge(a, b, a1) :- hr_mreq(a, b), hr_lead(a, a1), hr_lead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) != "/".
+hr_merge(a, b, r) :- hr_mreq(a, b), hr_lead(a, a1), hr_lead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) != "/", r = cat(a1, b1).
+
+// ── position keys: registration order as comparable symbols ────────────────
+// A key is the zero-padded line and column of the registering token (`.get` of
+// `app.x().get()`, so a chain orders left to right), or of the call for a function
+// call. A list included into another gets the include site's key as a dotted prefix,
+// so plain symbol comparison is program order on the flattened list.
+.decl hr_need_key(c0:symbol)
+hr_need_key(ce) :- hr_reg(ce, _, _).
+hr_need_key(oc) :- hr_slot_arg(oc, _, a), hr_app(a, _).
+hr_need_key(ce) :- hr_app(ce, ce), !hr_new(ce).
+hr_need_key(ce) :- hr_objret_inst(ce, _).
+.decl hr_key_pn(c0:symbol, c1:symbol)
+hr_key_pn(ce, pn) :- hr_need_key(ce), call_callee_expr(_, ce, ne), expr_child("client", ne, "PROPERTY_NAME", _, pn).
+.decl hr_has_key_pn(c0:symbol)
+hr_has_key_pn(ce) :- hr_key_pn(ce, _).
+.decl hr_key_expr(c0:symbol, c1:symbol)
+hr_key_expr(ce, pn) :- hr_key_pn(ce, pn).
+hr_key_expr(ce, ce) :- hr_need_key(ce), !hr_has_key_pn(ce).
+.decl hr_key(c0:symbol, c1:symbol)
+hr_key(ce, k) :- hr_key_expr(ce, x),
+    ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, _, _, _, _, _, _, _, _, _, x),
+    strlen(l) <= 7, strlen(c) <= 5,
+    k = cat(cat(substr("0000000", 0, 7 - strlen(l)), l), cat(":", cat(substr("00000", 0, 5 - strlen(c)), c))).

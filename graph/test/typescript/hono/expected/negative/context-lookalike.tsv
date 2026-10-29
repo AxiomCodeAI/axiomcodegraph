@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Map set/get on a parameter named c: no ctx_key_flow
+# census: ctx_get (partition outside Hono contexts) (SPEC N5)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/me	index.ts:16:16	index.ts:15:13	0
+regby	index.ts:1:1	index.ts:16:16	GET	/me	index.ts:15:13
+absent	index.ts:5:1
+absent	index.ts:8:1

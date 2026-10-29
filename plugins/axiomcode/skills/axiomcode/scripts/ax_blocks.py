@@ -192,7 +192,7 @@ def render(verb, doc, repo):
                    f"(confirmed callers; no code shown): " + ', '.join(refs[:8]) + (f" +{len(refs) - 8}" if len(refs) > 8 else ''))
         other = grep_others(repo, names, {(p['f'], n) for p in plain for n in p['marks']})
         if other: out.append(f"  {other} other line(s) grep matches for that name are NOT this declaration (another symbol of the same name, or text)")
-    if not out: return None
+    if not out and not doc.get('router'): return None
     if len(places) > CAP: out.append(f"… {len(places) - CAP} more place(s) not shown — ask a narrower question to see them")
     # a bound: line is the answer saying where it stops being complete — an agent writing "only X reaches this"
     # from these places needs it as much as the verified: line, so it is never tidied away here.
@@ -200,7 +200,10 @@ def render(verb, doc, repo):
     kept = [x for x in foot if x.startswith(('verified', 'bound:'))][:3]
     out += kept + unknown(doc, repo) + [x for x in foot if x.startswith('run:')][:1]
     # what the question resolved to goes first (ax_grep.head): the places are a page of the answer, not all of it
-    return ax_grep.head({'tests': 'test-impact'}.get(verb, verb), doc) + out
+    # an HTTP router's answer (impact's `router` lines: the routes a function registers, the apps it creates, the
+    # chain before a handler, the context keys a middleware sets): the route table speaks before the places
+    rt = [str(x) for x in (doc.get('router') or [])]
+    return ax_grep.head({'tests': 'test-impact'}.get(verb, verb), doc) + rt + out
 
 
 UNKNOWN_SHOWN = 5        # unresolved sites listed under an answer: the nearest; the verbs' --json carries up to 30

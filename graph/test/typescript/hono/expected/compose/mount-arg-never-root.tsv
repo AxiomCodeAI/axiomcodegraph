@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route() on an unrecognised receiver: the mounted app's /daily is partial unresolved_mount, never a root; a non-app route() argument produces nothing
+# census: neg_route_on_nonhono, route_mount_literal (SPEC 2 [iter2]: a mount argument is never a root)
+partial	index.ts:7:23	GET	unresolved_mount
+unknown	index.ts:10:1	unresolved_mount	index.ts:7:23

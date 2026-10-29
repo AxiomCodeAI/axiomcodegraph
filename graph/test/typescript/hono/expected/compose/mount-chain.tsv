@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O8: the mount route ANY /legacy/* has its chain: cors then legacyAuth
+# census: mount_foreign, use_scoped (oracle gap O8)
+route	ANY	/legacy/*	index.ts:8:1	index.ts:12:13	2
+mw	lib:hono/cors.cors@index.ts:13:9	index.ts:8:1	ANY	/legacy/*	0	index.ts:12:13
+mw	index.ts:7:39	index.ts:8:1	ANY	/legacy/*	1	index.ts:12:13
+regby	index.ts:1:1	index.ts:8:1	ANY	/legacy/*	index.ts:12:13

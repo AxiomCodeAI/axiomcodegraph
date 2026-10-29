@@ -839,3 +839,12 @@ array_method_element_param("reduceRight", "1").
 
 // `h[i](x)`, `h.run(x)`
 call_runs(ce, m) :- call_callee_expr(_, ce, ne), elem_read_fn(ne, m).
+
+// loop_elem_callee(Call, Method) — `for (const g of groups) g.prefix(v)` where `groups` is a const array literal of typed
+// elements (`[new UserRoutes()]`): the method of each element's class. A value fact the call graph does not draw
+// (the loop variable's declared type is the elements' union, which it leaves ambiguous); read by the string
+// evaluation only.
+loop_elem_callee(ce, w) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), expr_referenced("client", "VARIABLE", v, r),
+    for_binding_iterable(v, it), expr_referenced("client", "VARIABLE", d, it), var_initializer("client", _, arr, d),
+    expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, _, el), expr_type(el, _, tt), method_in_scope(tt, cn, _, w),
+    !call_chain_edge(ce, _, "-", _, "client", _, _).

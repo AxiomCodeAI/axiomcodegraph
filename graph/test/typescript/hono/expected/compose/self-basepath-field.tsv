@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-04/R8: one partial for /x (dynamic_mount_prefix), not one row per path
+# census: basepath (violation hono-2-04, SPEC R8)
+partial	index.ts:20:20	GET	dynamic_mount_prefix
+unknown	index.ts:20:1	dynamic_mount_prefix	index.ts:20:20

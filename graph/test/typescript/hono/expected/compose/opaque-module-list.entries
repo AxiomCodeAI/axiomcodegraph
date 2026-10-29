@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R12.2: with an opaque mod.default mount, unimported unserved default-exported apps are partial unresolved_mount; imported, served and entry apps are not
+# census: route_mount_root (SPEC R12.2: an opaque run-time module list)
+entry	routes/billing.ts:4:26	http
+entry	routes/status.ts:4:23	http
+entry	shared.ts:5:24	http
+entry	worker.ts:5:21	http

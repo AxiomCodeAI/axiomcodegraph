@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m32/hono-4-01: factories via a namespace held in a field, a module destructure and namespace members are the inner project functions
+# census: use_global (stress-4 mutation m32 shapes; violation hono-4-01)
+entry	guards/scope.ts:4:17	http
+entry	guards/session.ts:4:20	http
+entry	index.ts:15:23	http
+entry	index.ts:22:23	http
+entry	index.ts:25:19	http

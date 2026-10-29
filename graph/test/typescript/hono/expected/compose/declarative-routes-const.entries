@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R13: a const { path, handler } array mounted in a loop gives exact routes; the { path, label } menu gives nothing
+# census: route_mount_literal (SPEC R13: a const array of { path, handler } mounted in a loop)
+entry	index.ts:6:37	http
+entry	index.ts:7:38	http

@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: require-destructured Hono and cors; sub-app from module.exports mounted at /api/users; cors reaches it, not /health
+# census: new_hono, route_mount_literal, builtin_mw_import (CommonJS JavaScript; SPEC 10 C2: no CJS project
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/users/:id	users.js:4:19	index.js:8:13	1
+route	GET	/health	index.js:11:20	index.js:8:13	2
+mw	lib:hono/cors.cors@index.js:9:19	users.js:4:19	GET	/api/users/:id	0	index.js:8:13
+submount	/api/users	index.js:10:5
+regby	index.js:1:1	index.js:11:20	GET	/health	index.js:8:13
+regby	users.js:1:1	users.js:4:19	GET	/api/users/:id	index.js:8:13

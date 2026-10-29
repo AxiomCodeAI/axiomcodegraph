@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: user/tenant flow from loadUser to /me and /tenant; /before (registered before the use) and traceId have no setter
+# census: ctx_set, ctx_get, ctx_var, variables_type
+entry	index.ts:16:20	http
+entry	index.ts:18:16	http
+entry	index.ts:19:20	http
+entry	index.ts:20:19	http
+entry	index.ts:9:40	http

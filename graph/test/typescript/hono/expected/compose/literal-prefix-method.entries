@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-05: a zero-argument method returning a literal is the constant /console; a field-built prefix stays partial
+# census: mount_dynamic_prefix_call (violation hono-3-05, SPEC 3.2 G8)
+entry	index.ts:10:28	http
+entry	index.ts:25:29	http
+entry	index.ts:9:29	http

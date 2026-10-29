@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: outer then inner on /users; inner never reaches /other
+# census: use_global, route_mount_literal
+entry	index.ts:11:16	http
+entry	index.ts:16:19	http
+entry	index.ts:6:34	http
+entry	index.ts:7:34	http

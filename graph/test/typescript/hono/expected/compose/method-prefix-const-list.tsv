@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-5-03: g.prefix(V) with a const V over a const list composes /v2/members exactly
+# census: mount_dynamic_prefix_call (violation hono-5-03)
+route	POST	/v2/members/import	members.ts:9:33	routes.ts:4:13	0
+route	GET	/v2/members/:id	members.ts:10:29	routes.ts:4:13	1
+route	GET	/logo.png	index.ts:16:22	routes.ts:4:13	2
+submount	/v2/members	index.ts:14:7
+regby	index.ts:1:1	index.ts:16:22	GET	/logo.png	routes.ts:4:13
+regby	members.ts:8:3	members.ts:10:29	GET	/v2/members/:id	routes.ts:4:13
+regby	members.ts:8:3	members.ts:9:33	POST	/v2/members/import	routes.ts:4:13

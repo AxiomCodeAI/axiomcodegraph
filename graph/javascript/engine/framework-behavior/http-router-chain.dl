@@ -1,0 +1,54 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP ROUTER CHAIN  (JavaScript: what the router does at request time)
+//
+// The JavaScript counterpart of typescript/engine/framework-behavior/http-router-chain.dl:
+//
+//   ctx_key_flow(Setter, Reader, Key)
+//       a function on a route's chain writes a context key (`c.set('user', u)`) and a
+//       later function on the same chain reads it (`c.get('user')`, `c.var.user`).
+//
+// The context is the first parameter of a function the router calls; a key is what
+// the value flow knows a string to be. A dynamic key, and a read no earlier function
+// on any of its chains serves, are declared in framework_undetermined.
+// ============================================================================
+
+.decl jb_ctx_ref(c0:symbol, c1:symbol)
+jb_ctx_ref(e, m) :- jr_node_fn(_, _, m), param_decl("client", _, "0", m, p), expr_param(_, p, e).
+
+.decl jb_set_site(c0:symbol, c1:symbol, c2:symbol)
+jb_set_site(m, ce, k) :- call_site(_, "METHOD_CALL", "set", _, r, _, ce, _, _), jb_ctx_ref(r, m), call_arg(ce, 0, k).
+.decl jb_get_site(c0:symbol, c1:symbol, c2:symbol)
+jb_get_site(m, ce, k) :- call_site(_, "METHOD_CALL", "get", _, r, _, ce, _, _), jb_ctx_ref(r, m), call_arg(ce, 0, k).
+.decl jb_set_at(c0:symbol, c1:symbol, c2:symbol)
+jb_set_at(m, key, ce) :- jb_set_site(m, ce, k), expr_value(k, "str", key).
+.decl jb_get_at(c0:symbol, c1:symbol, c2:symbol)
+jb_get_at(m, key, ce) :- jb_get_site(m, ce, k), expr_value(k, "str", key).
+jb_get_at(m, key, e) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, key, e), expr_child(_, e, "ACCESS_TARGET", _, v),
+    expr_kind(_, "PROPERTY_ACCESS", _, v), expr_name(_, "var", v), expr_child(_, v, "ACCESS_TARGET", _, c), jb_ctx_ref(c, m).
+.decl jb_keyed(c0:symbol)
+jb_keyed(k) :- jb_set_site(_, _, k), expr_value(k, "str", _).
+jb_keyed(k) :- jb_get_site(_, _, k), expr_value(k, "str", _).
+framework_undetermined(m, "ctx_key", "dynamic_ctx_key") :- jb_set_site(m, _, k), !jb_keyed(k).
+framework_undetermined(m, "ctx_key", "dynamic_ctx_key") :- jb_get_site(m, _, k), !jb_keyed(k).
+.decl jb_set(c0:symbol, c1:symbol)
+jb_set(m, key) :- jb_set_at(m, key, _).
+.decl jb_get(c0:symbol, c1:symbol)
+jb_get(m, key) :- jb_get_at(m, key, _).
+.decl jb_pos(c0:symbol, c1:number, c2:number)
+jb_pos(e, to_number(l), to_number(c)) :- (jb_set_at(_, _, e) ; jb_get_at(_, _, e)), expr_span(_, l, c, _, _, e).
+.decl jb_set_before_get(c0:symbol, c1:symbol)
+jb_set_before_get(m, key) :- jb_set_at(m, key, s), jb_get_at(m, key, g), jb_pos(s, sl, sc), jb_pos(g, gl, gc),
+    (sl < gl ; sl = gl, sc < gc).
+
+.decl jb_chain(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+jb_chain(h, vv, p, mw, to_number(pos)) :- middleware_applies(mw, h, vv, p, pos, _).
+jb_chain(h, vv, p, h, 100000) :- http_route(h, vv, p, _, _).
+
+// ctx_key_flow(Setter, Reader, Key) — on some route's chain, Setter runs before Reader
+// (or is Reader, setting before it reads) and writes the context key Reader reads.
+ctx_key_flow(s, r, key) :- jb_set(s, key), jb_get(r, key), jb_chain(h, vv, p, s, i), jb_chain(h, vv, p, r, j), i < j.
+ctx_key_flow(s, s, key) :- jb_set_before_get(s, key), jb_chain(_, _, _, s, _).
+.decl jb_read_served(c0:symbol, c1:symbol)
+jb_read_served(r, key) :- ctx_key_flow(_, r, key).
+framework_undetermined(r, "ctx_key", "no_setter_on_chain") :- jb_get(r, key), jb_chain(_, _, _, r, _),
+    !jb_read_served(r, key).

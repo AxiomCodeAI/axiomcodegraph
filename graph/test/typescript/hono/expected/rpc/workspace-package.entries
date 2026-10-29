@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O3: @acme/server and @acme/admin resolve as workspace packages: the /admin mount and both typed client calls cross them
+# census: hc_client, route_mount_literal (oracle gap O3: workspace package imports in a monorepo)
+entry	packages/admin/routes.ts:3:47	http
+entry	packages/server/src/index.ts:5:33	http

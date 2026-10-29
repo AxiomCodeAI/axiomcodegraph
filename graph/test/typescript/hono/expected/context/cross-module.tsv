@@ -1,0 +1,13 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: session flows from auth.ts to both mounted handlers; DELETE reads before it sets, so no self flow
+# census: ctx_set, ctx_get, route_mount_literal
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/account	routes.ts:6:18	index.ts:8:13	1
+route	DELETE	/account	routes.ts:7:21	index.ts:8:13	2
+mw	auth.ts:5:50	routes.ts:6:18	GET	/account	0	index.ts:8:13
+mw	auth.ts:5:50	routes.ts:7:21	DELETE	/account	0	index.ts:8:13
+ctx	auth.ts:5:50	routes.ts:6:18	session
+ctx	auth.ts:5:50	routes.ts:7:21	session
+submount	/account	index.ts:10:5
+regby	routes.ts:1:1	routes.ts:6:18	GET	/account	index.ts:8:13
+regby	routes.ts:1:1	routes.ts:7:21	DELETE	/account	index.ts:8:13

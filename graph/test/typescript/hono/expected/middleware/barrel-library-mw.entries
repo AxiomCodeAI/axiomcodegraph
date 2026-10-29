@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O14: library middleware re-exported by a project barrel (named, renamed, export *) keyed at their calls, positions exact, no dynamic list
+# census: use_global (oracle gap O14)
+entry	index.ts:11:20	http
+entry	index.ts:12:20	http
+entry	middleware/audit.ts:3:39	http
