@@ -1,6 +1,6 @@
 {
   "name": "@axiomcode/code-graph",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "AxiomCode Graph: a resolved call graph of your codebase grounded in formal methods, so you and your coding agents can see who calls what, what a change breaks, and which tests it reaches.",
   "repository": {
     "type": "git",
@@ -31,11 +31,11 @@
   ],
   "license": "FSL-1.1-Apache-2.0",
   "optionalDependencies": {
-    "@axiomcode/engine-darwin-arm64": "0.2.2",
-    "@axiomcode/engine-darwin-x64": "0.2.2",
-    "@axiomcode/engine-linux-x64": "0.2.2",
-    "@axiomcode/engine-linux-arm64": "0.2.2",
-    "@axiomcode/engine-win32-x64": "0.2.2"
+    "@axiomcode/engine-darwin-arm64": "0.2.3",
+    "@axiomcode/engine-darwin-x64": "0.2.3",
+    "@axiomcode/engine-linux-x64": "0.2.3",
+    "@axiomcode/engine-linux-arm64": "0.2.3",
+    "@axiomcode/engine-win32-x64": "0.2.3"
   },
   "bin": {
     "axiomcode": "bin/axiomcode.js"
