@@ -1,0 +1,19 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-02 (ESM): the post helper's literal POST joins the two POST routes; the get helper (no init) joins GET /auth/login
+# census: app_request_test (violation hono-7-02; ESM JavaScript)
+route	GET	/auth/login	auth.js:4:26	test/auth.test.js:8:15	0
+route	POST	/auth/login	auth.js:5:27	test/auth.test.js:8:15	1
+route	POST	/auth/login/form	auth.js:6:32	test/auth.test.js:8:15	2
+route	GET	/auth/login	auth.js:4:26	test/auth.test.js:15:15	0
+route	POST	/auth/login	auth.js:5:27	test/auth.test.js:15:15	1
+route	POST	/auth/login/form	auth.js:6:32	test/auth.test.js:15:15	2
+request	test/auth.test.js:14:1	GET	/auth/login	auth.js:4:26
+request	test/auth.test.js:7:1	POST	/auth/login	auth.js:5:27
+request	test/auth.test.js:7:1	POST	/auth/login/form	auth.js:6:32
+submount	/auth	test/auth.test.js:9:7
+submount	/auth	test/auth.test.js:16:7
+regby	auth.js:1:1	auth.js:4:26	GET	/auth/login	test/auth.test.js:15:15
+regby	auth.js:1:1	auth.js:4:26	GET	/auth/login	test/auth.test.js:8:15
+regby	auth.js:1:1	auth.js:5:27	POST	/auth/login	test/auth.test.js:15:15
+regby	auth.js:1:1	auth.js:5:27	POST	/auth/login	test/auth.test.js:8:15
+regby	auth.js:1:1	auth.js:6:32	POST	/auth/login/form	test/auth.test.js:15:15
+regby	auth.js:1:1	auth.js:6:32	POST	/auth/login/form	test/auth.test.js:8:15

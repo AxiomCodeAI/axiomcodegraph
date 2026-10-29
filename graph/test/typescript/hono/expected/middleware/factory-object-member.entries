@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-04: limiter.middleware is the arrow limiter.ts:6, m.auth checks.ts:5 on /admin/* only, m.audit checks.ts:11 on every route, in use order
+# census: use_global, use_scoped, mw_factory_returning_fn (violation hono-7-04: middleware read off the object a
+entry	checks.ts:11:13	http
+entry	checks.ts:5:35	http
+entry	limiter.ts:6:41	http
+entry	index.ts:15:18	http
+entry	index.ts:16:25	http

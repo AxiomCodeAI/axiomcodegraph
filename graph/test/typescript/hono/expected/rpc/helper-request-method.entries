@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-02: the post helper's literal method POST joins POST /auth/login and POST /auth/login/form; the get helper (no init) joins GET /auth/login and GET /auth/session
+# census: app_request_test (violation hono-7-02: a literal method in the init object of app.request inside a
+entry	auth.ts:4:26	http
+entry	auth.ts:5:27	http
+entry	auth.ts:6:32	http
+entry	auth.ts:7:28	http

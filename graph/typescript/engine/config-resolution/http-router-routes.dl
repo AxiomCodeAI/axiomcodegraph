@@ -60,12 +60,48 @@ hr_hstart(ce, 0) :- hr_reg(ce, _, cn), router_fallback(cn).
 hr_harg(ce, 100, a) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "1", a).
 // the definition's `middleware` (one, or a list) runs before it, in order
 .decl hr_def_mw(c0:symbol, c1:symbol)
-hr_def_mw(ce, v) :- hr_openapi_def(ce, o), rd_obj_prop(o, k, v), router_def_key(k, "middleware").
+hr_def_mw(ce, v) :- hr_openapi_def(ce, o), rd_obj_prop(o, k, v), router_def_key(k, "middleware"), !hr_def_mw_overridden(o).
+// a caller's definition spread into a wrapper's object that writes its own `middleware` after it: the wrapper's wins
+.decl hr_def_mw_overridden(c0:symbol)
+hr_def_mw_overridden(o2) :- hr_def_spread(_, o, o2), rd_obj_prop(o, k, _), router_def_key(k, "middleware").
 hr_def_mw(ce, c) :- hr_def_mw(ce, v), expr_kind("client", k, _, v), expr_kind_is_transparent(k), expr_child("client", v, _, _, c).
+// …a const holding the list (`const middleware = [authorize(auth), ...rest]; return createRoute({ ...config, middleware })`)
+hr_def_mw(ce, i) :- hr_def_mw(ce, v), hr_denotes_var(v, d), var_initializer("client", _, i, d), i != "", expr_kind("client", "ARRAY_LITERAL", _, i).
+.decl hr_def_mw_var(c0:symbol)
+hr_def_mw_var(v) :- hr_def_mw(_, v), hr_denotes_var(v, d), var_initializer("client", _, i, d), i != "", expr_kind("client", "ARRAY_LITERAL", _, i).
 hr_harg(ce, n, el) :- hr_def_mw(ce, arr), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, epos, el),
-    to_number(epos) < 90, n = 10 + to_number(epos).
+    to_number(epos) < 90, n = 10 + to_number(epos), !expr_kind("client", "SPREAD_ELEMENT", _, el).
 hr_harg(ce, 10, v) :- hr_def_mw(ce, v), !expr_kind("client", "ARRAY_LITERAL", _, v),
-    expr_kind("client", k, _, v), !expr_kind_is_transparent(k).
+    expr_kind("client", k, _, v), !expr_kind_is_transparent(k), !hr_def_mw_var(v).
+// …a spread in that list of the CALLER's own list (`...(config.middleware ?? [])`, `config` the definition the call
+// was handed): that call's argument object's list, in place; a list the argument does not hold adds nothing. Any other
+// spread is a list decided at run time (dynamic_middleware_list)
+.decl hr_def_mwsp(c0:symbol, c1:number, c2:symbol)
+hr_def_mwsp(ce, n, y) :- hr_def_mw(ce, arr), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, epos, el),
+    to_number(epos) < 90, n = 10 + to_number(epos), expr_kind("client", "SPREAD_ELEMENT", _, el), expr_child("client", el, _, _, y).
+hr_def_mwsp(ce, n, c) :- hr_def_mwsp(ce, n, y), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c).
+hr_def_mwsp(ce, n, c) :- hr_def_mwsp(ce, n, y), expr_kind("client", "BINARY_EXPRESSION", _, y), (expr_operator("client", "??", y) ; expr_operator("client", "||", y)),
+    expr_child("client", y, "LEFT_OPERAND", _, c).
+// (registration, ordinal, the caller's argument object, the key read)
+.decl hr_def_mwsp_key(c0:symbol, c1:number, c2:symbol, c3:symbol)
+hr_def_mwsp_key(ce, n, o2, key) :- hr_def_mwsp(ce, n, z), property_access_name(z, key), expr_child("client", z, "RECEIVER", _, q),
+    hr_def_param(q, p), param_decl("client", _, pos, _, w, p), expr_child("client", ce, "ARGUMENT", "0", x0), hr_def_callat(x0, x),
+    hr_def_call(x, w), expr_child("client", x, "ARGUMENT", pos, a), hr_def_obj(a, o2).
+.decl hr_def_callat(c0:symbol, c1:symbol)
+hr_def_callat(x, x) :- hr_def_call(x, _).
+hr_def_callat(r, x) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_callat(i, x).
+hr_def_callat(e, x) :- hr_on(), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_callat(c, x).
+.decl hr_def_mwsp_val(c0:symbol, c1:number, c2:symbol)
+hr_def_mwsp_val(ce, n, v) :- hr_def_mwsp_key(ce, n, o2, key), rd_obj_prop(o2, key, v).
+hr_def_mwsp_val(ce, n, c) :- hr_def_mwsp_val(ce, n, v), expr_kind("client", k, _, v), expr_kind_is_transparent(k), expr_child("client", v, _, _, c).
+hr_def_mwsp_val(ce, n, i) :- hr_def_mwsp_val(ce, n, v), hr_denotes_var(v, d), var_initializer("client", _, i, d), i != "",
+    expr_kind("client", "ARRAY_LITERAL", _, i).
+hr_harg(ce, n + to_number(j), el) :- hr_def_mwsp_val(ce, n, arr), expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, j, el),
+    !expr_kind("client", "SPREAD_ELEMENT", _, el), n + to_number(j) < 90.
+.decl hr_def_mwsp_known(c0:symbol, c1:number)
+hr_def_mwsp_known(ce, n) :- hr_def_mwsp_key(ce, n, _, _).
+framework_undetermined(m, "middleware", "dynamic_middleware_list") :- hr_def_mwsp(ce, n, _), !hr_def_mwsp_known(ce, n),
+    expr_enclosing_method(ce, m).
 
 // ── the handler arguments, in order: (call, ordinal, expression) ────────────
 // ordinal = argument position * 100 + element index, so a spread `...[a, b]` keeps
@@ -130,6 +166,27 @@ hr_farg(c) :- hr_farg(a), expr_kind("client", k, _, a), expr_kind_is_transparent
 .decl hr_assign_call(c0:symbol)
 hr_assign_call(a) :- hr_on(), call_site("client", "METHOD_CALL", "assign", _, r, a, _), r != "", !hr_call_of(a, _).
 hr_farg(x) :- hr_farg(a), hr_assign_call(a), expr_child("client", a, "ARGUMENT", "0", x).
+// a property of an object literal a handler argument reads (`guard.middleware` where `guard = createGuard(..)` returns
+// `{ middleware, inFlight }`, or `const { middleware } = createGuard(..)`): that property's own value, never another's
+.decl hr_fobj_need(c0:symbol)
+hr_fobj_need(q) :- hr_farg(a), property_access_name(a, _), expr_child("client", a, "RECEIVER", _, q).
+hr_fobj_need(i) :- hr_farg(a), expr_referenced("client", "VARIABLE", d, a), var_binding("client", _, "PROPERTY", _, i, d), i != "".
+hr_fobj_need(i) :- hr_fobj_need(x), hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "".
+hr_fobj_need(e) :- hr_fobj_need(x), hr_call_of(x, f), hr_ret_expr(f, e).
+hr_fobj_need(c) :- hr_fobj_need(x), expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", x, _, _, c).
+// (expression, the object literal it evaluates to)
+.decl hr_fobj(c0:symbol, c1:symbol)
+hr_fobj(x, x) :- hr_fobj_need(x), expr_kind("client", "OBJECT_LITERAL", _, x).
+hr_fobj(x, o) :- hr_fobj_need(x), hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "", hr_fobj(i, o).
+hr_fobj(x, o) :- hr_fobj_need(x), hr_call_of(x, f), hr_ret_expr(f, e), hr_fobj(e, o).
+hr_fobj(x, o) :- hr_fobj_need(x), expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", x, _, _, c), hr_fobj(c, o).
+.decl hr_fprop(c0:symbol, c1:symbol)
+hr_fprop(a, v) :- hr_farg(a), property_access_name(a, n), expr_child("client", a, "RECEIVER", _, q), hr_fobj(q, o), rd_obj_prop(o, n, v).
+hr_fprop(a, v) :- hr_farg(a), expr_referenced("client", "VARIABLE", d, a), var_binding("client", _, "PROPERTY", src, i, d), i != "",
+    hr_fobj(i, o), rd_obj_prop(o, src, v).
+hr_farg(v) :- hr_fprop(_, v).
 .decl hr_wrapper_call(c0:symbol)
 hr_wrapper_call(a) :- call_site("client", "METHOD_CALL", cn, _, r, a, _), router_factory_mw(cn), hr_factory_val(r, _).
 hr_wrapper_call(a) :- hr_detached(a, n, _), router_factory_mw(n).
@@ -154,6 +211,7 @@ hr_fn(a, m) :- hr_farg(a), hr_denotes_var(a, v), var_initializer("client", _, i,
 hr_fn(a, m) :- hr_farg(a), hr_call_of(a, f), hr_ret_expr(f, e), hr_fn(e, m).
 hr_fn(a, m) :- hr_farg(a), hr_wrapper_call(a), expr_child("client", a, "ARGUMENT", "0", x), hr_fn(x, m).
 hr_fn(a, m) :- hr_farg(a), hr_assign_call(a), expr_child("client", a, "ARGUMENT", "0", x), hr_fn(x, m).
+hr_fn(a, m) :- hr_fprop(a, v), hr_fn(v, m).
 hr_fn(a, m) :- hr_farg(a), expr_kind("client", k, _, a), expr_kind_is_transparent(k),
     expr_child("client", a, _, _, c), hr_fn(c, m).
 
@@ -340,16 +398,44 @@ hr_entry_base(ce, a, "route", "ANY", lp, b) :- hr_reg(ce, a, cn), router_mount_f
 hr_entry_base(ce, a, "route", vv, lp, b) :- hr_reg(ce, a, _), hr_on_verb(ce, vv), hr_on_piece(ce, "1", lp),
     call_site("client", _, _, _, r, ce, _), hr_val(r, a, b).
 hr_entry_base(ce, a, "route", vv, lp, b) :- hr_openapi_def(ce, o), hr_reg(ce, a, _),
-    rd_obj_prop(o, mk, mv), router_def_key(mk, "method"), rd_val(mv, w), ts_http_verb_name(w, vv),
-    rd_obj_prop(o, pk, pv), router_def_key(pk, "path"), rd_val(pv, raw), hr_brace_path(raw, lp),
+    rd_obj_prop(o, mk, mv), router_def_key(mk, "method"), hr_def_v(ce, mv, w), ts_http_verb_name(w, vv),
+    rd_obj_prop(o, pk, pv), router_def_key(pk, "path"), hr_def_v(ce, pv, raw), hr_brace_path(raw, lp),
     call_site("client", _, _, _, r, ce, _), hr_val(r, a, b).
+// an `openapi(def, h)` whose definition gives no literal method and path (a definition built where it cannot be read):
+// the route exists, its verb and path are not known here; declared, never dropped (SPEC 3.7, dynamic_route_path)
+.decl hr_openapi_routed(c0:symbol)
+hr_openapi_routed(ce) :- hr_openapi_def(ce, _), hr_entry_base(ce, _, "route", _, _, _).
+.decl hr_openapi_unread(c0:symbol)
+hr_openapi_unread(ce) :- hr_reg(ce, _, cn), router_openapi(cn), !hr_openapi_routed(ce).
+remote_undetermined(h, "http", "dynamic_route_path") :- hr_openapi_unread(ce), hr_node_fn(ce, 100, h).
+remote_undetermined(m, "http", "dynamic_route_path") :- hr_openapi_unread(ce), !hr_has_fn(ce, 100), expr_enclosing_method(ce, m).
 // an OpenAPI path writes a parameter `{id}`; the router registers `:id`
 .decl hr_brace_raw(c0:symbol)
-hr_brace_raw(raw) :- hr_openapi_def(_, o), rd_obj_prop(o, pk, pv), router_def_key(pk, "path"), rd_val(pv, raw).
+hr_brace_raw(raw) :- hr_openapi_def(ce, o), rd_obj_prop(o, pk, pv), router_def_key(pk, "path"), hr_def_v(ce, pv, raw).
+// a definition's method or path written as a PARAMETER of a wrapper on the registration's call chain
+// (`analyticsRoute(id, summary, '/overview', schema)` building `{ method: 'get', path }`): that call's argument, per
+// registration (hr_def_chain: the wrapper calls from the registration's argument inward)
+.decl hr_def_chain(c0:symbol, c1:symbol)
+hr_def_chain(ce, x) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "0", x0), hr_def_callat(x0, x).
+hr_def_chain(ce, x2) :- hr_def_chain(ce, x), hr_def_call(x, w), hr_ret_expr(w, e), hr_def_callat(e, x2).
+.decl hr_def_parg(c0:symbol, c1:symbol, c2:symbol)
+hr_def_parg(ce, pv, a) :- hr_openapi_def(ce, o), rd_obj_prop(o, k, pv), (router_def_key(k, "method") ; router_def_key(k, "path")),
+    hr_def_param(pv, p), param_decl("client", _, pos, _, w, p), hr_def_chain(ce, x), hr_def_call(x, w),
+    expr_child("client", x, "ARGUMENT", pos, a).
+rd_demand(a) :- hr_def_parg(_, _, a).
+.decl hr_def_pargd(c0:symbol, c1:symbol)
+hr_def_pargd(ce, pv) :- hr_def_parg(ce, pv, _).
+.decl hr_def_v(c0:symbol, c1:symbol, c2:symbol)
+hr_def_v(ce, pv, raw) :- hr_openapi_def(ce, o), rd_obj_prop(o, k, pv), (router_def_key(k, "method") ; router_def_key(k, "path")),
+    !hr_def_pargd(ce, pv), rd_val(pv, raw).
+hr_def_v(ce, pv, raw) :- hr_def_parg(ce, pv, a), rd_val(a, raw).
 .decl hr_brace_step(c0:symbol, c1:number, c2:symbol)
 hr_brace_step(raw, 0, "") :- hr_brace_raw(raw).
-hr_brace_step(raw, i + 1, cat(acc, ":")) :- hr_brace_step(raw, i, acc), i < strlen(raw), substr(raw, i, 1) = "{".
+// …but a `{}` is a piece decided at run time (rd_val's hole), never a parameter named nothing: kept, so the route is partial
+hr_brace_step(raw, i + 2, cat(acc, "{}")) :- hr_brace_step(raw, i, acc), i + 1 < strlen(raw), substr(raw, i, 1) = "{", substr(raw, i + 1, 1) = "}".
+hr_brace_step(raw, i + 1, cat(acc, ":")) :- hr_brace_step(raw, i, acc), i + 1 < strlen(raw), substr(raw, i, 1) = "{", substr(raw, i + 1, 1) != "}".
 hr_brace_step(raw, i + 1, acc) :- hr_brace_step(raw, i, acc), i < strlen(raw), substr(raw, i, 1) = "}".
+hr_brace_step(raw, i + 1, cat(acc, "{")) :- hr_brace_step(raw, i, acc), i + 1 = strlen(raw), substr(raw, i, 1) = "{".
 hr_brace_step(raw, i + 1, cat(acc, ch)) :- hr_brace_step(raw, i, acc), i < strlen(raw), ch = substr(raw, i, 1),
     ch != "{", ch != "}".
 .decl hr_brace_path(c0:symbol, c1:symbol)
@@ -409,21 +495,51 @@ hr_fentry(r, fk, kind, vv, fp, ce, n) :- hr_fcand(r, fk, kind, vv, p, ce, n, pre
 // the id an app is reported under: the expression that created its route list. A list made by a call of
 // a factory (each call its own list here) is reported under the factory's `new`, which is what a reader opens.
 .decl hr_is_instance(c0:symbol)
-hr_is_instance(ce) :- hr_inc(ce, t, ce, _, "instance"), !hr_slot(t).
+hr_is_instance(l) :- hr_inc(l, t, _, _, "instance"), !hr_slot(t).
 .decl hr_app_id(c0:symbol, c1:symbol)
 hr_app_id(a, a) :- hr_list(a), !hr_is_instance(a).
-hr_app_id(ce, i) :- hr_inc(ce, t, ce, _, "instance"), !hr_slot(t), hr_app_id(t, i).
+hr_app_id(l, i) :- hr_inc(l, t, _, _, "instance"), !hr_slot(t), hr_app_id(t, i).
 .decl hr_partial_root(c0:symbol)
 hr_partial_root(r) :- hr_root(r), hr_slot(r).
 hr_partial_root(r) :- hr_root(r), hr_unknown_mount(r).
+hr_partial_root(r) :- hr_root(r), hr_fetch_in_handler(r).
+// an app a REQUEST HANDLER serves itself, by calling its fetch (`wrapped.fetch(new Request(url, ..))` in a function an
+// `all('*', (c) => invokePackage(c, app))` handler calls): it answers under whatever prefix that handler's route has,
+// a run-time forwarding, so its routes are an unresolved mount, never exact roots at their own paths
+.decl hr_fetch_site(c0:symbol, c1:symbol)
+hr_fetch_site(r, m) :- call_site("client", "METHOD_CALL", cn, _, x, ce, _), router_app_fetch(cn), hr_app(x, r), hr_root(r),
+    expr_enclosing_method(ce, m).
+// (fetching function, a function calling it): the site's function and its callers, two calls up
+.decl hr_fetch_up(c0:symbol, c1:symbol, c2:number)
+hr_fetch_up(r, m, 0) :- hr_fetch_site(r, m).
+hr_fetch_up(r, g, d + 1) :- hr_fetch_up(r, f, d), d < 2, hr_call_of(oc, f), expr_enclosing_method(oc, g).
+.decl hr_is_handler(c0:symbol)
+hr_is_handler(m) :- hr_node_fn(_, _, m).
+.decl hr_fetch_in_handler(c0:symbol)
+hr_fetch_in_handler(r) :- hr_fetch_up(r, m, _), hr_is_handler(m).
 hr_partial_root(r) :- hr_root(r), hr_list_entry(r).
 
 // http_route(Handler, Verb, FullPath, App, Order) — a route a served app answers:
 // the handler function, the verb (ANY for all), the full path composed through every
 // basePath and mount, the root app (the expression that created it) and the order key
 // of the registration on that app (dotted, zero-padded: compares as program order).
-http_route(m, vv, fp, ai, fk) :- hr_fentry(r, fk, "route", vv, fp, ce, n), hr_last(ce, n), hr_app_id(r, ai),
+// One row per (handler, verb, path, app): an app built by a factory that many calls make (each test's
+// `createApp()`) is many lists reported under one App, each with the route under its own include key; the row keeps the
+// earliest key (lowest line, then column, of its first segment, then the lowest key), never one per list (hono-7-06)
+.decl hr_route_row(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+hr_route_row(m, vv, fp, ai, fk) :- hr_fentry(r, fk, "route", vv, fp, ce, n), hr_last(ce, n), hr_app_id(r, ai),
     hr_route_node(ce, n, m), !contains("{}", fp), !hr_partial_root(r), !hr_dyn_base_call(ce).
+.decl hr_route_rl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number, c6:number)
+hr_route_rl(m, vv, fp, ai, fk, to_number(substr(fk, 0, 7)), to_number(substr(fk, 8, 5))) :- hr_route_row(m, vv, fp, ai, fk), strlen(fk) >= 13.
+.decl hr_route_ml(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+hr_route_ml(m, vv, fp, ai, l) :- hr_route_rl(m, vv, fp, ai, _, _, _), l = min x : { hr_route_rl(m, vv, fp, ai, _, x, _) }.
+.decl hr_route_mc(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number, c5:number)
+hr_route_mc(m, vv, fp, ai, l, c) :- hr_route_ml(m, vv, fp, ai, l), c = min y : { hr_route_rl(m, vv, fp, ai, _, l, y) }.
+.decl hr_route_cand(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+hr_route_cand(m, vv, fp, ai, fk) :- hr_route_mc(m, vv, fp, ai, l, c), hr_route_rl(m, vv, fp, ai, fk, l, c).
+.decl hr_route_later(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+hr_route_later(m, vv, fp, ai, fk) :- hr_route_cand(m, vv, fp, ai, fk), hr_route_cand(m, vv, fp, ai, k2), k2 < fk.
+http_route(m, vv, fp, ai, fk) :- hr_route_cand(m, vv, fp, ai, fk), !hr_route_later(m, vv, fp, ai, fk).
 
 // route_registered_by(RegMethod, Handler, Verb, FullPath, App) — the function whose body makes
 // the registering call (a registration function, an app factory, a module body): what a change
@@ -462,6 +578,8 @@ hr_partial(m, vv, fp, r, "unresolved_mount") :- hr_fentry(r, _, "route", vv, fp,
     hr_route_node(ce, n, m), hr_root(r), hr_slot(r), hr_slot_handed(r).
 hr_partial(m, vv, fp, r, "unresolved_mount") :- hr_fentry(r, _, "route", vv, fp, ce, n), hr_last(ce, n),
     hr_route_node(ce, n, m), hr_root(r), hr_unknown_mount(r), !hr_slot(r).
+hr_partial(m, vv, fp, r, "unresolved_mount") :- hr_fentry(r, _, "route", vv, fp, ce, n), hr_last(ce, n),
+    hr_route_node(ce, n, m), hr_root(r), hr_fetch_in_handler(r), !hr_slot(r), !hr_unknown_mount(r).
 // an app in a list entry no loop over a const array mounts (SPEC ruling R13)
 hr_partial(m, vv, fp, r, "unresolved_mount") :- hr_fentry(r, _, "route", vv, fp, ce, n), hr_last(ce, n),
     hr_route_node(ce, n, m), hr_root(r), hr_list_entry(r), !hr_slot(r).
@@ -496,8 +614,15 @@ remote_undetermined(m, "http", why) :- hr_partial1(m, _, _, _, why).
 
 // http_mount(ParentApp, ChildApp, Prefix, Order) — `route(prefix, child)`: the child
 // app's registrations so far are served under prefix (merged with the parent's base).
-http_mount(a, s, pre, k) :- hr_inc(a, s, site, pre, "mount"), hr_key(site, k), !contains("{}", pre).
-http_mount(a, s, pre, k) :- hr_inc(a, s, site, pre, "mount_each"), hr_key(site, k), !contains("{}", pre).
+// An app is exported under an expression: a list a returned object's property gives (`<call>#<app>`, hr_objret_inst)
+// is exported under the app it was made from.
+http_mount(ao, so, pre, k) :- hr_inc(a, s, site, pre, kd), (kd = "mount" ; kd = "mount_each"), hr_key(site, k), !contains("{}", pre),
+    hr_mount_id(a, ao), hr_mount_id(s, so).
+.decl hr_mount_id_need(c0:symbol)
+hr_mount_id_need(x) :- hr_inc(a, s, _, _, kd), (kd = "mount" ; kd = "mount_each"), (x = a ; x = s).
+.decl hr_mount_id(c0:symbol, c1:symbol)
+hr_mount_id(x, x) :- hr_mount_id_need(x), !contains("#", x).
+hr_mount_id(x, i) :- hr_mount_id_need(x), contains("#", x), hr_app_id(x, i).
 framework_undetermined(m, "mount", "unresolved_mount") :- hr_reg(ce, _, cn), router_mount_app(cn),
     expr_child("client", ce, "ARGUMENT", "1", sx), !hr_app(sx, _), expr_enclosing_method(ce, m), !hv_fin_mount(ce).
 framework_undetermined(m, "mount", "foreign_mount") :- hr_reg(ce, _, cn), router_mount_foreign(cn),

@@ -105,3 +105,14 @@ router_fetch_fn("fetch").
 router_url_class("URL").
 .decl router_local_host(c0:symbol)
 router_local_host("localhost"). router_local_host("127.0.0.1"). router_local_host("0.0.0.0"). router_local_host("[::1]").
+
+// ── OpenAPI routes (config-resolution/http-router-openapi.dl) ───────────────
+// router_openapi: `app.<name>(def, handler, hook?)` registers the route a definition describes; router_route_def: the
+// function a definition is made with (`createRoute({ method, path, middleware })`), which returns its argument;
+// router_def_key(Written, Role): the definition's keys
+.decl router_openapi(c0:symbol)
+router_openapi("openapi").
+.decl router_route_def(c0:symbol, c1:symbol)
+router_route_def("@hono/zod-openapi", "createRoute").
+.decl router_def_key(c0:symbol, c1:symbol)
+router_def_key("method", "method"). router_def_key("path", "path"). router_def_key("middleware", "middleware").

@@ -115,6 +115,12 @@ const undetermined = new Set(STATIC.split('\n').filter(l => l.startsWith('partia
 // a registration behind a condition or in a loop: one run takes one path; compare only the rest
 const conditional = new Set(STATIC.split('\n').filter(l => /^unknown\t.*\t(conditional|loop)_registration\t/.test(l)).map(l => l.split('\t')[3]));
 for (const k of conditional) undetermined.add(k);
+// hono-7-05: a middleware the static half places ONLY on partial routes (`mwp` rows, never an `mw` row) was registered on
+// a sub-app mounted under a run-time prefix: its runtime path is that one execution's prefix, so it is not compared
+{
+  const placed = new Set(STATIC.split('\n').filter(l => l.startsWith('mw\t')).map(l => l.split('\t')[1]));
+  for (const l of STATIC.split('\n')) if (l.startsWith('mwp\t') && !placed.has(l.split('\t')[1])) undetermined.add(l.split('\t')[1]);
+}
 const staticRouteKeys = new Set(STATIC.split('\n').filter(l => l.startsWith('route\t')).map(l => l.split('\t')[3]).filter(k => !k.startsWith('lib')));
 for (const [, st] of stores) for (let i = st.length - 1; i >= 0; i--) if (st[i].keys.some(k => conditional.has(k))) st.splice(i, 1);
 function aligns(rt, st) {
@@ -132,11 +138,22 @@ function aligns(rt, st) {
   return i === rt.length && j === st.length ? { ok: true, n } : { ok: false, at: `length runtime ${rt.length - i} left, static ${st.length - j} left` };
 }
 let compared = 0, bad = [];
+const ppaths = new Map(STATIC.split('\n').filter(l => l.startsWith('ppath\t')).map(l => { const c = l.split('\t'); return [`${c[1]}\t${c[2]}`, c[3]]; }));
+const ppathSeen = new Map(), ppathOk = new Set();
 const seen = new Set();
 for (const app of exported) {
   if (seen.has(app.routes)) continue; seen.add(app.routes);
   const rt = [];
   for (const r of app.routes) { const key = await fnKey(r.handler); r.handlerKey = key; if (!undetermined.has(key)) rt.push({ method: r.method, path: r.path, key }); }
+  // hono-7-05: a partial route's known path (`ppath`, --partial-paths) must match a path this run registered for it, a
+  // `{}` standing for the run-time piece (one or more segments); the sub-app's own unprefixed copy is not that path
+  for (const r of app.routes) {
+    const k = `${r.handlerKey}\t${r.method === 'ALL' ? 'ANY' : r.method}`, pp = ppaths.get(k);
+    if (!pp) continue;
+    const re = new RegExp('^' + pp.split('{}').map(x => x.replace(/[.*+?^$()|[\]\\]/g, '\\$&')).join('[^/]+(?:/[^/]+)*') + '$');
+    if (!ppathSeen.has(k)) ppathSeen.set(k, []);
+    if (re.test(r.path)) ppathOk.add(k); else ppathSeen.get(k).push(r.path);
+  }
   if (!rt.length) continue; // every registration of this app is one the static half declared undetermined
   // an app whose every ROUTE the static half declared undetermined (partial): its middleware alone is no route list
   // to compare (the static half keeps a partial route's chain as `mwp` rows, without a store)
@@ -146,9 +163,11 @@ for (const app of exported) {
   if (best && best.ok) compared += best.n;
   else bad.push(`no static store matches an exported app: ${best ? best.at : 'no stores'}\n    runtime: ${rt.map(r => `${r.method} ${r.path} ${r.key}`).join(' | ')}`);
 }
+for (const [k, paths] of ppathSeen) if (!ppathOk.has(k)) bad.push(`partial path ${ppaths.get(k)} of ${k.split('\t')[0]} matches no runtime path (${paths.join(', ')})`);
+const ppathChecked = ppathOk.size;
 cleanup();
 if (bad.length) { console.log(`runtime DISAGREE\n  ${bad.join('\n  ')}`); process.exit(1); }
 if (compared < 1) { console.log('runtime skip every exported route is declared undetermined by the static half'); process.exit(0); }
-console.log(`runtime agree ${compared} entries over ${seen.size} app(s)`);
+console.log(`runtime agree ${compared} entries over ${seen.size} app(s)${ppaths.size ? `, ${ppathChecked}/${ppaths.size} partial paths matched` : ''}`);
 process.exit(0);
 function cleanup() { try { fs.rmSync(W, { recursive: true, force: true }); } catch { } }

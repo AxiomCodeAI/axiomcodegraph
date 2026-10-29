@@ -16,6 +16,7 @@ column rename in SPEC.md is a one-line edit there, never a change here):
   mw      MW HANDLER ORDER              <- middleware_applies(Mw, Handler, Order)
   ctx     SETTER READER KEY             <- ctx_key_flow(Setter, Reader, Key)
   mwp     MW HANDLER VERB ORDER     <- middleware_applies rows of a partial-only handler (path, app dropped)
+  ppath   HANDLER VERB KNOWNPATH    <- http_route_partial(Handler, Verb, KnownPath); only when the golden has ppath rows
   rpc / request  FROM HANDLER [CONF]    <- remote_edge(From, To, .., Confidence): class base_unknown | method_unknown | known
   entry   FN                            <- entry_point(Fn, "http")
   unknown FN                            <- remote_undetermined(Fn, ...)  (expected col 4)
@@ -153,7 +154,7 @@ def main():
     proj_of = {'route': {'route'}, 'mw': {'mw'}, 'ctx': {'ctx'}, 'rpc': {'remote'}, 'request': {'remote'},
                'entry': {'entry'}, 'unknown': {'unknown'}, 'partial': {'partial'}, 'submount': {'submount'},
                'unserved': {'unserved'}, 'schema': {'schema'}, 'validread': {'validread'}, 'regby': {'regby'},
-               'absent': {'route', 'mw'}, 'mwp': {'mw'}}
+               'absent': {'route', 'mw'}, 'mwp': {'mw'}, 'ppath': {'partial'}}
     # an absence is checked against every Hono relation the engine exports; route and mw are required
     # (above), the later ones (ctx, remote, schema) join the check as soon as they are exported
     absent_optional = {'ctx', 'remote', 'schema'}
@@ -184,6 +185,9 @@ def main():
                     out.append(('route', g('verb').upper(), g('path'), fn(g('handler'))) + ((fn(g('app')),) if 'app' in c else ()))
                 elif proj == 'partial':
                     out.append(('partial', fn(g('handler')), g('reason')))
+                    # hono-7-05 (opt-in: a case whose golden has ppath rows): the KnownPath of the partial route
+                    if 'ppath' in kinds:
+                        out.append(('ppath', fn(g('handler')), (g('verb') or '').upper(), g('path')))
                 elif proj == 'submount':
                     out.append(('submount', g('prefix')))
                 elif proj == 'mw':
@@ -246,6 +250,8 @@ def main():
             want.add(('unknown', r[3], r[2]))
         elif k == 'partial':
             want.add(('partial', lib(r[1]), r[3]))
+        elif k == 'ppath':
+            want.add(('ppath', lib(r[1]), r[2], r[3]))
         elif k == 'submount':
             want.add(('submount', r[1]))
         elif k == 'unserved':

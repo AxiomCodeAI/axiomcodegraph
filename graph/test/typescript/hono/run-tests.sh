@@ -22,6 +22,9 @@
 #   ./run-tests.sh --draft           write the oracle's rows to expected/*.draft for REVIEW (never to the golden)
 #   ./run-tests.sh --keep            keep .work/
 #
+# cases/<suite>/<case>/partial-paths (opt-in): the oracle also prints, and the compare also checks, `ppath HANDLER
+# VERB KNOWNPATH` rows: a partial route's composed path with `{}` for the run-time piece (http_route_partial KnownPath).
+#
 # expected/<suite>/<case>.known-missing: `<variant|*>\t<compared row>` per line (the row as the
 # compare prints it after MISSING). A new miss fails; a listed miss that starts passing fails.
 #
@@ -106,11 +109,13 @@ for dir in "$HERE"/cases/*/*/; do
   # chains/ (SPEC R18-R21): a third golden of whole call chains, checked against the compiler oracle and the runtime trace
   chf="$HERE/expected/$suite/$name.chains"; chargs=()
   w="$WORK/$suite/$name"; rm -rf "$w"; mkdir -p "$w"
+  # a `partial-paths` file opts the case into `ppath` rows: the known path of each partial route (hono-7-05)
+  oflags=(); [ -f "$dir/partial-paths" ] && oflags=(--partial-paths)
   ok=1; notes=""
 
   if [ "$DRAFT" = 1 ]; then
     mkdir -p "$(dirname "$exp")"
-    if node "$ORACLE_DIR/hono-oracle.mjs" "$dir/src" --stores >"$w/oracle.full" 2>"$w/oracle.log"; then
+    if node "$ORACLE_DIR/hono-oracle.mjs" "$dir/src" --stores ${oflags[@]+"${oflags[@]}"} >"$w/oracle.full" 2>"$w/oracle.log"; then
       rt="$(node "$ORACLE_DIR/runtime-check.mjs" "$dir/src" "$w/oracle.full" 2>&1 | head -6)"
       grep -v '^store' "$w/oracle.full" | grep -v '^entry' >"$exp.draft"
       grep '^entry' "$w/oracle.full" >"$ent.draft"
@@ -133,7 +138,7 @@ for dir in "$HERE"/cases/*/*/; do
   [ $ok = 1 ] || { fail=$((fail+1)); failed+=("$id"); continue; }
 
   if [ "$ORACLE" = 1 ]; then
-    if node "$ORACLE_DIR/hono-oracle.mjs" "$dir/src" --stores >"$w/oracle.full" 2>"$w/oracle.log"; then
+    if node "$ORACLE_DIR/hono-oracle.mjs" "$dir/src" --stores ${oflags[@]+"${oflags[@]}"} >"$w/oracle.full" 2>"$w/oracle.log"; then
       grep -v '^store' "$w/oracle.full" | sort >"$w/oracle.rows"
       cat "$exp" "$ent" | rows_of /dev/stdin >"$w/expected.rows"
       if grep -q 'ORACLE_UNDECIDED' "$w/oracle.rows"; then echo "FAIL (the oracle could not decide a chain: extend it, do not hand-write)"; ok=0; fi

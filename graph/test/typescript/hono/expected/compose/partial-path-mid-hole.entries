@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-05: the template prefix /v1/${group} keeps its known pieces: partial GET /v1/{}/ping and /v1/{}/status/:part (runtime /v1/system/... matches), global use 0 and the sub-app's use 1, the /v1/* use is partial_route_scope
+# census: route_mount_nonliteral, use_scoped, use_global (violation hono-7-05: a partial route whose unknown piece
+entry	main.ts:14:14	http
+entry	main.ts:17:26	http
+entry	main.ts:23:20	http
+entry	system.ts:4:17	http
+entry	system.ts:8:21	http
+entry	system.ts:9:29	http

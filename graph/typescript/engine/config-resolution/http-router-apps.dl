@@ -320,6 +320,10 @@ hr_objlit(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i !
 .decl hr_objcall(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 hr_objcall(ce, ce, w, o) :- hr_call_of(ce, w), hr_ret_expr(w, e), hr_objlit(e, o).
 hr_objcall(r, ce, w, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_objcall(i, ce, w, o).
+// …or a PARAMETER such a result is passed into (`mountHttp(runtime)` where `runtime = await createRuntime()`, then
+// `const { usersRoutes } = runtime` inside): what each call passes there
+hr_objcall(r, ce, w, o) :- hr_objcall(a, ce, w, o), expr_child("client", oc, "ARGUMENT", pos, a), hr_call_of(oc, f),
+    param_decl("client", _, pos, _, f, p), expr_referenced("client", "PARAMETER", p, r).
 hr_objcall(e, ce, w, o) :- hr_objcall(c, ce, w, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
     (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
 // an element of a const array literal, read through a for..of binding over it
@@ -362,15 +366,19 @@ hr_destr_of(e, v) :- expr_referenced("client", "VARIABLE", d, e), var_binding("c
     hr_objlit(i, o), rd_obj_prop(o, src, v).
 hr_app(e, a) :- hr_destr_of(e, v), hr_app(v, a).
 // a property of an object a call returned (`const { app } = createTestApp()`, `(await setup()).app`): an app
-// the function created is this call's own list, any other is the same list every time
+// the function created is this call's own list, any other is the same list every time. The call's own list is
+// one per (call, created app), never the call alone: `return { envRoutes, fileRoutes }` holds two apps, and a read
+// of `envRoutes` is the first only (one list for the call made every property read every app). Its id is the call
+// and the created app joined by `#`; it is reported under the created app (hr_app_id)
 .decl hr_viacall(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 hr_viacall(e, ce, w, v) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hr_objcall(q, ce, w, o),
     rd_obj_prop(o, n, v).
 hr_viacall(e, ce, w, v) :- expr_referenced("client", "VARIABLE", d, e), var_binding("client", _, "PROPERTY", src, i, d), i != "",
     hr_objcall(i, ce, w, o), rd_obj_prop(o, src, v).
-.decl hr_objret_inst(c0:symbol, c1:symbol)
-hr_objret_inst(ce, t) :- hr_viacall(_, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w).
-hr_app(e, ce) :- hr_viacall(e, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w).
+// (list, call, created app)
+.decl hr_objret_inst(c0:symbol, c1:symbol, c2:symbol)
+hr_objret_inst(l, ce, t) :- hr_viacall(_, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w), l = cat(ce, cat("#", t)).
+hr_app(e, l) :- hr_viacall(e, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w), l = cat(ce, cat("#", t)).
 hr_app(e, t) :- hr_viacall(e, _, w, v), hr_app(v, t), !expr_enclosing_method(t, w).
 
 .decl hr_slot_arg(c0:symbol, c1:symbol, c2:symbol)
@@ -402,8 +410,29 @@ hr_reg(ce, a, cn) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), hr_reg
 hr_def_val(x, o) :- hr_on(), call_site("client", "FUNCTION_CALL", _, _, _, x, _),
     expr_child("client", x, "METHOD_NAME", _, f), expr_referenced("client", "IMPORT_BINDING", ih, f),
     import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec), router_route_def(spec, orig),
-    expr_child("client", x, "ARGUMENT", "0", o), expr_kind("client", "OBJECT_LITERAL", _, o).
+    expr_child("client", x, "ARGUMENT", "0", a), hr_def_obj(a, o).
 hr_def_val(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_val(i, o).
+hr_def_val(e, o) :- hr_on(), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_val(c, o).
+// an object literal written in place or held by a const, through `as T` / `satisfies T` / parentheses
+.decl hr_def_obj(c0:symbol, c1:symbol)
+hr_def_obj(o, o) :- hr_on(), expr_kind("client", "OBJECT_LITERAL", _, o).
+hr_def_obj(e, o) :- hr_on(), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_obj(c, o).
+hr_def_obj(r, o) :- hr_on(), hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_obj(i, o).
+// …a project function that RETURNS a definition (`authRoute(scope, { method, path, .. })` returning
+// `createRoute({ ...config, middleware })`): the call is a definition, the object the function builds. Its keys spread
+// from a parameter (`...config`) are that call's argument's own (hr_def_spread), so each call is its own route
+.decl hr_def_call(c0:symbol, c1:symbol)
+hr_def_call(x, w) :- hr_call_of(x, w), hr_ret_expr(w, e), hr_def_val(e, _).
+hr_def_val(x, o) :- hr_def_call(x, w), hr_ret_expr(w, e), hr_def_val(e, o).
+// (call, the object the function builds, the call's argument object spread into it)
+.decl hr_def_spread(c0:symbol, c1:symbol, c2:symbol)
+hr_def_spread(x, o, o2) :- hr_def_call(x, w), hr_ret_expr(w, e), hr_def_val(e, o), expr_child("client", o, "SPREAD_OPERAND", _, sx),
+    hv_spread_src(sx, y), hr_def_param(y, p), param_decl("client", _, pos, _, w, p), expr_child("client", x, "ARGUMENT", pos, a), hr_def_obj(a, o2).
+hr_def_val(x, o2) :- hr_def_spread(x, _, o2).
+// a reference to a parameter, through `as T` and parentheses
+.decl hr_def_param(c0:symbol, c1:symbol)
+hr_def_param(y, p) :- hr_on(), expr_referenced("client", "PARAMETER", p, y).
+hr_def_param(y, p) :- hr_on(), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c), hr_def_param(c, p).
 // `import * as routes from './routes'; app.openapi(routes.get, h)`
 hr_def_val(e, o) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, r),
     expr_referenced("client", "IMPORT_BINDING", ih, r), import_binds_namespace(ih, "client", m),
@@ -505,7 +534,7 @@ hr_fw_self(e, v) :- hr_field_write(f, v), hr_fw_sub(v, e), ts_field_access_targe
 hr_val(e, a, b) :- ts_field_access_target(e, f), hr_field_write(f, v), hr_val(v, a, b), e != v, !hr_fw_self(e, v).
 hr_val(e, a, b) :- hr_prop_of(e, v), hr_val(v, a, b).
 hr_val(e, a, b) :- hr_destr_of(e, v), hr_val(v, a, b).
-hr_val(e, ce, b) :- hr_viacall(e, ce, w, v), hr_val(v, t, b), expr_enclosing_method(t, w).
+hr_val(e, l, b) :- hr_viacall(e, ce, w, v), hr_val(v, t, b), expr_enclosing_method(t, w), l = cat(ce, cat("#", t)).
 hr_val(e, t, b) :- hr_viacall(e, _, w, v), hr_val(v, t, b), !expr_enclosing_method(t, w).
 
 // ── INCLUSION: a list whose registrations are spliced into another ─────────
@@ -588,7 +617,7 @@ hr_inc(a, p, oc, b, "param") :- hr_slot_arg(oc, p, x), hr_val(x, a, b), a != p, 
 // other way round from a parameter registrations are made on
 hr_inc(p, s, oc, "/", "arg") :- hr_param_mounted(p), hr_slot_arg(oc, p, x), hr_app(x, s), s != p.
 hr_inc(ce, p, ce, "/", "instance") :- hr_factory_app(ce, f), hr_factory_init_param(f, p).
-hr_inc(ce, t, ce, "/", "instance") :- hr_objret_inst(ce, t).
+hr_inc(l, t, ce, "/", "instance") :- hr_objret_inst(l, ce, t).
 
 // the same links without their prefixes: which lists are roots is decided before any
 // string is read, because the strings a root's flattening needs depend on it
@@ -599,7 +628,7 @@ hr_included(t) :- hr_callee(ce, w), hr_ret_cand(w, t), expr_enclosing_method(t, 
 hr_included(p) :- hr_slot_arg(_, p, x), hr_app(x, a), a != p.
 hr_included(s) :- hr_param_mounted(p), hr_slot_arg(_, p, x), hr_app(x, s), s != p.
 hr_included(p) :- hr_factory_app(_, f), hr_factory_init_param(f, p).
-hr_included(t) :- hr_objret_inst(_, t).
+hr_included(t) :- hr_objret_inst(_, _, t).
 hr_included(t) :- hr_kv_sub(_, _, t).
 hr_included(s) :- hr_reg(ce, a, cn), router_mount_app(cn), hr_gtied(ce, g), hr_glob_app_of(g, s), s != a.
 hr_included(s) :- hr_reg(ce, a, cn), router_mount_app(cn), hr_gtied_d(ce, g), hr_glob_app_of(g, s), s != a.
@@ -1094,7 +1123,7 @@ hr_merge(a, b, r) :- hr_mreq(a, b), hr_lead(a, a1), hr_lead(b, b1), b1 != "/",
 hr_need_key(ce) :- hr_reg(ce, _, _).
 hr_need_key(oc) :- hr_slot_arg(oc, _, a), hr_app(a, _).
 hr_need_key(ce) :- hr_app(ce, ce), !hr_new(ce).
-hr_need_key(ce) :- hr_objret_inst(ce, _).
+hr_need_key(ce) :- hr_objret_inst(_, ce, _).
 .decl hr_key_pn(c0:symbol, c1:symbol)
 hr_key_pn(ce, pn) :- hr_need_key(ce), call_callee_expr(_, ce, ne), expr_child("client", ne, "PROPERTY_NAME", _, pn).
 .decl hr_has_key_pn(c0:symbol)

@@ -1,12 +1,12 @@
 # hand-reviewed 2026-10-28 against the fixture and the oracle: m35b/hono-5-02: per-call apps; /reports guard 0; /exports guard 0 (from reports), guard 1, quota 2, declared dynamic_middleware_list; exact plus conditional
 # census: route_mount_root (stress-5 mutation m35b shape; violation hono-5-02, SPEC R6 and R13b)
+# iteration 8: repeated rows removed (O29: the oracle prints each row once); the row set is unchanged
 route	GET	/reports	index.ts:30:23	index.ts:44:13	1
 route	GET	/exports	index.ts:37:23	index.ts:44:13	4
 mw	index.ts:9:21	index.ts:30:23	GET	/reports	0	index.ts:44:13
 mw	index.ts:9:21	index.ts:37:23	GET	/exports	0	index.ts:44:13
 mw	index.ts:9:21	index.ts:37:23	GET	/exports	1	index.ts:44:13
 mw	index.ts:12:21	index.ts:37:23	GET	/exports	2	index.ts:44:13
-submount	/	index.ts:46:27
 submount	/	index.ts:46:27
 regby	index.ts:28:3	index.ts:30:23	GET	/reports	index.ts:44:13
 regby	index.ts:35:3	index.ts:37:23	GET	/exports	index.ts:44:13

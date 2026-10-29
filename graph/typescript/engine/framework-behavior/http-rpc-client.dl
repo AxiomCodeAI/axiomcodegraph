@@ -117,6 +117,8 @@ hc_strip_need(raw) :- hc_preq(_, w, pos), hr_call_of(oc, w), expr_child("client"
 .decl hc_preq_init(c0:symbol, c1:symbol, c2:symbol)
 hc_preq_init(oc, ce, ia) :- hc_preq_at(oc, ce, _, _), expr_child("client", ce, "ARGUMENT", "1", x1), expr_referenced("client", "PARAMETER", ip, x1),
     param_decl("client", _, ipos, _, _, ip), expr_child("client", oc, "ARGUMENT", ipos, ia).
+// …or the init the helper writes in place (`app.request(path, { method: 'POST', body })`): the same for every call
+hc_preq_init(oc, ce, x1) :- hc_preq_at(oc, ce, _, _), expr_child("client", ce, "ARGUMENT", "1", x1), !expr_referenced("client", "PARAMETER", _, x1).
 .decl hc_preq_has_init(c0:symbol, c1:symbol)
 hc_preq_has_init(oc, ce) :- hc_preq_init(oc, ce, _).
 .decl hc_preq_verb(c0:symbol, c1:symbol, c2:symbol)
@@ -126,6 +128,11 @@ hc_preq_verb(oc, ce, vv) :- hc_preq_init(oc, ce, o), rd_obj_prop(o, key, val), t
     expr_literal_value("client", w, val), ts_http_verb_name(w, vv).
 hc_preq_verb(oc, ce, "GET") :- hc_preq_init(oc, ce, o), expr_kind("client", "OBJECT_LITERAL", _, o), !hc_obj_has_method_key(o).
 hc_preq_verb(oc, ce, "*") :- hc_preq_init(oc, ce, o), !expr_kind("client", "OBJECT_LITERAL", _, o).
+// …a method key whose value is not a literal verb: not decidable (SPEC ruling R17)
+hc_preq_verb(oc, ce, "*") :- hc_preq_init(oc, ce, o), hc_obj_has_method_key(o), !hc_obj_lit_method(o).
+.decl hc_obj_lit_method(c0:symbol)
+hc_obj_lit_method(o) :- hc_preq_init(_, _, o), rd_obj_prop(o, key, val), ts_http_init_method_key(key), expr_literal_value("client", w, val),
+    ts_http_verb_name(w, _).
 .decl hc_obj_has_method_key(c0:symbol)
 hc_obj_has_method_key(o) :- hc_preq_init(_, _, o), rd_obj_prop(o, key, _), ts_http_init_method_key(key).
 hc_send(oc, from, a, vv, p) :- hc_preq_at(oc, ce, a, p), hc_preq_verb(oc, ce, vv), expr_enclosing_method(ce, from).

@@ -1,0 +1,9 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a route whose mount prefix has a run-time piece in the MIDDLE (`/v1/{}/ping`) answers a question about a full path it can be (`/v1/system/ping`), with the scoped middleware that may run on it; the lookup dropped the hole and compared `/v1/ping` against the asked path's tail",
+   "run": ["context", "what runs before GET /v1/system/ping"],
+   "want": ["route: GET /v1/{}/ping", "may run (scope /v1/* vs unknown prefix)"]},
+  {"why": "CONTROL: a path whose known first segment differs (`/v2/system/ping`) is not that route",
+   "run": ["context", "what runs before GET /v2/system/ping"],
+   "avoid": ["route: GET /v1/{}/ping"]}
+ ]}
