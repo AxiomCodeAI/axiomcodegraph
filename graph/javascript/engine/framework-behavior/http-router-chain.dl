@@ -24,7 +24,15 @@ jb_set_at(m, key, ce) :- jb_set_site(m, ce, k), expr_value(k, "str", key).
 .decl jb_get_at(c0:symbol, c1:symbol, c2:symbol)
 jb_get_at(m, key, ce) :- jb_get_site(m, ce, k), expr_value(k, "str", key).
 jb_get_at(m, key, e) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, key, e), expr_child(_, e, "ACCESS_TARGET", _, v),
-    expr_kind(_, "PROPERTY_ACCESS", _, v), expr_name(_, "var", v), expr_child(_, v, "ACCESS_TARGET", _, c), jb_ctx_ref(c, m).
+    jb_var_expr(v, m).
+// `const { K } = c.var`: each destructured name is a read of that key, at the `c.var`. The IR keeps
+// the name a property is bound to, not the property: a renamed one (`{ K: x }`) reads x, which no
+// setter writes, so it is declared (no_setter_on_chain), never linked to the wrong key.
+jb_get_at(m, key, v) :- var_binding_form("client", "OBJECT_PATTERN", h), var_init("client", _, v, h), jb_var_expr(v, m),
+    var_decl("client", key, _, _, _, _, h).
+// `c.var`, on a context
+.decl jb_var_expr(c0:symbol, c1:symbol)
+jb_var_expr(v, m) :- expr_kind(_, "PROPERTY_ACCESS", _, v), expr_name(_, "var", v), expr_child(_, v, "ACCESS_TARGET", _, c), jb_ctx_ref(c, m).
 .decl jb_keyed(c0:symbol)
 jb_keyed(k) :- jb_set_site(_, _, k), expr_value(k, "str", _).
 jb_keyed(k) :- jb_get_site(_, _, k), expr_value(k, "str", _).
@@ -46,7 +54,24 @@ jb_chain(h, vv, p, h, 100000) :- http_route(h, vv, p, _, _).
 
 // ctx_key_flow(Setter, Reader, Key) — on some route's chain, Setter runs before Reader
 // (or is Reader, setting before it reads) and writes the context key Reader reads.
-ctx_key_flow(s, r, key) :- jb_set(s, key), jb_get(r, key), jb_chain(h, vv, p, s, i), jb_chain(h, vv, p, r, j), i < j.
+ctx_key_flow(s, r, key) :- jb_set_live(s, key), jb_get(r, key), jb_chain(h, vv, p, s, i), jb_chain(h, vv, p, r, j), i < j.
+// a set a middleware makes after calling its `next` runs once every later function on the chain has
+// returned: only the middleware itself reads it back (jb_set_before_get)
+.decl jb_set_live(c0:symbol, c1:symbol)
+jb_set_live(m, key) :- jb_set_at(m, key, ce), !jb_after_next(m, ce).
+.decl jb_next_call(c0:symbol, c1:symbol)
+jb_next_call(m, nc) :- jb_set_at(m, _, _), param_decl("client", _, "1", m, p), expr_param(_, p, n),
+    call_site(_, "FUNCTION_CALL", _, _, _, _, nc, _, _), expr_child(_, nc, "CALLEE", _, n).
+.decl jb_after_next(c0:symbol, c1:symbol)
+jb_after_next(m, ce) :- jb_set_at(m, _, ce), jb_next_call(m, nc), !jb_next_guarded(m, nc), expr_span(_, nl, nc0, _, _, nc), jb_pos(ce, sl, sc),
+    (to_number(nl) < sl ; to_number(nl) = sl, to_number(nc0) < sc).
+// a `next()` in a branch, a loop or a try (`if (skip) return next()`) of the function itself may not have run
+// before a later set: a block of m whose span holds the call
+.decl jb_next_guarded(c0:symbol, c1:symbol)
+jb_next_guarded(m, nc) :- jb_next_call(m, nc), expr_span(_, l, c, _, _, nc), block_owner(k, m, b), block_span(_, _, l1, c1, l2, c2, b),
+    (jr_cond_kind(k) ; jr_loop_kind(k) ; k = "TRY"),
+    (to_number(l) > to_number(l1) ; to_number(l) = to_number(l1), to_number(c) >= to_number(c1)),
+    (to_number(l) < to_number(l2) ; to_number(l) = to_number(l2), to_number(c) <= to_number(c2)).
 ctx_key_flow(s, s, key) :- jb_set_before_get(s, key), jb_chain(_, _, _, s, _).
 .decl jb_read_served(c0:symbol, c1:symbol)
 jb_read_served(r, key) :- ctx_key_flow(_, r, key).
