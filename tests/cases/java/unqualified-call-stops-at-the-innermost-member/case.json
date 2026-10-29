@@ -1,0 +1,8 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an unqualified call in a nested class is the innermost class's own method of that name (JLS 15.12.1), never the outer one it shadows",
+   "run": ["impact", "src/pkg/Doc.java:9", "--depends"], "want": ["Doc.java:8"], "avoid": ["Doc.java:4", "one of a set"]},
+  {"why": "an inherited member shadows the outer one as well",
+   "run": ["impact", "src/pkg/Doc.java:20", "--depends"], "want": ["Doc.java:18"], "avoid": ["Doc.java:5"]},
+  {"why": "control: a name only the outer class declares is still found there",
+   "run": ["impact", "src/pkg/Doc.java:14", "--depends"], "want": ["Doc.java:5"]}]}

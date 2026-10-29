@@ -888,7 +888,32 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), walk_edge(a, b, _), !state_gate(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), walk_edge(a, b, _), !state_gate(a, b, _), !base_site_skip(q, a, b), !fanned_base_skip(q, a, b), d < 40.
+// A BASE THE TARGET OVERRIDES IS NOT A WAY IN FROM A SITE THAT ENUMERATED ITS OVERRIDES. The base is a seed ("it
+// overrides this"), so every caller of the base was read as a caller of the target. Where the engine fanned the site
+// (it lists overrides of the base there, the fan taken under the receiver's type) and the target is not among them,
+// the receiver cannot hold the target's type: `n.lookup(k)` on a Narrow runs Narrow's two implementations, never a
+// third class's, though all of them implement the one interface method the site names. A site that lists no
+// override (the fan refused as too wide, or a concrete base) is still a way in.
+// ...and the same for an ABSTRACT base reached anywhere on the walk (a dispatch hop from one of its overrides): a
+// caller whose every site calling it lists the overrides the receiver may hold is reached from those overrides
+// directly, so the bodiless base adds only the overrides it does NOT list — `StrLookup.noneLookup().lookup(k)` names
+// StringLookup#lookup and lists StrLookup's three implementations; reaching it from XmlDecoderStringLookup#lookup
+// through the interface method was a route the receiver's type rules out. Not when the base is the change itself.
+.decl abstract_m(m:symbol)                                        .input abstract_m
+.decl base_unfanned_site(c:symbol, b:symbol)
+base_unfanned_site(c, b) :- abstract_m(b), calls(c, b, _, f, l), !base_site_fanned(c, b, f, l).
+.decl base_fanned_only(c:symbol, b:symbol)
+base_fanned_only(c, b) :- abstract_m(b), calls(c, b, _, _, _), !base_unfanned_site(c, b).
+.decl fanned_base_skip(q:symbol, c:symbol, b:symbol)
+fanned_base_skip(q, c, b) :- target(q, _, _, _), base_fanned_only(c, b), !target(q, "method", b, _).
+.decl base_site_fanned(c:symbol, b:symbol, f:symbol, l:number)
+base_site_fanned(c, b, f, l) :- calls(c, b, _, f, l), calls(c, o, _, f, l), override(b, o).
+.decl base_site_ok(q:symbol, c:symbol, b:symbol)
+base_site_ok(q, c, b) :- contract(q, b, "it overrides this"), calls(c, b, _, f, l), !base_site_fanned(c, b, f, l).
+base_site_ok(q, c, b) :- contract(q, b, "it overrides this"), target(q, "method", m, _), calls(c, b, _, f, l), calls(c, m, _, f, l).
+.decl base_site_skip(q:symbol, c:symbol, b:symbol)
+base_site_skip(q, c, b) :- contract(q, b, "it overrides this"), calls(c, b, _, _, _), !base_site_ok(q, c, b).
 // A CALLABLE WRITTEN INSIDE A JAVA INITIALIZER IS NOT RUN BY IT. `static { ACCESS = new Access() { void m() {..} }; }` and
 // `static final Comparator<T> BY_NAME = (a, b) -> ..` build an object; its method runs when someone calls it on that
 // object, which the call edges into it already say. The `defines` hop from the initializer (a <clinit>, an <init_block>,
