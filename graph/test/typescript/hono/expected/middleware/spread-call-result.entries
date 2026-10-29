@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-06: ...createLimits() seen through: limiter's inner fn at 0 and 1, after at 2
+# census: use_multi, mw_factory_returning_fn (violation hono-1-06)
+entry	index.ts:20:34	http
+entry	index.ts:27:15	http
+entry	index.ts:8:10	http

@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: a hole is one segment: request and client both reach /posts/latest and /posts/:id by shape; /comments/${} is dynamic_rpc_path; the absolute URL uses its pathname
+# census: app_request_test, hc_element_param (SPEC 3.5 [iter2] template holes and absolute URLs)
+route	GET	/posts	app.ts:4:18	app.ts:3:20	0
+route	GET	/posts/latest	app.ts:5:25	app.ts:3:20	1
+route	GET	/posts/:id	app.ts:6:22	app.ts:3:20	2
+rpc	app.test.ts:10:1	GET	/posts/${}	app.ts:5:25
+rpc	app.test.ts:10:1	GET	/posts/${}	app.ts:6:22
+request	app.test.ts:16:1	GET	/posts	app.ts:4:18
+request	app.test.ts:7:1	GET	/posts/${}	app.ts:5:25
+request	app.test.ts:7:1	GET	/posts/${}	app.ts:6:22
+regby	app.ts:1:1	app.ts:4:18	GET	/posts	app.ts:3:20
+regby	app.ts:1:1	app.ts:5:25	GET	/posts/latest	app.ts:3:20
+regby	app.ts:1:1	app.ts:6:22	GET	/posts/:id	app.ts:3:20
+unknown	app.test.ts:14:10	dynamic_rpc_path	app.test.ts:13:1

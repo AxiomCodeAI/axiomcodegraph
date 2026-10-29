@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O3b: exports to an unbuilt dist file resolve to the package source; the dashboard is mounted at /admin, no root of its own
+# census: route_mount_literal (oracle gap O3b)
+route	GET	/health	apps/api/src/index.ts:8:20	apps/api/src/index.ts:7:13	0
+route	GET	/admin	packages/routes/src/adapters/hono.ts:5:15	apps/api/src/index.ts:7:13	1
+route	GET	/admin/api/activity	packages/routes/src/adapters/hono.ts:6:27	apps/api/src/index.ts:7:13	2
+submount	/admin	apps/api/src/index.ts:9:5
+regby	apps/api/src/index.ts:1:1	apps/api/src/index.ts:8:20	GET	/health	apps/api/src/index.ts:7:13
+regby	packages/routes/src/adapters/hono.ts:3:1	packages/routes/src/adapters/hono.ts:5:15	GET	/admin	apps/api/src/index.ts:7:13
+regby	packages/routes/src/adapters/hono.ts:3:1	packages/routes/src/adapters/hono.ts:6:27	GET	/admin/api/activity	apps/api/src/index.ts:7:13

@@ -1,0 +1,295 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP RPC CLIENT  (JavaScript: a request that names a route)
+//
+// The JavaScript counterpart of typescript/engine/framework-behavior/http-rpc-client.dl.
+// Three ways a program sends a request to a route this engine has in http_route:
+//   * `app.request('/items/42', { method })`        the app value itself, in a test;
+//   * `testClient(app).items[':id'].$get()`        a client over an app value;
+//   * `hc(base).items[':id'].$get()`               a client with no app named: JavaScript
+//     has no type argument, so it is matched against every route in the graph.
+// Each property is a path segment (`index` adds none, `[':id']` the written segment) and
+// `$<verb>` sends. The send joins the route whose full path it fits: `exact` when every
+// segment is equal, `route_shape` when a route parameter stood in; of several, the fewest
+// stand-ins win. A client with no app named is never better than `route_shape`.
+//
+//   remote_edge(Sender, Handler, "http", "<VERB> <path>", Confidence)
+//   remote_unserved(Sender, "http", "<VERB> <path>")
+// ============================================================================
+
+// (client root call, app list; "*" = every app)
+.decl jc_root(c0:symbol, c1:symbol)
+jc_root(ce, "*") :- jr_knob_call(ce, spec, n), router_rpc_client(spec, n).
+jc_root(ce, a) :- jr_knob_call(ce, spec, n), router_test_client(spec, n), call_arg(ce, 0, x),
+    expr_value(x, "router_app", a).
+
+// the path a client expression has accumulated
+.decl jc_cpath(c0:symbol, c1:symbol, c2:symbol)
+jc_cpath(ce, a, "") :- jc_root(ce, a).
+jc_cpath(e, a, p) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_init(_, _, i, v), jc_cpath(i, a, p).
+jc_cpath(e, a, p) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e), router_rpc_index(n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), jc_cpath(r, a, p).
+jc_cpath(e, a, cat(p, cat("/", n))) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
+    !router_rpc_index(n), !router_rpc_verb(n, _), expr_child(_, e, "ACCESS_TARGET", _, r), jc_cpath(r, a, p),
+    strlen(p) < 300.
+jc_cpath(e, a, cat(p, cat("/", k))) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r),
+    jc_cpath(r, a, p), expr_child(_, e, "COMPUTED_KEY", _, x), expr_value(x, "str", k), strlen(p) < 300.
+// a function that returns a client: each call is that client
+jc_cpath(ce, a, p) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, w), jc_return_expr(w, e), jc_cpath(e, a, p).
+.decl jc_return_expr(c0:symbol, c1:symbol)
+jc_return_expr(w, e) :- expr_root(_, "RETURN", e), expr_owner(_, w, _, e).
+
+// (site, sender, app, verb, path)
+.decl jc_send(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+jc_send(ce, from, a, vv, p) :- call_site(_, "METHOD_CALL", cn, _, r, from, ce, _, _), router_rpc_verb(cn, vv),
+    jc_cpath(r, a, p0), p0 != "", p = p0.
+jc_send(ce, from, a, vv, "/") :- call_site(_, "METHOD_CALL", cn, _, r, from, ce, _, _), router_rpc_verb(cn, vv),
+    jc_cpath(r, a, "").
+// `app.request(path, init?)`: GET unless the init names a method
+.decl jc_req(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jc_req(ce, from, a, p) :- jc_req_raw(ce, from, a, raw), jc_req_path(raw, p).
+// the URL as written: a path, or an absolute URL whose path is taken (`http://localhost/x`); the query
+// string and fragment are not part of the path (SPEC 3.5, ruling R9)
+.decl jc_req_raw(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jc_req_raw(ce, from, a, raw) :- call_site(_, "METHOD_CALL", cn, _, r, from, ce, _, _), router_app_request(cn),
+    expr_value(r, "router_app", a), call_arg(ce, 0, x), expr_value(x, "str", raw), strlen(raw) >= 1.
+.decl jc_sch(c0:symbol, c1:number)
+jc_sch(raw, i) :- jc_req_raw(_, _, _, raw), strlen(raw) >= 3, i = range(0, strlen(raw) - 2), substr(raw, i, 3) = "://".
+.decl jc_after(c0:symbol, c1:symbol)
+jc_after(raw, r) :- jc_sch(raw, _), i = min x : { jc_sch(raw, x) }, r = substr(raw, i + 3, strlen(raw) - i - 3).
+.decl jc_aslash(c0:symbol, c1:number)
+jc_aslash(r, i) :- jc_after(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "/".
+.decl jc_full(c0:symbol, c1:symbol)
+jc_full(raw, raw) :- jc_req_raw(_, _, _, raw), substr(raw, 0, 1) = "/".
+jc_full(raw, p) :- jc_after(raw, r), m = min x : { jc_aslash(r, x) }, p = substr(r, m, strlen(r) - m).
+jc_full(raw, "/") :- jc_after(raw, r), !jc_aslash(r, _).
+.decl jc_cut(c0:symbol, c1:number)
+jc_cut(f, i) :- jc_full(_, f), i = range(0, strlen(f)), (substr(f, i, 1) = "?" ; substr(f, i, 1) = "#").
+.decl jc_req_path(c0:symbol, c1:symbol)
+jc_req_path(raw, f) :- jc_full(raw, f), !jc_cut(f, _).
+jc_req_path(raw, q) :- jc_full(raw, f), m = min i : { jc_cut(f, i) }, m > 0, q = substr(f, 0, m).
+jc_req_path(raw, "/") :- jc_full(raw, f), jc_cut(f, 0).
+.decl jc_req_method(c0:symbol, c1:symbol)
+jc_req_method(ce, vv) :- jc_req(ce, _, _, _), call_arg(ce, 1, o), expr_value(o, k, i), prop_value(k, i, key, "str", w),
+    router_init_method_key(key), router_verb_name(w, vv).
+.decl jc_req_has_method(c0:symbol)
+jc_req_has_method(ce) :- jc_req_method(ce, _).
+jc_send(ce, from, a, vv, p) :- jc_req(ce, from, a, p), jc_req_method(ce, vv), !jc_req_mu(ce).
+jc_send(ce, from, a, "GET", p) :- jc_req(ce, from, a, p), !jc_req_has_method(ce), !jc_req_mu(ce).
+// a request whose method is not decidable (SPEC ruling R17) stands for every verb (`*`), as a fetch does below: an
+// init that is not an object the program shows, a method that is not a literal verb, or a method set only in a branch
+jc_send(ce, from, a, "*", p) :- jc_req(ce, from, a, p), jc_req_mu(ce).
+.decl jc_req_mu(c0:symbol)
+jc_req_mu(ce) :- jc_req(ce, _, _, _), call_arg(ce, 1, o), !jc_req_init_obj(o).
+jc_req_mu(ce) :- jc_req(ce, _, _, _), call_arg(ce, 1, o), expr_value(o, "obj", l), jf_lit_method(l), !jc_req_has_method(ce).
+jc_req_mu(ce) :- jc_req(ce, _, _, _), call_arg(ce, 1, o), expr_value(o, "obj", l), jf_cond_method_write(l), !jf_lit_method(l).
+.decl jc_req_init_obj(c0:symbol)
+jc_req_init_obj(o) :- jc_req(ce, _, _, _), call_arg(ce, 1, o), expr_value(o, "obj", _).
+
+// the routes a send may reach: (app, verb, full path, handler)
+.decl jc_app_route(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jc_app_route(a, vv, fp, h) :- jc_send(_, _, a, _, _), a != "*", http_route(h, vv, fp, a, _).
+jc_app_route(a, vv, fp, h) :- jc_send(_, _, a, _, _), a != "*", jr_flat(r, a, "/", _, _, _), http_route(h, vv, fp, r, _).
+jc_app_route("*", vv, fp, h) :- jc_send(_, _, "*", _, _), http_route(h, vv, fp, _, _).
+
+.decl jc_path(c0:symbol)
+jc_path(p) :- jc_send(_, _, _, _, p).
+jc_path(p) :- jc_app_route(_, _, p, _).
+.decl jc_slash(c0:symbol, c1:number)
+jc_slash(p, i) :- jc_path(p), i = range(0, strlen(p)), substr(p, i, 1) = "/".
+.decl jc_next(c0:symbol, c1:number, c2:number)
+jc_next(p, i, j) :- jc_slash(p, i), j = min x : { jc_slash(p, x), x > i }.
+.decl jc_has_next(c0:symbol, c1:number)
+jc_has_next(p, i) :- jc_next(p, i, _).
+.decl jc_seg_at(c0:symbol, c1:number, c2:symbol)
+jc_seg_at(p, i, t) :- jc_next(p, i, j), t = substr(p, i + 1, j - i - 1).
+jc_seg_at(p, i, t) :- jc_slash(p, i), !jc_has_next(p, i), t = substr(p, i + 1, strlen(p) - i - 1).
+.decl jc_seg_ne(c0:symbol, c1:number)
+jc_seg_ne(p, i) :- jc_seg_at(p, i, t), t != "".
+.decl jc_seg(c0:symbol, c1:number, c2:symbol)
+jc_seg(p, k, t) :- jc_seg_at(p, i, t), t != "", k = count : { jc_seg_ne(p, x), x < i }.
+.decl jc_nseg(c0:symbol, c1:number)
+jc_nseg(p, n) :- jc_path(p), n = count : { jc_seg(p, _, _) }.
+.decl jc_param(c0:symbol)
+jc_param(t) :- jc_seg(_, _, t), substr(t, 0, 1) = ":".
+jc_param("*").
+
+.decl jc_pair(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jc_pair(ce, h, p, rp) :- jc_send(ce, _, a, sv, p), jc_app_route(a, rv, rp, h), (rv = sv ; rv = "ANY" ; sv = "*"),
+    jc_nseg(p, n), jc_nseg(rp, n).
+.decl jc_conflict(c0:symbol, c1:symbol)
+jc_conflict(p, rp) :- jc_pair(_, _, p, rp), jc_seg(p, k, x), jc_seg(rp, k, y), x != y, !jc_param(y).
+.decl jc_ndiff(c0:symbol, c1:symbol, c2:number)
+jc_ndiff(p, rp, n) :- jc_pair(_, _, p, rp), !jc_conflict(p, rp), n = count : { jc_seg(p, k, x), jc_seg(rp, k, y), x != y }.
+.decl jc_best(c0:symbol, c1:number)
+jc_best(ce, b) :- jc_pair(ce, _, p, _), jc_ndiff(p, _, _), b = min n : { jc_pair(ce, _, p2, rp2), jc_ndiff(p2, rp2, n) }.
+
+// remote_edge(Sender, Handler, "http", "<VERB> <path>", Confidence) — a request this
+// function sends that the handler serves, joined on the route path
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "exact") :- jc_send(ce, from, a, sv, p), a != "*", sv != "*", jc_pair(ce, h, p, rp),
+    jc_ndiff(p, rp, 0), jc_best(ce, 0), from != h.
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "route_shape") :- jc_send(ce, from, _, sv, p), sv != "*", jc_pair(ce, h, p, rp),
+    jc_ndiff(p, rp, n), jc_best(ce, n), from != h, (n > 0 ; jc_unbound(ce)).
+// a send whose verb is not decidable: every route of any verb its path fits best, "may reach" (SPEC ruling R17)
+remote_edge(from, h, "http", cat("* ", p), "method_unknown") :- jc_send(ce, from, _, "*", p), jc_pair(ce, h, p, rp),
+    jc_ndiff(p, rp, n), jc_best(ce, n), from != h.
+.decl jc_unbound(c0:symbol)
+jc_unbound(ce) :- jc_send(ce, _, "*", _, _).
+.decl jc_served(c0:symbol)
+jc_served(ce) :- jc_best(ce, _).
+// remote_unserved(Sender, "http", "<VERB> <path>") — a send no route fits
+remote_unserved(from, "http", cat(sv, cat(" ", p))) :- jc_send(ce, from, _, sv, p), !jc_served(ce).
+
+// ── `fetch(url, init)`: a request to this machine, or to a base the program does not spell (SPEC R14, R14a) ──
+// The URL as written, `{}` for every piece the program does not show: a literal, a template (each substitution its
+// literal value when the flow engine knows exactly one, else a hole), `new URL(path, base)`. A request to localhost
+// joins with the confidence of its match; one whose base is a hole (`${host}/x`, `new URL('/x', endpoint)`), whose
+// host is computed, or whose literal host is a single label (`http://billing:9000`, a service of the same
+// deployment) joins with confidence base_unknown; a relative path or a host with a dot names no app here.
+.decl jf_call(c0:symbol, c1:symbol)
+jf_call(ce, from) :- call_site(_, "FUNCTION_CALL", n, _, _, from, ce, _, _), router_fetch_fn(n), !expr_resolves_to_method(ce, _).
+// the expressions whose text is needed: the URL argument, and the path argument of `new URL(path, base)`
+.decl jf_need(c0:symbol)
+jf_need(x) :- jf_call(ce, _), call_arg(ce, 0, x).
+jf_need(pa) :- jf_need(x), expr_kind(_, "NEW", _, x), expr_child(_, x, "ARGUMENT", "1", pa).
+.decl jf_txt(c0:symbol, c1:symbol)
+jf_txt(x, s) :- jf_need(x), expr_value(x, "str", s).
+.decl jf_tmpl(c0:symbol, c1:symbol, c2:symbol)
+jf_tmpl(x, x, raw) :- jf_need(x), expr_kind(_, "TEMPLATE", _, x), expr_child(_, x, _, _, _),
+    expr_text(_, raw, x), strlen(raw) >= 2.
+.decl jf_sub_n(c0:symbol, c1:symbol, c2:number)
+jf_sub_n(x, idx, n) :- jf_tmpl(_, x, _), expr_child(_, x, "TEMPLATE_SUBSTITUTION", idx, c), n = count : { expr_value(c, "str", _) }.
+.decl jf_sub(c0:symbol, c1:symbol, c2:symbol)
+jf_sub(x, idx, s) :- jf_sub_n(x, idx, 1), expr_child(_, x, "TEMPLATE_SUBSTITUTION", idx, c), expr_value(c, "str", s).
+jf_sub(x, idx, "{}") :- jf_sub_n(x, idx, n), n != 1.
+// (template, index, text so far, brace depth inside a substitution, substitutions passed)
+.decl jf_tstep(c0:symbol, c1:number, c2:symbol, c3:number, c4:number)
+jf_tstep(x, 1, "", 0, 0) :- jf_tmpl(_, x, _).
+jf_tstep(x, i + 2, cat(acc, s), 1, h) :- jf_tstep(x, i, acc, 0, h), jf_tmpl(_, x, raw), i + 2 < strlen(raw),
+    substr(raw, i, 2) = "${", jf_sub(x, to_string(h), s), strlen(acc) < 300.
+jf_tstep(x, i + 1, cat(acc, c), 0, h) :- jf_tstep(x, i, acc, 0, h), jf_tmpl(_, x, raw), i + 1 < strlen(raw),
+    c = substr(raw, i, 1), (c != "$" ; substr(raw, i + 1, 1) != "{"), strlen(acc) < 300.
+jf_tstep(x, i + 1, acc, d + 1, h) :- jf_tstep(x, i, acc, d, h), d > 0, jf_tmpl(_, x, raw), i + 1 < strlen(raw), substr(raw, i, 1) = "{", d < 20.
+jf_tstep(x, i + 1, acc, d - 1, h) :- jf_tstep(x, i, acc, d, h), d > 1, jf_tmpl(_, x, raw), i + 1 < strlen(raw), substr(raw, i, 1) = "}".
+jf_tstep(x, i + 1, acc, 0, h + 1) :- jf_tstep(x, i, acc, 1, h), jf_tmpl(_, x, raw), i + 1 < strlen(raw), substr(raw, i, 1) = "}".
+jf_tstep(x, i + 1, acc, d, h) :- jf_tstep(x, i, acc, d, h), d > 0, jf_tmpl(_, x, raw), i + 1 < strlen(raw),
+    c = substr(raw, i, 1), c != "{", c != "}".
+jf_txt(x, v) :- jf_tmpl(x, _, raw), jf_tstep(x, i, v, 0, _), i = strlen(raw) - 1.
+.decl jf_url(c0:symbol, c1:symbol)
+jf_url(ce, s) :- jf_call(ce, _), call_arg(ce, 0, x), jf_txt(x, s).
+// `new URL(path, base)`: a literal absolute path under the base's origin, a hole when the base is not a literal
+.decl jf_newurl(c0:symbol, c1:symbol, c2:symbol)
+jf_newurl(ce, p, b) :- jf_call(ce, _), call_arg(ce, 0, x), expr_kind(_, "NEW", _, x), expr_child(_, x, "CALLEE", _, cc),
+    expr_text(_, cn, cc), router_url_class(cn), expr_child(_, x, "ARGUMENT", "1", pa), jf_txt(pa, p),
+    strlen(p) >= 1, substr(p, 0, 1) = "/", expr_child(_, x, "ARGUMENT", "2", b).
+jf_url(ce, cat("{}", p)) :- jf_newurl(ce, p, b), !expr_value(b, "str", _).
+// …its literal base's origin: `scheme://host` (a stratum of its own, before the URLs it completes)
+.decl jf_origin_need(c0:symbol)
+jf_origin_need(bs) :- jf_newurl(_, _, b), expr_value(b, "str", bs).
+.decl jf_osch(c0:symbol, c1:number)
+jf_osch(u, i) :- jf_origin_need(u), strlen(u) >= 3, i = range(0, strlen(u) - 2), substr(u, i, 3) = "://".
+.decl jf_oend(c0:symbol, c1:number)
+jf_oend(u, j) :- jf_osch(u, _), i = min y : { jf_osch(u, y) }, j = range(i + 3, strlen(u)), (substr(u, j, 1) = "/" ; substr(u, j, 1) = "?" ; substr(u, j, 1) = "#").
+.decl jf_origin(c0:symbol, c1:symbol)
+jf_origin(u, substr(u, 0, j)) :- jf_oend(u, _), j = min y : { jf_oend(u, y) }.
+jf_origin(u, u) :- jf_osch(u, _), !jf_oend(u, _).
+.decl jf_url_all(c0:symbol, c1:symbol)
+jf_url_all(ce, u) :- jf_url(ce, u).
+jf_url_all(ce, cat(o, p)) :- jf_newurl(ce, p, b), expr_value(b, "str", bs), jf_origin(bs, o).
+.decl jf_sch(c0:symbol, c1:number)
+jf_sch(u, i) :- jf_url_all(_, u), strlen(u) >= 3, i = range(0, strlen(u) - 2), substr(u, i, 3) = "://".
+.decl jf_after(c0:symbol, c1:symbol, c2:number)
+jf_after(u, r, i) :- jf_sch(u, _), i = min y : { jf_sch(u, y) }, r = substr(u, i + 3, strlen(u) - i - 3).
+.decl jf_rslash(c0:symbol, c1:number)
+jf_rslash(r, j) :- jf_after(_, r, _), j = range(0, strlen(r)), (substr(r, j, 1) = "/" ; substr(r, j, 1) = "?" ; substr(r, j, 1) = "#").
+.decl jf_hostpath(c0:symbol, c1:symbol, c2:symbol)
+jf_hostpath(u, h, p) :- jf_after(u, r, _), jf_rslash(r, _), j = min y : { jf_rslash(r, y) }, h = substr(r, 0, j), p = substr(r, j, strlen(r) - j).
+jf_hostpath(u, r, "/") :- jf_after(u, r, _), !jf_rslash(r, _).
+.decl jf_hostname(c0:symbol, c1:symbol)
+jf_hostname(h, substr(h, 0, i)) :- jf_hostpath(_, h, _), substr(h, 0, 1) != "[", contains(":", h),
+    i = min y : { y = range(0, strlen(h)), substr(h, y, 1) = ":" }.
+jf_hostname(h, h) :- jf_hostpath(_, h, _), (!contains(":", h) ; substr(h, 0, 1) = "[").
+// (call, raw path, confidence)
+.decl jf_raw(c0:symbol, c1:symbol, c2:symbol)
+jf_raw(ce, p, "exact") :- jf_url_all(ce, u), jf_hostpath(u, h, p), jf_hostname(h, hn), router_local_host(hn).
+jf_raw(ce, p, "base_unknown") :- jf_url_all(ce, u), jf_hostpath(u, h, p), jf_hostname(h, hn), contains("{}", hn).
+jf_raw(ce, p, "base_unknown") :- jf_url_all(ce, u), jf_hostpath(u, h, p), jf_hostname(h, hn), hn != "", !contains("{}", hn),
+    !contains(".", hn), !router_local_host(hn), substr(hn, 0, 1) != "[".
+// a leading hole (`${host}/x`, an optional `:port` after it)
+jf_raw(ce, p, "base_unknown") :- jf_url_all(ce, u), !jf_sch(u, _), strlen(u) > 3, substr(u, 0, 2) = "{}", r = substr(u, 2, strlen(u) - 2),
+    substr(r, 0, 1) = "/", p = r.
+jf_raw(ce, p, "base_unknown") :- jf_url_all(ce, u), jf_portrest(u, r), j = min y : { y = range(0, strlen(r)), substr(r, y, 1) = "/" },
+    p = substr(r, j, strlen(r) - j).
+.decl jf_portrest(c0:symbol, c1:symbol)
+jf_portrest(u, r) :- jf_url_all(_, u), !jf_sch(u, _), strlen(u) > 3, substr(u, 0, 3) = "{}:", r = substr(u, 3, strlen(u) - 3),
+    contains("/", r).
+// the query string and fragment are not the path (SPEC R9)
+.decl jf_cut(c0:symbol, c1:number)
+jf_cut(p, i) :- jf_raw(_, p, _), i = range(0, strlen(p)), (substr(p, i, 1) = "?" ; substr(p, i, 1) = "#").
+.decl jf_path(c0:symbol, c1:symbol)
+jf_path(p, p) :- jf_raw(_, p, _), !jf_cut(p, _).
+jf_path(p, q) :- jf_raw(_, p, _), m = min i : { jf_cut(p, i) }, m > 0, q = substr(p, 0, m).
+jf_path(p, "/") :- jf_raw(_, p, _), jf_cut(p, 0).
+.decl jf_method(c0:symbol, c1:symbol)
+jf_method(ce, vv) :- jf_raw(ce, _, _), call_arg(ce, 1, o), expr_value(o, k, i), prop_value(k, i, key, "str", w),
+    router_init_method_key(key), router_verb_name(w, vv).
+.decl jf_has_method(c0:symbol)
+jf_has_method(ce) :- jf_method(ce, _).
+// (call, sender, verb, path, confidence)
+.decl jf_req(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+jf_req(ce, from, vv, p, cf) :- jf_raw(ce, raw, cf), jf_path(raw, p), jf_call(ce, from), jf_method(ce, vv), !jf_mu(ce).
+jf_req(ce, from, "GET", p, cf) :- jf_raw(ce, raw, cf), jf_path(raw, p), jf_call(ce, from), !jf_has_method(ce), !jf_mu(ce).
+// a request whose method is not decidable (SPEC ruling R17) stands for every verb (`*`): an init object whose OWN
+// text names no method, given one only inside a branch (`if (push) init.method = 'POST'`, GET or POST at run
+// time), an init that is not an object the program shows, or a method that is not a literal
+jf_req(ce, from, "*", p, cf) :- jf_raw(ce, raw, cf), jf_path(raw, p), jf_call(ce, from), jf_mu(ce).
+.decl jf_mu(c0:symbol)
+jf_mu(ce) :- jf_raw(ce, _, _), call_arg(ce, 1, o), expr_value(o, "obj", l), jf_cond_method_write(l), !jf_lit_method(l).
+jf_mu(ce) :- jf_raw(ce, _, _), call_arg(ce, 1, o), !jf_init_obj(o).
+jf_mu(ce) :- jf_raw(ce, _, _), call_arg(ce, 1, o), expr_value(o, "obj", l), jf_lit_method(l), !jf_has_method(ce).
+.decl jf_init_obj(c0:symbol)
+jf_init_obj(o) :- jf_raw(ce, _, _), call_arg(ce, 1, o), expr_value(o, "obj", _).
+.decl jf_lit_method(c0:symbol)
+jf_lit_method(l) :- expr_child(_, l, "PROPERTY_KEY", _, key), expr_name(_, n, key), router_init_method_key(n).
+.decl jf_cond_method_write(c0:symbol)
+jf_cond_method_write(l) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt), router_init_method_key(n),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "obj", l), expr_kind(_, "OBJECT_LITERAL", _, l),
+    expr_owner(_, h, mod, a), expr_span(_, ln, c, _, _, a), block_owner(k, h, b), jr_cond_kind(k), block_span(_, mod, l1, c1, l2, c2, b),
+    (to_number(ln) > to_number(l1) ; to_number(ln) = to_number(l1), to_number(c) >= to_number(c1)),
+    (to_number(ln) < to_number(l2) ; to_number(ln) = to_number(l2), to_number(c) <= to_number(c2)).
+jc_path(p) :- jf_req(_, _, _, p, _).
+jc_path(fp) :- jf_req(_, _, _, _, _), http_route(_, _, fp, _, _).
+// a route fits when every segment is equal, or the route's is a parameter, or the request's is a hole
+.decl jf_pair(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jf_pair(ce, h, p, rp) :- jf_req(ce, _, sv, p, _), http_route(h, rv, rp, _, _), (rv = sv ; rv = "ANY" ; sv = "*"), jc_nseg(p, n), jc_nseg(rp, n).
+.decl jf_conflict(c0:symbol, c1:symbol)
+jf_conflict(p, rp) :- jf_pair(_, _, p, rp), jc_seg(p, k, x), jc_seg(rp, k, y), x != y, !jc_param(y), x != "{}".
+.decl jf_ndiff(c0:symbol, c1:symbol, c2:number)
+jf_ndiff(p, rp, n) :- jf_pair(_, _, p, rp), !jf_conflict(p, rp), n = count : { jc_seg(p, k, x), jc_seg(rp, k, y), x != y }.
+.decl jf_best(c0:symbol, c1:number)
+jf_best(ce, b) :- jf_pair(ce, _, p, _), jf_ndiff(p, _, _), b = min n : { jf_pair(ce, _, p2, rp2), jf_ndiff(p2, rp2, n) }.
+// a path with a hole may be any request of its shape: every route it fits; a written path: the route that fits best
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "base_unknown") :- jf_req(ce, from, sv, p, "base_unknown"), jf_pair(ce, h, p, rp),
+    jf_ndiff(p, rp, n), (contains("{}", p) ; jf_best(ce, n)), from != h, jf_has_lit(p), !jf_catchall(rp), !jf_test_only(ce, h, rp).
+// …nor, from code outside the tests, a route only an app built in a test file serves (that app is never deployed)
+.decl jf_test_path(c0:symbol)
+jf_test_path(fp) :- module_file("client", fp, _),
+    (contains(".test.", fp) ; contains(".spec.", fp) ; contains("__tests__/", fp) ; contains("/test/", fp) ; contains("/tests/", fp) ;
+     contains("/e2e/", fp) ; substr(fp, 0, 5) = "test/" ; substr(fp, 0, 6) = "tests/" ; substr(fp, 0, 4) = "e2e/").
+.decl jf_route_app_in_test(c0:symbol, c1:symbol, c2:number)
+jf_route_app_in_test(h, rp, t) :- jf_pair(_, h, _, rp), http_route(h, _, rp, a, _), expr_owner(_, _, mod, a), module_file("client", fp, mod),
+    (jf_test_path(fp), t = 1 ; !jf_test_path(fp), t = 0).
+.decl jf_test_only(c0:symbol, c1:symbol, c2:symbol)
+jf_test_only(ce, h, rp) :- jf_pair(ce, h, _, rp), jf_route_app_in_test(h, rp, 1), !jf_route_app_in_test(h, rp, 0),
+    expr_owner(_, _, mod, ce), module_file("client", fp, mod), !jf_test_path(fp).
+// a request whose base is unknown names a route only through a written segment, and never a catch-all (`*`)
+.decl jf_has_lit(c0:symbol)
+jf_has_lit(p) :- jf_req(_, _, _, p, _), jc_seg(p, _, x), x != "{}".
+.decl jf_catchall(c0:symbol)
+jf_catchall(rp) :- jf_pair(_, _, _, rp), jc_seg(rp, _, "*").
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "exact") :- jf_req(ce, from, sv, p, "exact"), sv != "*", jf_pair(ce, h, p, rp),
+    jf_ndiff(p, rp, 0), jf_best(ce, 0), !contains("{}", p), from != h.
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "route_shape") :- jf_req(ce, from, sv, p, "exact"), sv != "*", jf_pair(ce, h, p, rp),
+    jf_ndiff(p, rp, n), n > 0, (contains("{}", p) ; jf_best(ce, n)), from != h.
+remote_edge(from, h, "http", cat("* ", p), "method_unknown") :- jf_req(ce, from, "*", p, "exact"), jf_pair(ce, h, p, rp),
+    jf_ndiff(p, rp, n), (contains("{}", p) ; jf_best(ce, n)), from != h.

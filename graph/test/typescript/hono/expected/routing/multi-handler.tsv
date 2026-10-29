@@ -1,0 +1,13 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: non-last args are per-route middleware in argument order; handler is the last
+# census: verb_multi_handler, await_next
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/orders	index.ts:13:1	index.ts:17:13	2
+route	GET	/orders	index.ts:20:27	index.ts:17:13	4
+route	GET	/plain	index.ts:21:19	index.ts:17:13	5
+mw	index.ts:6:40	index.ts:13:1	POST	/orders	0	index.ts:17:13
+mw	index.ts:9:34	index.ts:13:1	POST	/orders	1	index.ts:17:13
+mw	index.ts:9:34	index.ts:20:27	GET	/orders	0	index.ts:17:13
+regby	index.ts:1:1	index.ts:13:1	POST	/orders	index.ts:17:13
+regby	index.ts:1:1	index.ts:20:27	GET	/orders	index.ts:17:13
+regby	index.ts:1:1	index.ts:21:19	GET	/plain	index.ts:17:13

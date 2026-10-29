@@ -1,0 +1,18 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: CJS twin of esm-basic: identical rows in .cjs files
+# census: none for CommonJS (corpus gap: no CJS Hono app in the corpus); CJS twin of js/esm-basic
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.cjs:12:14	index.cjs:10:13	1
+route	GET	/users	users.cjs:4:16	index.cjs:10:13	2
+route	POST	/users	users.cjs:5:17	index.cjs:10:13	3
+route	GET	/items/:id	index.cjs:14:30	index.cjs:10:13	5
+mw	index.cjs:6:15	index.cjs:12:14	GET	/	0	index.cjs:10:13
+mw	index.cjs:6:15	users.cjs:4:16	GET	/users	0	index.cjs:10:13
+mw	index.cjs:6:15	users.cjs:5:17	POST	/users	0	index.cjs:10:13
+mw	index.cjs:6:15	index.cjs:14:30	GET	/items/:id	0	index.cjs:10:13
+mw	index.cjs:6:15	index.cjs:14:30	GET	/items/:id	1	index.cjs:10:13
+submount	/users	index.cjs:13:5
+regby	index.cjs:1:1	index.cjs:12:14	GET	/	index.cjs:10:13
+regby	index.cjs:1:1	index.cjs:14:30	GET	/items/:id	index.cjs:10:13
+regby	users.cjs:1:1	users.cjs:4:16	GET	/users	index.cjs:10:13
+regby	users.cjs:1:1	users.cjs:5:17	POST	/users	index.cjs:10:13

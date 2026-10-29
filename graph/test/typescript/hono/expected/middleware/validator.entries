@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: zValidator and validator are per-route middleware before the handler; NewPost is the json schema the handler's valid('json') reads
+# census: zvalidator, validator_builtin, req_valid
+entry	index.ts:11:49	http
+entry	index.ts:15:3	http

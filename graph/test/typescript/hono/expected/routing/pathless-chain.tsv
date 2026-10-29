@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: first path-less get is /, later path-less verbs continue the chain's path
+# census: verb_chained
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.ts:7:9	index.ts:5:13	0
+route	GET	/book	index.ts:10:17	index.ts:5:13	1
+route	POST	/book	index.ts:11:9	index.ts:5:13	2
+route	PUT	/book	index.ts:12:8	index.ts:5:13	3
+route	DELETE	/book/:id	index.ts:14:25	index.ts:5:13	4
+route	PATCH	/book/:id	index.ts:14:54	index.ts:5:13	5
+regby	index.ts:1:1	index.ts:10:17	GET	/book	index.ts:5:13
+regby	index.ts:1:1	index.ts:11:9	POST	/book	index.ts:5:13
+regby	index.ts:1:1	index.ts:12:8	PUT	/book	index.ts:5:13
+regby	index.ts:1:1	index.ts:14:25	DELETE	/book/:id	index.ts:5:13
+regby	index.ts:1:1	index.ts:14:54	PATCH	/book/:id	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:9	GET	/	index.ts:5:13

@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-01/R8a: a sub-app mounted with route() into a rebasable holder is one partial dynamic_mount_prefix per route, no exact row
+# census: basepath (violation hono-3-01, SPEC R8a)
+entry	index.ts:9:21	http

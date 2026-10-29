@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: outer then inner on /users; inner never reaches /other
+# census: use_global, route_mount_literal
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/users	index.ts:11:16	index.ts:13:13	2
+route	GET	/other	index.ts:16:19	index.ts:13:13	3
+mw	index.ts:6:34	index.ts:11:16	GET	/users	0	index.ts:13:13
+mw	index.ts:7:34	index.ts:11:16	GET	/users	1	index.ts:13:13
+mw	index.ts:6:34	index.ts:16:19	GET	/other	0	index.ts:13:13
+submount	/users	index.ts:15:5
+regby	index.ts:1:1	index.ts:11:16	GET	/users	index.ts:13:13
+regby	index.ts:1:1	index.ts:16:19	GET	/other	index.ts:13:13

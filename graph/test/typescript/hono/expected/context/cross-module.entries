@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: session flows from auth.ts to both mounted handlers; DELETE reads before it sets, so no self flow
+# census: ctx_set, ctx_get, route_mount_literal
+entry	auth.ts:5:50	http
+entry	routes.ts:6:18	http
+entry	routes.ts:7:21	http

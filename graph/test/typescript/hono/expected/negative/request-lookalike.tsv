@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: agent.request and a local hc: no remote edge from either caller
+# census: app_request_test (partition where the receiver is not an app) (SPEC N7, N8)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/real	index.ts:6:18	index.ts:5:13	0
+regby	index.ts:1:1	index.ts:6:18	GET	/real	index.ts:5:13
+absent	index.ts:9:1
+absent	index.ts:14:1

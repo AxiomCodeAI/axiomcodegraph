@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ESM .mjs twin of cjs-basic: same routes and cors scope
+# census: new_hono, route_mount_literal, builtin_mw_import; ESM .mjs twin of js/cjs-basic
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/users/:id	users.mjs:4:19	index.mjs:6:13	1
+route	GET	/health	index.mjs:9:20	index.mjs:6:13	2
+mw	lib:hono/cors.cors@index.mjs:7:19	users.mjs:4:19	GET	/api/users/:id	0	index.mjs:6:13
+submount	/api/users	index.mjs:8:5
+regby	index.mjs:1:1	index.mjs:9:20	GET	/health	index.mjs:6:13
+regby	users.mjs:1:1	users.mjs:4:19	GET	/api/users/:id	index.mjs:6:13

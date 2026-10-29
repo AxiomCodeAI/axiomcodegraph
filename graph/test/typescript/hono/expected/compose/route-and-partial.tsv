@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O12: /memory is a route; the same handler under ctx.server is not also partial
+# census: app_factory_fn (oracle gap O12)
+route	GET	/memory	index.ts:9:22	index.ts:12:13	0
+regby	index.ts:8:1	index.ts:9:22	GET	/memory	index.ts:12:13

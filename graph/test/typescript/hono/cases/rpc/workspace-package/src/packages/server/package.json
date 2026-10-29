@@ -1,0 +1,1 @@
+{ "name": "@acme/server", "private": true, "types": "src/index.ts" }

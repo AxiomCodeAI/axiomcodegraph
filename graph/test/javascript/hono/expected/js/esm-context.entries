@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: user flows from withUser to both /me routes; /public outside the scope has no setter
+# census: ctx_set, ctx_get, ctx_var, create_middleware (ESM JavaScript)
+entry	index.js:12:24	http
+entry	index.js:13:19	http
+entry	index.js:14:20	http
+entry	index.js:5:35	http

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: two routes and their entries, jsxRenderer as library middleware for /page/*; the components and the renderer callback are in no Hono relation (runtime half skips .tsx)
+# census: c_render, jsx_import
+entry	index.tsx:11:18	http
+entry	index.tsx:13:24	http

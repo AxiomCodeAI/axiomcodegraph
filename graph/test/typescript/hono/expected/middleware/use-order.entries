@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: timing reaches all three; auth registered after /public reaches only the two later routes
+# census: use_global, use_scoped, await_next
+entry	index.ts:15:20	http
+entry	index.ts:17:21	http
+entry	index.ts:18:22	http
+entry	index.ts:6:33	http
+entry	index.ts:9:31	http

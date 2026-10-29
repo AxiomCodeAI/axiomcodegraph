@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-12: fetch to another host's /health is no request to GET /health; ping is in no Hono relation
+# census: neg_verb_literal_nonhono (violation hono-2-12)
+route	GET	/health	index.ts:14:20	index.ts:13:13	0
+regby	index.ts:1:1	index.ts:14:20	GET	/health	index.ts:13:13
+absent	index.ts:7:3

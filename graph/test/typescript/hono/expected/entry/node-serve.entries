@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an app only served through serve(): its route still in the table
+# census: serve_fetch
+entry	index.ts:7:20	http

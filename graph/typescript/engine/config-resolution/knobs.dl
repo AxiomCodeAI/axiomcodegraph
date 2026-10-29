@@ -147,6 +147,14 @@ ts_remote_confidence_exact("exact").
 // a placeholder on one end stood in for a literal on the other
 .decl ts_remote_confidence_route_shape(c0:symbol)
 ts_remote_confidence_route_shape("route_shape").
+// a request whose base address is not a literal (`${base}/x`, a computed host): it MAY reach the route
+// (SPEC ruling R14)
+.decl ts_remote_confidence_base_unknown(c0:symbol)
+ts_remote_confidence_base_unknown("base_unknown").
+// a request whose HTTP method is not decidable (the init is a parameter, the method a computed value): it may reach a
+// route of any verb its path fits (SPEC ruling R17); an unknown base wins over it (base_unknown)
+.decl ts_remote_confidence_method_unknown(c0:symbol)
+ts_remote_confidence_method_unknown("method_unknown").
 // the verb that matches every other one: `app.all`, `@All`, a request whose method
 // is computed
 .decl ts_http_verb_any(c0:symbol)
@@ -252,3 +260,162 @@ ts_msg_transport_member("Transport.TCP", "tcp").
 // bound to one in module configuration): it joins an end of any transport
 .decl ts_remote_transport_message(c0:symbol)
 ts_remote_transport_message("message").
+
+// ============================================================================
+// HTTP ROUTER APPLICATIONS (config-resolution/http-router-*.dl)
+//
+// An application object a program builds and registers routes, middleware and
+// sub-applications on (`const app = new X(); app.get('/x', h); app.route('/p', sub)`).
+// Recognised by the CLASS it is constructed from and the MODULE that class is imported
+// from, never by a method name: `get`, `use`, `route`, `on` are everywhere.
+// ============================================================================
+
+// router_app_class(Specifier, ExportedName): `new <name>()` of this import is an app
+.decl router_app_class(c0:symbol, c1:symbol)
+router_app_class("hono", "Hono").
+router_app_class("hono/tiny", "Hono").
+router_app_class("hono/quick", "Hono").
+router_app_class("@hono/zod-openapi", "OpenAPIHono").
+// ── how a module may be named: Deno specifiers and URLs ─────────────────────
+// router_spec_scheme(Prefix): `npm:hono@4`, `jsr:@hono/hono@^4/logger` name the package
+// after the prefix, a version after `@` dropped; router_spec_url(Prefix, Package): a URL
+// import of the package's published module (`<prefix>@v3/mod.ts` is the package itself)
+.decl router_spec_scheme(c0:symbol)
+router_spec_scheme("npm:").
+router_spec_scheme("jsr:").
+.decl router_spec_url(c0:symbol, c1:symbol)
+router_spec_url("https://deno.land/x/hono", "hono").
+router_spec_url("https://esm.sh/hono", "hono").
+// the JSR name of the package
+router_app_class("@hono/hono", "Hono").
+// router_verb(Method, Verb): a route registration and the verb it serves
+.decl router_verb(c0:symbol, c1:symbol)
+router_verb("get", "GET").       router_verb("post", "POST").
+router_verb("put", "PUT").       router_verb("delete", "DELETE").
+router_verb("patch", "PATCH").   router_verb("options", "OPTIONS").
+router_verb("all", "ANY").
+// middleware for every verb, under a path or under all paths
+.decl router_use(c0:symbol)
+router_use("use").
+// `on(VERB | [VERBS], path | [paths], ...handlers)`
+.decl router_on(c0:symbol)
+router_on("on").
+// `route(prefix, subApp)`: the sub-app's registrations so far, under the prefix
+.decl router_mount_app(c0:symbol)
+router_mount_app("route").
+// `basePath(prefix)`: a new app value sharing the route list, its registrations prefixed
+.decl router_base_path(c0:symbol)
+router_base_path("basePath").
+// `mount(prefix, fetchHandler)`: a foreign handler for every verb under prefix/*
+.decl router_mount_foreign(c0:symbol)
+router_mount_foreign("mount").
+// a handler the router calls when nothing matched or something threw
+.decl router_fallback(c0:symbol)
+router_fallback("notFound").
+router_fallback("onError").
+// methods whose result is the app itself (so a chain stays an app value)
+.decl router_returns_app(c0:symbol)
+router_returns_app(n) :- router_verb(n, _).
+router_returns_app(n) :- router_use(n).
+router_returns_app(n) :- router_on(n).
+router_returns_app(n) :- router_mount_app(n).
+router_returns_app(n) :- router_mount_foreign(n).
+router_returns_app(n) :- router_fallback(n).
+router_returns_app("openapi").
+router_returns_app("doc").
+router_returns_app("doc31").
+// router_mw_wrapper(Specifier, Name): `name(fn)` is middleware whose body is `fn`
+.decl router_mw_wrapper(c0:symbol, c1:symbol)
+router_mw_wrapper("hono/factory", "createMiddleware").
+// router_mw_combinator(Specifier, Name): `name(mw, ...)` is one middleware running its
+// function arguments (`every`, `some`); router_mw_except: `name(paths, mw)` runs mw
+// everywhere but the listed paths
+.decl router_mw_combinator(c0:symbol, c1:symbol)
+router_mw_combinator("hono/combine", "every").
+router_mw_combinator("hono/combine", "some").
+.decl router_mw_except(c0:symbol, c1:symbol)
+router_mw_except("hono/combine", "except").
+// router_served_fetch(Name): the property of an app that serves requests
+// (`export default { fetch: app.fetch, scheduled }`: the other members are called by
+// the platform)
+.decl router_served_fetch(c0:symbol)
+router_served_fetch("fetch").
+// router_module_glob(Name): `import.meta.<name>(pattern | [patterns], opts)` loads every module the pattern
+// matches (the bundler's module list, SPEC ruling R12)
+.decl router_module_glob(c0:symbol)
+router_module_glob("glob").
+// router_factory(Specifier, Name): `name({ initApp })` makes a factory; `<factory>.createApp()`
+// (router_factory_app) is an app whose first registrations are initApp's (router_factory_init)
+.decl router_factory(c0:symbol, c1:symbol)
+router_factory("hono/factory", "createFactory").
+.decl router_factory_app(c0:symbol)
+router_factory_app("createApp").
+.decl router_factory_init(c0:symbol)
+router_factory_init("initApp").
+// `<factory>.createMiddleware(fn)`: the middleware is fn
+.decl router_factory_mw(c0:symbol)
+router_factory_mw("createMiddleware").
+// ── the clients that send to an app's routes (framework-behavior/http-rpc-client.dl) ──
+// router_rpc_client: `name<typeof app>(base)`; router_test_client: `name(app)`; each
+// property of the client is a path segment, router_rpc_index adds none, and a
+// router_rpc_verb method sends; router_app_request: `app.<name>(path, init)` sends
+.decl router_rpc_client(c0:symbol, c1:symbol)
+router_rpc_client("hono/client", "hc").
+.decl router_test_client(c0:symbol, c1:symbol)
+router_test_client("hono/testing", "testClient").
+.decl router_rpc_index(c0:symbol)
+router_rpc_index("index").
+.decl router_rpc_verb(c0:symbol, c1:symbol)
+router_rpc_verb("$get", "GET").       router_rpc_verb("$post", "POST").
+router_rpc_verb("$put", "PUT").       router_rpc_verb("$delete", "DELETE").
+router_rpc_verb("$patch", "PATCH").   router_rpc_verb("$options", "OPTIONS").
+router_rpc_verb("$head", "HEAD").
+.decl router_app_request(c0:symbol)
+router_app_request("request").
+// router_app_fetch: `app.<name>(request, env)` serves a request object directly;
+// router_request_class: the platform class a request object is built with
+.decl router_app_fetch(c0:symbol)
+router_app_fetch("fetch").
+.decl router_request_class(c0:symbol)
+router_request_class("Request").
+// ── OpenAPI route definitions and schema validators ─────────────────────────
+// router_openapi(Method): `app.<m>(routeDef, handler, hook?)` registers routeDef's method
+// and path; router_route_def(Specifier, Name): `name({ method, path, request, responses })`
+.decl router_openapi(c0:symbol)
+router_openapi("openapi").
+.decl router_route_def(c0:symbol, c1:symbol)
+router_route_def("@hono/zod-openapi", "createRoute").
+// the keys of a route definition
+.decl router_def_key(c0:symbol, c1:symbol)
+router_def_key("method", "method").   router_def_key("path", "path").
+router_def_key("request", "request"). router_def_key("responses", "responses").
+router_def_key("body", "body").       router_def_key("content", "content").
+router_def_key("schema", "schema").   router_def_key("middleware", "middleware").
+// router_def_request_target(Key, Target): `request.<key>` validates that target
+.decl router_def_request_target(c0:symbol, c1:symbol)
+router_def_request_target("params", "param").   router_def_request_target("query", "query").
+router_def_request_target("headers", "header"). router_def_request_target("cookies", "cookie").
+// router_def_body_target(ContentType, Target)
+.decl router_def_body_target(c0:symbol, c1:symbol)
+router_def_body_target("application/json", "json").
+router_def_body_target("multipart/form-data", "form").
+router_def_body_target("application/x-www-form-urlencoded", "form").
+// router_validator(Specifier, Name): `name(target, schema)` validates target with schema
+// as route middleware; router_validator_fn: `name(target, fn)`, a function validator
+.decl router_validator(c0:symbol, c1:symbol)
+router_validator("@hono/zod-validator", "zValidator").
+.decl router_validator_fn(c0:symbol, c1:symbol)
+router_validator_fn("hono/validator", "validator").
+// router_schema_module(Specifier): a schema library a validator's schemas are built with
+.decl router_schema_module(c0:symbol)
+router_schema_module("zod").        router_schema_module("zod/v4").     router_schema_module("zod/v3").
+router_schema_module("zod/mini").   router_schema_module("zod/v4-mini"). router_schema_module("zod/v4/core").
+router_schema_module("@hono/zod-openapi").
+// `c.<req>.<valid>(target)`: the validated value of target
+.decl router_ctx_req(c0:symbol)
+router_ctx_req("req").
+.decl router_valid_read(c0:symbol)
+router_valid_read("valid").
+// router_handler_spread(Name): `...x.name(a, b)` spreads its arguments as handlers
+.decl router_handler_spread(c0:symbol)
+router_handler_spread("createHandlers").

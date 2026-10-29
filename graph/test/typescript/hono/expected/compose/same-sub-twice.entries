@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: one handler, two routes
+# census: route_mount_literal
+entry	index.ts:6:23	http

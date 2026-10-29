@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: factory results are distinct apps; /items mounted on the factory-made app
+# census: app_factory_fn
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/ready	app.ts:9:21	app.ts:4:10	0
+route	GET	/items	index.ts:7:16	app.ts:4:10	1
+submount	/items	index.ts:8:5
+regby	app.ts:7:1	app.ts:9:21	GET	/ready	app.ts:4:10
+regby	index.ts:1:1	index.ts:7:16	GET	/items	app.ts:4:10

@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-05: worker.request('/posts') and hc<typeof todos>.todos.$get match relative to the sub-app they root at
+# census: app_request_test, hc_client (violation hono-1-05)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/posts	api.ts:4:19	index.ts:7:13	0
+route	GET	/api/todos	api.ts:5:47	index.ts:7:13	1
+rpc	api.test.ts:8:1	GET	/todos	api.ts:5:47
+request	api.test.ts:4:1	GET	/posts	api.ts:4:19
+submount	/	api.ts:6:5
+submount	/api	index.ts:8:5
+regby	api.ts:1:1	api.ts:4:19	GET	/api/posts	index.ts:7:13
+regby	api.ts:1:1	api.ts:5:47	GET	/api/todos	index.ts:7:13

@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O3: @acme/server and @acme/admin resolve as workspace packages: the /admin mount and both typed client calls cross them
+# census: hc_client, route_mount_literal (oracle gap O3: workspace package imports in a monorepo)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/ping	packages/server/src/index.ts:5:33	packages/server/src/index.ts:4:13	0
+route	GET	/admin/users	packages/admin/routes.ts:3:47	packages/server/src/index.ts:4:13	1
+rpc	packages/web/client.ts:11:1	GET	/admin/users	packages/admin/routes.ts:3:47
+rpc	packages/web/client.ts:8:1	GET	/ping	packages/server/src/index.ts:5:33
+submount	/admin	packages/server/src/index.ts:5:56
+regby	packages/admin/routes.ts:1:1	packages/admin/routes.ts:3:47	GET	/admin/users	packages/server/src/index.ts:4:13
+regby	packages/server/src/index.ts:1:1	packages/server/src/index.ts:5:33	GET	/ping	packages/server/src/index.ts:4:13

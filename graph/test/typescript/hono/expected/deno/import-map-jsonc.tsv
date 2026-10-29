@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: bare @hono/hono through a commented deno.jsonc
+# census: none (corpus gap). bare JSR name `@hono/hono` mapped by deno.jsonc (comments stripped): shape from Hono's Deno docs, corpus gap.
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/jsonc	main.ts:5:19	main.ts:4:13	0
+regby	main.ts:1:1	main.ts:5:19	GET	/jsonc	main.ts:4:13

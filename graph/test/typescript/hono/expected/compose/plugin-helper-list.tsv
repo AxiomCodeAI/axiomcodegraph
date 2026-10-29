@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O20/R13b: plugin apps reached through a filtered, push-sorted helper list mount at their element paths, exact plus conditional; never roots
+# census: app_request_test (oracle gap O20; SPEC R13 / R13b)
+route	GET	/	app.ts:9:16	app.ts:8:15	0
+route	GET	/api/custom-test	app.test.ts:13:19	app.ts:8:15	1
+route	POST	/auth/magic-link/request	plugins/magic-link.ts:5:24	app.ts:8:15	2
+route	GET	/auth/magic-link/verify	plugins/magic-link.ts:6:22	app.ts:8:15	3
+request	app.test.ts:17:30	GET	/api/custom-test	app.test.ts:13:19
+submount	/api/custom-test	mount.ts:13:9
+submount	/auth/magic-link	mount.ts:13:9
+regby	app.test.ts:11:1	app.test.ts:13:19	GET	/api/custom-test	app.ts:8:15
+regby	app.ts:7:1	app.ts:9:16	GET	/	app.ts:8:15
+regby	plugins/magic-link.ts:1:1	plugins/magic-link.ts:5:24	POST	/auth/magic-link/request	app.ts:8:15
+regby	plugins/magic-link.ts:1:1	plugins/magic-link.ts:6:22	GET	/auth/magic-link/verify	app.ts:8:15
+unknown	mount.ts:13:5	conditional_registration	app.test.ts:13:19
+unknown	mount.ts:13:5	conditional_registration	plugins/magic-link.ts:5:24
+unknown	mount.ts:13:5	conditional_registration	plugins/magic-link.ts:6:22

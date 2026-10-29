@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R13b re-derived: sorted lists mount exact at element paths; the settings-filtered list adds conditional_registration; never roots at /; menu silent
+# census: app_request_test (SPEC R13 / R13b; violation hono-4-09 and its silent menu-list control)
+route	GET	/	app.ts:8:14	app.ts:7:13	0
+route	GET	/api/inbox	plugins/inbox.ts:4:38	app.ts:7:13	1
+route	GET	/solo	mount.test.ts:12:14	mount.test.ts:17:15	0
+route	GET	/inline	mount.test.ts:28:95	mount.test.ts:27:15	0
+submount	/api/inbox	mount.ts:25:9
+submount	/solo	mount.ts:25:9
+submount	/inline	mount.ts:25:9
+regby	app.ts:1:1	app.ts:8:14	GET	/	app.ts:7:13
+regby	mount.test.ts:10:1	mount.test.ts:12:14	GET	/solo	mount.test.ts:17:15
+regby	mount.test.ts:26:32	mount.test.ts:28:95	GET	/inline	mount.test.ts:27:15
+regby	plugins/inbox.ts:1:1	plugins/inbox.ts:4:38	GET	/api/inbox	app.ts:7:13
+unknown	mount.ts:25:5	conditional_registration	plugins/inbox.ts:4:38

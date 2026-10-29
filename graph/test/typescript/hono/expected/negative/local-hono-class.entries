@@ -1,0 +1,2 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: a project class named Hono and a workflow .route(): zero Hono rows; the route table must still be exported
+# census: neg_route_on_nonhono (SPEC N4)

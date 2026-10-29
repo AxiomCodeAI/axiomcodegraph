@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Map set/get on a parameter named c: no ctx_key_flow
+# census: ctx_get (partition outside Hono contexts) (SPEC N5)
+entry	index.ts:16:16	http
