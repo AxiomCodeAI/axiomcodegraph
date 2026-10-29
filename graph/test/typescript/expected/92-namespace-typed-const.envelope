@@ -1,0 +1,4 @@
+value	scorers#<function-type>@1:22 -> scorers#<arrow>@3
+value	scorers#<function-type>@1:22 -> scorers#<arrow>@8
+value_call	x#viaNamed -> scorers#<arrow>@3
+value_call	x#viaNamespace -> scorers#<arrow>@3

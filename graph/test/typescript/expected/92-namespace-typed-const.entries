@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  exported_from_entry_module x#viaArrow   x.ts:8
+  exported_from_entry_module x#viaNamed   x.ts:7
+  exported_from_entry_module x#viaNamespace   x.ts:5
+  exported_from_entry_module x#viaPlain   x.ts:9
+  unimported_module x#<module>   x.ts:1

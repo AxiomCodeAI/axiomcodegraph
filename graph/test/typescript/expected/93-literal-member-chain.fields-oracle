@@ -1,0 +1,18 @@
+93-literal-member-chain [fields]
+  precision 0.4000   (4 correct, 6 wrong)
+  recall    0.4444   (4 of 9 the compiler resolved)
+  sites 12   resolved 12 (100.0%)
+  tiers known_edge=12
+  access read=12
+  not scored: 0 rows whose target is not a client declaration
+    WRONG   x#flat(Flat) READ { log: Logger }#log
+    WRONG   x#record(Order) READ { audit: { log: Logger; nested: { deep: { log: Logger } } } }#audit
+    WRONG   x#record(Order) READ { deep: { log: Logger } }#deep
+    WRONG   x#record(Order) READ { log: Logger }#log
+    WRONG   x#record(Order) READ { log: Logger; nested: { deep: { log: Logger } } }#log
+    WRONG   x#record(Order) READ { log: Logger; nested: { deep: { log: Logger } } }#nested
+    MISSING x#flat(Flat) READ Flat#log
+    MISSING x#record(Order) READ Order#audit
+    MISSING x#record(Order) READ Order#deep
+    MISSING x#record(Order) READ Order#log
+    MISSING x#record(Order) READ Order#nested
