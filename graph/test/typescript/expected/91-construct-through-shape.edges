@@ -1,0 +1,5 @@
+known_edge	CONSTRUCTOR_CALL	x#viaAlias(WidgetClass) @L8 -> x#<arrow@7>(WidgetDef)
+known_edge	CONSTRUCTOR_CALL	x#viaCtorType(new (spec: WidgetDef) =) @L12 -> x#<arrow@12>(WidgetDef)
+known_edge	CONSTRUCTOR_CALL	x#viaInterface(ButtonCtor) @L14 -> ButtonCtor#<arrow@13>(WidgetDef)
+known_edge	CONSTRUCTOR_CALL	x#viaLiteral({ new (spec: WidgetDef): Button }) @L9 -> x#<arrow@9>(WidgetDef)
+known_edge	FUNCTION_CALL	x#<module-init>() @L15 -> x#viaAlias(WidgetClass)

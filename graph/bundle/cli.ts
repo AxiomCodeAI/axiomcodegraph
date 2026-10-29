@@ -17,7 +17,7 @@ import * as path from 'path';
 process.removeAllListeners('warning');
 process.on('warning', (w) => { if (w.name !== 'ExperimentalWarning') console.error(w.stack ?? w.message); });
 
-import { buildCore } from '@/bundle/build';
+import { buildCore, lap } from '@/bundle/build';
 import { catalogExt, readLibMap } from '@/bundle/catalog';
 import { adapterFor } from '@/bundle/languages';
 import { renderSchemaMarkdown, SCHEMA_VERSION } from '@/bundle/schema';
@@ -95,7 +95,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const dbPath = path.join(a.out!, 'graph.sqlite');
   if (haveSqlite) {
-    await writeSqlite({ dbPath, language: adapter.language, core, ext: catalogExt(langDir), rawDir: a.raw!, log });
+    const ext = catalogExt(langDir);
+    lap('lift ext docs (catalogExt)');
+    await writeSqlite({ dbPath, language: adapter.language, core, ext, rawDir: a.raw!, log });
     log(`▶ wrote ${dbPath}${a.debug ? ' (+ csv/*.csv, --debug)' : ''}`);
   } else {
     fs.rmSync(dbPath, { force: true });

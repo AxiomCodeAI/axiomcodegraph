@@ -26,6 +26,11 @@ One check needs no graph and is its own script:
                                          signature edit is reported before it lands with nothing upstream did; `--range`
                                          from a branch left behind its remote reads from the remote's fork (indexes a small
                                          project)
+    python3 tests/index_reader.py        axiomcode-index's IR reader decodes the IR's RFC 4180 quoting as csv.DictReader and
+                                         the bundle's reader do (a literal, decoration or name holding a `"`, a C# raw
+                                         string), and agrees with them on quoted tabs and newlines, CRLF, a lone CR, a
+                                         short or long row and invalid UTF-8; pass IR directories to compare them too
+                                         (no graph needed; the bundle half runs node on dist/bundle/csv.js)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)
@@ -68,6 +73,11 @@ One check needs no graph and is its own script:
                                          and the refresh is expected within the budget, never on a rules compile;
                                          --fresh waits and MCP takes fresh=true; the file table prunes exactly what each
                                          parser skips, so an edit under out/ or build/ is seen (#1594, #1595; no engine)
+    python3 tests/two_versions.py        two axiomcode versions over one repository: an older one's graph is rebuilt
+                                         once, not again each time the older one rebuilds it back, and every answer says
+                                         two versions are running and to restart the agent session; an install marked
+                                         .orphaned_at, or whose files are gone, writes nothing under .axiomcode from its
+                                         hooks, timer, refresher, query or MCP server (no engine)
     python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
                                          graph pointer is repaired and keeps the baseline; a query mid-build waits for it
                                          and starts no build; a failed build never leaves the pointer dangling; a failed

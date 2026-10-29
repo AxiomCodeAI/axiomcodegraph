@@ -179,7 +179,15 @@ export function linkAmbientModuleImports(files: readonly ModuleGraphFacts[]): nu
  * parser's own column (§4.13 c8), and this stops one hop short of the call
  * graph — at the module, which is where `type-resolution.dl` takes over.
  */
-export function linkReExportSources(files: readonly ModuleGraphFacts[]): number {
+export function linkReExportSources(
+  files: readonly ModuleGraphFacts[],
+  /**
+   * The project-relative file a NON-relative specifier names from `fromFilePath`,
+   * for a resolution the specifier alone cannot give: a Deno import map or
+   * workspace member re-exported by a barrel that never imports it.
+   */
+  resolveBare?: (fromFilePath: string, specifier: string) => string | undefined
+): number {
   const modulesByPath = new Map<string, string>();
   for (const facts of files) {
     for (const module of facts.modules) {
@@ -206,9 +214,14 @@ export function linkReExportSources(files: readonly ModuleGraphFacts[]): number 
         continue;
       }
       const viaImport = resolvedBySpecifier.get(exportRow.sourceSpecifier);
+      const bare = viaImport === undefined && !exportRow.sourceSpecifier.startsWith('.')
+        ? resolveBare?.(facts.filePath, exportRow.sourceSpecifier)
+        : undefined;
       const target = viaImport !== undefined
         ? modulesByPath.get(viaImport)
-        : modulesByPath.get(resolveRelative(facts.filePath, exportRow.sourceSpecifier));
+        : bare !== undefined
+          ? modulesByPath.get(stripKnownExtension(bare))
+          : modulesByPath.get(resolveRelative(facts.filePath, exportRow.sourceSpecifier));
       if (target !== undefined) {
         exportRow.setResolvedSourceModuleLinkHash(target);
         linked += 1;

@@ -102,7 +102,8 @@ once on `index` and kept by every rebuild after it:
     axiomcode index --library .venv/lib/python3.12/site-packages/requests,/deps/ir/jdk   # or name them
 
 `auto` finds what the project depends on, in every language: a Python package its source imports, in its virtual
-environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; a
+environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; in a
+Deno project, every `jsr:`, `npm:` and URL module it imports, from Deno's cache (`deno install` fetches them); a
 Java dependency `pom.xml` or `build.gradle` declares, through its `-sources.jar` in the Maven repository or Gradle's
 cache, or its class jar decompiled when it ships no sources (needs Vineflower: `mvn dependency:get
 -Dartifact=org.vineflower:vineflower:1.10.1`); a NuGet package a `.csproj` references, decompiled from its assembly

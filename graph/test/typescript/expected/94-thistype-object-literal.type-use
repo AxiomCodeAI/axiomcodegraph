@@ -1,0 +1,10 @@
+ambiguous_unknown	TYPE_ELEMENT	1	Members [TYPE] -> -
+ambiguous_unknown	TYPE_ELEMENT	1	x [VARIABLE] -> -
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Members
+known_edge	METHOD_RETURN	0	x [METHOD] -> Mixin
+known_edge	METHOD_TYPE_ARGUMENT	0	Host [EXPRESSION] -> Greeter
+known_edge	METHOD_TYPE_ARGUMENT	0	x [EXPRESSION] -> Greeter
+known_edge	TYPE_ARGUMENT	1	x [VARIABLE] -> Greeter
+known_edge	TYPE_ARGUMENT	2	x [VARIABLE] -> Greeter
+known_edge	TYPE_ELEMENT	1	x [VARIABLE] -> Waver
+known_edge	VARIABLE_TYPE	0	x [VARIABLE] -> Members

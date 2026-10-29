@@ -49,7 +49,7 @@ CALLABLE_EK = ('METHOD', 'FUNCTION', 'IMPORT_BINDING')
 MAX_SITE_SPAN = 200          # a "call" spanning a whole file is a parse artefact, not a registration
 
 
-def registrations(q, site_file=None):
+def registrations(q, site_file=None, with_own_lines=False):
     """[(file, line, kind, key, why)] — every line that hands a declaration to something outside the graph.
 
     `kind` is always "route"; `key` is the string the framework dispatches on, VERBATIM and never normalised
@@ -57,9 +57,11 @@ def registrations(q, site_file=None):
     client (`supertest.get('/orders/1')`, `TestClient(app).post('/orders')`) be joined to the handler it reaches: the
     two ends spell the same string and nothing else connects them. Normalising it belongs in the join, not here —
     `:id`, `{order_id}` and `<int:id>` are three frameworks' spellings of one hole.
+
+    `with_own_lines`: (rows, route_site_lines(q, site_file)) — the same walk computes both.
     """
     if not _has(q, 'call_sites'):
-        return []
+        return ([], {}) if with_own_lines else []
     sf = site_file or (lambda x: x)
     lits = {}
     if _has(q, 'literals'):
@@ -83,7 +85,7 @@ def registrations(q, site_file=None):
     # the cap and joins two unrelated tests. The DEPENDENT row is still true and still printed — a test that mounts a
     # handler does depend on it — so only the key is withheld.
     tf = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")} if _has(q, 'symbols') else set()
-    out, verbs, _own = _route_links(q, sf, lits, tf)
+    out, verbs, own = _route_links(q, sf, lits, tf)    # `own` does not depend on tf, which only withholds a key
     # `router.route('/').get(h)` is two route-shaped calls on one line, and `route` said nothing about the method: the
     # line's HTTP verbs name it, in the order written. A chain registering two (`.get(a).post(b)`) names both, because
     # a line is all a reference records and it cannot say which argument list the handler sat in
@@ -92,7 +94,8 @@ def registrations(q, site_file=None):
         if k == 'route' and vs:
             m = re.match(r'registered as a \w+ route (".*?") here', w)
             if m: out[(f, l)] = (k, key, f"registered as a {'/'.join(sorted(vs, key=vs.get))} route {m.group(1)} here — the router calls it, no call site does")
-    return sorted((ref_at.get((f, l), ''), f, l, k, key, w) for (f, l), (k, key, w) in out.items())
+    rows = sorted((ref_at.get((f, l), ''), f, l, k, key, w) for (f, l), (k, key, w) in out.items())
+    return (rows, own) if with_own_lines else rows
 
 
 def route_site_lines(q, site_file=None):
@@ -289,6 +292,7 @@ class _Handlers:
 
     def __init__(self, q, read, sf):
         self.q, self.read, self.sf, self.names, self.consts, self.held = q, read, sf, {}, {}, {}
+        self.tables = None                 # const_value_tables, read on the first const asked about
         if _has(q, 'symbols'):
             for n, k, f, l in q("SELECT name, kind, file, line FROM symbols WHERE name IS NOT NULL"):
                 self.names.setdefault(n, {}).setdefault(k or '', set()).add(f)
@@ -310,7 +314,8 @@ class _Handlers:
             # a module a const requires may export the handler itself: `const h = require('./h'); app.get('/x', h)`
             required = any(re.search(rf'(?<![\w$.]){re.escape(n)}\s*=\s*require\s*\(', (self.read(f) or [''])[l - 1])
                            for f, l, _n in readable if 0 < l <= len(self.read(f)))
-            fns, _w, _a = const_values(self.q, self.read, readable, self.sf)
+            if self.tables is None: self.tables = const_value_tables(self.q, self.sf)
+            fns, _w, _a = const_values(self.q, self.read, readable, self.sf, self.tables)
             self.held[key] = required or bool(fns)
         return self.held[key]
 
@@ -494,12 +499,24 @@ def route_args(q, code, site_file=None):
     return out
 
 
-def const_values(q, code, decls, site_file=None):
-    """For each (file, line, name) const declaration: ({(file, line)} that hold a function, {(file, line, wrapper)} the
-    client callable its initializer calls, {(file, line, name)} the function it is an alias of)."""
-    callable_, wrap, alias = set(), set(), set()
-    if not decls or code is None:
-        return callable_, wrap, alias
+_CVT = [None, None]          # the last const_value_tables: (connection, site_file), tables
+
+
+def const_value_tables(q, site_file=None):
+    """What const_values reads of the graph, whatever the declarations: the callable names, the callables that return a
+    function, and the client callees at each (file, line, column). A whole-graph join, so a caller asking about many
+    consts one at a time (_Handlers.holds_fn) reads it once and passes it in. Asked again of the same open graph (a
+    G's `q`, with the same site_file) it is not read again: the export asks for it from two places."""
+    con = getattr(getattr(q, '__self__', None), 'con', None)
+    key = (con, site_file) if con is not None else None
+    if key is not None and _CVT[0] is not None and _CVT[0][0] is con and _CVT[0][1] == site_file:
+        return _CVT[1]
+    tables = _const_value_tables(q, site_file)
+    if key is not None: _CVT[0], _CVT[1] = key, tables
+    return tables
+
+
+def _const_value_tables(q, site_file=None):
     sf = site_file or (lambda x: x)
     fns = {n for (n,) in q("SELECT DISTINCT name FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL AND name NOT LIKE '<%'")}
     rets = {w for w, _m in returned_functions(q)}
@@ -508,6 +525,17 @@ def const_values(q, code, decls, site_file=None):
                               ON e.call_site_id = s.id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL
                               AND s.file_path IS NOT NULL AND s.start_line > 0"""):
         callee_at.setdefault((sf(fp), l, col), set()).add(m)
+    return fns, rets, callee_at
+
+
+def const_values(q, code, decls, site_file=None, tables=None):
+    """For each (file, line, name) const declaration: ({(file, line)} that hold a function, {(file, line, wrapper)} the
+    client callable its initializer calls, {(file, line, name)} the function it is an alias of). `tables` is
+    const_value_tables(q, site_file), when the caller already has it."""
+    callable_, wrap, alias = set(), set(), set()
+    if not decls or code is None:
+        return callable_, wrap, alias
+    fns, rets, callee_at = tables if tables is not None else const_value_tables(q, site_file)
 
     def call_value(text, i, f, a, starts, depth=0):
         """(callable?, wrappers) for the expression at text[i:]"""

@@ -27,6 +27,7 @@ import { TsDecoratorSystem } from '@/enums/typescript/decorators';
 import { TsExportedEntityKind } from '@/enums/typescript/exports';
 import { TsParseGapKind } from '@/enums/typescript/parse-gaps';
 import { TsModuleResolutionMode } from '@/enums/typescript/modules';
+import { resolveDenoSpecifier } from '@/parsers/typescript/deno/deno-resolver';
 import { bindSourceFile, BinderResult, nodeId } from '@/parsers/typescript/extractors/ts-binder';
 import { TsDeclarationExtractor } from
   '@/parsers/typescript/extractors/ts-declaration-extractor';
@@ -175,13 +176,16 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     // table. Without this, `Request` in `augmented-base.ts` and `Request` inside
     // `declare module "./augmented-base"` are two symbols instead of one.
     resolveModuleHash: (specifier) => {
-      const resolved = ts.resolveModuleName(
+      // A Deno import map or workspace member first, exactly as the import rows resolve it.
+      const deno = resolveDenoSpecifier(specifier, options.absoluteFilePath);
+      const resolved = deno !== undefined ? undefined : ts.resolveModuleName(
         specifier,
         options.absoluteFilePath,
         options.compilerOptions,
         ts.sys
       );
-      const fileName = resolved.resolvedModule?.resolvedFileName
+      const fileName = (deno?.resolvedFileName || undefined)
+        ?? resolved?.resolvedModule?.resolvedFileName
         ?? resolveVueSpecifier(specifier, options.absoluteFilePath);
       const absolute = fileName ? path.normalize(fileName) : '';
       const moduleHash = options.projectModuleHashes.get(absolute);

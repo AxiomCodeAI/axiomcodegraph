@@ -1,0 +1,10 @@
+known_edge	read	x#flat(Flat) -> Flat#meta
+known_edge	read	x#flat(Flat) -> { log: Logger }#log
+known_edge	read	x#named(Named) -> Meta#log
+known_edge	read	x#named(Named) -> Named#meta
+known_edge	read	x#record(Order) -> Order#meta
+known_edge	read	x#record(Order) -> { audit: { log: Logger; nested: { deep: { log: Logger } } } }#audit
+known_edge	read	x#record(Order) -> { deep: { log: Logger } }#deep
+known_edge	read	x#record(Order) -> { log: Logger }#log
+known_edge	read	x#record(Order) -> { log: Logger; nested: { deep: { log: Logger } } }#log
+known_edge	read	x#record(Order) -> { log: Logger; nested: { deep: { log: Logger } } }#nested

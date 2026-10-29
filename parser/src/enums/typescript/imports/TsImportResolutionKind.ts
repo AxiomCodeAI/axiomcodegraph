@@ -33,7 +33,7 @@
 export enum TsImportResolutionKind {
   /** A relative specifier that resolved to a file. */
   RELATIVE_FILE = 'RELATIVE_FILE',
-  /** Resolved through a tsconfig `paths` mapping. */
+  /** Resolved through a tsconfig `paths` mapping, or a Deno import-map entry onto a project file. */
   PATHS_ALIAS = 'PATHS_ALIAS',
   /** Resolved to a `.d.ts` inside `node_modules`. */
   NODE_MODULES_TYPES = 'NODE_MODULES_TYPES',
@@ -46,6 +46,16 @@ export enum TsImportResolutionKind {
    * source its `main` / `types` / `exports` entry is built from.
    */
   WORKSPACE_PACKAGE = 'WORKSPACE_PACKAGE',
+  /**
+   * A `jsr:` package (directly, or through a Deno import map), resolved to the
+   * version the lockfile pins and the file its `exports` names. The path is the
+   * module's copy in the project's Deno mirror, laid out as `vendor/` is.
+   */
+  JSR_PACKAGE = 'JSR_PACKAGE',
+  /** An `npm:` package resolved inside Deno's own npm cache rather than `node_modules`. */
+  DENO_NPM_CACHE = 'DENO_NPM_CACHE',
+  /** An `https:` module a Deno project imports by URL, as downloaded (redirects and `x-typescript-types` followed). */
+  REMOTE_MODULE = 'REMOTE_MODULE',
   /** Matched a `declare module "x"` in this analysis. No file, and none needed. */
   AMBIENT_MODULE = 'AMBIENT_MODULE',
   /** A Node builtin, with or without the `node:` prefix. */

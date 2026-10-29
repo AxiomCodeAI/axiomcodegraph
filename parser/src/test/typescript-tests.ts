@@ -31,6 +31,7 @@ import * as os from 'os';
 import * as ts from 'typescript';
 import * as path from 'path';
 
+import { jsxTagReference } from '@/parsers/typescript/extractors/ts-expression-extractor';
 import { IrCompletenessReport } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { verifyRelationFileStreaming } from '@/workflows/typescript/ts-relation-writer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
@@ -1414,7 +1415,9 @@ function irCompleteness(): number {
  * The component element is a call too: `<Badge/>` is `Badge({...})`, a
  * JSX_COMPONENT_CALL site, wherever it sits -- a child, a ternary branch, the
  * body of a `.map` arrow. The CONTROL is the intrinsic element: `<div>` and
- * `<span>` name no declaration and must produce no call site at all.
+ * `<span>` name no declaration and must produce no call site at all. It is
+ * still an element, a childless JSX_INTRINSIC_ELEMENT row, so that
+ * `<button onClick={save}>` has an element for its handler to belong to.
  */
 async function jsxBraceExpressionsWalked(): Promise<number> {
   if (!parserPresent()) {
@@ -1430,6 +1433,8 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     'declare function rows(): string[];',
     'declare const props: Record<string, unknown>;',
     'declare class Box { constructor(v: string); }',
+    'declare function setRef(e: HTMLButtonElement | null): void;',
+    'declare global { namespace JSX { interface IntrinsicElements { [tag: string]: any } } }',
     'function Badge(p: { label: string }) { return <span>{p.label}</span>; }',
     'export function Panel(msg: string, flag: boolean) {',
     '  return (',
@@ -1439,6 +1444,10 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     '      {flag ? <Badge label={fmt(msg)} /> : <span>{t("none")}</span>}',
     '      {rows().map((r) => <Badge key={r} label={fmt(r)} />)}',
     '      {new Box(t(msg)).toString()}',
+    '      <button type="button" onClick={save} ref={setRef}>{t("go")}</button>',
+    '      {flag && <input onChange={save} />}',
+    '      <my-el data-x={fmt(msg)} />',
+    '      <svg:circle r="1" />',
     '    </div>',
     '  );',
     '}',
@@ -1493,6 +1502,15 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     }
   }
   let expected = 0;
+  // Expression rows by position, so an element's row can be asserted.
+  const exprRows = relation(outputDir, 'all-typescript-expressions.csv')
+    .filter((r) => (modulePath.get(r.tsModuleLinkHash ?? '') ?? '').endsWith('panel.tsx'));
+  const exprKindsAt = new Map<string, string[]>();
+  for (const r of exprRows) {
+    const key = `panel.tsx:${r.startLine}:${r.startColumn}`;
+    exprKindsAt.set(key, [...(exprKindsAt.get(key) ?? []), r.kind ?? '']);
+  }
+  const parents = new Set(exprRows.map((r) => r.parentExpressionHash ?? ''));
   let components = 0;
   let intrinsics = 0;
   const walk = (node: ts.Node): void => {
@@ -1507,11 +1525,42 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
           failures.push(`no JSX_COMPONENT_CALL at ${key} for \`${node.getText(sf).slice(0, 44)}\``
             + ` (found ${kindAt.get(key) ?? 'nothing'})`);
         }
+        // The control: a component keeps its call-shaped row, never the intrinsic kind.
+        const want = ts.isJsxElement(node) ? 'JSX_ELEMENT' : 'JSX_SELF_CLOSING';
+        const kinds = exprKindsAt.get(key) ?? [];
+        if (!kinds.includes(want) || kinds.includes('JSX_INTRINSIC_ELEMENT')) {
+          failures.push(`component at ${key} has expression kind(s) [${kinds.join(', ')}], `
+            + `expected ${want}`);
+        }
       } else {
         intrinsics += 1;
         if (emitted.has(key)) {
           failures.push(`intrinsic \`<${tag.getText(sf)}>\` at ${key} became a call site `
             + `(${kindAt.get(key)}) -- it names no declaration`);
+        }
+        // ...but it IS an element: one JSX_INTRINSIC_ELEMENT row, with no child
+        // (no tag reference for anything to resolve), so its attributes have an
+        // element to belong to, as in the JavaScript parser.
+        const rows = exprRows.filter((r) => `panel.tsx:${r.startLine}:${r.startColumn}` === key
+          && r.kind === 'JSX_INTRINSIC_ELEMENT');
+        if (rows.length !== 1) {
+          failures.push(`intrinsic \`<${tag.getText(sf)}>\` at ${key} has ${rows.length} `
+            + 'JSX_INTRINSIC_ELEMENT row(s), expected 1');
+        } else if (parents.has(rows[0]!.tsExpressionUniqueHash ?? '')) {
+          failures.push(`intrinsic \`<${tag.getText(sf)}>\` at ${key} has a child row -- `
+            + 'its tag references nothing, so nothing hangs off it');
+        }
+        // An attribute's value is still its own rooted tree.
+        const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+        for (const attribute of attributes.properties) {
+          if (ts.isJsxAttribute(attribute) && attribute.initializer
+            && ts.isJsxExpression(attribute.initializer) && attribute.initializer.expression) {
+            const v = sf.getLineAndCharacterOfPosition(attribute.initializer.expression.getStart(sf));
+            const vkey = `panel.tsx:${v.line + 1}:${v.character + 1}`;
+            if ((exprKindsAt.get(vkey) ?? []).length === 0) {
+              failures.push(`attribute \`${attribute.getText(sf)}\` at ${vkey} has no value row`);
+            }
+          }
         }
       }
     }
@@ -1527,6 +1576,33 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     ts.forEachChild(node, walk);
   };
   ts.forEachChild(sf, walk);
+
+  // The tag of a plain element is on its row, as written (`div`, `my-el`, `svg:circle`). The CONTROL is
+  // the component element, whose row keeps an empty potentialQualifiedName: its tag is the METHOD_NAME
+  // child that resolves, unchanged. The expectation is read off the AST.
+  let tagged = 0;
+  const walkTags = (node: ts.Node): void => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+      const at = `${p.line + 1}:${p.character + 1}`;
+      const row = exprRows.find((r) => `${r.startLine}:${r.startColumn}` === at && (r.kind ?? '').startsWith('JSX_'));
+      const tag = opening.tagName.getText(sf);
+      const want = jsxTagReference(node) === undefined ? tag : '';
+      if (row === undefined) {
+        failures.push(`no element row at ${at} for <${tag}>`);
+      } else if ((row.potentialQualifiedName ?? '') !== want) {
+        failures.push(`<${tag}> at ${at}: potentialQualifiedName "${row.potentialQualifiedName}", expected "${want}"`);
+      } else if (want !== '') {
+        tagged += 1;
+      }
+    }
+    ts.forEachChild(node, walkTags);
+  };
+  ts.forEachChild(sf, walkTags);
+  if (tagged !== intrinsics) {
+    failures.push(`${tagged} of ${intrinsics} intrinsic element(s) carry their tag`);
+  }
 
   // The edge roles that stay reserved: attributes and children are rooted trees.
   for (const [file, names] of [
@@ -1545,7 +1621,9 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
 
   console.log(`  ${expected} call/new node(s) in JSX attributes, children, spreads and a ` +
     `nested map; ${expected - missingCalls} emitted; ${components} component element(s) as ` +
-    `calls, ${intrinsics} intrinsic element(s) as none; ${RESERVED_TSX_VALUES.size} reserved ` +
+    `calls, ${intrinsics} intrinsic element(s) as JSX_INTRINSIC_ELEMENT rows and no call ` +
+    `(${tagged} with their tag); ` +
+    `${RESERVED_TSX_VALUES.size} reserved ` +
     'value(s) still empty');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   fs.rmSync(root, { recursive: true, force: true });
@@ -4630,6 +4708,46 @@ async function solutionStyleRootDelegatesToReferences(): Promise<number> {
   return 0;
 }
 
+/**
+ * A framework writes its programs' configs into a generated directory and points the
+ * root at them: Nuxt's `tsconfig.json` is `files: []` plus references to
+ * `.nuxt/tsconfig.app.json` (which includes everything under `../app`) and `.nuxt/tsconfig.server.json`.
+ * Each referenced config is a program, but its files are OUTSIDE its directory, so a
+ * program rooted at `.nuxt/` walked none of them: 2 of 63 files of a stock Nuxt 4 app
+ * were extracted, and nothing said the rest were missing.
+ */
+async function configProgramsReachOutsideTheirDirectory(): Promise<number> {
+  const bundler = { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true };
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-config-programs-', {
+    'tsconfig.json': JSON.stringify({ files: [], references: [
+      { path: './.nuxt/tsconfig.app.json' }, { path: './.nuxt/tsconfig.server.json' },
+    ] }),
+    '.nuxt/tsconfig.app.json': JSON.stringify({ compilerOptions: bundler, include: ['../app/**/*'] }),
+    '.nuxt/tsconfig.server.json': JSON.stringify({ compilerOptions: bundler, include: ['../server/**/*'] }),
+    'app/lib/greet.ts': 'export function greet(n: string): string { return `hi ${n}`; }',
+    'app/page.ts': 'import { greet } from "./lib/greet"; export function page(): string { return greet("a"); }',
+    'server/api/hello.ts': 'export function hello(): string { return "hello"; }',
+  });
+  const failures: string[] = [];
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  const governed = new Map(modules.map((r) => [r.filePath ?? '', r.tsConfigPath ?? '']));
+  const want: [string, string][] = [['app/lib/greet.ts', 'tsconfig.app.json'], ['app/page.ts', 'tsconfig.app.json'],
+    ['server/api/hello.ts', 'tsconfig.server.json']];
+  for (const [file, config] of want) {
+    const got = governed.get(file);
+    if (got === undefined) failures.push(`${file} is missing (have ${[...governed.keys()].join(', ') || 'nothing'})`);
+    else if (!got.endsWith(`.nuxt/${config}`)) failures.push(`${file} is governed by '${got}', want .nuxt/${config}`);
+  }
+  const skipped = relation(outputDir, 'skipped-typescript-files.csv').filter((r) => !(r.filePath ?? '').startsWith('.nuxt/'));
+  if (skipped.length > 0) failures.push(`skipped: ${skipped.map((r) => `${r.filePath} ${r.reason}`).join(', ')}`);
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  config programs outside their directory: ${modules.length} module row(s), app and server each under its own config`);
+  return 0;
+}
+
 // ---------------------------------------------------------------------------
 // 34. strictBindCallApply is emitted RESOLVED, not as written
 // ---------------------------------------------------------------------------
@@ -4708,6 +4826,7 @@ async function strictBindCallApplyIsResolved(): Promise<number> {
 const CHECKS: Check[] = [
   { name: 'strictBindCallApply is emitted resolved', proves: 'the flag is emitted as the checker resolves it — implied by strict, not by individual strict flags, explicit false winning — so a consumer can pick between the Function and CallableFunction overloads of call/apply/bind', run: strictBindCallApplyIsResolved },
   { name: 'a solution-style root delegates to its references', proves: 'a root tsconfig with files: [] and references extracts the files its same-directory references claim under those configs, reaches a referenced subdirectory as a nested program, and reports a file no program claims as NO_PROGRAM_CLAIMS_FILE (#660)', run: solutionStyleRootDelegatesToReferences },
+  { name: 'a referenced config claims files outside its directory', proves: 'a solution-style root whose references live in a generated directory (.nuxt/tsconfig.app.json including ../app/**) extracts every file each referenced config claims, under that config, as its own program', run: configProgramsReachOutsideTheirDirectory },
   { name: 'every program is extracted, none are merged', proves: 'each program under a root reaches one flat relation set with unique keys, while the module link passes stay inside a program so two global scopes are never merged', run: everyProgramIsExtractedAndNoneAreMerged },
   { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
   { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },
@@ -4721,7 +4840,7 @@ const CHECKS: Check[] = [
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'the JSX attribute and child edge roles carry no rows', run: tsxReservedButEmpty },
-  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site, a component element is a JSX_COMPONENT_CALL, an intrinsic element is none', run: jsxBraceExpressionsWalked },
+  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site, a component element is a JSX_COMPONENT_CALL, an intrinsic element is a childless JSX_INTRINSIC_ELEMENT row carrying its tag and no call', run: jsxBraceExpressionsWalked },
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
   { name: 'signatures link their return type', proves: 'a call through any callable shape reaches a result type, so a chain does not stop at it', run: signaturesLinkTheirReturnType },

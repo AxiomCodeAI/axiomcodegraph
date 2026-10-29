@@ -1,0 +1,7 @@
+# Accepted gaps for 92-namespace-typed-const: each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# A const that HOLDS an arrow: the compiler names the annotation's signature, the engine names
+# the arrow's body, as it does for the same const read by bare name. Kept on purpose: adding the
+# bodiless signature beside the body would hedge a site whose implementation is known.
+x#viaArrow(string) -> scorers#<arrow@1>(string)

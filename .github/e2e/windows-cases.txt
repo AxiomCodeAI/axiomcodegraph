@@ -26,6 +26,7 @@ no-name-yet
 one-row-per-dependent
 path-crosses-framework-and-byname
 path-through-interface
+quoted-literal-text
 receiver-from-an-importlib-module
 registration-key
 route-table-reaches-view

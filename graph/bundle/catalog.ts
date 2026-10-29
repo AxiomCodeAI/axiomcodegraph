@@ -16,6 +16,21 @@ export interface ExtRelation {
   description: string;
 }
 
+/**
+ * The ext relations the query layer reads (plugins/, hooks/: impact, path, context, test-impact, the MCP server).
+ * Only these get the c0 index: an index on a relation nothing queries is time and disk at every build, and the
+ * schema promises the table, not an index on it. Not a filter on what is loaded — every manifest relation is still
+ * an ext table. graph/test/tools/ext-queried-test.sh fails when a script names an ext relation missing here.
+ */
+export const EXT_QUERIED: ReadonlySet<string> = new Set([
+  'bean_def', 'call_runs_edge', 'call_site_unresolved', 'config_affects_method', 'config_binding', 'config_key_ref',
+  'config_unresolved', 'ctor_implicit_type', 'decorated_name_target', 'di_edge', 'fn_value_call', 'framework_edge',
+  'inject_point', 'lib_callback_edge', 'lib_callback_site', 'library_receiver', 'method_returns_method',
+  'method_returns_param', 'persistence_field', 'remote_edge', 'remote_unsent', 'remote_unserved', 'return_value',
+  'state_call_alloc', 'state_call_open', 'state_gate', 'state_gate_alloc', 'state_world_of_gated',
+  'type_base_unresolved', 'unresolved_value_callee',
+]);
+
 /** relation<TAB>file per line; comments and blanks skipped. */
 export function readManifest(langDir: string): { relation: string; file: string }[] {
   const p = path.join(langDir, 'souffle', 'export_manifest.tsv');

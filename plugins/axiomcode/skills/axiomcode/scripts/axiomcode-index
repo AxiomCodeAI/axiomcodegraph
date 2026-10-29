@@ -20,16 +20,17 @@ to --src). The language's IR is read through the ADAPTER table below — header 
 positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
 come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
 """
-import csv, os, re, sqlite3, sys, time, glob, collections, functools
-csv.field_size_limit(10**9)
-INDEX_VERSION = '9'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+import os, re, sqlite3, sys, time, glob, collections, functools
+INDEX_VERSION = '10'     # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
                          # v6: TypeScript class-property arrows named after their field;
                          # v7: data keys of module-level const objects declared, Object.freeze seen through;
                          # v8: literals carry numbers and booleans with a kind column, and the name of the constant
                          #     a scalar initializes — a spec's numbers were the one thing the graph could not answer;
                          # v9: the web graph (HTML + CSS) is indexed: pages, stylesheets, .classes, #ids, custom properties (var(--x)),
-                         #     @keyframes/@font-face/@layer/@container, selectors and inline scripts are symbols); the query
+                         #     @keyframes/@font-face/@layer/@container, selectors and inline scripts are symbols;
+                         # v10: the IR's RFC 4180 quoting is decoded, so a literal, comment, decoration or name holding a `"`
+                         #     is stored as written (`a "b" c`, not `a ""b"" c`), and C# verbatim and raw strings are literals); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -193,7 +194,7 @@ A = {
               # name elsewhere is a by-name reader whatever its qualifier says, so `_r.Limit` was listed under AuditOptions.Limit
               memberName=dict(role='edgeRole', value='MEMBER_NAME', parent='parentExpressionHash', id='csExpressionUniqueHash'),
               # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
-              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'INTEGER': 'number', 'REAL': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
+              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'VERBATIM_STRING': 'string', 'RAW_STRING': 'string', 'INTEGER': 'number', 'REAL': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
     # type references carry no module link of their own. The owner is a type only for a base-list reference; for
     # `M<T>()`, `new T()`, a parameter, a return or a field it is the expression, method, parameter or field, so
@@ -273,13 +274,76 @@ def is_test_file(fp):
 def rows(name):
     p = os.path.join(IR, name)
     if not HAVE_IR or not os.path.exists(p): return iter(())
-    f = open(p, newline='', encoding='utf-8', errors='replace')
-    return csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+    return ir_rows(p)
+
+def ir_rows(p):
+    """The rows of one IR file as dicts keyed by its header, its fields DECODED the way the bundle's reader
+    (graph/bundle/csv.ts readRfc4180) decodes them: the parser writes RFC 4180 over a tab, so a field that STARTS with
+    a double quote is quoted, `""` inside it is one quote, and the closing quote ends it (what follows the close, up
+    to the tab, is kept as written); a quote anywhere else in a field is an ordinary character. The writer
+    (EntityUtils.escapeTsv) turns a newline, a CR and a tab into the two-character escapes BEFORE it quotes, and quotes
+    only for a `"`, so a quoted field it wrote never holds a tab or a line break and a row is one line. Reading
+    QUOTE_NONE stored `Order "A-1"` as `Order ""A-1""`, so `impact` said the string was in no literal (#1835).
+    The rest is csv.DictReader(f, delimiter='\\t') over open(p, newline=''), at about half its cost (the expressions
+    file is most of this script's time on a large repository): a line ends at \\n, \\r or \\r\\n, a blank line is
+    skipped, a short row has None for its missing columns and a long one keeps the rest as a list under the key None.
+    A line with no quote in it is split on tabs and nothing else: that is nearly every line, and a test for a quote
+    that OPENS a field cost more than the decoding it saved. A quoted field left open at the end of a line, which this
+    writer does not produce, takes the line break and the next line, as the bundle's reader does.
+    tests/index_reader.py holds this to both readers."""
+    with open(p, newline='', encoding='utf-8', errors='replace') as f:
+        def fields(line):
+            # a line holding a quote: split on tabs, then decode each field that opens with one, rejoined across the tabs
+            # (and, if it is still open at the end of the line, the line breaks) it holds
+            out = []; parts = line.split('\t'); i = 0
+            while True:
+                if i == len(parts): return out
+                s = parts[i]; i += 1
+                if s[:1] != '"': out.append(s); continue
+                buf = []; k = 1
+                while True:
+                    j = s.find('"', k)
+                    if j >= 0:
+                        buf.append(s[k:j])
+                        if s[j + 1:j + 2] == '"': buf.append('"'); k = j + 2; continue
+                        buf.append(s[j + 1:]); break                  # the closing quote; the rest of the field as written
+                    buf.append(s[k:]); k = 0
+                    if i < len(parts): buf.append('\t'); s = parts[i]; i += 1; continue
+                    buf.append(line_end[0]); nxt = f.readline()       # still open at the end of the line: the break is text
+                    if not nxt: break
+                    body = nxt.rstrip('\r\n'); line_end[0] = nxt[len(body):]
+                    parts = body.split('\t'); s = parts[0]; i = 1
+                out.append(''.join(buf))
+        def decoded(line, raw):
+            line_end[0] = raw[len(line):]
+            v = fields(line)
+            if v[-1][-1:] == '\r': v[-1] = v[-1][:-1]                 # as the bundle's reader drops a CR before the newline
+            return v
+        line_end = ['']
+        head = raw = f.readline()
+        if not head: return
+        if head[-1:] == '\n': head = head[:-1]
+        if head[-1:] == '\r': head = head[:-1]
+        keys = (head.split('\t') if '"' not in head else decoded(head, raw)) if head else []
+        n = len(keys)
+        for raw in f:
+            line = raw
+            if line[-1:] == '\n': line = line[:-1]
+            if line[-1:] == '\r': line = line[:-1]
+            if not line: continue
+            v = line.split('\t') if '"' not in line else decoded(line, raw)
+            d = dict(zip(keys, v))
+            if len(v) != n:
+                if len(v) > n: d[None] = v[n:]
+                else:
+                    for k in keys[len(v):]: d[k] = None
+            yield d
 
 # an older augment step left `symbols` as a VIEW; a name is dropped as whichever it is
+dropped = False                       # whether this run frees pages: it decides the VACUUM at the end
 for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'decorations', 'skipped', 'index_meta', 'paths', 'callers', 'callees', 'source', 'sites'):
     kind = c.execute("SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
-    if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}")
+    if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}"); dropped = True
 c.executescript('''
 DROP TABLE IF EXISTS symbols; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS literals; DROP TABLE IF EXISTS comments;
 DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXISTS decorations; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta; DROP TABLE IF EXISTS paths;
@@ -673,6 +737,20 @@ for name, od, v, k in data_keys:
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
 # ── references, literals, comments ───────────────────────────────────────────────────────────────
+def cs_string_text(v):
+    """The text of a C# string token, as ir_rows hands it over (the IR's RFC 4180 quoting already undone): `"x"` is x
+    with its escapes as written, as Java's and Python's are; a verbatim `@"x"` is x with a doubled quote made one, the
+    language's own escape; a raw string is x, closed by as many quotes as opened it (three or more: a regular string
+    cannot open with three, `""` is the whole empty string); a `$` is dropped. Before ir_rows decoded the IR, a C#
+    literal holding a quote was un-doubled here by hand; on decoded text that is a second decoding, which reads the
+    raw `\"\"\"\"a \"\" b\"\"\"\"` as `"a " b"`, and a verbatim string's doubled quote was never made one."""
+    p = 0
+    while p < len(v) and v[p] in '@$': p += 1
+    t = v[p:]
+    q = len(t) - len(t.lstrip('"'))
+    if q >= 3 and len(t) >= 2 * q and t.endswith('"' * q): return t[q:-q]
+    if len(t) >= 2 and t[0] == '"' == t[-1]: return t[1:-1].replace('""', '"') if '@' in v[:p] else t[1:-1]
+    return v
 e = A['expr']; refs = []; lits = []
 namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
 mname = e.get('memberName'); child_ek = {}
@@ -701,11 +779,8 @@ for r in rows(e['file']):
         kind = e['litType'][1][r.get(e['litType'][0])]        # 'string' | 'number' | 'bool' across every language
         v = (r.get(e['litValue']) or '')
         if kind == 'string':
-            # C# keeps the source token, and the IR writer RFC4180-quotes a field holding a double quote, so `"Fee"` arrived
-            # as `"""Fee"""` and was stored `""Fee""`: no key, route or member name written in a C# string ever matched
-            if LANG == 'csharp' and len(v) > 1 and v[0] == '"' == v[-1] and '""' in v: v = v[1:-1].replace('""', '"')
-            if LANG == 'csharp' and len(v) > 2 and v[0] in '@$' and v[-1] == '"': v = v.lstrip('@$')   # @"verbatim", $"interpolated"
-            if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
+            if LANG == 'csharp': v = cs_string_text(v)          # C# keeps the source token: "x", @"x", """x"""
+            elif len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
         if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0), kind, r.get('edgeRole', '')))
 # a scalar's NAME: `MAX_ITEMS = 5` — the one literal on a const/variable/field declaration's line IS its value,
 # so the row gets the symbol's display and "what is MAX_ITEMS" has an answer with a source location. Strictly:
@@ -741,13 +816,6 @@ if tr:
         c.executemany("INSERT INTO type_refs VALUES (?,?,?,?,?)", ((r.get(tr['name'], '').split('.')[-1].split('<')[0], file_of(r, tr), int(r.get(tr['line']) or 0), r.get(tr['context'], ''), r.get(tr['ownerKind'], '')) for r in rows(tr['file']) if r.get(tr['name'])))
     except (KeyError, ValueError): pass
 # decorations: @Annotation(args) / @decorator(args) on a method or type — a route, a bean name, a validator, a marker
-def unquoted(v):
-    """The IR is tab-separated, but the writer still RFC4180-quotes a field that contains a double quote and the
-    reader is QUOTE_NONE, so `@router.post("/orders")` arrives as `"@router.post(""/orders"")"`. Every decoration
-    whose argument is a double-quoted string is in that shape — which is exactly the decorations that carry a KEY
-    (a route path, a command name, a topic, a validated field), so everything downstream that reads a key out of
-    the text read the quoting instead: `@exporter("csv")` yielded `@exporter(` and `)` and never `csv`."""
-    return v[1:-1].replace('""', '"') if len(v) > 1 and v[0] == '"' == v[-1] and '""' in v else v
 dec = A.get('decorations')
 if dec:
     args = collections.defaultdict(list)
@@ -758,18 +826,29 @@ if dec:
     for r in rows(dec['file']):
         nm = r.get(dec['name'], '')
         if not nm: continue
-        text = unquoted(r.get(dec['text'], '')) if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
+        # the text as written (ir_rows undoes the writer's RFC 4180 quoting, so `@exporter("csv")` arrives as that)
+        text = r.get(dec['text'], '') if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
         try: drows.append((r.get(dec['owner'], ''), nm, text[:200], file_of(r, dec), int(r.get(dec['line']) or 0)))
         except ValueError: pass
     c.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", drows)
 c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.get('file') or ''), r.get('reason') or r.get('skipReason') or '') for r in rows(A['skipped'])))
 
 # ── views: the joins written once ────────────────────────────────────────────────────────────────
+# Who calls a method and what it calls are looked up by call_edges(callee_method_id) and call_edges(caller_id); the
+# fields a caller reads by field_access(caller_id): via_base_rows asks per single-target call site, and without that
+# index each ask scanned the whole table (65,797 rows × 5,162 sites on an 8,619-file repository = 24 s of a 171 s warm
+# → 1.4 s). The bundle indexes the same columns (idx_<table>_<column>), but these are made anyway, and LAST: the graph
+# has no ANALYZE statistics, so SQLite picks among equal-cost indexes by creation order, and with the bundle's alone
+# `caller_id=? AND access=?` planned on idx_field_access_access and `caller_id=? AND ... AND tier=?` on
+# idx_call_edges_tier. Skipping them made the impact warm 1.5-1.9x slower on large Java repositories (warm 79 s → 54 s on ~8k files).
+c.executescript('''
+CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+CREATE INDEX IF NOT EXISTS fa_caller ON field_access(caller_id);
+''')
 c.executescript('''
 CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
 CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
 CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS decorations_owner ON decorations(owner_id); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
-CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
 -- lookups by id and by file + line: without them each per-site or per-test query scans the whole table
 CREATE INDEX IF NOT EXISTS symbols_id ON symbols(id); CREATE INDEX IF NOT EXISTS refs_file_line ON refs(file, line);
 CREATE INDEX IF NOT EXISTS literals_file_line ON literals(file, line);
@@ -777,9 +856,6 @@ CREATE INDEX IF NOT EXISTS literals_file_line ON literals(file, line);
 -- the parts of a partial type (type_parts): without these each ask scanned type_refs / symbols, 1.2 s of a 1.8 s impact
 -- on a 1,300-file Java repository → 0.5-0.75 s, answers unchanged
 CREATE INDEX IF NOT EXISTS type_refs_file_line ON type_refs(file, line); CREATE INDEX IF NOT EXISTS symbols_qn ON symbols(qualified_name);
--- the fields a caller reads: via_base_rows asks per single-target call site, and without the index each ask
--- scanned the whole table (65,797 rows × 5,162 sites on an 8,619-file repository = 24 s of a 171 s warm → 1.4 s)
-CREATE INDEX IF NOT EXISTS fa_caller ON field_access(caller_id);
 -- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
 -- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
 CREATE VIEW callers AS
@@ -804,7 +880,12 @@ meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', 
             symbols=n('symbols'), refs=n('refs'), type_refs=n('type_refs'), decorations=n('decorations'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
-con.execute("VACUUM")                 # the tables above are dropped and recreated on every run; without this the file only grows
+# The tables above are dropped and recreated on every run, so a re-index leaves their old pages free and the file only
+# grows without a VACUUM. A graph the bundle has just written has nothing to reclaim: no table of this script existed
+# in it, and nothing freed a page (freelist_count). Rewriting it anyway cost 4.2 s of a 12 s index on a ~1,300-file
+# Python repository, for the same rows.
+if dropped or c.execute("PRAGMA freelist_count").fetchone()[0] > 0:
+    con.execute("VACUUM")
 con.close()
 # THE ASSERTED LINKS (ax_links.py, axiomcode-links.tsv) are applied to every graph as it is indexed, after the engine's
 # export and before the graph is published, so a rebuild keeps them and no query ever sees a graph without them: each is

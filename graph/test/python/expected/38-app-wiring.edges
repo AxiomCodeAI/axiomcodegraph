@@ -17,6 +17,12 @@ boundary_lib	SIMPLE_CALL	main.<module> -> external:Starlette
 boundary_lib	SIMPLE_CALL	main.<module> -> external:WebSocketRoute
 boundary_lib	SIMPLE_CALL	shop.jobs.nightly -> external:call_command
 boundary_lib	SIMPLE_CALL	shop.jobs.unknown -> external:call_command
+callback_registered	METHOD_REFERENCE	main.<module> -> main.cancel
+callback_registered	METHOD_REFERENCE	main.<module> -> main.feed
+callback_registered	METHOD_REFERENCE	main.<module> -> main.health
+callback_registered	METHOD_REFERENCE	main.<module> -> main.lifespan
+callback_registered	METHOD_REFERENCE	main.<module> -> main.plugin_hook
+callback_registered	METHOD_REFERENCE	main.<module> -> main.tick
 known_edge	METHOD_CALL	main.<module> -> main.Registry.add_route
 known_edge	SIMPLE_CALL	main.<module> -> main.configure
 known_edge	SIMPLE_CALL	shop.management.commands.close_orders.Command.handle -> shop.orders.close_all

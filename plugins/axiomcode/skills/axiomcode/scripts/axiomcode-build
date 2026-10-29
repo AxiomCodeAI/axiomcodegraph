@@ -315,14 +315,16 @@ if [ -f "$OUT/corrupt" ]; then echo "rebuilding: $(head -1 "$OUT/corrupt")"; fi
 if [ -z "${AXIOMCODE_REINDEX:-}" ] && [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && NEWER="$(AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" newer "$REPO")"; then
   echo "$NEWER"; exit 0
 fi
-if [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+# AXIOMCODE_REINDEX=1 IS A REBUILD, as every message that names it promises ("rebuilds it with this one", "to force"):
+# it skips both up-to-date answers below, which otherwise said "graph up to date" whenever the files matched the table.
+if [ -z "${AXIOMCODE_REINDEX:-}" ] && [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   set_base_files
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
   echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; skipped_note; exit 0
 fi
-if [ ! -f "$OUT/corrupt" ] && [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
+if [ -z "${AXIOMCODE_REINDEX:-}" ] && [ ! -f "$OUT/corrupt" ] && [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
