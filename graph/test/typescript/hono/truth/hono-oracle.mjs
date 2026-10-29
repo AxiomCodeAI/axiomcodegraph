@@ -48,6 +48,10 @@ const { TrieRouter } = await import(path.join(NM, 'hono/dist/router/trie-router/
 const SRC = path.resolve(process.argv[2] || '.');
 const NO_TYPECHECK = process.argv.includes('--no-typecheck');
 const STORES = process.argv.includes('--stores');
+// --partial-paths (hono-7-05): also print `ppath HANDLER VERB KNOWNPATH` for a route under a dynamic mount prefix,
+// the composed path with `{}` for each piece the program does not show (SPEC 3.2 KnownPath). Opt-in per case (a
+// `partial-paths` file in the case dir), so the partial rows of every other golden are unchanged
+const PARTIAL_PATHS = process.argv.includes('--partial-paths');
 const DEBUG = !!process.env.HONO_ORACLE_DEBUG;
 const T0 = Date.now();
 const phase = name => { if (DEBUG) process.stderr.write(`phase ${name} at ${((Date.now() - T0) / 1000).toFixed(1)}s\n`); };
@@ -283,7 +287,7 @@ function mergePath(base, sub, ...rest) {
   return `${base?.[0] === '/' ? '' : '/'}${base}${sub === '/' ? '' : `${base?.at(-1) === '/' ? '' : '/'}${sub?.[0] === '/' ? sub.slice(1) : sub}`}`;
 }
 
-const out = { regby: new Set(), unserved: new Set(), partial: new Set(), submount: [], route: [], mw: [], entry: new Set(), ctx: new Set(), rpc: new Set(), request: new Set(), unknown: new Set() };
+const out = { regby: new Set(), unserved: new Set(), partial: new Set(), ppath: new Set(), submount: [], route: [], mw: [], entry: new Set(), ctx: new Set(), rpc: new Set(), request: new Set(), unknown: new Set() };
 // unknown rows: SITE  REASON  FN  (REASON from SPEC section 4's closed list; FN = the method it is attributed to)
 const siteFn = new Map();
 function unknownAt(node, reason, fnKey) { out.unknown.add(`${loc(node)}\t${reason}\t${fnKey || enclosingFn(node)}`); }
@@ -380,7 +384,8 @@ function valueOfDecl(d) {
       // the value is unknown, never a stack overflow
       if (evaluating.has(d)) { noteCycle(d); return UNK('cycle'); }
       evaluating.add(d);
-      let src; try { src = evalExpr(vd.initializer); } finally { evaluating.delete(d); }
+      let src; try { src = env.has(vd) ? env.get(vd) : evalExpr(vd.initializer); } finally { evaluating.delete(d); }
+      env.set(vd, src); // O30: the initializer is evaluated once per declaration, not once per destructured name
       const prop = (d.propertyName || d.name).getText();
       let v = null;
       if (src.k === 'obj' && src.props.has(prop)) { const p = src.props.get(prop); if (!p.val) p.val = evalExpr(p.node); v = p.val; }
@@ -739,18 +744,31 @@ const calleeRecv = new Map();
 // R12: module lists the program spells literally. `import.meta.glob(<literal pattern(s)>)` is an object keyed by the
 // matched files' paths (eager: the module; lazy: a function returning it), `require.context(dir, deep, /re/)` a
 // function over its keys; Object.entries / values / keys / fromEntries over a known object follow the values
-function globRegex(pat) {
+// O28: a brace alternative is a glob of its own (`{a,*-b}`, `{x/**,y}`): translate it with the same rules, never
+// as escaped literal text (a bare `*` there made an invalid regex: "Nothing to repeat"). Braces may nest.
+function globBody(pat) {
   let r = '';
   for (let i = 0; i < pat.length; i++) {
     const ch = pat[i];
     if (ch === '*' && pat[i + 1] === '*') { r += pat[i + 2] === '/' ? '(?:.*/)?' : '.*'; i += pat[i + 2] === '/' ? 2 : 1; }
     else if (ch === '*') r += '[^/]*';
     else if (ch === '?') r += '[^/]';
-    else if (ch === '{') { const j = pat.indexOf('}', i); r += '(?:' + pat.slice(i + 1, j).split(',').map(x => x.replace(/[.+^$()|[\]\\]/g, '\\$&')).join('|') + ')'; i = j; }
-    else r += ch.replace(/[.+^$()|[\]\\]/g, '\\$&');
+    else if (ch === '{') {
+      let depth = 0, j = i, start = i + 1; const alts = [];
+      for (; j < pat.length; j++) {
+        if (pat[j] === '{') depth++;
+        else if (pat[j] === '}') { if (--depth === 0) break; }
+        else if (pat[j] === ',' && depth === 1) { alts.push(pat.slice(start, j)); start = j + 1; }
+      }
+      if (j >= pat.length) { r += '\\{'; continue; }  // an unclosed brace is a literal
+      alts.push(pat.slice(start, j));
+      r += '(?:' + alts.map(globBody).join('|') + ')'; i = j;
+    }
+    else r += ch.replace(/[.+^$()|[\]\\{}]/g, '\\$&');
   }
-  return new RegExp('^' + r + '$');
+  return r;
 }
+function globRegex(pat) { return new RegExp('^' + globBody(pat) + '$'); }
 function filesMatching(fromFile, pats) {
   const dir = path.dirname(path.resolve(fromFile)), hits = new Map();
   const pos = pats.filter(p => !p.startsWith('!')), neg = pats.filter(p => p.startsWith('!')).map(p => p.slice(1));
@@ -1168,7 +1186,13 @@ function appMethod(app, name, e) {
 // inside the sub-app, whose paths are all under the one unknown prefix) after the parent's `*` / `/*` middleware
 // registered before the mount. `mwp` rows: (mw, handler, verb, position); path and app are not decidable
 const partialMw = new Set();
-function partialMount(sub, reason, e, parentMws) {
+function prefixText(x) {
+  if (!x) return HOLE;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x)) x = x.expression;
+  if (ts.isTemplateExpression(x)) { let t = x.head.text; for (const sp of x.templateSpans) { const v = evalExpr(sp.expression); t += (v.k === 'str' ? v.v : HOLE) + sp.literal.text; } return t; }
+  const v = evalExpr(x); return v.k === 'str' ? v.v : HOLE;
+}
+function partialMount(sub, reason, e, parentMws, knownPrefix) {
   sub.store.mounted = true;
   const ents = [...sub.store.entries];
   const router = new SmartRouter({ routers: [new RegExpRouter(), new TrieRouter()] });
@@ -1177,6 +1201,7 @@ function partialMount(sub, reason, e, parentMws) {
     if (en.kind !== 'handler') return;
     const V = en.method === 'ALL' ? 'ANY' : en.method;
     out.partial.add(`${en.key}\t${V}\t${reason}`); unknownAt(e, reason, en.key);
+    if (knownPrefix != null && en.key) out.ppath.add(`${en.key}\t${V}\t${mergePath(knownPrefix, en.path).split(HOLE).join('{}')}`);
     let matched; try { matched = router.match(en.method === 'ALL' ? 'GET' : en.method, samplePath(en.path))[0].map(x => x[0]); } catch { matched = null; }
     if (!matched || !matched.includes(i)) return;
     const seq = [...(parentMws || []), ...matched.filter(j => j < i).map(j => ents[j])];
@@ -1212,7 +1237,9 @@ function mountOne(app, pv, sub, e, site) {
       // every route of the sub-app is still emitted, partially, with the reason: never dropped; SPEC 3.3 [iter2]: a
       // scoped `use` already on this app cannot be decided against routes whose prefix is unknown
       const pm = sub.store.entries.some(r => r.kind === 'handler') ? parentStarMws(app, e) : [];
-      partialMount(sub, why, e, pm);
+      // the known pieces of a dynamic prefix: a template's decidable spans stay, every other piece is a HOLE
+      const known = app.dyn ? null : mergePath(app.base, prefixText(e.arguments[0]));
+      partialMount(sub, why, e, pm, known);
       return app;
     }
     // the EFFECTIVE prefix: route() on a basePath'd app mounts under mergePath(base, prefix) (hono-base.js)
@@ -1376,7 +1403,9 @@ function evalStmt(st) {
     for (const d of st.declarationList.declarations) {
       if (!d.initializer || env.has(d)) continue;
       if (ts.isIdentifier(d.name)) env.set(d, evalExpr(d.initializer));
-      else evalExpr(d.initializer);
+      // O30 (hono-7-01): a destructuring declaration evaluates its initializer ONCE; every name it binds reads that
+      // one value (valueOfDecl), so `const { a, b } = makeApps()` makes one set of apps, not one per name
+      else env.set(d, evalExpr(d.initializer));
     }
     return null;
   }
@@ -1856,13 +1885,13 @@ srcFiles.forEach(scanValid);
 
 phase('results');
 const lines = [];
-for (const r of out.route) lines.push(`route\t${r}`);
-for (const r of out.mw) lines.push(`mw\t${r}`);
+for (const r of new Set(out.route)) lines.push(`route\t${r}`);  // O29: first occurrence only
+for (const r of new Set(out.mw)) lines.push(`mw\t${r}`);
 for (const r of [...out.entry].sort()) lines.push(`entry\t${r}`);
 for (const r of [...out.ctx].sort()) lines.push(`ctx\t${r}`);
 for (const r of [...out.rpc].sort()) lines.push(`rpc\t${r}`);
 for (const r of [...out.request].sort()) lines.push(`request\t${r}`);
-for (const r of out.submount) lines.push(`submount\t${r}`);
+for (const r of new Set(out.submount)) lines.push(`submount\t${r}`);
 for (const r of [...schemaRows].sort()) lines.push(`schema\t${r}`);
 for (const r of [...validRows].sort()) lines.push(`validread\t${r}`);
 // O12: a handler with a route row is not also partial (nor its partial reason rows)
@@ -1873,6 +1902,8 @@ for (const r of [...validRows].sort()) lines.push(`validread\t${r}`);
   for (const r of [...out.unknown]) { const c = r.split('\t'); if (PARTIAL_REASONS.has(c[1]) && routed.has(c[2])) out.unknown.delete(r); }
 }
 for (const r of [...out.partial].sort()) lines.push(`partial\t${r}`);
+// a handler with a route row has no partial row (O12 above), so no partial path either
+if (PARTIAL_PATHS) { const routed = new Set(out.route.map(r => r.split('\t')[2])); for (const r of [...out.ppath].sort()) if (!routed.has(r.split('\t')[0])) lines.push(`ppath\t${r}`); }
 { const routed = new Set(out.route.map(r => r.split('\t')[2])); for (const r of [...partialMw].sort()) if (!routed.has(r.split('\t')[1])) lines.push(`mwp\t${r}`); }
 for (const r of [...out.regby].sort()) lines.push(`regby\t${r}`);
 for (const r of [...out.unserved].sort()) lines.push(`unserved\t${r}`);
@@ -1881,4 +1912,7 @@ for (const r of [...out.unknown].sort()) lines.push(`unknown\t${r}`);
 // (a mount's runtime handler is hono's wrapper: shown as a library entry; a dynamic marker is no runtime entry)
 if (STORES) for (const st of stores) st.entries.filter(en => en.kind !== 'dyn').forEach((en, i) => lines.push(`store\t${st.origin}#${st.id}\t${st.mounted ? 'mounted' : st.dropped ? 'unserved' : 'root'}\t${i}\t${en.method}\t${en.path}\t${en.mount ? 'lib:mount' : en.key}\t${en.kind}\t${en.alt || ''}`));
 // streamed: one joined string exceeds V8's maximum string length on a 400-route project (stress-2 guard)
-{ let buf = []; for (const l of lines) { buf.push(l); if (buf.length >= 20000) { fs.writeSync(1, buf.join('\n') + '\n'); buf = []; } } if (buf.length) fs.writeSync(1, buf.join('\n') + '\n'); }
+// O29: every row is printed ONCE. The same (route|mw|submount) row is reached again for each store that shares a
+// registration (a sub-app mounted under several parents, a builder called per test); goldens are sets, so this changes
+// no committed expectation, but a row repeated 1000x inflated count-based scores and wrote a 1.1 GB file
+{ const seen = new Set(); let buf = []; for (const l of lines) { if (seen.has(l)) continue; seen.add(l); buf.push(l); if (buf.length >= 20000) { fs.writeSync(1, buf.join('\n') + '\n'); buf = []; } } if (buf.length) fs.writeSync(1, buf.join('\n') + '\n'); }

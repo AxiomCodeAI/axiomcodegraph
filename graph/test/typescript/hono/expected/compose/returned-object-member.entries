@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-01: each rt.p read takes only its own property: stock, orders, audit under /v1 with their own handlers
+# census: route_mount_literal, prop_receiver_route, app_factory_fn (violation hono-7-01, P1 false_route: sub-apps
+entry	routes/audit.ts:5:24	http
+entry	routes/orders.ts:5:25	http
+entry	routes/orders.ts:6:27	http
+entry	routes/stock.ts:5:18	http
+entry	routes/stock.ts:6:25	http

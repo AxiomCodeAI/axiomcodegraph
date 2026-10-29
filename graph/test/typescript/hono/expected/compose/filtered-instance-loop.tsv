@@ -1,9 +1,9 @@
 # hand-reviewed 2026-10-28 against the fixture and the oracle: m36/hono-5-01 under R13b: exact /accounts and /invoices, each with conditional_registration
 # census: route_mount_root (stress-5 mutation m36 shape; violation hono-5-01, SPEC R13b)
+# iteration 8: repeated rows removed (O29: the oracle prints each row once); the row set is unchanged
 route	GET	/	index.ts:27:14	index.ts:26:13	0
 route	GET	/accounts	index.ts:11:24	index.ts:26:13	1
 route	GET	/invoices	index.ts:18:24	index.ts:26:13	2
-submount	/	index.ts:29:7
 submount	/	index.ts:29:7
 regby	index.ts:16:3	index.ts:18:24	GET	/invoices	index.ts:26:13
 regby	index.ts:1:1	index.ts:27:14	GET	/	index.ts:26:13

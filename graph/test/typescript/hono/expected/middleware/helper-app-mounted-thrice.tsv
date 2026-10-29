@@ -1,22 +1,13 @@
 # hand-reviewed 2026-10-28 against the fixture and the oracle: m28/hono-4-02/R6: three per-call test apps, each chain use 0, param 1, json 2
 # census: app_request_test (stress-4 mutation m28 shape; violation hono-4-02, SPEC R6)
+# iteration 8: repeated rows removed (O29: the oracle prints each row once); the row set is unchanged
 route	POST	/:id/rename	routes.ts:9:3	routes.test.ts:11:15	3
-route	POST	/:id/rename	routes.ts:9:3	routes.test.ts:11:15	3
-route	POST	/:id/rename	routes.ts:9:3	routes.test.ts:11:15	3
-mw	routes.test.ts:12:16	routes.ts:9:3	POST	/:id/rename	0	routes.test.ts:11:15
-mw	lib:@hono/zod-validator.zValidator@routes.ts:7:3	routes.ts:9:3	POST	/:id/rename	1	routes.test.ts:11:15
-mw	lib:@hono/zod-validator.zValidator@routes.ts:8:3	routes.ts:9:3	POST	/:id/rename	2	routes.test.ts:11:15
-mw	routes.test.ts:12:16	routes.ts:9:3	POST	/:id/rename	0	routes.test.ts:11:15
-mw	lib:@hono/zod-validator.zValidator@routes.ts:7:3	routes.ts:9:3	POST	/:id/rename	1	routes.test.ts:11:15
-mw	lib:@hono/zod-validator.zValidator@routes.ts:8:3	routes.ts:9:3	POST	/:id/rename	2	routes.test.ts:11:15
 mw	routes.test.ts:12:16	routes.ts:9:3	POST	/:id/rename	0	routes.test.ts:11:15
 mw	lib:@hono/zod-validator.zValidator@routes.ts:7:3	routes.ts:9:3	POST	/:id/rename	1	routes.test.ts:11:15
 mw	lib:@hono/zod-validator.zValidator@routes.ts:8:3	routes.ts:9:3	POST	/:id/rename	2	routes.test.ts:11:15
 request	routes.test.ts:24:19	POST	/1/rename	routes.ts:9:3
 request	routes.test.ts:30:19	POST	/2/rename	routes.ts:9:3
 request	routes.test.ts:36:21	POST	/3/rename	routes.ts:9:3
-submount	/	routes.test.ts:20:7
-submount	/	routes.test.ts:20:7
 submount	/	routes.test.ts:20:7
 schema	routes.ts:9:3	json	expr@routes.ts:8:22
 schema	routes.ts:9:3	param	expr@routes.ts:7:23

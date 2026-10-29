@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: O28: {memory,*-store} matches memory, disk-store, remote-store (mounted under /stores); legacy stays its own exported app
+# census: route_mount_root (SPEC R12.1; oracle note O28: a brace alternative holding a `*` crashed the oracle)
+entry	stores/disk-store/routes.ts:4:20	http
+entry	stores/legacy/routes.ts:4:22	http
+entry	stores/memory/routes.ts:4:22	http
+entry	stores/remote-store/routes.ts:4:22	http

@@ -1,11 +1,11 @@
 # hand-reviewed 2026-10-28 against the fixture and the oracle: R12.1: literal import.meta.glob (eager and lazy) mounts each matched default-exported app; an unmatched module stays a root
 # census: route_mount_root (SPEC R12.1; QD16 shape: a tier app mounting `mod.default` over a literal glob)
+# iteration 8: repeated rows removed (O29: the oracle prints each row once); the row set is unchanged
 route	POST	/api/orders	routes/orders/orders.index.ts:4:24	index.ts:21:13	0
 route	GET	/api/users	routes/users/users.index.ts:4:21	index.ts:21:13	1
 route	GET	/api/users/:id	routes/users/users.index.ts:5:25	index.ts:21:13	2
 route	GET	/pages/daily	lazy/reports.page.ts:4:23	index.ts:21:13	3
 route	GET	/scratch	routes/orders/helpers.ts:5:25	routes/orders/helpers.ts:4:17	0
-submount	/	index.ts:11:7
 submount	/	index.ts:11:7
 submount	/api	index.ts:22:5
 submount	/pages	index.ts:17:9

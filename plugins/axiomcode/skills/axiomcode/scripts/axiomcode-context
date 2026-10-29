@@ -354,6 +354,14 @@ def _route_parts(r):
     return [('*' if (p.startswith('{') or p.startswith(':') or p.startswith('<') or p == '*') else p) for p in r.strip('/').split('/') if p]
 
 
+def _holes_match(a, hp):
+    """Whether the asked segments `a` are the route parts `hp`, where None is a hole of any number of segments and
+    every other part is the same segment (a parameter `*` only for a parameter)."""
+    if not hp: return not a
+    if hp[0] is None: return any(_holes_match(a[i:], hp[1:]) for i in range(len(a) + 1))
+    return bool(a) and a[0] == hp[0] and _holes_match(a[1:], hp[1:])
+
+
 def _route_eq(a, b):
     return len(a) == len(b) and all(x == y or '*' in (x, y) for x, y in zip(a, b))
 
@@ -525,18 +533,20 @@ def route_table_lines(g, text, cap=8):
         # through parameters and holes (`/{}/:action`), each with what is decided of its chain and what may run
         hitp = []
         for h, v, p, app, why in sorted({tuple(r) for r in g.q("SELECT c0, c1, c2, c3, c4 FROM ext_http_route_partial")}):
-            kp0 = [x for x in _route_parts(p.replace('{}', ''))]
+            # a hole (`{}`) is a part of the path decided at run time: any number of segments, before the known tail
+            # or between two known parts (`/v1/{}/ping`)
+            hp0 = [None if x == '\x00' else x for x in _route_parts(p.replace('{}', '\x00'))]
+            while hp0 and hp0[0] is None: hp0 = hp0[1:]
             # an optional last parameter (`:module?`) may be left off by the request
-            kps = [kp0] + ([kp0[:-1]] if kp0 and p.rstrip('/').endswith('?') and len(kp0) > 1 else [])
+            hps = [hp0] + ([hp0[:-1]] if hp0 and hp0[-1] is not None and p.rstrip('/').endswith('?') and len(hp0) > 1 else [])
             best = None
-            for (w, a), kp in [(x, k) for x in asked for k in kps]:
+            for (w, a), hp in [(x, k) for x in asked for k in hps]:
+                kp = [x for x in hp if x is not None]
                 if not (vok(w, v) and len(a) >= len(kp) and kp): continue
-                tail = a[-len(kp):]
                 # a parameter the question writes stands for a parameter of the route, never for one of its literal
                 # segments, and at least one literal segment must be the same: `/files` is no answer to `/x/:module`
-                if any(x != y and (x == '*' or y == '*') and not (x == '*' and y == '*') for x, y in zip(tail, kp)): continue
-                if any(x != y for x, y in zip(tail, kp) if x != '*' and y != '*'): continue
-                lit = sum(1 for x, y in zip(tail, kp) if x == y and x != '*')
+                if not _holes_match(a, [None] + hp): continue
+                lit = sum(1 for y in kp if y != '*')
                 if not lit: continue
                 rank = (0 if len(kp) == len(a) else 1, -lit, len(a) - len(kp))
                 best = rank if best is None or rank < best else best

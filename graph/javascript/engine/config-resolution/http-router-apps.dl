@@ -53,6 +53,7 @@ jr_module(spec) :- router_mw_combinator(spec, _).
 jr_module(spec) :- router_mw_except(spec, _).
 jr_module(spec) :- router_rpc_client(spec, _).
 jr_module(spec) :- router_test_client(spec, _).
+jr_module(spec) :- router_route_def(spec, _).
 
 // jr_ref(Expr, Specifier, Name): Expr denotes export Name of a knob module ("" = the
 // module itself), through an import, a require, a destructure or a member read
@@ -85,6 +86,7 @@ jr_registrar(n) :- router_on(n).
 jr_registrar(n) :- router_mount_app(n).
 jr_registrar(n) :- router_mount_foreign(n).
 jr_registrar(n) :- router_fallback(n).
+jr_registrar(n) :- router_openapi(n).
 .decl jr_reg(c0:symbol, c1:symbol, c2:symbol)
 jr_reg(ce, a, cn) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), jr_registrar(cn),
     expr_value(r, "router_app", a).
