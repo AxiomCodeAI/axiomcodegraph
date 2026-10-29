@@ -239,7 +239,8 @@ ref_names_type(prov, e, gk) :-
     expr_written_name(prov, e, n), expr_type_argc(prov, e, ar),
     expr_ultimate_module(prov, e, mod),
     !ref_binds_value(prov, e),
-    type_name_resolves(prov, mod, n, ar, gk).
+    type_name_resolves(prov, mod, n, ar, gk),
+    !expr_name_dropped(prov, e, gk).
 
 // ── IMPLICIT `this` ─────────────────────────────────────────────────────────
 // An unqualified instance member reference has an implicit `this` receiver whose

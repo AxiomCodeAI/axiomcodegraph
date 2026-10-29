@@ -73,6 +73,7 @@ heritage_resolves(prov, gk, pos, bgk) :-
     heritage_of_entity(prov, gk, pos, bn, ba, ""),
     type_group(prov, t, gk), type_module(prov, t, mod),
     type_name_resolves(prov, mod, bn, ba, bgk),
+    !heritage_name_dropped(prov, t, bn, bgk),
     bgk != gk.
 
 // ── THE SPLIT ───────────────────────────────────────────────────────────────
