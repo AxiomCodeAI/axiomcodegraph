@@ -1,0 +1,6 @@
+# Accepted gaps for 94-thistype-object-literal: each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# The no-marker control: with no contextual type, `this` in a literal's method is the literal
+# itself. The engine does not type it, before this change and after; the marker cases are the fix.
+x#b() -> x#a()

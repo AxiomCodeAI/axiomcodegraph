@@ -178,6 +178,60 @@ this_expr(e) :- expr_referenced("client", "THIS", _, e).
 this_expr(e) :- expr_kind("client", "THIS_REFERENCE", _, e).
 method_declared_this(m, p) :- param_shape("client", "THIS", _, _, p), param_decl("client", _, _, _, m, p).
 
+// ── `this` IN AN OBJECT LITERAL WRITTEN AS `X & ThisType<T>` ────────────────
+// `defineProto<Counter>({ inc() {…}, twice() { return this.inc() } })` where the parameter is
+// `ProtoFor<T> = { … } & ThisType<T>`: the compiler types `this` in the literal's methods as
+// T, which is the whole point of the marker. It is how a prototype table, a mixin or a store
+// definition is written when its methods run with the instance as receiver. Nothing typed
+// `this` there, so every `this.m()` in such a table resolved to nothing.
+//
+// thistype_arg(Ref, ArgRef): the contextual reference carries ThisType, with ArgRef as its
+// argument written in Ref's own scope. Found through an intersection, a parenthesised type,
+// and an alias, where the alias's own parameter is replaced by Ref's argument for it. That
+// argument is then either a written type or the CALLEE's type variable, bound by the call
+// (call_tvar_arg_binding, which covers an explicit type argument).
+//
+// Function-valued members only: an arrow property does not bind `this`, so it keeps the
+// enclosing one.
+thistype_arg(r, a) :- type_ref(prov, "TYPE_REFERENCE", _, "ThisType", _, _, _, r),
+    type_ref_parent(prov, r, "0", a).
+thistype_arg(r, a) :- type_ref(prov, k, _, _, _, _, _, r),
+    thistype_carrier_kind(k),
+    type_ref_parent(prov, r, _, c),
+    thistype_arg(c, a).
+thistype_arg(r, a) :- type_ref_resolves(_, r, t),
+    type_alias_target(_, ar, t),
+    thistype_arg(ar, v),
+    type_ref_type_param(_, tp, v),
+    type_param(_, pname, _, _, t, tp),
+    type_arg_binding(r, pname, a).
+thistype_arg(r, a) :- type_ref_resolves(_, r, t),
+    type_alias_target(_, ar, t),
+    thistype_arg(ar, a),
+    !type_ref_type_param(_, _, a).
+thistype_carrier_kind("INTERSECTION").
+thistype_carrier_kind("PARENTHESIZED").
+
+objlit_this_type(l, prov, t) :- objlit_ctx_ref(l, r),
+    thistype_arg(r, a),
+    !type_ref_type_param(_, _, a),
+    ref_type_target(a, prov, t).
+objlit_this_type(l, prov, t) :- expr_child("client", ce, "ARGUMENT", pos, l),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    expr_call_candidate(ce, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    thistype_arg(r, a),
+    type_ref_type_param(_, tp, a),
+    type_param(_, _, _, _, m, tp),
+    call_tvar_arg_binding(ce, tp, prov, t).
+
+expr_type(e, prov, t) :- this_expr(e),
+    expr_enclosing_method(e, lm),
+    objlit_member_fn(l, _, lm),
+    !method_kind(_, "ARROW_FUNCTION", _, lm),
+    objlit_this_type(l, prov, t).
+
 // `this` INSIDE A STATIC METHOD IS THE CLASS, so its members are the STATICS. A helper
 // class that calls its own statics through `this` is ordinary TypeScript —
 // `private static parse(...)` reached as `this.parse(...)` from another static — and the
@@ -426,6 +480,15 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f),
     field_type(f, prov, t).
+// …and the member's SHAPE, off a shape qualifier. The typed-qualifier clause for
+// field_shape is below; without this one a chain of inline object types, `ctx.common.issues`
+// with `ctx: { common: { issues: Issue[] } }`, went one level deep and stopped: `ctx` had a
+// shape, `ctx.common` read a shape-typed member off it and got nothing, and every call on
+// the rest of the chain was unresolved.
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f),
+    field_shape(f, s).
 // ── A PROPERTY ACCESS WHOSE MEMBER IS A GETTER ─────────────────────────────
 // `get entityToSyncMetadatas(): EntityMetadata[]`, read as
 // `this.entityToSyncMetadatas.map(...)`. Every rule above looks the member up in
@@ -471,6 +534,21 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, mprov, m),
     module_export(mprov, m, n, "VARIABLE", v),
     var_type(v, prov, t).
+// …and its SHAPE, which is the half a function-typed export has: `export const parse:
+// Parser = makeParser(1)` where `Parser` aliases a function type. The named import of the
+// same const already reads var_shape (the IMPORT_BINDING clause above); read off the
+// namespace, `ns.parse(x)` had a type-less, shape-less callee and resolved to nothing, while
+// `import { parse }` beside it resolved. The value is a factory's result, so var_is_function
+// has no literal to find and the declared shape is the only answer there is.
+//
+// Only there. Where the const DOES hold a function literal, rule (8) already answers with its
+// body, and adding the annotation's bodiless signature beside it turned an implementation the
+// site was right to name into a two-way hedge.
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_namespace(q, _, m),
+    module_export(_, m, n, "VARIABLE", v),
+    !var_is_function(v, _),
+    var_shape(v, s).
 expr_static_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, prov, m),
     module_export(prov, m, n, "TYPE", t).
