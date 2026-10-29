@@ -41,6 +41,12 @@ hb_get_at(m, key, ce) :- hb_get_site(m, ce, k), rd_val(k, key), !contains("{}", 
 // `c.var.K`
 hb_get_at(m, key, e) :- property_access_name(e, key), expr_child("client", e, "RECEIVER", _, v),
     property_access_name(v, "var"), expr_child("client", v, "RECEIVER", _, c), hb_ctx_ref(c, m).
+// `const { K } = c.var` (and `{ K: x }`): each destructured property is a read of that key, at the `c.var`
+hb_get_at(m, key, v) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, "true", "PROPERTY", key, _, _, _, _),
+    hb_var_expr(v, m).
+// `c.var`, on a context
+.decl hb_var_expr(c0:symbol, c1:symbol)
+hb_var_expr(v, m) :- property_access_name(v, "var"), expr_child("client", v, "RECEIVER", _, c), hb_ctx_ref(c, m).
 .decl hb_set(c0:symbol, c1:symbol)
 hb_set(m, key) :- hb_set_at(m, key, _).
 .decl hb_get(c0:symbol, c1:symbol)
@@ -65,7 +71,26 @@ hb_chain(h, vv, p, h, 100000) :- http_route(h, vv, p, _, _).
 
 // ctx_key_flow(Setter, Reader, Key) — on some route's chain, Setter runs before Reader
 // (or is Reader) and writes the context key Reader reads.
-ctx_key_flow(s, r, key) :- hb_set(s, key), hb_get(r, key), hb_chain(h, vv, p, s, i), hb_chain(h, vv, p, r, j), i < j.
+ctx_key_flow(s, r, key) :- hb_set_live(s, key), hb_get(r, key), hb_chain(h, vv, p, s, i), hb_chain(h, vv, p, r, j), i < j.
+// a set a middleware makes after calling its `next` runs once every later function on the chain has
+// returned: only the middleware itself reads it back (hb_set_before_get)
+.decl hb_set_live(c0:symbol, c1:symbol)
+hb_set_live(m, key) :- hb_set_at(m, key, ce), !hb_after_next(m, ce).
+.decl hb_next_call(c0:symbol, c1:symbol)
+hb_next_call(m, nc) :- hb_set_at(m, _, _), param_decl("client", _, "1", _, m, p), expr_referenced("client", "PARAMETER", p, n),
+    call_callee_expr(_, nc, n).
+.decl hb_next_pos(c0:symbol, c1:number, c2:number)
+hb_next_pos(nc, to_number(l), to_number(c)) :- hb_next_call(_, nc),
+    ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, _, _, _, _, _, _, _, _, _, nc).
+.decl hb_after_next(c0:symbol, c1:symbol)
+hb_after_next(m, ce) :- hb_set_at(m, _, ce), hb_next_call(m, nc), !hb_next_guarded(nc), hb_next_pos(nc, nl, ncol), hb_pos(ce, sl, sc),
+    (nl < sl ; nl = sl, ncol < sc).
+// a `next()` in a branch, a loop or a try (`if (skip) return next()`) may not have run before a later set
+.decl hb_next_up(c0:symbol, c1:symbol, c2:symbol)
+hb_next_up(m, nc, b) :- hb_next_call(m, nc), expr_owner("client", "BLOCK", b, _, nc), block_owner("client", m, _, b).
+hb_next_up(m, nc, p) :- hb_next_up(m, nc, b), block_parent("client", p, b), block_owner("client", m, _, p).
+.decl hb_next_guarded(c0:symbol)
+hb_next_guarded(nc) :- hb_next_up(_, nc, b), block_kind("client", k, b), (hr_cond_kind(k) ; hr_loop_kind(k) ; k = "TRY").
 ctx_key_flow(s, s, key) :- hb_set_before_get(s, key), hb_chain(_, _, _, s, _).
 
 framework_undetermined(r, "ctx_key", "no_setter_on_chain") :- hb_get(r, key), hb_chain(_, _, _, r, _),

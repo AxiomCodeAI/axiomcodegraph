@@ -1662,18 +1662,54 @@ function notePos(f, k, isSet, pos) {
   else if (!lastGet.has(key) || pos > lastGet.get(key)) lastGet.set(key, pos);
 }
 const selfFlows = (f, k) => firstSet.has(f + '\t' + k) && lastGet.has(f + '\t' + k) && firstSet.get(f + '\t' + k) < lastGet.get(f + '\t' + k);
+// a set written after the middleware called `next` runs once every later function on the chain has
+// returned: it is read back only in its own function (fnloc -> Set(key) of the sets made before `next`)
+const setsBeforeNext = new Map();
+// the function whose context `c` is: a read or a write in a callback nested in it (`db.transaction(async
+// (tx) => c.get(K))`) runs during the request, on that function's behalf
+function ctxFnNode(c, n) {
+  const d = ts.isIdentifier(c) && declOf(c);
+  if (d && ts.isParameter(d) && ts.isFunctionLike(d.parent) && d.parent.body) return d.parent;
+  let fn = n.parent;
+  while (fn && !(ts.isFunctionLike(fn) && fn.body)) fn = fn.parent;
+  return fn;
+}
+const ctxFn = (c, n) => { const fn = ctxFnNode(c, n); return fn ? loc(fn) : enclosingFn(n); };
+function afterNext(n, c) {
+  const fn = ctxFnNode(c, n);
+  const p = fn && fn.parameters && fn.parameters[1];
+  if (!p || !ts.isIdentifier(p.name)) return false;
+  const nextDecl = p;
+  let found = false;
+  // only a `next()` that runs on every path to the set: not in a branch, a loop, a try or a nested function
+  const guard = (x) => ts.isIfStatement(x) || ts.isConditionalExpression(x) || ts.isSwitchStatement(x) || ts.isIterationStatement(x, false)
+    || ts.isTryStatement(x) || ts.isFunctionLike(x)
+    || (ts.isBinaryExpression(x) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(x.operatorToken.kind));
+  (function walk(x) {
+    if (found || x.getStart() >= n.getStart() || guard(x)) return;
+    if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && declOf(x.expression) === nextDecl && x.getEnd() <= n.getStart()) { found = true; return; }
+    ts.forEachChild(x, walk);
+  })(fn.body);
+  return found;
+}
+function noteGet(f, k, pos) { if (!gets.has(f)) gets.set(f, new Set()); gets.get(f).add(k); notePos(f, k, false, pos); }
+const isCtxVar = (e) => ts.isPropertyAccessExpression(e) && e.name.text === 'var' && isContext(e.expression);
 function scanCtx(n) {
   if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ['set', 'get'].includes(n.expression.name.text)
       && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && isContext(n.expression.expression)) {
     const isSet = n.expression.name.text === 'set';
     const m = isSet ? sets : gets;
-    const f = enclosingFn(n); if (!m.has(f)) m.set(f, new Set()); m.get(f).add(n.arguments[0].text);
+    const f = ctxFn(n.expression.expression, n); if (!m.has(f)) m.set(f, new Set()); m.get(f).add(n.arguments[0].text);
+    if (isSet && !afterNext(n, n.expression.expression)) { if (!setsBeforeNext.has(f)) setsBeforeNext.set(f, new Set()); setsBeforeNext.get(f).add(n.arguments[0].text); }
     notePos(f, n.arguments[0].text, isSet, n.getStart());
   }
-  if (ts.isPropertyAccessExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'var'
-      && isContext(n.expression.expression)) {
-    const f = enclosingFn(n); if (!gets.has(f)) gets.set(f, new Set()); gets.get(f).add(n.name.text);
-    notePos(f, n.name.text, false, n.getStart());
+  if (ts.isPropertyAccessExpression(n) && isCtxVar(n.expression)) noteGet(ctxFn(n.expression.expression, n), n.name.text, n.getStart());
+  // `const { K } = c.var`: each destructured property is a read of that key
+  if (ts.isVariableDeclaration(n) && n.initializer && ts.isObjectBindingPattern(n.name) && isCtxVar(n.initializer)) {
+    for (const el of n.name.elements) {
+      const k = el.propertyName ? el.propertyName.getText() : (ts.isIdentifier(el.name) ? el.name.text : null);
+      if (k && !el.dotDotDotToken) noteGet(ctxFn(n.initializer.expression, n), k, n.initializer.getStart());
+    }
   }
   ts.forEachChild(n, scanCtx);
 }
@@ -1681,7 +1717,8 @@ srcFiles.forEach(scanCtx);
 for (const { handler, chain } of chains) {
   const seq = [...chain, handler];
   seq.forEach((s, i) => {
-    for (const k of sets.get(s) || []) for (let j = i; j < seq.length; j++) if ((gets.get(seq[j]) || new Set()).has(k) && (j > i || selfFlows(s, k))) out.ctx.add(`${s}\t${seq[j]}\t${k}`);
+    for (const k of sets.get(s) || []) for (let j = i; j < seq.length; j++) if ((gets.get(seq[j]) || new Set()).has(k)
+        && (j > i ? (setsBeforeNext.get(s) || new Set()).has(k) : selfFlows(s, k))) out.ctx.add(`${s}\t${seq[j]}\t${k}`);
   });
 }
 // SPEC R23: a partial route's DECIDED chain (its `mwp` rows; a may-apply middleware is not in it) carries context keys

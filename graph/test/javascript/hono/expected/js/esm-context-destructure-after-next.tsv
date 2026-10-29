@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: user flows to the handler through a destructured c.var; done is set after next() and nothing downstream reads it
+# census: ctx_set, ctx_get_destructured, ctx_set_after_next
+route	GET	/me	index.js:13:16	index.js:6:13	1
+mw	index.js:8:9	index.js:13:16	GET	/me	0	index.js:6:13
+ctx	index.js:8:9	index.js:13:16	user
+regby	index.js:1:1	index.js:13:16	GET	/me	index.js:6:13
+unknown	index.js:13:16	no_setter_on_chain	index.js:13:16

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: db and origin flow to /both through a destructured c.var, origin to /one by name
+entry	index.ts:10:13	http
+entry	index.ts:19:18	http
+entry	index.ts:23:17	http
