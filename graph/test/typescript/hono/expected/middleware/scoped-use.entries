@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: /admin/* reaches both admin routes; /orgs/:org/* reaches billing; /public gets nothing
+# census: use_scoped, path_wildcard
+entry	index.ts:17:25	http
+entry	index.ts:18:29	http
+entry	index.ts:19:31	http
+entry	index.ts:20:20	http
+entry	index.ts:6:38	http
+entry	index.ts:9:35	http

@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Map/KV/Headers get+use beside a real app: one route; the KV callbacks are absent everywhere
+# census: neg_map_get_in_hono_file (SPEC N1)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/real	index.ts:20:18	index.ts:19:13	0
+regby	index.ts:1:1	index.ts:20:18	GET	/real	index.ts:19:13
+absent	index.ts:13:19
+absent	index.ts:14:8
+absent	index.ts:10:3
+absent	index.ts:11:3

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: library middleware keyed by registering call site; order logger, cors, secureHeaders, etag
+# census: builtin_mw_import
+entry	index.ts:13:22	http
+entry	index.ts:14:14	http

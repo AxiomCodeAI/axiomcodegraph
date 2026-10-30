@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R16 control: a plugin mounted by production AND by a test app is a route of both; a test-only plugin stays on the test app; a test request for a production-only plugin path is unserved on the test app
+# census: app_request_test, plugin_list_mount (SPEC R16 control; R6, R13b)
+entry	plugins/billing.ts:5:26	http
+entry	plugins/search.ts:5:17	http
+entry	plugins/search.ts:6:25	http
+entry	server.ts:7:14	http
+entry	test/search.test.ts:15:37	http

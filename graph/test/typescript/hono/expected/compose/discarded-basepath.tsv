@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: a statement basePath() changes nothing: GET /items, not /v2/items
+# census: basepath (SPEC 2 [iter2]: a helper that discards basePath()'s result)
+route	GET	/items	index.ts:11:19	index.ts:10:25	0
+regby	index.ts:1:1	index.ts:11:19	GET	/items	index.ts:10:25

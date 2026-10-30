@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m38/hono-5-06: the awaited async wrapper serves the inner route behind its use(*)
+# census: bun_serve (stress-5 mutation m38 shape; violation hono-5-06)
+entry	main.ts:10:21	http
+entry	wrap.ts:5:20	http

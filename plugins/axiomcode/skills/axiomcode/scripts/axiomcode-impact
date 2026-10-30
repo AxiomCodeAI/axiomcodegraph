@@ -2460,6 +2460,34 @@ class Impact:
                          g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge")
                          if r[0] and r[1] and r[0] != r[1]})
         W('framework', fw)
+        # AN HTTP ROUTER'S CHAIN (config-resolution/http-router-routes.dl, framework-behavior/http-router-chain.dl):
+        # middleware_applies(Mw, Handler, Verb, Path, Position) and ctx_key_flow(Setter, Reader, Key). Neither is a
+        # call: the router runs the middleware before the handler, and a context key written by one function on the
+        # chain is read by a later one. A change to a middleware or to what a key holds reaches those functions.
+        mwa = []
+        if g.has('ext_middleware_applies'):
+            mwa = sorted({(r[0], r[1], r[2], r[3], r[4]) for r in
+                          g.q("SELECT c0, c1, c2, c3, c4 FROM ext_middleware_applies") if r[0] and r[1] and r[0] != r[1]})
+        W('mw_applies', mwa)
+        ctxf = []
+        if g.has('ext_ctx_key_flow'):
+            # one row per (setter, reader) naming EVERY key that flows between them: a reader of two keys a middleware sets
+            # was shown under one of them
+            _keys = collections.defaultdict(set)
+            for r in g.q("SELECT c0, c1, c2 FROM ext_ctx_key_flow"):
+                if r[0] and r[1]: _keys[(r[0], r[1])].add(r[2])
+            ctxf = sorted((a, b, "', '".join(sorted(ks))) for (a, b), ks in _keys.items())
+        W('ctx_flow', ctxf)
+        # a schema a route validates its input with (route_schema, TS framework-behavior/http-router-schema.dl), and the
+        # route each handler serves (http_route), so a change to the schema names the routes it reaches
+        rsch = []
+        if g.has('ext_route_schema'):
+            rsch = sorted({(r[0], r[1], r[2]) for r in g.q("SELECT c0, c1, c2 FROM ext_route_schema") if r[0] and r[2]})
+        W('route_schema', rsch)
+        hroute = []
+        if g.has('ext_http_route'):
+            hroute = sorted({(r[0], r[1], r[2]) for r in g.q("SELECT c0, c1, c2 FROM ext_http_route") if r[0]})
+        W('http_route', hroute)
         # A LIBRARY CALLING BACK INTO THE CLIENT (Python framework-behavior/library-callbacks.dl): walked by the closure as
         # its own hop, `library callback`, so a test that drives the library reaches the client member it hands back to.
         libcb = []
@@ -2934,6 +2962,221 @@ def target_ext(g, pay):
     return ''
 
 
+def own_ids(g, targets):
+    """the declarations the question named (each target's payload), not the closure's expanded seeds: a type's seeds
+    reach every function that mentions it, and the router answer is about the named thing only"""
+    out = set()
+    def walk(x):
+        if isinstance(x, str):
+            if x in g.sym: out.add(x); mid = (g.sym[x] or {}).get('method_id')
+            else: mid = None
+            if mid: out.add(mid)
+            if x.startswith(('TS_', 'JS_')): out.add(x)
+        elif isinstance(x, dict):
+            for v in x.values(): walk(v)
+        elif isinstance(x, (list, tuple, set)):
+            for v in x: walk(v)
+        else:
+            try: vals = list(x)        # a database row
+            except TypeError: return
+            for v in vals: walk(v)
+    for _k, _lab, p_ in targets: walk(p_)
+    return out
+
+def router_answer(g, seeds, limit=25):
+    """AN HTTP ROUTER'S ANSWERS (SPEC 8.1): what the route table (http_route, http_route_partial,
+    route_registered_by), the middleware chains (middleware_applies) and the context-key flow (ctx_key_flow) say about
+    a change to the seeds. Only rows the engine wrote are printed; every list is capped by `limit` with the count
+    behind it. Returned as lines so the text answer and the --json document (`router`) carry the same words."""
+    out = []
+    if not seeds: return out
+    def _rq(sql, *a):
+        try: return g.q(sql, *a)
+        except Exception: return []
+    def has(t):
+        try: return g.has(t)
+        except Exception: return False
+    S = sorted(seeds)
+    sp = ','.join('?' * len(S))
+    def site(x):
+        r = _rq("SELECT callee_name, file, start_line FROM sites WHERE id = ?", x) if has('sites') else []
+        if r: return r[0]
+        # a node that is not a call site (an app held in a parameter or a field, a middleware value): where the engine
+        # says it is written (router_node_at)
+        n = _rq("SELECT c1, c2, c3 FROM ext_router_node_at WHERE c0 = ?", x) if has('ext_router_node_at') else []
+        if not n: return None
+        f = n[0][0]
+        pr = _rq("SELECT rel FROM paths WHERE raw = ?", f) if has('paths') else []
+        return ('' if n[0][2] == 'expression' else n[0][2], (pr[0][0] if pr and pr[0][0] else f), n[0][1])
+    def where(x):
+        if x in g.sym: return g.loc(x) or ''
+        r = site(x)
+        return f"{r[1]}:{r[2]}" if r else ''
+    def name(x):
+        if x in g.sym: return f"{g.disp(x)} {g.loc(x) or ''}".rstrip()
+        vk = _rq("SELECT c2 FROM ext_middleware_site WHERE c0 = ? AND c1 = 'value'", x) if has('ext_middleware_site') else []
+        if vk and vk[0][0]: return f"{vk[0][0]} (value)"
+        cs = _rq("SELECT c2, c3 FROM ext_middleware_site WHERE c0 = ? AND c1 != 'value'", x) if has('ext_middleware_site') else []
+        r = site(x)
+        at = f" at {r[1]}:{r[2]}" if r else ''
+        if cs and cs[0][0]: return f"{cs[0][0]}() from {cs[0][1]}{at}"
+        if r and r[0] and not r[0].startswith(('parameter ', 'field ')): return f"{r[0]}(){at}"
+        if r: return f"a value{at}"
+        return 'a value the engine could not name'
+    def app_name(a):
+        r = site(a)
+        return (f"{r[1]}:{r[2]}" + (f" ({r[0]})" if r[0].startswith(('parameter ', 'field ')) else '')) if r else a
+    def cap(xs, f):
+        for x in xs[:limit]: out.append(f(x))
+        if len(xs) > limit: out.append(f"  ... +{len(xs) - limit} more (--limit N)")
+    def hits(h):
+        return sorted({(r[0], r[1]) for r in _rq("SELECT c0, c3 FROM ext_remote_edge WHERE c1 = ?", h)}) if has('ext_remote_edge') else []
+    undet = collections.defaultdict(set)
+    if has('ext_framework_undetermined'):
+        for r in _rq("SELECT c0, c1, c2 FROM ext_framework_undetermined"): undet[r[0]].add((r[1], r[2]))
+    def honesty(h):
+        w = []
+        for what, why in sorted(undet.get(h, ())):
+            if why == 'conditional_registration': w.append('conditional: registered inside a branch')
+            elif why == 'loop_registration': w.append('registered inside a loop')
+            elif why == 'dynamic_middleware_list': w.append('order among the known middleware; a list the engine could not read may add more at run time')
+        return w
+    # (c)/(d) a function that REGISTERS routes: a registration function, an app factory or builder, a module body
+    if has('ext_route_registered_by'):
+        rg_all = {tuple(r) for r in _rq(f"SELECT c0, c1, c2, c3, c4 FROM ext_route_registered_by WHERE c0 IN ({sp})", *S)}
+        # one line per route: the same registration served by several apps (a builder called from tests) is one change
+        apps = sorted({r[4] for r in rg_all}, key=lambda a: (bool(re.search(r'(^|/)(tests?|__tests__)/|\.(test|spec)\.', app_name(a))), app_name(a)))
+        rg = sorted({(r[0], r[1], r[2], r[3], '') for r in rg_all}, key=lambda r: (r[3], r[2]))
+        if rg:
+            out.append(f"registers: {len(rg)} route(s) a change here adds to or removes from the served app"
+                       + (f" ({', '.join('app ' + app_name(a) for a in apps[:3])}" + (f" +{len(apps) - 3} more app(s)" if len(apps) > 3 else '') + ")" if apps else '') + ":")
+            def reg(r):
+                c, h, v, p, a = r
+                tail = ''.join(f"; hit by {g.disp(x)} {g.loc(x) or ''} ({d})" for x, d in hits(h)[:3] if x in g.sym)
+                hz = honesty(h)
+                return f"  registers {v} {p} -> {name(h)}" + (f" ({'; '.join(hz)})" if hz else '') + tail
+            cap(rg, reg)
+    # an app factory / builder: the apps whose creating expression is inside the seed function, and what they serve
+    if has('ext_http_route') and has('sites'):
+        spans = [(r[0], r[1], r[2], x) for x in S for r in _rq("SELECT file, line, end_line FROM symbols WHERE id = ? OR method_id = ?", x, x)[:1]]
+        made = collections.defaultdict(set)
+        # distinct routes: every call of a helper that builds an app is its own app (R6) reported under the one creating
+        # expression, so the rows repeat each route once per call
+        for a, n in _rq("SELECT c3, COUNT(DISTINCT c0 || char(9) || c1 || char(9) || c2) FROM ext_http_route GROUP BY c3"):
+            r = site(a)
+            if not r: continue
+            for f, l0, l1, x in spans:
+                if f and r[1] == f and l0 and l1 and l0 <= r[2] <= l1: made[x].add((a, n))
+        for x in sorted(made):
+            for a, n in sorted(made[x], key=lambda t: -t[1])[:limit]:
+                eg = _rq("SELECT c1, c2 FROM ext_http_route WHERE c3 = ? GROUP BY c1, c2 ORDER BY MIN(c4) LIMIT 3", a)
+                out.append(f"creates app {app_name(a)} serving {n} route(s)" + (f", e.g. {', '.join(v + ' ' + p for v, p in eg)}" if eg else ''))
+    # a route HANDLER: every route it serves (composed or partial), in table order, and the chain the router runs first
+    rt = sorted({tuple(r) for r in _rq(f"SELECT c0, c1, c2, c3, c4 FROM ext_http_route WHERE c0 IN ({sp})", *S)}) if has('ext_http_route') else []
+    for h, v, p, a, k in sorted(rt, key=lambda r: (r[3], r[4]))[:limit]:
+        mw = _rq("SELECT c0, c4 FROM ext_middleware_applies WHERE c1 = ? AND c2 = ? AND c3 = ? AND c5 = ?", h, v, p, a) if has('ext_middleware_applies') else []
+        before = sorted({(int(r[1]) if str(r[1]).isdigit() else 0, r[0]) for r in mw})
+        hz = honesty(h)
+        out.append(f"route: {g.disp(h)} serves {v} {p} (app {app_name(a)})" + (f" ({'; '.join(x for x in hz if not x.startswith('order'))})" if [x for x in hz if not x.startswith('order')] else ''))
+        if before:
+            out.append("  the router runs first, in order: " + ', '.join(f"{i}. {name(m)}" for i, (_p, m) in enumerate(before, 1)))
+        else:
+            out.append("  no middleware the engine can see runs before it")
+        if any(x.startswith('order') for x in hz): out.append("  " + [x for x in hz if x.startswith('order')][0])
+    if has('ext_http_route_partial'):
+        pr = sorted({(r[0], r[1], r[2], r[4]) for r in _rq(f"SELECT c0, c1, c2, c3, c4 FROM ext_http_route_partial WHERE c0 IN ({sp})", *S)})
+        for h, v, p, why in pr[:limit]:
+            out.append(f"route: {g.disp(h)} serves {v} {p} -- prefix not known ({why.replace('_', ' ')}); the full path is decided at run time")
+            if has('ext_middleware_may_apply'):
+                for mw, q in sorted({(r[0], r[1]) for r in _rq("SELECT c0, c4 FROM ext_middleware_may_apply WHERE c1 = ? AND c3 = ?", h, p)}):
+                    out.append(f"  {name(mw)} may run before it (scope {q} vs unknown prefix)")
+    # (d)/(f) a MIDDLEWARE, or a middleware FACTORY (resolved to what it returns): the routes it runs before, and the
+    # context keys it sets grouped by key with their readers
+    mws = set(S); asked_mw = set(S)
+    # a builder or factory (`createApp(ctx)`, `createFactory({ initApp })`): the middleware written inside it is what a
+    # change to it changes on every app it makes
+    if has('ext_middleware_site'):
+        for x in S:
+            for f, l0, l1 in _rq("SELECT file, line, end_line FROM symbols WHERE id = ? OR method_id = ?", x, x)[:1]:
+                if not (f and l0 and l1 and l1 > l0): continue
+                for (m,) in _rq("""SELECT DISTINCT e.c0 FROM ext_middleware_site e JOIN symbols s ON s.method_id = e.c0
+                                   WHERE e.c1 = 'project_fn' AND s.file = ? AND s.line BETWEEN ? AND ?""", f, l0, l1):
+                    mws.add(m)
+    if has('ext_middleware_site'):
+        names = {g.sym[x]['name'] for x in S if x in g.sym and g.sym[x].get('name')}
+        for nm in names:
+            fr_ = {r[0] for r in _rq("SELECT c0 FROM ext_middleware_site WHERE c1 = 'factory_result' AND c2 = ?", nm)}
+            mws |= fr_; asked_mw |= fr_
+    if has('ext_ctx_key_flow'):
+        mp = ','.join('?' * len(mws))
+        keys = collections.defaultdict(set)
+        for s_, r_, k_ in _rq(f"SELECT c0, c1, c2 FROM ext_ctx_key_flow WHERE c0 IN ({mp})", *sorted(mws)):
+            keys[k_].add(r_)
+        for k_ in sorted(keys):
+            rs = sorted(keys[k_], key=lambda x: name(x))
+            eg = ', '.join(name(x) for x in rs[:limit])
+            out.append(f"context key: sets '{k_}': read by {len(rs)} function(s), e.g. {eg}" + (f" (+{len(rs) - limit} more)" if len(rs) > limit else ''))
+    if has('ext_middleware_may_apply'):
+        for m in sorted(x for x in mws if x in seeds):
+            mr = sorted({(r[0], r[1], r[2]) for r in _rq("SELECT c2, c3, c4 FROM ext_middleware_may_apply WHERE c0 = ?", m)})
+            if mr:
+                out.append(f"middleware: {name(m)} may run before {len(mr)} route(s) whose prefix is not known:")
+                cap(mr, lambda r: f"  may run before {r[0]} {r[1]} (scope {r[2]} vs unknown prefix)")
+    if has('ext_middleware_applies'):
+        for m in sorted(mws):
+            rows_ = {(r[0], r[1], r[2]) for r in _rq("SELECT c2, c3, c1 FROM ext_middleware_applies WHERE c0 = ?", m)}
+            # production handlers first: a test app's route is an example of nothing a user requests
+            ro = sorted({(v, p_, bool((g.sym.get(h) or {}).get('is_test'))) for v, p_, h in rows_}, key=lambda r: (r[2], r[1], r[0]))
+            hs = sorted({(bool((g.sym.get(h) or {}).get('is_test')), v, p_, h) for v, p_, h in rows_})
+            if ro:
+                hz = [x for x in honesty(m) if not x.startswith('order')]
+                if m not in asked_mw:
+                    # written inside the builder asked about: one line, the routes are the builder's
+                    eg = ', '.join(f"{x[1]} {x[2]}" for x in ([x for x in hs if not x[0]] or hs)[:3])
+                    out.append(f"middleware: {name(m)} (registered inside it) runs before {len(ro)} route(s), e.g. {eg}" + (f" ({'; '.join(hz)}, so it may not run)" if hz else ''))
+                    continue
+                out.append(f"middleware: {name(m)} runs before {len(ro)} route(s)" + (f" ({'; '.join(hz)}, so it may not run)" if hz else '') + ":")
+                # EVERY route, not a sample: "does a change to it reach GET /x" is answered by finding the line
+                # (QD04, QD29); one line per route, production apps first, capped only far above a real app's size
+                full = [x for x in hs if not x[0]] or hs
+                # FROM WHERE (QH25, QD29): the registering call that puts it in each route's chain, an app-level
+                # `use(..)` or the route's own call; a route reached by two registrations names both
+                via = collections.defaultdict(set)
+                if has('ext_middleware_registered_at'):
+                    for h_, v_, p_, rc in _rq("SELECT c1, c2, c3, c5 FROM ext_middleware_registered_at WHERE c0 = ?", m):
+                        via[(v_, p_, h_)].add(rc)
+                def via_txt(v_, p_, h_):
+                    regs = []
+                    for rc in sorted(via.get((v_, p_, h_), ())):
+                        r = site(rc)
+                        if not r: continue
+                        # `use(..)` attaches it to every matching route; any other registering call is the route's own
+                        regs.append(f"{r[0]}(..) at {r[1]}:{r[2]}" if r[0] == 'use' else f"per-route, in {r[0]}(..) at {r[1]}:{r[2]}")
+                    return f"   (via {'; '.join(regs)})" if regs else ''
+                seen_ = set()
+                for x in full[:500]:
+                    if (x[1], x[2], x[3]) in seen_: continue
+                    seen_.add((x[1], x[2], x[3])); out.append(f"  runs before {x[1]} {x[2]} -> {name(x[3])}{via_txt(x[1], x[2], x[3])}")
+                if len(full) > 500: out.append(f"  ... +{len(full) - 500} more")
+                nt = sum(1 for x in hs if x[0])
+                if nt and any(not x[0] for x in hs): out.append(f"  (and before {nt} route(s) of apps built in tests)")
+    # (e) a request SCHEMA: every route validating with it (or a schema composed from it), and the validated reads
+    if has('ext_route_schema'):
+        rsch = sorted({tuple(r) for r in _rq(f"SELECT c0, c1 FROM ext_route_schema WHERE c2 IN ({sp})", *S)})
+        rows = []
+        for h, t in rsch:
+            got = sorted({(r[0], r[1]) for r in _rq("SELECT c1, c2 FROM ext_http_route WHERE c0 = ?", h)})
+            got += sorted({(r[0], r[1] + ' (prefix not known)') for r in _rq("SELECT c1, c2 FROM ext_http_route_partial WHERE c0 = ?", h)}) if has('ext_http_route_partial') else []
+            for v, p in got or [('?', '(route not composed)')]: rows.append((v, p, t, h))
+        if rows:
+            out.append(f"schema: validates {len(rows)} route input(s):")
+            cap(sorted(rows), lambda r: f"  validates {r[0]} {r[1]} (target {r[2]}) -> {name(r[3])}")
+        if has('ext_valid_read'):
+            vr = sorted({(r[0], r[1]) for r in _rq(f"SELECT c1, c2 FROM ext_valid_read WHERE c3 IN ({sp})", *S)})
+            if vr: cap(vr, lambda r: f"  read with c.req.valid('{r[1]}') in {name(r[0])}")
+    return out
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -3039,6 +3282,11 @@ def main(argv):
             # fires on the commonest shape there is (a Python attribute beside a same-named function, a fluent
             # accessor, a record component), so every such target came back as a JSONDecodeError rather than an answer
             print(f"note: {a} is a field and a method of that name — both are the change (--kind field | method for one)",
+                  file=sys.stderr if as_json else sys.stdout)
+        elif kinds in ({'type', 'var'}, {'type', 'field'}) and not kind:
+            # a value and a type of one name (`const User = z.object(..)` beside `type User = z.infer<typeof User>`, a
+            # const enum object beside its union type): one concept written twice, so both are the change, as above
+            print(f"note: {a} is a value and a type of that name: both are the change (--kind var | type for one)",
                   file=sys.stderr if as_json else sys.stdout)
         elif len(rs) > 1 and not kind:
             die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
@@ -3646,6 +3894,7 @@ def main(argv):
                                      **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           # the tests whose route never loads the changed file, left out of `tests` (see `unloaded` above)
                           **({'unloaded_tests': {'count': len(unloaded), 'files': sorted({g.sym[m]['file'] for m in unloaded if g.sym[m].get('file')})}} if unloaded else {}),
+                          **({'router': _router} if (_router := router_answer(g, own_ids(g, targets), limit)) else {}),
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,
                           'stub_tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'at': g.loc(m), 'certainty': 'type test' if m in type_tests else 'stubs it',
@@ -3716,6 +3965,7 @@ def main(argv):
     # as the direct-dependent sections already do. Tests are counted apart and not explained: a test entry point is
     # not a place the outside world calls, and the tests section below is what names them.
     ep_rows = sorted({(r['method_id'], r['reason']) for r in eps})
+    for _line in router_answer(g, own_ids(g, targets) & (set(seeds) | own_ids(g, targets)), limit): print(_line)
     _is_t = lambda m: m in g.sym and g.sym[m]['is_test']
     ep_by_reason = collections.defaultdict(list)
     for m, why in ep_rows:

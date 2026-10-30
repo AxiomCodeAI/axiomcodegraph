@@ -1,0 +1,30 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: six targets each read and linked; valid('json') on /missing is valid_without_validator
+# census: req_valid, zvalidator, validator_builtin (SPEC 3.9 targets)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/all/:id	index.ts:24:3	index.ts:15:13	6
+route	GET	/missing	index.ts:29:45	index.ts:15:13	8
+mw	lib:@hono/zod-validator.zValidator@index.ts:18:3	index.ts:24:3	POST	/all/:id	0	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:19:3	index.ts:24:3	POST	/all/:id	1	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:20:3	index.ts:24:3	POST	/all/:id	2	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:21:3	index.ts:24:3	POST	/all/:id	3	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:22:3	index.ts:24:3	POST	/all/:id	4	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:23:3	index.ts:24:3	POST	/all/:id	5	index.ts:15:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:29:21	index.ts:29:45	GET	/missing	0	index.ts:15:13
+schema	index.ts:24:3	cookie	index.ts:13:7
+schema	index.ts:24:3	form	index.ts:11:7
+schema	index.ts:24:3	header	index.ts:12:7
+schema	index.ts:24:3	json	index.ts:8:7
+schema	index.ts:24:3	param	index.ts:10:7
+schema	index.ts:24:3	query	index.ts:9:7
+schema	index.ts:29:45	query	index.ts:9:7
+validread	index.ts:25:104	index.ts:24:3	header	index.ts:12:7
+validread	index.ts:25:127	index.ts:24:3	cookie	index.ts:13:7
+validread	index.ts:25:18	index.ts:24:3	json	index.ts:8:7
+validread	index.ts:25:39	index.ts:24:3	query	index.ts:9:7
+validread	index.ts:25:61	index.ts:24:3	param	index.ts:10:7
+validread	index.ts:25:83	index.ts:24:3	form	index.ts:11:7
+validread	index.ts:32:18	index.ts:29:45	query	index.ts:9:7
+regby	index.ts:1:1	index.ts:24:3	POST	/all/:id	index.ts:15:13
+regby	index.ts:1:1	index.ts:29:45	GET	/missing	index.ts:15:13
+unknown	index.ts:31:16	valid_without_validator	index.ts:29:45

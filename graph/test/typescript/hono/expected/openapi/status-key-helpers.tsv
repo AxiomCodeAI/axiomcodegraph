@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m26/hono-3-04: [Status.X] keys and barrel-re-exported helpers name the helper argument for every response and body slot
+# census: create_route (stress-4 mutation m26 shape; violation hono-3-04 reopened)
+route	GET	/tickets/:id	handlers.ts:3:26	index.ts:8:13	0
+route	POST	/tickets	handlers.ts:4:29	index.ts:8:13	1
+schema	handlers.ts:3:26	param	expr@routes.ts:12:22
+schema	handlers.ts:3:26	response	routes.ts:5:7
+schema	handlers.ts:3:26	response	routes.ts:6:7
+schema	handlers.ts:4:29	json	routes.ts:7:7
+schema	handlers.ts:4:29	response	routes.ts:5:7
+regby	index.ts:1:1	handlers.ts:3:26	GET	/tickets/:id	index.ts:8:13
+regby	index.ts:1:1	handlers.ts:4:29	POST	/tickets	index.ts:8:13

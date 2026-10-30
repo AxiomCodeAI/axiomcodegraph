@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m29/hono-4-05: only the loop element class is partial; /admin/signin exact and not also partial
+# census: mount_dynamic_prefix_call (stress-4 mutation m29 shape; violation hono-4-05)
+route	GET	/admin/signin	index.ts:24:30	index.ts:35:13	0
+submount	/admin	index.ts:41:5
+partial	index.ts:11:30	GET	dynamic_mount_prefix
+regby	index.ts:23:3	index.ts:24:30	GET	/admin/signin	index.ts:35:13
+unknown	index.ts:38:3	dynamic_mount_prefix	index.ts:11:30

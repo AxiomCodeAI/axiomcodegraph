@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an HTTP client object with get/post(url, cb): its callbacks and caller are not routes
+# census: neg_verb_literal_nonhono (SPEC N2)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/only	index.ts:5:18	index.ts:4:13	0
+regby	index.ts:1:1	index.ts:5:18	GET	/only	index.ts:4:13
+absent	client.ts:11:21
+absent	client.ts:12:37
+absent	client.ts:10:1

@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: fetch-object export: the route handler plus scheduled and queue are http entries
+# census: export_default_fetch_obj, app_fetch_ref
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.ts:6:14	index.ts:5:13	0
+regby	index.ts:1:1	index.ts:6:14	GET	/	index.ts:5:13

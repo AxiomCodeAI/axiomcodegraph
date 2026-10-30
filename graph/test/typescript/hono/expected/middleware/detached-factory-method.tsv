@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O17: createMiddleware/createHandlers read off a factory into consts are the chain middleware and spread handlers
+# census: create_middleware (oracle gap O17)
+route	GET	/admin/users	index.ts:16:3	index.ts:19:13	2
+mw	index.ts:7:44	index.ts:16:3	GET	/admin/users	0	index.ts:19:13
+mw	index.ts:13:3	index.ts:16:3	GET	/admin/users	1	index.ts:19:13
+ctx	index.ts:7:44	index.ts:16:3	role
+regby	index.ts:1:1	index.ts:16:3	GET	/admin/users	index.ts:19:13

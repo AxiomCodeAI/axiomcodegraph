@@ -1,0 +1,31 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R16 control: a plugin mounted by production AND by a test app is a route of both; a test-only plugin stays on the test app; a test request for a production-only plugin path is unserved on the test app
+# census: app_request_test, plugin_list_mount (SPEC R16 control; R6, R13b)
+# iteration 8: repeated rows removed (O29: the oracle prints each row once); the row set is unchanged
+route	GET	/	server.ts:7:14	server.ts:6:13	0
+route	GET	/api/search	plugins/search.ts:5:17	server.ts:6:13	1
+route	POST	/api/search/reindex	plugins/search.ts:6:25	server.ts:6:13	2
+route	GET	/api/billing/invoices	plugins/billing.ts:5:26	server.ts:6:13	3
+route	GET	/api/search	plugins/search.ts:5:17	test/search.test.ts:8:15	0
+route	POST	/api/search/reindex	plugins/search.ts:6:25	test/search.test.ts:8:15	1
+route	GET	/api/search	plugins/search.ts:5:17	test/search.test.ts:17:15	0
+route	POST	/api/search/reindex	plugins/search.ts:6:25	test/search.test.ts:17:15	1
+route	GET	/__probe	test/search.test.ts:15:37	test/search.test.ts:17:15	2
+request	test/search.test.ts:14:43	GET	/__probe	test/search.test.ts:15:37
+request	test/search.test.ts:7:46	GET	/api/search	plugins/search.ts:5:17
+request	test/search.test.ts:7:46	POST	/api/search/reindex	plugins/search.ts:6:25
+submount	/api/search	plugins.ts:10:48
+submount	/api/billing	plugins.ts:10:48
+submount	/__probe	plugins.ts:10:48
+regby	plugins/billing.ts:1:1	plugins/billing.ts:5:26	GET	/api/billing/invoices	server.ts:6:13
+regby	plugins/search.ts:1:1	plugins/search.ts:5:17	GET	/api/search	server.ts:6:13
+regby	plugins/search.ts:1:1	plugins/search.ts:5:17	GET	/api/search	test/search.test.ts:17:15
+regby	plugins/search.ts:1:1	plugins/search.ts:5:17	GET	/api/search	test/search.test.ts:8:15
+regby	plugins/search.ts:1:1	plugins/search.ts:6:25	POST	/api/search/reindex	server.ts:6:13
+regby	plugins/search.ts:1:1	plugins/search.ts:6:25	POST	/api/search/reindex	test/search.test.ts:17:15
+regby	plugins/search.ts:1:1	plugins/search.ts:6:25	POST	/api/search/reindex	test/search.test.ts:8:15
+regby	server.ts:1:1	server.ts:7:14	GET	/	server.ts:6:13
+regby	test/search.test.ts:14:43	test/search.test.ts:15:37	GET	/__probe	test/search.test.ts:17:15
+unserved	test/search.test.ts:14:43	GET /api/billing/invoices
+unknown	plugins.ts:10:44	conditional_registration	plugins/billing.ts:5:26
+unknown	plugins.ts:10:44	conditional_registration	plugins/search.ts:5:17
+unknown	plugins.ts:10:44	conditional_registration	plugins/search.ts:6:25

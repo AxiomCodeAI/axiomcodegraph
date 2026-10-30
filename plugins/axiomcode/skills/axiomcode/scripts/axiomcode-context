@@ -354,8 +354,363 @@ def _route_parts(r):
     return [('*' if (p.startswith('{') or p.startswith(':') or p.startswith('<') or p == '*') else p) for p in r.strip('/').split('/') if p]
 
 
+def _holes_match(a, hp):
+    """Whether the asked segments `a` are the route parts `hp`, where None is a hole of any number of segments and
+    every other part is the same segment (a parameter `*` only for a parameter)."""
+    if not hp: return not a
+    if hp[0] is None: return any(_holes_match(a[i:], hp[1:]) for i in range(len(a) + 1))
+    return bool(a) and a[0] == hp[0] and _holes_match(a[1:], hp[1:])
+
+
 def _route_eq(a, b):
     return len(a) == len(b) and all(x == y or '*' in (x, y) for x, y in zip(a, b))
+
+
+VERB_ROUTE = re.compile(r'(?i)\b(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|ANY|ALL)\s+(/[^\s"\'`,;)]*|\*(?=[\s"\'`,;)]|$))')
+
+
+def node_at(g, x):
+    """(file, line, what) of a router node that is not a call site (an app held in a parameter or a field, a served
+    default export), from ext_router_node_at; None when the engine wrote no row."""
+    if not g.has('ext_router_node_at'): return None
+    try: r = g.q("SELECT c1, c2, c3 FROM ext_router_node_at WHERE c0 = ?", x)
+    except Exception: r = []
+    if not r: return None
+    f, l, what = r[0]
+    try: p = g.q("SELECT rel FROM paths WHERE raw = ?", f)
+    except Exception: p = []
+    return ((p[0][0] if p and p[0][0] else f), l, what)
+
+
+def route_table_lines(g, text, cap=8):
+    """The ROUTE TABLE's answer to a quoted route, printed before any ranked code (SPEC 8.1 (a)/(b)): one line per
+    route the engine composed (ext_http_route) or could only partly compose (ext_http_route_partial), then the chain
+    the router runs for it on that app, in order (ext_middleware_applies). Nothing here is a text match: a line is
+    printed only for a row the engine wrote."""
+    if not g.has('ext_http_route'): return []
+    asked = []
+    for m in VERB_ROUTE.finditer(text or ''):
+        asked.append((m.group(1).upper(), _route_parts(m.group(2))))
+    if not asked:
+        for m in ROUTE.finditer(text or ''):
+            tok = m.group(1)
+            if tok.startswith('/') and not FILE_EXT.search(tok.rstrip('/')): asked.append((None, _route_parts(tok)))
+    if not asked: return []
+    def vok(want, v): return want is None or v == want or v == 'ANY' or (want in ('ANY', 'ALL'))
+    def loc(x): return g.loc(x) if x in g.sym else None
+    def name(x):
+        if x in g.sym: return f"{g.disp(x)} {g.loc(x) or ''}".rstrip()
+        try:
+            cs = g.q("SELECT c2, c3 FROM ext_middleware_site WHERE c0 = ?", x) if g.has('ext_middleware_site') else []
+        except Exception:
+            cs = []
+        try: vk = g.q("SELECT c2 FROM ext_middleware_site WHERE c0 = ? AND c1 = 'value'", x) if g.has('ext_middleware_site') else []
+        except Exception: vk = []
+        if vk and vk[0][0]: return f"{vk[0][0]} (value)"
+        if cs and cs[0][0]: return f"{cs[0][0]}() from {cs[0][1]} (library middleware)"
+        try: st = g.q("SELECT callee_name, file, start_line FROM sites WHERE id = ?", x)
+        except Exception: st = []
+        if st: return f"{st[0][0]}() at {st[0][1]}:{st[0][2]} (library middleware)"
+        n = node_at(g, x)
+        if n: return f"a middleware value at {n[0]}:{n[1]}"
+        return 'a middleware value the engine could not name'
+    # a catch-all asked as `GET *` is the route written `*` (or `/*`), not every one-segment route
+    def fits(w, a, path):
+        if a == ['*']: return path.strip() in ('*', '/*')
+        return _route_eq(_route_parts(path), a)
+    rows = [r for r in g.q("SELECT c0, c1, c2, c3, c4 FROM ext_http_route")
+            if any(vok(w, r[1]) and fits(w, a, r[2]) for w, a in asked)]
+    out = []
+    roots = {r[3] for r in rows}
+    undet, cond = set(), set()
+    if g.has('ext_framework_undetermined'):
+        for r in g.q("SELECT c0, c1, c2 FROM ext_framework_undetermined"):
+            if r[1] == 'middleware_chain': undet.add(r[0])
+            if r[2] in ('conditional_registration', 'loop_registration'): cond.add((r[0], r[2]))
+    def app_name(a):
+        try: r = g.q("SELECT file, start_line FROM sites WHERE id = ?", a)
+        except Exception: r = []
+        if r: return f"{r[0][0]}:{r[0][1]}"
+        n = node_at(g, a)
+        return (f"{n[0]}:{n[1]}" + (f" ({n[2]})" if n[2] != 'expression' else '')) if n else a
+    # a library middleware has no function to carry the conditional row: the registering call that puts it in this
+    # chain (middleware_registered_at) says whether it sits in a branch or a loop (registration_conditional)
+    def regcond(mw, h, v, p, app):
+        if not (g.has('ext_middleware_registered_at') and g.has('ext_registration_conditional')): return []
+        try:
+            rcs = {r[0] for r in g.q("SELECT c5 FROM ext_middleware_registered_at WHERE c0 = ? AND c1 = ? AND c2 = ? AND c3 = ? AND c4 = ?", mw, h, v, p, app)}
+            # only an app-level `use(..)`: a route's own middleware runs whenever the route is served
+            rcs = {rc for rc in rcs if any(r[0] == 'use' for r in g.q("SELECT callee_name FROM sites WHERE id = ?", rc))}
+            return sorted({r[1] for rc in rcs for r in g.q("SELECT c0, c1 FROM ext_registration_conditional WHERE c0 = ?", rc)}
+                          & {'conditional_registration', 'loop_registration'})
+        except Exception: return []
+    def is_test(h): return bool((g.sym.get(h) or {}).get('is_test'))
+    # a handler with no name of its own (the function a wrapper returns, `traced('x', handleX)`): the registering
+    # call the engine attributes the route to (route_registered_by), as written, names what it wraps
+    def reg_line(h, v, p, app):
+        if not (g.has('ext_route_registered_by') and name(h).startswith('<')): return None
+        try: rms = {r[0] for r in g.q("SELECT c0 FROM ext_route_registered_by WHERE c1 = ? AND c2 = ? AND c3 = ? AND c4 = ?", h, v, p, app)}
+        except Exception: return None
+        files = set()
+        for rm in rms:
+            if rm in g.sym and g.loc(rm): files.add(g.loc(rm).rsplit(':', 1)[0])
+            else:
+                n_ = node_at(g, rm)
+                if n_: files.add(n_[0])
+        segs = [x for x in p.split('/') if x]
+        best = []
+        for f in files:
+            # a chained call starts where the chain does: look through its whole span, the innermost call wins
+            try: st = g.q("SELECT start_line, end_line FROM sites WHERE file = ? AND callee_name IN (?, 'all', 'on')", f, v.lower())
+            except Exception: st = []
+            lines = source_lines(g.repo, f)
+            for l0, l1 in st:
+                l0 = int(l0); l1 = int(l1 or l0)
+                for ln in range(l0, min(l1, l0 + 40) + 1):
+                    t = lines[ln - 1] if 0 < ln <= len(lines) else ''
+                    k = max((j for j in range(1, len(segs) + 1) if any(f"{q}/{'/'.join(segs[-j:])}{q}" in t for q in '"\'`')), default=0)
+                    if not k and p.strip() in ('/', '') and any(f"{q}/{q}" in t for q in '"\'`'): k = 1
+                    if k: best.append((-k, l1 - l0, f, ln, t.strip()))
+        best = sorted(set(best))
+        if not best or (len(best) > 1 and best[0][:2] == best[1][:2] and best[0][2:4] != best[1][2:4]): return None
+        _k, _span, f, ln, t = best[0]
+        return f"  registered at {f}:{ln}: {t[:160]}"
+    asked_lit = {'/'.join(a) for _w, a in asked}
+    # the order the router tries them: the served (non-test) apps first, then per app in registration order; a route
+    # spelled exactly as asked is never cut off by the cap
+    TESTISH = re.compile(r'(^|/)(tests?|__tests__|e2e)/|[._-](test|spec)\.[cm]?[jt]sx?$')
+    def app_test(a): return bool(TESTISH.search(app_name(a).rsplit(':', 1)[0]))
+    exact_apps = {r[3] for r in rows if '/'.join(_route_parts(r[2])) in {'/'.join(a) for _w, a in asked}}
+    ordered = sorted({tuple(r) for r in rows}, key=lambda r: (app_test(r[3]) or is_test(r[0]), r[3] not in exact_apps, app_name(r[3]), r[4]))
+    shown = [r for r in ordered[:cap]] + [r for r in ordered[cap:] if '/'.join(_route_parts(r[2])) in asked_lit]
+    # one block per distinct (route, chain): apps a helper builds per call share one creating expression, and the
+    # same block repeated once per call says nothing new (hono-3-06)
+    blocks, order_ = {}, []
+    for h, v, p, app, _k in shown:
+        why = [w for (x, w) in cond if x == h]
+        head = (f"route: {v} {p} -> {name(h)}"
+                + ''.join('   (conditional: registered inside a branch, may not be served)' if w == 'conditional_registration'
+                          else '   (registered inside a loop)' for w in sorted(why)))
+        body_ = []
+        rl = reg_line(h, v, p, app)
+        if rl: body_.append(rl)
+        chain = []
+        if g.has('ext_middleware_applies'):
+            try:
+                chain = g.q("SELECT c0, c4 FROM ext_middleware_applies WHERE c1 = ? AND c2 = ? AND c3 = ? AND c5 = ?", h, v, p, app)
+            except Exception:
+                chain = g.q("SELECT c0, c4 FROM ext_middleware_applies WHERE c1 = ? AND c2 = ? AND c3 = ?", h, v, p)
+        chain = sorted({(int(c[1]) if str(c[1]).isdigit() else 0, c[0]) for c in chain})
+        if chain:
+            body_.append(f"  runs, in order:")
+            # two middleware at ONE position are alternatives (an if/else registering one each): same number
+            nums = {q: k for k, q in enumerate(sorted({c[0] for c in chain}), 1)}
+            npos = collections.Counter(c[0] for c in chain)
+            for _i, (_pos, mw) in enumerate(chain, 1):
+                i = nums[_pos]
+                cw = sorted(w for (x, w) in cond if x == mw) or regcond(mw, h, v, p, app)
+                body_.append(f"    {i}. {name(mw)}" + ('   (one of the alternatives at this position)' if npos[_pos] > 1 else '') + ''.join('   (conditional: registered inside a branch, may not run)' if w == 'conditional_registration'
+                                                             else '   (registered inside a loop)' for w in cw))
+            body_.append(f"    {len(nums) + 1}. {name(h)}   (the handler)")
+            if h in undet: body_.append("    order among the known middleware; a list the engine could not read may add more at run time")
+        else:
+            body_.append("  no middleware" + ("; a list the engine could not read may add some at run time" if h in undet else ''))
+        key = (head, tuple(body_))
+        if key not in blocks: blocks[key] = []; order_.append(key)
+        blocks[key].append(app_name(app))
+    for key in order_:
+        apps_ = blocks[key]
+        uniq = sorted(set(apps_))
+        if len(roots) > 1:
+            tag = (f"   (app {uniq[0]})" if len(apps_) == 1 else
+                   f"   ({len(apps_)} apps built at {uniq[0]})" if len(uniq) == 1 else
+                   f"   (apps {', '.join(uniq[:3])}" + (f" +{len(uniq) - 3}" if len(uniq) > 3 else '') + ")")
+        else: tag = ''
+        out.append(key[0] + tag)
+        out.extend(key[1])
+    if g.has('ext_http_route_partial'):
+        # SPEC 8.1(a): the partial whose KNOWN tail is the asked path comes first, then the ones that match it only
+        # through parameters and holes (`/{}/:action`), each with what is decided of its chain and what may run
+        hitp = []
+        for h, v, p, app, why in sorted({tuple(r) for r in g.q("SELECT c0, c1, c2, c3, c4 FROM ext_http_route_partial")}):
+            # a hole (`{}`) is a part of the path decided at run time: any number of segments, before the known tail
+            # or between two known parts (`/v1/{}/ping`)
+            hp0 = [None if x == '\x00' else x for x in _route_parts(p.replace('{}', '\x00'))]
+            while hp0 and hp0[0] is None: hp0 = hp0[1:]
+            # an optional last parameter (`:module?`) may be left off by the request
+            hps = [hp0] + ([hp0[:-1]] if hp0 and hp0[-1] is not None and p.rstrip('/').endswith('?') and len(hp0) > 1 else [])
+            best = None
+            for (w, a), hp in [(x, k) for x in asked for k in hps]:
+                kp = [x for x in hp if x is not None]
+                if not (vok(w, v) and len(a) >= len(kp) and kp): continue
+                # a parameter the question writes stands for a parameter of the route, never for one of its literal
+                # segments, and at least one literal segment must be the same: `/files` is no answer to `/x/:module`
+                if not _holes_match(a, [None] + hp): continue
+                lit = sum(1 for y in kp if y != '*')
+                if not lit: continue
+                rank = (0 if len(kp) == len(a) else 1, -lit, len(a) - len(kp))
+                best = rank if best is None or rank < best else best
+            if best is not None: hitp.append((best, is_test(h), p, v, h, app, why))
+        hitp.sort(key=lambda r: (r[0], r[1], r[2], r[3]))
+        # one block per (route, known path, chain): several apps (a holder's two creating expressions, an app value
+        # nothing resolves) answering it alike are one answer, their reasons listed together
+        pblocks, porder = {}, []
+        for rk, _t, p, v, h, app, why in hitp:
+            chain = []
+            if g.has('ext_middleware_applies'):
+                chain = sorted({(int(c[1]) if str(c[1]).isdigit() else 0, c[0]) for c in
+                                g.q("SELECT c0, c4 FROM ext_middleware_applies WHERE c1 = ? AND c2 = ? AND c3 = ? AND c5 = ?", h, v, p, app)})
+            may = sorted({(r[0], r[1]) for r in g.q("SELECT c0, c4 FROM ext_middleware_may_apply WHERE c1 = ? AND c3 = ? AND c5 = ?", h, p, app)}) \
+                if g.has('ext_middleware_may_apply') else []
+            key = (v, p, h, tuple(m for _p, m in chain), tuple(may))
+            if key not in pblocks: pblocks[key] = (rk, set(), app); porder.append(key)
+            pblocks[key][1].add(why)
+        exact_n = sum(1 for k in porder if pblocks[k][0][0] == 0 and pblocks[k][0][1] == -len(_route_parts(k[1].replace('{}', ''))))
+        pcap = max(cap, exact_n)
+        for v, p, h, chain, may in porder[:pcap]:
+            whys = ', '.join(sorted(w.replace('_', ' ') for w in pblocks[(v, p, h, chain, may)][1]))
+            why_c = [w for (x, w) in cond if x == h]
+            out.append(f"route: {v} {p} -> {name(h)}   (prefix not known: {whys})"
+                       + ''.join('   (conditional: registered inside a branch, may not be served)' if w == 'conditional_registration'
+                                 else '   (registered inside a loop)' for w in sorted(why_c)))
+            if chain:
+                out.append("  runs, in order (what is decided on its own app):")
+                for i, mw in enumerate(chain, 1):
+                    cw = sorted(w for (x, w) in cond if x == mw) or regcond(mw, h, v, p, pblocks[(v, p, h, chain, may)][2])
+                    out.append(f"    {i}. {name(mw)}" + ''.join('   (conditional: registered inside a branch, may not run)'
+                               if w == 'conditional_registration' else '   (registered inside a loop)' for w in cw))
+                out.append(f"    {len(chain) + 1}. {name(h)}   (the handler)")
+                if h in undet: out.append("    order among the known middleware; a list the engine could not read may add more at run time")
+            elif h in undet: out.append("  a middleware list the engine could not read may run before it at run time")
+            for mw, q in may:
+                out.append(f"    {name(mw)} may run (scope {q} vs unknown prefix)")
+        if len(porder) > pcap: out.append(f"  ... +{len(porder) - pcap} more route(s) whose prefix is not known could match it")
+    return out
+
+
+def mount_lines(g, text, cap=8):
+    """`what path does analyticsRouter serve`: an app named in the question by the variable that holds it, and the
+    prefix every mount of it composes (http_mount, the EFFECTIVE prefix through every basePath and mount), with the
+    routes it serves there. Only a variable whose initializer created a mounted app is answered."""
+    if not (g.has('ext_http_mount') and g.has('symbols')): return []
+    out = []
+    try:
+        mounts = g.q("SELECT m.c0, m.c1, m.c2, s.file, s.start_line FROM ext_http_mount m JOIN sites s ON s.id = m.c1")
+    except Exception:
+        return []
+    words = set(re.findall(r'[A-Za-z_$][\w$]*', text or ''))
+    for w in sorted(words):
+        if len(w) < 3: continue
+        try: vs = g.q("SELECT file, line, end_line FROM symbols WHERE name = ? AND kind IN ('const', 'let', 'var', 'field', 'property')", w)
+        except Exception: vs = []
+        for f, l0, l1 in vs:
+            l1 = l1 or l0
+            hit = sorted({(m[2], m[0]) for m in mounts if m[3] == f and l0 <= m[4] <= l1})
+            for pre, parent in hit[:cap]:
+                try: pr = g.q("SELECT file, start_line FROM sites WHERE id = ?", parent)
+                except Exception: pr = []
+                n_ = None if pr else node_at(g, parent)
+                pn = f"{pr[0][0]}:{pr[0][1]}" if pr else ((f"{n_[0]}:{n_[1]}" + (f" ({n_[2]})" if n_[2] != 'expression' else '')) if n_ else parent)
+                out.append(f"mount: {w} ({f}:{l0}) is served under {pre} (mounted on the app at {pn})")
+                try:
+                    rs = g.q("""SELECT DISTINCT r.c1, r.c2, s.display, s.file, s.line FROM ext_http_route r JOIN symbols s ON s.method_id = r.c0
+                                WHERE s.file = ? AND (r.c2 = ? OR r.c2 LIKE ?) ORDER BY r.c4""", f, pre, pre.rstrip('/') + '/%')
+                except Exception: rs = []
+                for v, p_, d, hf, hl in rs[:cap]: out.append(f"  serves {v} {p_} -> {d} {hf}:{hl}")
+                if len(rs) > cap: out.append(f"  ... +{len(rs) - cap} more")
+    return out
+
+
+STOP = set('a an and are does do for from how is it of on or the this that to what when where which who whom why with route routes '
+           'serve serves served call calls reach reaches path paths run runs before after middleware handler request '
+           'app apps http get post put delete patch any all use'.split())
+
+
+def worded_route_lines(g, text, cap=6):
+    """A route question with no quoted path (`which route does apiClient.kb.admin general-knowledge $post call`, `who
+    serves the users list route`): the routes, composed or partial, whose literal path segments or handler file name
+    carry at least two of the question's words, a `$verb` narrowing the verb. Labelled as a word match, never as the
+    route table's answer to a quoted route."""
+    if not g.has('ext_http_route') or VERB_ROUTE.search(text or ''): return []
+    vm = re.search(r'\$(get|post|put|delete|patch|options|head)\b', text or '', re.I)
+    verb = vm.group(1).upper() if vm else None
+    words = {w.lower() for w in re.findall(r'[A-Za-z][\w-]*', (text or '').replace('$', ' ').replace('.', ' ').replace('[', ' ').replace(']', ' '))}
+    words = {w for w in words if w not in STOP and len(w) > 1}
+    if len(words) < 2: return []
+    def segs(p): return {x.lower() for x in p.split('/') if x and not x.startswith(':') and '{' not in x and x != '*'}
+    rows = [(h, v, p, '') for h, v, p in g.q("SELECT DISTINCT c0, c1, c2 FROM ext_http_route")]
+    if g.has('ext_http_route_partial'):
+        rows += [(h, v, p, why) for h, v, p, why in g.q("SELECT DISTINCT c0, c1, c2, c4 FROM ext_http_route_partial")]
+    scored = []
+    for h, v, p, why in rows:
+        if verb and v not in (verb, 'ANY'): continue
+        f = ((g.sym.get(h) or {}).get('file') or '').lower()
+        fw = set(re.findall(r'[a-z][a-z0-9-]*', f.rsplit('/', 1)[-1])) | set(re.findall(r'[a-z][a-z0-9-]*', f))
+        # the handler's own name (`export const list = ...` serves the users LIST route)
+        fw |= {x.lower() for x in re.findall(r'[A-Za-z][a-z0-9]*', (g.sym.get(h) or {}).get('name') or '')}
+        hit = (segs(p) & words) | (fw & words if why else set())
+        if len(hit) >= 2 or (len(hit) == len(segs(p) & words) == len(segs(p)) and len(hit) >= 2):
+            scored.append((-len(hit), bool((g.sym.get(h) or {}).get('is_test')), p, v, h, why))
+    out = []
+    for _n, _t, p, v, h, why in sorted(set(scored))[:cap]:
+        nm = f"{g.disp(h)} {g.loc(h) or ''}".rstrip() if h in g.sym else h
+        out.append(f"route (by the question's words): {v} {p} -> {nm}" + (f"   (prefix not known: {why.replace('_', ' ')})" if why else ''))
+    return out
+
+
+# a question about how a request gets IN (not "who serves GET /x", which the route table answers)
+SERVE_WORDS = re.compile(r'(?i)\b(reach(es)?|entry|entries|fetch|request[s]?|start[s]?|listen[s]?|boot[s]?)\b')
+SERVED_HOW = {'default_export_fetch': 'the default export { fetch }', 'default_export': 'the default export', 'fetch_handed': "its fetch handed to",
+              'request': 'a request sent in place'}
+
+
+def served_lines(g, text, cap=6):
+    """`how does a request reach the routers`: where each served app is handed to what serves it (http_served_by): the
+    default export `{ fetch: app.fetch }`, `export default app`, `serve({ fetch: app.fetch })`. Production apps first."""
+    if not (g.has('ext_http_served_by') and SERVE_WORDS.search(text or '')): return []
+    def site(x):
+        try: r = g.q("SELECT callee_name, file, start_line FROM sites WHERE id = ?", x)
+        except Exception: r = []
+        if r: return r[0]
+        n = node_at(g, x)
+        return ('', n[0], n[1]) if n else None
+    TESTISH = re.compile(r'(^|/)(tests?|__tests__|e2e)/|[._-](test|spec)\.[cm]?[jt]sx?$')
+    rows = []
+    for app, at, how in sorted({tuple(r) for r in g.q("SELECT c0, c1, c2 FROM ext_http_served_by")}):
+        a, s_ = site(app), site(at)
+        an = f"{a[1]}:{a[2]}" if a else app
+        sn = f"{s_[1]}:{s_[2]}" if s_ else at
+        call = f" {s_[0]}(..)" if (s_ and how == 'fetch_handed' and s_[0]) else ''
+        rows.append((bool(TESTISH.search(an.rsplit(':', 1)[0])), an, f"served: the app created at {an} is served through {SERVED_HOW.get(how, how)}{call} at {sn}"))
+    rows.sort()
+    out = [r[2] for r in rows if not r[0]][:cap] or [r[2] for r in rows][:cap]
+    n = sum(1 for r in rows if not r[0]) if any(not r[0] for r in rows) else len(rows)
+    return out + ([f"  ... +{n - cap} more"] if n > cap else [])
+
+
+def declared_unknown_lines(g, text, cap=6):
+    """A question whose words name a declared unknown (`except` -> dynamic_except, `list` -> dynamic_middleware_list):
+    the rows the engine wrote, so the answer says what cannot be decided instead of guessing an exclusion set."""
+    if not g.has('ext_framework_undetermined'): return []
+    words = {w.lower() for w in re.findall(r'[A-Za-z]+', text or '')}
+    out, head = [], []
+    # where a run-time middleware list enters the chains (registration_conditional on the registering call): the line
+    # to read first, before the routes it stands in
+    regs = set()
+    if g.has('ext_registration_conditional'):
+        try: regs = {tuple(r) for r in g.q("SELECT c0, c1 FROM ext_registration_conditional WHERE c1 = 'dynamic_middleware_list'")}
+        except Exception: regs = set()
+    for rc, why in sorted(regs):
+        if not (set(why.split('_')) & words - {'route', 'path', 'registration'}): continue
+        try: st = g.q("SELECT callee_name, file, start_line FROM sites WHERE id = ?", rc)
+        except Exception: st = []
+        if st: head.append(f"declared unknown: {why.replace('_', ' ')} registered at {st[0][1]}:{st[0][2]} ({st[0][0]}(..) with a middleware read at run time); the chains below may hold more")
+    for m, what, why in sorted({tuple(r) for r in g.q("SELECT c0, c1, c2 FROM ext_framework_undetermined")}):
+        toks = set(why.split('_'))
+        if not (toks & words - {'route', 'path', 'registration'}): continue
+        nm = f"{g.disp(m)} {g.loc(m) or ''}".rstrip() if m in g.sym else m
+        out.append(f"declared unknown: {why.replace('_', ' ')} ({what.replace('_', ' ')}) at {nm}")
+    return sorted(set(head))[:cap] + out[:cap] + ([f"  ... +{len(out) - cap} more"] if len(out) > cap else [])
 
 
 def route_seeds(g, text):
@@ -390,6 +745,20 @@ def route_seeds(g, text):
                         WHERE e.c2 = 'url_dispatch' AND e.c3 LIKE '/%'"""):
             tables.add(r['tf'])
             if any(_route_eq(_route_parts(r['path']), a) for a in asked): serve(r['sid'], r['path'])
+    # an HTTP router's route table: the full path the engine composed through every basePath and mount (http_route),
+    # and the middleware the router runs before the handler there, in chain order (middleware_applies). The chain is
+    # seeded first so the answer walks it in the order a request does: each middleware, then the handler.
+    if g.has('ext_http_route') and g.has('symbols'):
+        for r in g.q("""SELECT s.id AS sid, e.c0 AS h, e.c1 AS verb, e.c2 AS path FROM ext_http_route e
+                        JOIN symbols s ON s.method_id = e.c0"""):
+            if not any(_route_eq(_route_parts(r['path']), a) for a in asked): continue
+            if g.has('ext_middleware_applies'):
+                mws = g.q("""SELECT s.id AS sid, m.c4 AS pos FROM ext_middleware_applies m JOIN symbols s ON s.method_id = m.c0
+                              WHERE m.c1 = ? AND m.c2 = ? AND m.c3 = ?""", r['h'], r['verb'], r['path'])
+                for mw in sorted(mws, key=lambda x: int(x['pos']) if str(x['pos']).isdigit() else 0):
+                    if mw['sid'] in g.sym and (mw['sid'], f"\x00{r['path']}") not in hits:
+                        hits.append((mw['sid'], f"\x00{r['path']}"))
+            serve(r['sid'], r['path'])
     # a route the engine answered is not searched again as text: the literal scan below is the fallback for a route
     # no edge carries, and on an answered one it only adds the table's module and every literal that spells a suffix
     asked = [a for a in asked if not any(_route_eq(_route_parts(r), a) for _s, r in hits)]
@@ -438,7 +807,10 @@ def route_seeds(g, text):
         if inner and not g.sym[inner[0][1]].get('is_test') and not TESTY.search(f or ''): serve(inner[0][1], v)
     out, seen = [], set()
     for sid, route in hits:
-        if sid not in seen: seen.add(sid); out.append((sid, f"serves the route {route.strip()}"))
+        if sid in seen: continue
+        seen.add(sid)
+        # a middleware seeded from a route's chain runs BEFORE the handler: it does not serve the route
+        out.append((sid, f"runs before the handler of {route[1:].strip()}" if route.startswith('\x00') else f"serves the route {route.strip()}"))
     return out[:NAMED_FAN]
 
 
@@ -1325,6 +1697,12 @@ def main(argv):
                       + ("…" if n > 4 else "") + ")")
                 print("  no --in was given, so NOTHING below is narrowed to it — "
                       "pass --in <path> to narrow.\n")
+    # a question the route table answers (a quoted route, a mounted app's name) needs no scope: the table is the
+    # answer, and refusing for want of --in returned nothing while holding it (QH18, a Deno project whose words
+    # landed in no directory)
+    if not flat and not scopes and not (have_from and not fixed) and (route_table_lines(g, body) or mount_lines(g, body)):
+        flat = True
+        print("scope: the repository root (the route table answers this; --in narrows the code below)\n")
     bad = None if flat or (have_from and not fixed) else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
@@ -1367,6 +1745,21 @@ def main(argv):
     RESULT['entry_points'] = [{'name': g.disp(sid), 'at': g.loc(sid),
                                'why': (term or 'best overall match')}
                               for sid, term, sc in seeds]
+    _rt = route_table_lines(g, body) + mount_lines(g, body)
+    _served = served_lines(g, body)
+    if not _rt:
+        _rt = worded_route_lines(g, body)
+        # the best word match's own chain, as the route table prints a quoted route's
+        for l in _rt[:1]:
+            m_ = re.match(r"route \(by the question's words\): (\S+) (\S+) ->", l)
+            if m_ and 'prefix not known' not in l:
+                _rt = _rt + [x for x in route_table_lines(g, f"{m_.group(1)} {m_.group(2)}", cap=2) if not x.startswith('route:')]
+        _rt += declared_unknown_lines(g, body)
+    _rt = _served + _rt
+    if _rt:
+        print("the route table (composed by the engine through every basePath and mount; read these first):")
+        for line in _rt: print('  ' + line)
+        print()
     print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))
     if explain is None: explain = explain_intent(task)
     # explaining: the flow below starts at its own roots and IS the answer, so the lexical entry points (a word
@@ -1406,7 +1799,10 @@ def main(argv):
             cands = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')]
             cands += [x for x in type_members(g, [s_ for s_, _t, _sc in seeds], scored) if x not in cands]
             asked = {s_ for s_, _why in named}
-            roots_ = sorted(cands, key=lambda x: x not in asked and bodiless(g, x))[:FLOW_ROOTS]
+            # a quoted route seeds its whole chain (each middleware, then the handler) and the flow starts at each of
+            # them, in that order: cutting it at FLOW_ROOTS dropped the handler, the one the question was about
+            n_route = sum(1 for _s, w in named if w.startswith(('serves the route', 'runs before the handler of')))
+            roots_ = sorted(cands, key=lambda x: x not in asked and bodiless(g, x))[:max(FLOW_ROOTS, min(n_route, 8))]
             roots_ = producer_first(g, roots_, [s_ for s_, _t, _sc in seeds], task, terms)
         # a producer joined only by name is shown as one step: its code holds the call, and the budget goes to the
         # mechanism the task asked about rather than to everything else the producer does
@@ -1550,7 +1946,9 @@ def main(argv):
                   "destination both ends name):")
             for d, _a, _b, fr, to, tr, dest, conf, near_is_sender in rows[:REMOTE_SHOWN]:
                 far = to if near_is_sender else fr
-                print(f"    [remote] {tr} {dest}  ({conf})  {g.disp(fr)} → {g.disp(to)}   "
+                cw = {'base_unknown': 'may reach: the base address is not known',
+                      'method_unknown': 'may reach: the HTTP method is not known'}.get(conf, conf)
+                print(f"    [remote] {tr} {dest}  ({cw})  {g.disp(fr)} → {g.disp(to)}   "
                       f"{'handled in' if near_is_sender else 'sent from'} {g.loc(far)}")
             if len(rows) > REMOTE_SHOWN: print(f"    … +{len(rows) - REMOTE_SHOWN} more")
             RESULT['remote'] = [{'from': g.disp(fr), 'from_at': g.loc(fr), 'to': g.disp(to), 'to_at': g.loc(to),

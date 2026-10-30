@@ -1,0 +1,33 @@
+// ============================================================================
+// Resolution · LEXICAL `this`  (an arrow function has no `this` of its own)
+//
+// `this` inside an arrow is the `this` of the nearest enclosing function that is NOT an
+// arrow, at any depth: `static fail(e) { return e.issues.map((i) => this.norm(i)) }` calls
+// the class's static `norm`. expr-type.dl decides "this is the class, search the statics"
+// from the flags of the function the expression sits in, and for a `this` written inside
+// the arrow that function is the arrow, which is never static, so the call was searched in
+// the instance table and found nothing. Same for a declared `this` parameter of the outer
+// function. The instance type of `this` is unaffected: expr_enclosing_type already names
+// the class for an expression at any depth inside it.
+// ============================================================================
+
+.decl lx_arrow(c0:symbol, c1:symbol)
+// (arrow declaration, the expression that writes it)
+lx_arrow(lm, x) :- expr_anon_decl("client", lm, x), expr_kind("client", "ARROW_FUNCTION", _, x).
+// the function `this` is bound by, for a function: itself unless it is an arrow
+.decl lx_home(c0:symbol, c1:symbol)
+lx_home(m, m) :- method_decl("client", _, _, _, m), !lx_arrow(m, _).
+lx_home(lm, h) :- lx_arrow(lm, x), expr_enclosing_method(x, m), m != lm, lx_home(m, h).
+
+// `this` in an arrow nested in a STATIC method is the class
+expr_static_type(e, "client", t) :- this_expr(e),
+    expr_enclosing_type(e, t),
+    expr_enclosing_method(e, em),
+    lx_arrow(em, _),
+    lx_home(em, h),
+    method_flags(_, "true", _, _, h).
+// …and in an arrow nested in a function that declares its `this` parameter
+expr_type(e, prov, t) :- this_expr(e), expr_enclosing_method(e, em), lx_arrow(em, _), lx_home(em, h),
+    method_declared_this(h, p), param_type(p, prov, t).
+expr_shape(e, s) :- this_expr(e), expr_enclosing_method(e, em), lx_arrow(em, _), lx_home(em, h),
+    method_declared_this(h, p), param_shape_target(p, s).

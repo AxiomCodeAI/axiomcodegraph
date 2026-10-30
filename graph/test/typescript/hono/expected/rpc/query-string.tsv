@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-05/R9: query string and fragment stripped: both requests reach /sessions/:id/file
+# census: app_request_test (violation hono-2-05, SPEC R9)
+route	GET	/sessions/:id/file	app.ts:4:31	app.ts:3:20	0
+route	GET	/sessions/:id/objective	app.ts:5:36	app.ts:3:20	1
+request	app.test.ts:5:1	GET	/sessions/S1/file	app.ts:4:31
+request	app.test.ts:8:1	GET	/sessions/S1/file	app.ts:4:31
+regby	app.ts:1:1	app.ts:4:31	GET	/sessions/:id/file	app.ts:3:20
+regby	app.ts:1:1	app.ts:5:36	GET	/sessions/:id/objective	app.ts:3:20

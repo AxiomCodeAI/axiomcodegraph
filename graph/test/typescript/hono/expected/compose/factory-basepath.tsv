@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-02: only GET /v1/ping; no base-less /ping
+# census: app_factory_fn, basepath (violation hono-1-02)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/v1/ping	index.ts:10:18	index.ts:6:10	0
+regby	index.ts:1:1	index.ts:10:18	GET	/v1/ping	index.ts:6:10

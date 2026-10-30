@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: user is set, and both keys are read, in callbacks nested in the middleware and the handler; they run during the request, so both keys reach the handler
+# census: ctx_set_in_callback, ctx_get_in_callback
+route	GET	/	index.ts:14:14	index.ts:7:13	1
+mw	index.ts:9:9	index.ts:14:14	GET	/	0	index.ts:7:13
+ctx	index.ts:9:9	index.ts:14:14	role
+ctx	index.ts:9:9	index.ts:14:14	user
+regby	index.ts:1:1	index.ts:14:14	GET	/	index.ts:7:13

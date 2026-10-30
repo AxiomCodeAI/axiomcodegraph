@@ -1,0 +1,25 @@
+# hand-reviewed 2026-10-28 against the fixture, the compiler call-chain oracle and the runtime trace: R18 on POST routes: the provider middleware, then the library json validator (zValidator; the built-in validator with a hand-written check), then the handler, which reads the validated body and calls the service it reads out of the context; service -> repository -> db. The body rows are the JSON each request carries: without them the validator answers 400 and no handler runs (checked). The middleware -> handler hop runs through the validator, which awaits the body before it calls next, so it is observed as both functions running in a one-request run, the handler entered from library code
+# census: ctx_di + zvalidator + req_valid (SPEC R18 with SPEC 3.9; call-chain break class 1 on a POST route)
+fn	app.ts:12:41
+fn	app.ts:21:54
+fn	app.ts:30:21
+fn	app.ts:34:3
+fn	orders.ts:14:3
+fn	orders.ts:17:3
+fn	orders.ts:20:3
+fn	orders.ts:27:3
+fn	orders.ts:30:3
+fn	orders.ts:33:3
+fn	orders.ts:7:3
+edge	app.ts:12:41	orders.ts:14:3
+edge	app.ts:12:41	orders.ts:27:3
+edge	app.ts:21:54	orders.ts:30:3
+edge	app.ts:34:3	orders.ts:33:3
+edge	orders.ts:17:3	orders.ts:7:3
+edge	orders.ts:20:3	orders.ts:7:3
+edge	orders.ts:30:3	orders.ts:17:3
+edge	orders.ts:33:3	orders.ts:20:3
+body	POST	/orders	{"sku":"a1","qty":2}
+body	POST	/orders/x1/items	{"sku":"a1"}
+chain	create-order	POST	/orders	app.ts:12:41	app.ts:21:54	orders.ts:30:3	orders.ts:17:3	orders.ts:7:3
+chain	add-item	POST	/orders/x1/items	app.ts:12:41	app.ts:34:3	orders.ts:33:3	orders.ts:20:3	orders.ts:7:3

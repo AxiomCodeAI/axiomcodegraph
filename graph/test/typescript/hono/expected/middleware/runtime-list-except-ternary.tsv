@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: routes straight on a run-time-based tier app are partial with their decidable chain (the tier's own /* middleware at 0) and dynamic_middleware_list from the run-time middleware list; except(..) with a run-time exclusion is dynamic_except
+# census: use_conditional_loop, combine_except (stress-6 oracle note; SPEC 3.3, SPEC 3.1)
+route	GET	/	index.ts:40:15	index.ts:39:14	0
+submount	/	index.ts:41:32
+partial	index.ts:32:22	GET	dynamic_mount_prefix
+mwp	index.ts:28:17	index.ts:32:22	GET	0
+regby	index.ts:1:1	index.ts:40:15	GET	/	index.ts:39:14
+unknown	index.ts:30:35	dynamic_except	index.ts:26:1
+unknown	index.ts:32:3	dynamic_middleware_list	index.ts:32:22
+unknown	index.ts:32:3	dynamic_mount_prefix	index.ts:32:22

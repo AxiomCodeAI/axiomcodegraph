@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ESM .js/.mjs: audit app-level on every route incl. the mounted ones, and again per-route on /items/:id (positions 0 and 1)
+# census: import_hono_named, route_mount_literal, use_global, export_default_app (ESM JavaScript)
+entry	index.js:12:14	http
+entry	index.js:14:30	http
+entry	index.js:6:15	http
+entry	users.mjs:4:16	http
+entry	users.mjs:5:17	http

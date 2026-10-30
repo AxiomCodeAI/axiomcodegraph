@@ -1,0 +1,23 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: negative controls: a typed receiver, a typed context read and an untyped c.set value reach UserStore.save only, never the unrelated AuditLog.save (an edge to it is EXTRA); an interface call reaches both
+# census: ctx_di, negative (SPEC R18-R21 negative controls)
+fn	app.ts:10:21
+fn	app.ts:15:25
+fn	app.ts:17:24
+fn	app.ts:21:16
+fn	app.ts:26:21
+fn	app.ts:30:18
+fn	stores.ts:10:3
+fn	stores.ts:16:3
+fn	stores.ts:21:1
+fn	stores.ts:22:21
+edge	app.ts:15:25	stores.ts:10:3
+edge	app.ts:17:24	stores.ts:10:3
+edge	app.ts:30:18	stores.ts:21:1
+edge	stores.ts:21:1	stores.ts:22:21
+edge	stores.ts:22:21	stores.ts:10:3
+edge	stores.ts:22:21	stores.ts:16:3
+edge	app.ts:26:21	stores.ts:10:3	rt
+chain	typed-receiver	POST	/typed/save	app.ts:10:21	app.ts:15:25	stores.ts:10:3
+chain	typed-ctx	POST	/typed/ctx	app.ts:10:21	app.ts:17:24	stores.ts:10:3
+chain	untyped-set	POST	/loose/save	app.ts:21:16	app.ts:26:21	stores.ts:10:3
+chain	interface-both	POST	/all	app.ts:30:18	stores.ts:21:1	stores.ts:22:21	stores.ts:16:3

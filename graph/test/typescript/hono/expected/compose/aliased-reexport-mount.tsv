@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m30/hono-4-06: an export { local as alias } of an imported default mounts exactly at /api/search
+# census: route_mount_literal (stress-4 mutation m30 shape; violation hono-4-06)
+route	POST	/api/search	search/routes/api.ts:4:21	index.ts:7:13	0
+route	GET	/api/search/suggest	search/routes/api.ts:5:27	index.ts:7:13	1
+submount	/api/search	index.ts:8:5
+regby	search/routes/api.ts:1:1	search/routes/api.ts:4:21	POST	/api/search	index.ts:7:13
+regby	search/routes/api.ts:1:1	search/routes/api.ts:5:27	GET	/api/search/suggest	index.ts:7:13

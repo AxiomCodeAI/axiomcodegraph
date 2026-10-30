@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O16: sub-apps bound by await import are mounted on R1 test roots; every request is served
+# census: app_request_test (oracle gap O16; SPEC R1)
+route	GET	/:ns/:name	skills.ts:4:22	skills.test.ts:10:17	1
+route	POST	/:ns/:name	skills.ts:5:23	skills.test.ts:10:17	2
+route	GET	/admin/stats	admin.ts:3:53	skills.test.ts:27:15	0
+mw	skills.test.ts:11:13	skills.ts:4:22	GET	/:ns/:name	0	skills.test.ts:10:17
+mw	skills.test.ts:11:13	skills.ts:5:23	POST	/:ns/:name	0	skills.test.ts:10:17
+request	skills.test.ts:17:21	GET	/acme/review	skills.ts:4:22
+request	skills.test.ts:21:25	POST	/acme/review	skills.ts:5:23
+request	skills.test.ts:25:25	GET	/admin/stats	admin.ts:3:53
+submount	/	skills.test.ts:15:4
+submount	/admin	skills.test.ts:27:26
+regby	admin.ts:1:1	admin.ts:3:53	GET	/admin/stats	skills.test.ts:27:15
+regby	skills.ts:1:1	skills.ts:4:22	GET	/:ns/:name	skills.test.ts:10:17
+regby	skills.ts:1:1	skills.ts:5:23	POST	/:ns/:name	skills.test.ts:10:17

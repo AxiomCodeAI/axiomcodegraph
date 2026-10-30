@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (this_arrow (SPEC R20; call-chain break class 4)): routes, middleware chains, ctx flows
+# census: this_arrow (SPEC R20; call-chain break class 4)
+route	GET	/prices	app.ts:6:20	app.ts:4:13	0
+route	GET	/taxes	app.ts:7:19	app.ts:4:13	1
+route	GET	/rounded	app.ts:8:21	app.ts:4:13	2
+route	GET	/later	app.ts:9:19	app.ts:4:13	3
+route	GET	/fail	app.ts:10:18	app.ts:4:13	4
+regby	app.ts:1:1	app.ts:10:18	GET	/fail	app.ts:4:13
+regby	app.ts:1:1	app.ts:6:20	GET	/prices	app.ts:4:13
+regby	app.ts:1:1	app.ts:7:19	GET	/taxes	app.ts:4:13
+regby	app.ts:1:1	app.ts:8:21	GET	/rounded	app.ts:4:13
+regby	app.ts:1:1	app.ts:9:19	GET	/later	app.ts:4:13

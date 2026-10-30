@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: audit (app-level) then guard (routeDef.middleware); the inline json body schema
+# census: create_route, openapi_register, use_global
+entry	index.ts:19:21	http
+entry	index.ts:6:34	http
+entry	index.ts:7:34	http

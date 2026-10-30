@@ -19,6 +19,8 @@ ambiguous_unknown	METHOD_CALL	app#<arrow@15>() @L15 -> -
 ambiguous_unknown	METHOD_CALL	app#<arrow@16>() @L16 -> -
 ambiguous_unknown	METHOD_CALL	app#<arrow@18>() @L18 -> -
 ambiguous_unknown	METHOD_CALL	app#ArrowRenameTag({ icon: Fc }[]) @L57 -> -
+callback_handed	FUNCTION_CALL	app#<module-init>() @L25 -> app#<arrow@25>()
+callback_handed	FUNCTION_CALL	app#<module-init>() @L26 -> app#<arrow@26>()
 callback_registered	FUNCTION_CALL	app#<module-init>() @L15 -> app#<arrow@15>()
 callback_registered	FUNCTION_CALL	app#<module-init>() @L16 -> app#<arrow@16>()
 callback_registered	FUNCTION_CALL	app#<module-init>() @L18 -> app#<arrow@18>()

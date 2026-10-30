@@ -1,0 +1,34 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: inline (expression), local, named, default, namespace member and barrel re-export each resolve to the declaration
+# census: zvalidator, req_valid (SPEC 3.9 declaration forms)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/inline	index.ts:14:70	index.ts:13:13	1
+route	POST	/local	index.ts:15:47	index.ts:13:13	3
+route	POST	/named	index.ts:16:46	index.ts:13:13	5
+route	POST	/default	index.ts:17:52	index.ts:13:13	7
+route	GET	/namespace	index.ts:18:54	index.ts:13:13	9
+route	POST	/barrel	index.ts:19:53	index.ts:13:13	11
+mw	lib:@hono/zod-validator.zValidator@index.ts:14:21	index.ts:14:70	POST	/inline	0	index.ts:13:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:15:20	index.ts:15:47	POST	/local	0	index.ts:13:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:16:20	index.ts:16:46	POST	/named	0	index.ts:13:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:17:22	index.ts:17:52	POST	/default	0	index.ts:13:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:18:23	index.ts:18:54	GET	/namespace	0	index.ts:13:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:19:21	index.ts:19:53	POST	/barrel	0	index.ts:13:13
+schema	index.ts:14:70	json	expr@index.ts:14:40
+schema	index.ts:15:47	json	index.ts:11:7
+schema	index.ts:16:46	json	schemas/user.ts:3:14
+schema	index.ts:17:52	json	schemas/user.ts:5:7
+schema	index.ts:18:54	query	schemas/query.ts:3:14
+schema	index.ts:19:53	json	schemas/user.ts:3:14
+validread	index.ts:14:84	index.ts:14:70	json	expr@index.ts:14:40
+validread	index.ts:15:61	index.ts:15:47	json	index.ts:11:7
+validread	index.ts:16:60	index.ts:16:46	json	schemas/user.ts:3:14
+validread	index.ts:17:66	index.ts:17:52	json	schemas/user.ts:5:7
+validread	index.ts:18:68	index.ts:18:54	query	schemas/query.ts:3:14
+validread	index.ts:19:67	index.ts:19:53	json	schemas/user.ts:3:14
+regby	index.ts:1:1	index.ts:14:70	POST	/inline	index.ts:13:13
+regby	index.ts:1:1	index.ts:15:47	POST	/local	index.ts:13:13
+regby	index.ts:1:1	index.ts:16:46	POST	/named	index.ts:13:13
+regby	index.ts:1:1	index.ts:17:52	POST	/default	index.ts:13:13
+regby	index.ts:1:1	index.ts:18:54	GET	/namespace	index.ts:13:13
+regby	index.ts:1:1	index.ts:19:53	POST	/barrel	index.ts:13:13

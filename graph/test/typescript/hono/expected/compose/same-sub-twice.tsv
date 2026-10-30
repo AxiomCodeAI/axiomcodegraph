@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: one handler, two routes
+# census: route_mount_literal
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/a/health	index.ts:6:23	index.ts:8:13	0
+route	GET	/b/health	index.ts:6:23	index.ts:8:13	1
+submount	/a	index.ts:9:5
+submount	/b	index.ts:10:5
+regby	index.ts:1:1	index.ts:6:23	GET	/a/health	index.ts:8:13
+regby	index.ts:1:1	index.ts:6:23	GET	/b/health	index.ts:8:13

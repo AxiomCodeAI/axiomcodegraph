@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ESM .mjs twin of cjs-basic: same routes and cors scope
+# census: new_hono, route_mount_literal, builtin_mw_import; ESM .mjs twin of js/cjs-basic
+entry	index.mjs:9:20	http
+entry	users.mjs:4:19	http

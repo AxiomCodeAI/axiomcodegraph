@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: npm:hono@4 app with npm:hono/cors scoped to /api/*; Deno.serve({ port }, app.fetch)
+# census: none (corpus gap). npm:hono@4 and npm:hono/cors specifiers: shape from Hono's Deno docs, corpus gap. Oracle maps them to the
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/npm	main.ts:8:21	main.ts:6:13	1
+mw	lib:hono/cors.cors@main.ts:7:19	main.ts:8:21	GET	/api/npm	0	main.ts:6:13
+regby	main.ts:1:1	main.ts:8:21	GET	/api/npm	main.ts:6:13

@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: R18 chains fixture: routes, middleware chains, ctx flows
+# census: ctx_di (SPEC R18)
+entry	app.ts:16:23	http
+entry	app.ts:21:51	http
+entry	app.ts:26:15	http
+entry	handlers.ts:11:1	http
+entry	handlers.ts:5:1	http
+entry	wire.ts:12:48	http
+entry	wire.ts:19:52	http

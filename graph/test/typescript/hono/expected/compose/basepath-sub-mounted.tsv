@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: mount prefix then the sub-app's basePath then the local path
+# census: basepath, route_mount_literal
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/svc/v1/ping	index.ts:6:17	index.ts:8:13	0
+submount	/svc	index.ts:9:5
+regby	index.ts:1:1	index.ts:6:17	GET	/svc/v1/ping	index.ts:8:13

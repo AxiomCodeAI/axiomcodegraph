@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Deno shape: import map below the root to jsr:, app from a static method with basePath /static: GET /static/logo.jpg
+# census: deno_serve (shape of a Deno holdout project: a deno.json import map to jsr:, below the repository root,
+entry	api/main.ts:6:23	http

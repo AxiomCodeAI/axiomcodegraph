@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O10/R5: upgradeWebSocket(...) is a library-call handler keyed at the call; the streamSSE route has a project handler
+# census: verb_literal_path (oracle gap O10; SPEC R5 library-call handlers)
+route	GET	/ws	lib:hono/cloudflare-workers.upgradeWebSocket@index.ts:11:3	index.ts:8:13	0
+route	GET	/sse	index.ts:17:17	index.ts:8:13	1
+regby	index.ts:1:1	index.ts:17:17	GET	/sse	index.ts:8:13
+regby	index.ts:1:1	lib:hono/cloudflare-workers.upgradeWebSocket@index.ts:11:3	GET	/ws	index.ts:8:13

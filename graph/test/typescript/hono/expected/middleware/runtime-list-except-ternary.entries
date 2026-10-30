@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: routes straight on a run-time-based tier app are partial with their decidable chain (the tier's own /* middleware at 0) and dynamic_middleware_list from the run-time middleware list; except(..) with a run-time exclusion is dynamic_except
+# census: use_conditional_loop, combine_except (stress-6 oracle note; SPEC 3.3, SPEC 3.1)
+entry	index.ts:28:17	http
+entry	index.ts:32:22	http
+entry	index.ts:40:15	http

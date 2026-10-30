@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-03: routes built through the scopedRoute wrapper are routes (DELETE, PATCH) with the wrapper's authorize inner arrow at position 0; GET / from createRoute directly has none
+# census: create_route, openapi_register, new_openapihono (violation hono-7-03: routes built through a project
+route	GET	/api/items	items.ts:17:23	index.ts:8:13	0
+route	DELETE	/api/items/:id	items.ts:18:25	index.ts:8:13	2
+route	PATCH	/api/items/:id/name	items.ts:19:25	index.ts:8:13	4
+mw	openapi.ts:5:10	items.ts:18:25	DELETE	/api/items/:id	0	index.ts:8:13
+mw	openapi.ts:5:10	items.ts:19:25	PATCH	/api/items/:id/name	0	index.ts:8:13
+submount	/api/items	index.ts:9:5
+regby	items.ts:1:1	items.ts:17:23	GET	/api/items	index.ts:8:13
+regby	items.ts:1:1	items.ts:18:25	DELETE	/api/items/:id	index.ts:8:13
+regby	items.ts:1:1	items.ts:19:25	PATCH	/api/items/:id/name	index.ts:8:13

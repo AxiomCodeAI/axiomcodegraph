@@ -1,0 +1,104 @@
+// ============================================================================
+// CONFIG-RESOLUTION · HTTP ROUTER OPENAPI ROUTES  (JavaScript)
+//
+// `app.openapi(def, handler, hook?)` registers the route `def` describes: verb = its `method`, path = its `path` with
+// `{x}` written `:x`, the definition's `middleware` (one, or a list) running before the handler, in order. `def` is
+// the object `createRoute({...})` was called with (a knob: router_route_def), reached through consts, imports and
+// returns by the flow engine, or a call of a PROJECT function that returns such a definition
+// (`scopedRoute(scope, { method, path })` returning `createRoute({ ...config, middleware: [..] })`). The flow engine
+// has one value per object literal, so the wrapper's object would carry every caller's `method` and `path`; a
+// wrapper call is read per call instead: its method and path are THAT call's argument object's, its middleware the
+// wrapper's own. A registration whose definition gives no literal method and path is declared
+// (dynamic_route_path), never dropped. Same contract as the TypeScript engine (SPEC 3.7).
+// ============================================================================
+
+// createRoute's result is its argument (the flow engine carries it through consts, imports, exports and returns)
+.decl jo_root(c0:symbol, c1:symbol)
+jo_root(x, o) :- jr_knob_call(x, spec, n), router_route_def(spec, n), call_arg(x, 0, a), expr_value(a, "obj", o).
+expr_value(x, "obj", o) :- jo_root(x, o).
+.decl jo_defobj(c0:symbol)
+jo_defobj(o) :- jo_root(_, o).
+
+// a property written in the object itself (`key: v`, or the shorthand `key`), never one it spreads: of a definition,
+// or of the object a wrapper call hands in (jo_callarg)
+.decl jo_obj(c0:symbol)
+jo_obj(o) :- jo_defobj(o).
+jo_obj(o) :- jo_callarg(_, o).
+.decl jo_own(c0:symbol, c1:symbol, c2:symbol)
+jo_own(o, n, v) :- jo_obj(o), expr_child(_, o, "PROPERTY_KEY", idx, key), expr_name(_, n, key), expr_child(_, o, "PROPERTY_VALUE", idx, v).
+jo_own(o, n, v) :- jo_obj(o), expr_child(_, o, "PROPERTY_VALUE", idx, v), !expr_child(_, o, "PROPERTY_KEY", idx, _), expr_name(_, n, v).
+
+// the registration's definition argument, followed to a call of a project wrapper: through consts in its module
+.decl jo_reg(c0:symbol, c1:symbol)
+jo_reg(ce, x) :- jr_reg(ce, _, cn), router_openapi(cn), call_arg(ce, 0, x).
+.decl jo_at(c0:symbol, c1:symbol)
+jo_at(ce, x) :- jo_reg(ce, x).
+jo_at(ce, i) :- jo_at(ce, e), expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_init(_, _, i, v), i != "".
+// (registration, wrapper call, wrapper): a project function whose returned value is a createRoute call
+.decl jo_wrap(c0:symbol, c1:symbol, c2:symbol)
+jo_wrap(ce, x, w) :- jo_at(ce, x), expr_kind(_, "CALL", _, x), expr_resolves_to_method(x, w),
+    expr_root(_, "RETURN", e), expr_owner(_, w, _, e), jo_root(e, _).
+.decl jo_wrapped(c0:symbol)
+jo_wrapped(ce) :- jo_wrap(ce, _, _).
+// the wrapper's own object, and the call's argument objects it spreads (`...config`, config a parameter)
+.decl jo_inner(c0:symbol, c1:symbol, c2:symbol)
+jo_inner(ce, x, o) :- jo_wrap(ce, x, w), expr_root(_, "RETURN", e), expr_owner(_, w, _, e), jo_root(e, o).
+.decl jo_spread_ref(c0:symbol, c1:symbol)
+jo_spread_ref(o, r) :- jo_defobj(o), expr_child(_, o, "SPREAD", _, s), expr_child(_, s, _, _, r).
+jo_spread_ref(o, r) :- jo_defobj(o), expr_child(_, o, "SPREAD_OPERAND", _, r).
+.decl jo_callarg(c0:symbol, c1:symbol)
+jo_callarg(ce, o2) :- jo_wrap(ce, x, w), jo_inner(ce, x, o), jo_spread_ref(o, r), expr_param(_, p, r),
+    param_decl(_, _, pos, w, p), call_arg(x, to_number(pos), a), expr_value(a, "obj", o2).
+
+// (registration, object holding its method and path), (registration, object holding its middleware)
+.decl jo_mp(c0:symbol, c1:symbol)
+jo_mp(ce, o) :- jo_reg(ce, x), !jo_wrapped(ce), expr_value(x, "obj", o), jo_defobj(o).
+jo_mp(ce, o2) :- jo_callarg(ce, o2).
+.decl jo_mwobj(c0:symbol, c1:symbol)
+jo_mwobj(ce, o) :- jo_reg(ce, x), !jo_wrapped(ce), expr_value(x, "obj", o), jo_defobj(o).
+jo_mwobj(ce, o) :- jo_inner(ce, _, o).
+.decl jo_inner_mw(c0:symbol)
+jo_inner_mw(ce) :- jo_inner(ce, _, o), jo_own(o, k, _), router_def_key(k, "middleware").
+jo_mwobj(ce, o2) :- jo_callarg(ce, o2), !jo_inner_mw(ce).
+
+.decl jo_str(c0:symbol, c1:symbol, c2:symbol)
+jo_str(ce, role, s) :- jo_mp(ce, o), jo_own(o, k, v), router_def_key(k, role), (role = "method" ; role = "path"), expr_value(v, "str", s).
+.decl jo_verb(c0:symbol, c1:symbol)
+jo_verb(ce, vv) :- jo_str(ce, "method", w), router_verb_name(w, vv).
+
+// an OpenAPI path writes a parameter `{id}`; the router registers `:id`
+.decl jo_brace_step(c0:symbol, c1:number, c2:symbol)
+jo_brace_step(raw, 0, "") :- jo_str(_, "path", raw).
+jo_brace_step(raw, i + 1, cat(acc, ":")) :- jo_brace_step(raw, i, acc), i < strlen(raw), substr(raw, i, 1) = "{".
+jo_brace_step(raw, i + 1, acc) :- jo_brace_step(raw, i, acc), i < strlen(raw), substr(raw, i, 1) = "}".
+jo_brace_step(raw, i + 1, cat(acc, ch)) :- jo_brace_step(raw, i, acc), i < strlen(raw), ch = substr(raw, i, 1),
+    ch != "{", ch != "}".
+.decl jo_path(c0:symbol, c1:symbol)
+jo_path(ce, p) :- jo_str(ce, "path", raw), jo_brace_step(raw, strlen(raw), p).
+
+// the handler, and the definition's middleware before it (ordinals 10.. in list order)
+jr_harg(ce, 100, a) :- jo_reg(ce, _), call_arg(ce, 1, a).
+.decl jo_mw(c0:symbol, c1:symbol)
+jo_mw(ce, v) :- jo_mwobj(ce, o), jo_own(o, k, v), router_def_key(k, "middleware").
+.decl jo_mw_arr(c0:symbol, c1:symbol)
+jo_mw_arr(ce, v) :- jo_mw(ce, v), expr_kind(_, "ARRAY_LITERAL", _, v).
+jo_mw_arr(ce, i) :- jo_mw(ce, v), expr_kind(_, "IDENTIFIER", _, v), expr_binding(_, d, v), var_init(_, _, i, d), i != "",
+    expr_kind(_, "ARRAY_LITERAL", _, i).
+.decl jo_mw_listed(c0:symbol, c1:symbol)
+jo_mw_listed(ce, v) :- jo_mw(ce, v), jo_mw_arr(ce, _).
+jr_harg(ce, n, el) :- jo_mw_arr(ce, arr), expr_child(_, arr, _, epos, el), to_number(epos) < 90, n = 10 + to_number(epos),
+    !expr_kind(_, "SPREAD", _, el).
+jr_harg(ce, 10, v) :- jo_mw(ce, v), !jo_mw_listed(ce, v).
+// a spread in the list: decided at run time
+framework_undetermined(m, "middleware", "dynamic_middleware_list") :- jo_mw_arr(ce, arr), expr_child(_, arr, _, _, el),
+    expr_kind(_, "SPREAD", _, el), call_site(_, _, _, _, _, m, ce, _, _).
+
+jr_entry_base(ce, a, "route", vv, lp, b) :- jr_reg(ce, a, cn), router_openapi(cn), jo_verb(ce, vv), jo_path(ce, lp),
+    jr_recv(ce, r), jr_val(r, a, b).
+
+// a definition this cannot read: the route exists, its verb and path are not known here
+.decl jo_routed(c0:symbol)
+jo_routed(ce) :- jo_verb(ce, _), jo_path(ce, _).
+remote_undetermined(m, "http", "dynamic_route_path") :- jo_reg(ce, _), !jo_routed(ce), jr_node_fn(ce, 100, m).
+remote_undetermined(m, "http", "dynamic_route_path") :- jo_reg(ce, _), !jo_routed(ce), !jr_has_fn(ce, 100),
+    call_site(_, _, _, _, _, m, ce, _, _).

@@ -1,0 +1,30 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP ROUTER CONTEXT VALUES  (what `c.get(k)` holds, JavaScript)
+//
+// JavaScript has no Env type, so what a context read holds is what a function registered on
+// the SAME app writes under that key: `c.set('services', { orders: new OrderService(db) })`
+// in a middleware, `const { orders } = c.get('services')` / `c.var.services.orders` in a
+// handler. The read takes the written value, so the flow engine follows it on like any other
+// value (destructuring, members, calls). Keyed by the app the writer and the reader are
+// registered on (jr_reg), never by the key alone. Positive, inside the expr_value fixpoint.
+// Framework names live in knobs.dl.
+// ============================================================================
+.decl jcx_fn_root(c0:symbol, c1:symbol)        // (function, app) the function is registered on the app
+// any argument of a registration that is a function value, or a knob wrapper's function (`use(p, createMiddleware(fn))`,
+// or a const holding one); read off call_arg rather than the route table's handler arguments, which use negation
+jcx_fn_root(m, a) :- jr_reg(ce, a, _), call_arg(ce, _, x), expr_value(x, "func", m).
+jcx_fn_root(m, a) :- jr_reg(ce, a, _), call_arg(ce, _, x), jr_wrapper_call(x), call_arg(x, 0, y), expr_value(y, "func", m).
+jcx_fn_root(m, a) :- jr_reg(ce, a, _), call_arg(ce, _, x), expr_binding(_, v, x), var_init(_, _, i, v), jr_wrapper_call(i),
+    call_arg(i, 0, y), expr_value(y, "func", m).
+.decl jcx_ctx(c0:symbol, c1:symbol)            // (context expression, app)
+jcx_ctx(e, a) :- jcx_fn_root(m, a), param_decl("client", _, "0", m, p), expr_param(_, p, e).
+.decl jcx_set(c0:symbol, c1:symbol, c2:symbol) // (app, key, written value)
+jcx_set(a, key, v) :- call_site(_, "METHOD_CALL", sn, _, r, _, ce, _, _), router_ctx_set(sn), jcx_ctx(r, a),
+    call_arg(ce, 0, k), expr_value(k, "str", key), call_arg(ce, 1, v).
+// `c.get(k)`
+expr_value(g, k2, i2) :- call_site(_, "METHOD_CALL", gn, _, r, _, g, _, _), router_ctx_get(gn), jcx_ctx(r, a),
+    call_arg(g, 0, k), expr_value(k, "str", key), jcx_set(a, key, v), expr_value(v, k2, i2).
+// `c.var.k`
+expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, key, e), expr_child(_, e, "ACCESS_TARGET", _, vx),
+    expr_kind(_, "PROPERTY_ACCESS", _, vx), expr_name(_, vn, vx), router_ctx_var(vn), expr_child(_, vx, "ACCESS_TARGET", _, r),
+    jcx_ctx(r, a), jcx_set(a, key, v), expr_value(v, k2, i2).

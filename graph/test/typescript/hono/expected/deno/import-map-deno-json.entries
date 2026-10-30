@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: deno.json exact and prefix maps; ./routes/users.ts with extension mounted at /users; secureHeaders before both
+# census: route_mount_literal, export_default_app; bare 'hono' mapped by deno.json imports (exact and the
+entry	routes/users.ts:4:16	http
+entry	routes/users.ts:5:19	http

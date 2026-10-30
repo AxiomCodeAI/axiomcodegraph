@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: initApp's use first, then check from createHandlers, then the handler; all three entries
+# census: create_factory, factory_create_app, create_middleware
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/factory	index.ts:17:48	index.ts:19:13	2
+mw	index.ts:8:13	index.ts:17:48	GET	/factory	0	index.ts:19:13
+mw	index.ts:14:40	index.ts:17:48	GET	/factory	1	index.ts:19:13
+regby	index.ts:1:1	index.ts:17:48	GET	/factory	index.ts:19:13

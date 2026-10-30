@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: all is ANY; a handler that never calls next is not middleware
+# census: verb_literal_path, path_wildcard
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	ANY	/proxy/*	index.ts:7:21	index.ts:5:13	0
+route	GET	/proxy/health	index.ts:8:26	index.ts:5:13	1
+regby	index.ts:1:1	index.ts:7:21	ANY	/proxy/*	index.ts:5:13
+regby	index.ts:1:1	index.ts:8:26	GET	/proxy/health	index.ts:5:13

@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: client through a wrapper function and inline hc reaches the basePath'd routes
+# census: hc_client, hc_dollar_call, hc_element_param
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/orders	server/app.ts:4:19	server/app.ts:3:20	0
+route	POST	/api/orders/:orderId/cancel	server/app.ts:5:36	server/app.ts:3:20	1
+rpc	web/orders.ts:10:1	POST	/api/orders/:orderId/cancel	server/app.ts:5:36
+rpc	web/orders.ts:14:1	GET	/api/orders	server/app.ts:4:19
+regby	server/app.ts:1:1	server/app.ts:4:19	GET	/api/orders	server/app.ts:3:20
+regby	server/app.ts:1:1	server/app.ts:5:36	POST	/api/orders/:orderId/cancel	server/app.ts:3:20

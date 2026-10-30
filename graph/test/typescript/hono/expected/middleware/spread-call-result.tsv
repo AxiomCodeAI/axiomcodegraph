@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-06: ...createLimits() seen through: limiter's inner fn at 0 and 1, after at 2
+# census: use_multi, mw_factory_returning_fn (violation hono-1-06)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/x	index.ts:27:15	index.ts:24:13	3
+mw	index.ts:8:10	index.ts:27:15	GET	/x	0	index.ts:24:13
+mw	index.ts:8:10	index.ts:27:15	GET	/x	1	index.ts:24:13
+mw	index.ts:20:34	index.ts:27:15	GET	/x	2	index.ts:24:13
+regby	index.ts:1:1	index.ts:27:15	GET	/x	index.ts:24:13

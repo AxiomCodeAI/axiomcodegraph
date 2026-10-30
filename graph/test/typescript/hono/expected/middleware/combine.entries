@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: combinator calls are the middleware; except('/health') skips /health; combined functions are entries
+# census: combine_every_some_except
+entry	index.ts:15:25	http
+entry	index.ts:16:24	http
+entry	index.ts:17:20	http
+entry	index.ts:7:36	http
+entry	index.ts:8:37	http
+entry	index.ts:9:36	http

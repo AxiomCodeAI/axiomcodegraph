@@ -49,3 +49,17 @@ state_call_alloc	state-call-alloc.csv
 state_call_open	state-call-open.csv
 state_world_of_gated	state-world.csv
 field_access	field-access.csv
+http_route	http-route.csv
+http_route_partial	http-route-partial.csv
+http_mount	http-mount.csv
+middleware_applies	middleware-applies.csv
+middleware_site	middleware-site.csv
+middleware_registered_at	middleware-registered-at.csv
+framework_undetermined	framework-undetermined.csv
+remote_undetermined	remote-undetermined.csv
+ctx_key_flow	ctx-key-flow.csv
+remote_edge	remote-edge.csv
+remote_unserved	remote-unserved.csv
+route_registered_by	route-registered-by.csv
+method_dispatch_candidate	dispatch-candidates.csv
+fn_value_call	function-value-call.csv

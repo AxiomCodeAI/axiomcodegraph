@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: app.request(new Request(url)), app.fetch(new Request(url, {method}), env) and request with init each reach their route
+# census: app_request_test, app_fetch_ref
+entry	app.ts:4:18	http
+entry	app.ts:5:23	http

@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: two routes and their entries, jsxRenderer as library middleware for /page/*; the components and the renderer callback are in no Hono relation (runtime half skips .tsx)
+# census: c_render, jsx_import
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/html	index.tsx:11:18	index.tsx:10:13	0
+route	GET	/page/hello	index.tsx:13:24	index.tsx:10:13	2
+mw	lib:hono/jsx-renderer.jsxRenderer@index.tsx:12:20	index.tsx:13:24	GET	/page/hello	0	index.tsx:10:13
+regby	index.tsx:1:1	index.tsx:11:18	GET	/html	index.tsx:10:13
+regby	index.tsx:1:1	index.tsx:13:24	GET	/page/hello	index.tsx:10:13
+absent	components.tsx:4:27
+absent	components.tsx:10:47
+absent	index.tsx:12:32

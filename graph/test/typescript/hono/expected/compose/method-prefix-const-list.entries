@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-5-03: g.prefix(V) with a const V over a const list composes /v2/members exactly
+# census: mount_dynamic_prefix_call (violation hono-5-03)
+entry	index.ts:16:22	http
+entry	members.ts:10:29	http
+entry	members.ts:9:33	http

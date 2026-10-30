@@ -1,0 +1,19 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: user/tenant flow from loadUser to /me and /tenant; /before (registered before the use) and traceId have no setter
+# census: ctx_set, ctx_get, ctx_var, variables_type
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/before	index.ts:16:20	index.ts:15:13	0
+route	GET	/me	index.ts:18:16	index.ts:15:13	2
+route	GET	/tenant	index.ts:19:20	index.ts:15:13	3
+route	GET	/trace	index.ts:20:19	index.ts:15:13	4
+mw	index.ts:9:40	index.ts:18:16	GET	/me	0	index.ts:15:13
+mw	index.ts:9:40	index.ts:19:20	GET	/tenant	0	index.ts:15:13
+mw	index.ts:9:40	index.ts:20:19	GET	/trace	0	index.ts:15:13
+ctx	index.ts:9:40	index.ts:18:16	user
+ctx	index.ts:9:40	index.ts:19:20	tenant
+regby	index.ts:1:1	index.ts:16:20	GET	/before	index.ts:15:13
+regby	index.ts:1:1	index.ts:18:16	GET	/me	index.ts:15:13
+regby	index.ts:1:1	index.ts:19:20	GET	/tenant	index.ts:15:13
+regby	index.ts:1:1	index.ts:20:19	GET	/trace	index.ts:15:13
+unknown	index.ts:16:20	no_setter_on_chain	index.ts:16:20
+unknown	index.ts:20:19	no_setter_on_chain	index.ts:20:19

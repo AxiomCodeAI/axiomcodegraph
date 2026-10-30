@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (fn_value (SPEC R21; call-chain break class 2)): routes, middleware chains, ctx flows
+# census: fn_value (SPEC R21; call-chain break class 2)
+route	GET	/retry/:id	app.ts:8:23	app.ts:4:13	0
+route	GET	/table/:id	app.ts:10:23	app.ts:4:13	1
+route	GET	/tryit/:id	app.ts:12:23	app.ts:4:13	2
+route	GET	/options	app.ts:14:21	app.ts:4:13	3
+route	GET	/pipeline/:id	app.ts:16:26	app.ts:4:13	4
+route	GET	/mail/:to	app.ts:18:22	app.ts:4:13	5
+route	GET	/act/:op/:id	app.ts:23:25	app.ts:4:13	6
+regby	app.ts:1:1	app.ts:10:23	GET	/table/:id	app.ts:4:13
+regby	app.ts:1:1	app.ts:12:23	GET	/tryit/:id	app.ts:4:13
+regby	app.ts:1:1	app.ts:14:21	GET	/options	app.ts:4:13
+regby	app.ts:1:1	app.ts:16:26	GET	/pipeline/:id	app.ts:4:13
+regby	app.ts:1:1	app.ts:18:22	GET	/mail/:to	app.ts:4:13
+regby	app.ts:1:1	app.ts:23:25	GET	/act/:op/:id	app.ts:4:13
+regby	app.ts:1:1	app.ts:8:23	GET	/retry/:id	app.ts:4:13

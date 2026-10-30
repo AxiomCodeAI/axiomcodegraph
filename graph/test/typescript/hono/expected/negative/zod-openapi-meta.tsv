@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: only app.openapi registers; .openapi('Name') metadata and typeof createRoute are not routes or RPC roots; Params/User are its schemas
+# census: openapi_register, apptype_typeof (SPEC N6, N9)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/users/:id	index.ts:18:22	index.ts:17:13	0
+schema	index.ts:18:22	param	index.ts:7:7
+schema	index.ts:18:22	response	index.ts:6:7
+validread	index.ts:18:42	index.ts:18:22	param	index.ts:7:7
+regby	index.ts:1:1	index.ts:18:22	GET	/users/:id	index.ts:17:13

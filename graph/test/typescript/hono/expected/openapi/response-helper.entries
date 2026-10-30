@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-04: response and body schemas written through helpers name the helper argument (Account, ErrorBody), as inline ones do
+# census: create_route (violation hono-3-04, SPEC 3.9)
+entry	index.ts:38:25	http
+entry	index.ts:39:27	http
+entry	index.ts:40:28	http

@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m31/hono-4-07: a const bound to jwt(...) is keyed at the call at module level, in a builder and in a branch
+# census: use_scoped (stress-4 mutation m31 shapes; violation hono-4-07, SPEC R10/R11)
+route	GET	/v1/me	index.ts:12:19	index.ts:9:13	1
+route	GET	/admin/users	index.ts:18:29	index.ts:9:13	3
+route	GET	/partner/orders	index.ts:28:34	index.ts:9:13	5
+mw	lib:hono/jwt.jwt@index.ts:10:16	index.ts:12:19	GET	/v1/me	0	index.ts:9:13
+mw	lib:hono/jwt.jwt@index.ts:16:20	index.ts:18:29	GET	/admin/users	0	index.ts:9:13
+mw	lib:hono/jwt.jwt@index.ts:25:24	index.ts:28:34	GET	/partner/orders	0	index.ts:9:13
+submount	/	index.ts:32:5
+submount	/	index.ts:33:5
+regby	index.ts:14:1	index.ts:18:29	GET	/admin/users	index.ts:9:13
+regby	index.ts:1:1	index.ts:12:19	GET	/v1/me	index.ts:9:13
+regby	index.ts:22:1	index.ts:28:34	GET	/partner/orders	index.ts:9:13
+unknown	index.ts:26:5	conditional_registration	index.ts:22:1

@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: the inner functions the factories return are the middleware; app-level before per-route
+# census: mw_factory_returning_fn, create_middleware
+entry	index.ts:8:45	http
+entry	mw.ts:10:65	http
+entry	mw.ts:4:10	http

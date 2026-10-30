@@ -1,0 +1,18 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ESM .js/.mjs: audit app-level on every route incl. the mounted ones, and again per-route on /items/:id (positions 0 and 1)
+# census: import_hono_named, route_mount_literal, use_global, export_default_app (ESM JavaScript)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.js:12:14	index.js:10:13	1
+route	GET	/users	users.mjs:4:16	index.js:10:13	2
+route	POST	/users	users.mjs:5:17	index.js:10:13	3
+route	GET	/items/:id	index.js:14:30	index.js:10:13	5
+mw	index.js:6:15	index.js:12:14	GET	/	0	index.js:10:13
+mw	index.js:6:15	users.mjs:4:16	GET	/users	0	index.js:10:13
+mw	index.js:6:15	users.mjs:5:17	POST	/users	0	index.js:10:13
+mw	index.js:6:15	index.js:14:30	GET	/items/:id	0	index.js:10:13
+mw	index.js:6:15	index.js:14:30	GET	/items/:id	1	index.js:10:13
+submount	/users	index.js:13:5
+regby	index.js:1:1	index.js:12:14	GET	/	index.js:10:13
+regby	index.js:1:1	index.js:14:30	GET	/items/:id	index.js:10:13
+regby	users.mjs:1:1	users.mjs:4:16	GET	/users	index.js:10:13
+regby	users.mjs:1:1	users.mjs:5:17	POST	/users	index.js:10:13

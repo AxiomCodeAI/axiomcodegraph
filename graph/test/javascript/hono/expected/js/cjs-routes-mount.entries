@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: CJS twin of esm-basic: identical rows in .cjs files
+# census: none for CommonJS (corpus gap: no CJS Hono app in the corpus); CJS twin of js/esm-basic
+entry	index.cjs:12:14	http
+entry	index.cjs:14:30	http
+entry	index.cjs:6:15	http
+entry	users.cjs:4:16	http
+entry	users.cjs:5:17	http

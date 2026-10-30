@@ -1,0 +1,19 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: every path kept as written
+# census: path_param, path_optional_param, path_regex_param, path_wildcard
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/users/:id	index.ts:7:23	index.ts:5:13	0
+route	GET	/posts/:year?	index.ts:8:26	index.ts:5:13	1
+route	GET	/items/:id{[0-9]+}	index.ts:9:31	index.ts:5:13	2
+route	GET	/files/*	index.ts:10:21	index.ts:5:13	3
+route	GET	/img/:slug.png	index.ts:11:27	index.ts:5:13	4
+route	GET	/v1/keys.getKey	index.ts:12:28	index.ts:5:13	5
+route	GET	/trailing/	index.ts:13:23	index.ts:5:13	6
+route	GET	/a/:x/b/:y	index.ts:14:23	index.ts:5:13	7
+regby	index.ts:1:1	index.ts:10:21	GET	/files/*	index.ts:5:13
+regby	index.ts:1:1	index.ts:11:27	GET	/img/:slug.png	index.ts:5:13
+regby	index.ts:1:1	index.ts:12:28	GET	/v1/keys.getKey	index.ts:5:13
+regby	index.ts:1:1	index.ts:13:23	GET	/trailing/	index.ts:5:13
+regby	index.ts:1:1	index.ts:14:23	GET	/a/:x/b/:y	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:23	GET	/users/:id	index.ts:5:13
+regby	index.ts:1:1	index.ts:8:26	GET	/posts/:year?	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:31	GET	/items/:id{[0-9]+}	index.ts:5:13

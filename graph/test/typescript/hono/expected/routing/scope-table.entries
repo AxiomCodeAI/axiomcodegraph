@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: QD09: /x/* reaches /x, /x/, /x/a not /xy; /x* reaches all four; /a/*/c reaches only /a/b/c
+# census: use_scoped, path_wildcard (SPEC 3.3 [iter2] QD09 table, settled against the pinned hono routers)
+entry	index.ts:15:15	http
+entry	index.ts:16:16	http
+entry	index.ts:17:17	http
+entry	index.ts:18:16	http
+entry	index.ts:19:19	http
+entry	index.ts:20:17	http
+entry	index.ts:21:21	http
+entry	index.ts:6:38	http
+entry	index.ts:7:37	http
+entry	index.ts:8:36	http

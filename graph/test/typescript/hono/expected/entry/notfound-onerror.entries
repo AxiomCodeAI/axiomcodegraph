@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: notFound and onError are entries, not routes
+# census: not_found, on_error
+entry	index.ts:10:13	http
+entry	index.ts:6:18	http
+entry	index.ts:9:14	http

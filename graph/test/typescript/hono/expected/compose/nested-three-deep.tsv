@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: comments under posts under /api basePath mounted at /: prefixes compose outer to inner (http_mount prefix is the effective one: /api/posts under the basePath)
+# census: route_mount_literal, basepath
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/posts/:postId	posts.ts:6:23	index.ts:6:13	0
+route	GET	/api/posts/:postId/comments	comments.ts:5:19	index.ts:6:13	1
+route	DELETE	/api/posts/:postId/comments/:commentId	comments.ts:6:32	index.ts:6:13	2
+submount	/:postId/comments	posts.ts:7:7
+submount	/api/posts	api.ts:6:5
+submount	/	index.ts:8:5
+regby	comments.ts:1:1	comments.ts:5:19	GET	/api/posts/:postId/comments	index.ts:6:13
+regby	comments.ts:1:1	comments.ts:6:32	DELETE	/api/posts/:postId/comments/:commentId	index.ts:6:13
+regby	posts.ts:1:1	posts.ts:6:23	GET	/api/posts/:postId	index.ts:6:13

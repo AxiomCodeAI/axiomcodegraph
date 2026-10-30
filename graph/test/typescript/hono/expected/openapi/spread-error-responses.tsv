@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m27/hono-4-08/O19: spread error responses name each errorBody(...) call once, never the helper declaration
+# census: create_route (stress-4 mutation m27 shape; violation hono-4-08, oracle gap O19)
+route	GET	/secrets/:id	index.ts:20:24	index.ts:19:13	0
+schema	index.ts:20:24	param	expr@index.ts:12:22
+schema	index.ts:20:24	response	expr@errors.ts:12:46
+schema	index.ts:20:24	response	expr@errors.ts:8:46
+schema	index.ts:20:24	response	index.ts:7:7
+validread	index.ts:20:44	index.ts:20:24	param	expr@index.ts:12:22
+regby	index.ts:1:1	index.ts:20:24	GET	/secrets/:id	index.ts:19:13

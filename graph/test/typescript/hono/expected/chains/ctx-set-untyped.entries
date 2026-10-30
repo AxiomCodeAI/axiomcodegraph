@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (ctx_di (SPEC R18 untyped; call-chain break class 1)): routes, middleware chains, ctx flows
+# census: ctx_di (SPEC R18 untyped; call-chain break class 1)
+entry	app.ts:10:25	http
+entry	app.ts:17:18	http
+entry	app.ts:21:23	http
+entry	app.ts:6:22	http

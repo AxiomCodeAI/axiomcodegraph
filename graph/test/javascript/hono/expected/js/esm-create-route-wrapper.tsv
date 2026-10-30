@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-03 (ESM): the wrapped DELETE route is a route with authorize's inner arrow at position 0; GET / from createRoute directly
+# census: create_route, openapi_register, new_openapihono (violation hono-7-03; ESM JavaScript)
+route	GET	/api/items	index.js:11:26	index.js:14:13	0
+route	DELETE	/api/items/:id	index.js:12:28	index.js:14:13	2
+mw	openapi.js:4:10	index.js:12:28	DELETE	/api/items/:id	0	index.js:14:13
+submount	/api/items	index.js:15:5
+regby	index.js:1:1	index.js:11:26	GET	/api/items	index.js:14:13
+regby	index.js:1:1	index.js:12:28	DELETE	/api/items/:id	index.js:14:13

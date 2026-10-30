@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: import_map.json to npm:hono@4; hono/factory via the prefix map; createMiddleware's arg is the middleware
+# census: none (corpus gap). a standalone import_map.json mapping bare hono to npm:hono@4 (prefix map for hono/*): shape from Hono's
+entry	main.ts:11:20	http
+entry	main.ts:6:32	http

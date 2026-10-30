@@ -1,0 +1,32 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: z from zod, zod/v4, zod/v3, zod/v4-mini and @hono/zod-openapi: each route's json schema is its const; a validator(fn) route has no schema row
+# census: zvalidator, req_valid (SPEC 3.9 import forms: zod, zod/v4, zod/v3, zod/v4-mini, @hono/zod-openapi's z)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/zod	index.ts:19:47	index.ts:18:13	1
+route	POST	/v4	index.ts:20:45	index.ts:18:13	3
+route	POST	/v3	index.ts:21:45	index.ts:18:13	5
+route	POST	/mini	index.ts:22:49	index.ts:18:13	7
+route	POST	/fn	index.ts:23:66	index.ts:18:13	9
+route	POST	/openapi-z	index.ts:24:57	index.ts:18:13	11
+mw	lib:@hono/zod-validator.zValidator@index.ts:19:18	index.ts:19:47	POST	/zod	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:20:17	index.ts:20:45	POST	/v4	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:21:17	index.ts:21:45	POST	/v3	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:22:19	index.ts:22:49	POST	/mini	0	index.ts:18:13
+mw	lib:hono/validator.validator@index.ts:23:17	index.ts:23:66	POST	/fn	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:24:24	index.ts:24:57	POST	/openapi-z	0	index.ts:18:13
+schema	index.ts:19:47	json	index.ts:12:7
+schema	index.ts:20:45	json	index.ts:13:7
+schema	index.ts:21:45	json	index.ts:14:7
+schema	index.ts:22:49	json	index.ts:15:7
+schema	index.ts:24:57	json	index.ts:16:7
+validread	index.ts:19:61	index.ts:19:47	json	index.ts:12:7
+validread	index.ts:20:59	index.ts:20:45	json	index.ts:13:7
+validread	index.ts:21:59	index.ts:21:45	json	index.ts:14:7
+validread	index.ts:22:63	index.ts:22:49	json	index.ts:15:7
+validread	index.ts:24:71	index.ts:24:57	json	index.ts:16:7
+regby	index.ts:1:1	index.ts:19:47	POST	/zod	index.ts:18:13
+regby	index.ts:1:1	index.ts:20:45	POST	/v4	index.ts:18:13
+regby	index.ts:1:1	index.ts:21:45	POST	/v3	index.ts:18:13
+regby	index.ts:1:1	index.ts:22:49	POST	/mini	index.ts:18:13
+regby	index.ts:1:1	index.ts:23:66	POST	/fn	index.ts:18:13
+regby	index.ts:1:1	index.ts:24:57	POST	/openapi-z	index.ts:18:13

@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: createRoute + .openapi in ESM JavaScript: GET /notes and GET /notes/:id ({id} as :id), the handler is arg 1 not the hook
+# census: create_route, openapi_register, new_openapihono (ESM JavaScript; found with violation hono-7-03: the
+route	GET	/notes	index.js:10:24	index.js:8:13	0
+route	GET	/notes/:id	index.js:13:3	index.js:8:13	1
+regby	index.js:1:1	index.js:10:24	GET	/notes	index.js:8:13
+regby	index.js:1:1	index.js:13:3	GET	/notes/:id	index.js:8:13

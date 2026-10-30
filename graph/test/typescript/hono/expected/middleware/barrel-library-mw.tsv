@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O14: library middleware re-exported by a project barrel (named, renamed, export *) keyed at their calls, positions exact, no dynamic list
+# census: use_global (oracle gap O14)
+route	GET	/api/me	index.ts:11:20	index.ts:7:13	4
+route	GET	/health	index.ts:12:20	index.ts:7:13	5
+mw	lib:hono/logger.logger@index.ts:8:14	index.ts:11:20	GET	/api/me	0	index.ts:7:13
+mw	lib:hono/cors.cors@index.ts:9:14	index.ts:11:20	GET	/api/me	1	index.ts:7:13
+mw	lib:hono.secureHeaders@index.ts:10:19	index.ts:11:20	GET	/api/me	2	index.ts:7:13
+mw	middleware/audit.ts:3:39	index.ts:11:20	GET	/api/me	3	index.ts:7:13
+mw	lib:hono/logger.logger@index.ts:8:14	index.ts:12:20	GET	/health	0	index.ts:7:13
+mw	lib:hono/cors.cors@index.ts:9:14	index.ts:12:20	GET	/health	1	index.ts:7:13
+regby	index.ts:1:1	index.ts:11:20	GET	/api/me	index.ts:7:13
+regby	index.ts:1:1	index.ts:12:20	GET	/health	index.ts:7:13

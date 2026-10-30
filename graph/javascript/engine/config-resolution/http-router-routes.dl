@@ -1,0 +1,330 @@
+// ============================================================================
+// CONFIG-RESOLUTION · HTTP ROUTER ROUTES  (JavaScript: the route table, composed)
+//
+// The JavaScript counterpart of typescript/engine/config-resolution/http-router-routes.dl,
+// same relations, same contract:
+//
+//   http_route(Handler, Verb, FullPath, App, Order)
+//   http_route_partial(Handler, Verb, KnownPath, App, Reason)
+//   http_mount(ParentApp, ChildApp, Prefix, Order)
+//   middleware_applies(Mw, Handler, Verb, FullPath, Position, App)
+//   middleware_site(Mw, Kind, Callee, Specifier)
+//   framework_undetermined(Node, What, Reason)
+//
+// and every function handed to a registration is an `http` entry point. A registering
+// call puts one entry per handler argument on its app's list (the last is the route's
+// handler, earlier ones its own middleware); `use` puts middleware entries for every
+// verb. A list no `route(prefix, list)` mounts is a root; flattening splices each
+// mounted list at the mount, under its prefix. A path the flow engine cannot read as a
+// string is a `{}` hole: http_route_partial with a reason, never http_route.
+// ============================================================================
+
+// ── where the handlers start ────────────────────────────────────────────────
+.decl jr_arg0_fnlike(c0:symbol)
+jr_arg0_fnlike(ce) :- jr_reg(ce, _, _), call_arg(ce, 0, a), expr_kind(_, k, _, a),
+    (k = "FUNCTION_EXPRESSION" ; k = "CALL" ; k = "SPREAD").
+jr_arg0_fnlike(ce) :- jr_reg(ce, _, _), call_arg(ce, 0, a), expr_value(a, "func", _).
+.decl jr_pathed(c0:symbol)
+jr_pathed(ce) :- jr_reg(ce, _, cn), (router_verb(cn, _) ; router_use(cn)), call_arg(ce, 0, _), !jr_arg0_fnlike(ce).
+.decl jr_pathless(c0:symbol)
+jr_pathless(ce) :- jr_reg(ce, _, cn), (router_verb(cn, _) ; router_use(cn)), jr_arg0_fnlike(ce).
+.decl jr_hstart(c0:symbol, c1:number)
+jr_hstart(ce, 1) :- jr_pathed(ce).
+jr_hstart(ce, 0) :- jr_pathless(ce).
+jr_hstart(ce, 2) :- jr_reg(ce, _, cn), router_on(cn).
+jr_hstart(ce, 0) :- jr_reg(ce, _, cn), router_fallback(cn).
+
+// ── handler arguments: (call, ordinal = position * 100 + element, expression) ──
+.decl jr_harg(c0:symbol, c1:number, c2:symbol)
+jr_harg(ce, n, a) :- jr_hstart(ce, s), call_arg(ce, p, a), p >= s, n = p * 100, !expr_kind(_, "SPREAD", _, a).
+jr_harg(ce, 100, a) :- jr_reg(ce, _, cn), router_mount_foreign(cn), call_arg(ce, 1, a).
+.decl jr_spread(c0:symbol, c1:number, c2:symbol)
+jr_spread(ce, p, x) :- jr_hstart(ce, s), call_arg(ce, p, a), p >= s, expr_kind(_, "SPREAD", _, a),
+    expr_child(_, a, _, _, x).
+.decl jr_spread_arr(c0:symbol, c1:number, c2:symbol)
+jr_spread_arr(ce, p, x) :- jr_spread(ce, p, x), expr_kind(_, "ARRAY_LITERAL", _, x).
+jr_spread_arr(ce, p, arr) :- jr_spread(ce, p, x), expr_binding(_, v, x), var_init(_, _, arr, v),
+    expr_kind(_, "ARRAY_LITERAL", _, arr).
+jr_harg(ce, n, el) :- jr_spread_arr(ce, p, arr), expr_child(_, arr, _, epos, el),
+    n = p * 100 + to_number(epos), to_number(epos) < 100.
+.decl jr_spread_call(c0:symbol, c1:number, c2:symbol)
+jr_spread_call(ce, p, x) :- jr_spread(ce, p, x), call_site(_, _, sn, _, _, _, x, _, _), router_handler_spread(sn).
+jr_harg(ce, n, el) :- jr_spread_call(ce, p, x), call_arg(x, ep, el), n = p * 100 + ep, ep < 100.
+.decl jr_spread_known(c0:symbol, c1:number)
+jr_spread_known(ce, p) :- jr_spread_arr(ce, p, _).
+jr_spread_known(ce, p) :- jr_spread_call(ce, p, _).
+framework_undetermined(m, "middleware", "dynamic_middleware_list") :- jr_spread(ce, p, _),
+    !jr_spread_known(ce, p), call_site(_, _, _, _, _, m, ce, _, _).
+
+.decl jr_last(c0:symbol, c1:number)
+jr_last(ce, n) :- jr_harg(ce, _, _), n = max x : { jr_harg(ce, x, _) }.
+
+// ── the function each handler argument is ───────────────────────────────────
+// What the flow engine says the expression may be (written in place, named, imported,
+// returned by a project function), or the argument of a knob wrapper.
+.decl jr_wrapper_call(c0:symbol)
+jr_wrapper_call(a) :- call_site(_, "FUNCTION_CALL", _, _, _, _, a, _, _), expr_child(_, a, "CALLEE", _, c),
+    jr_ref(c, spec, n), router_mw_wrapper(spec, n).
+.decl jr_fn(c0:symbol, c1:symbol)
+jr_fn(a, m) :- jr_harg(_, _, a), expr_value(a, "func", m).
+// a project factory returning a knob wrapper's result (`function session(o) { return createMiddleware(fn) }`,
+// called as `session(o)` directly or through a const): the middleware is `fn`, at every call
+.decl jr_factory_wrap(c0:symbol, c1:symbol)
+jr_factory_wrap(w, m) :- expr_root(_, "RETURN", e), expr_owner(_, w, _, e), jr_wrapper_call(e), call_arg(e, 0, x),
+    expr_value(x, "func", m).
+jr_fn(a, m) :- jr_harg(_, _, a), expr_kind(_, "CALL", _, a), expr_resolves_to_method(a, w), jr_factory_wrap(w, m).
+jr_fn(a, m) :- jr_harg(_, _, a), expr_binding(_, v, a), var_init(_, _, i, v), expr_kind(_, "CALL", _, i),
+    expr_resolves_to_method(i, w), jr_factory_wrap(w, m).
+jr_fn(a, m) :- jr_harg(_, _, a), jr_wrapper_call(a), call_arg(a, 0, x), expr_value(x, "func", m).
+jr_fn(a, m) :- jr_harg(_, _, a), expr_binding(_, v, a), var_init(_, _, i, v), jr_wrapper_call(i),
+    call_arg(i, 0, x), expr_value(x, "func", m).
+.decl jr_node_fn(c0:symbol, c1:number, c2:symbol)
+jr_node_fn(ce, n, m) :- jr_harg(ce, n, a), jr_fn(a, m), method_decl("client", _, _, _, _, _, _, m).
+// a route's handler node: the project function, or a library call's result keyed at the call
+.decl jr_route_node(c0:symbol, c1:number, c2:symbol)
+jr_route_node(ce, n, m) :- jr_node_fn(ce, n, m).
+jr_route_node(ce, n, a) :- jr_harg(ce, n, a), !jr_has_fn(ce, n), expr_kind(_, "CALL", _, a).
+.decl jr_has_fn(c0:symbol, c1:number)
+jr_has_fn(ce, n) :- jr_node_fn(ce, n, _).
+.decl jr_node(c0:symbol, c1:number, c2:symbol)
+jr_node(ce, n, m) :- jr_node_fn(ce, n, m).
+jr_node(ce, n, a) :- jr_harg(ce, n, a), !jr_has_fn(ce, n).
+
+// a call of a knob function: (call, specifier, name)
+.decl jr_knob_call(c0:symbol, c1:symbol, c2:symbol)
+jr_knob_call(a, spec, n) :- call_site(_, "FUNCTION_CALL", _, _, _, _, a, _, _), expr_child(_, a, "CALLEE", _, c),
+    jr_ref(c, spec, n).
+.decl jr_comb_arg(c0:symbol)
+jr_comb_arg(x) :- jr_harg(_, _, a), jr_knob_call(a, spec, n), router_mw_combinator(spec, n), call_arg(a, _, x).
+jr_comb_arg(x) :- jr_harg(_, _, a), jr_knob_call(a, spec, n), router_mw_except(spec, n), call_arg(a, 1, x).
+entry_point(m, "http") :- jr_comb_arg(x), expr_value(x, "func", m), method_decl("client", _, _, _, _, _, _, m).
+.decl jr_excepted(c0:symbol, c1:number, c2:symbol)
+jr_excepted(ce, n, v) :- jr_harg(ce, n, a), jr_knob_call(a, spec, nm), router_mw_except(spec, nm),
+    call_arg(a, 0, x), expr_value(x, "str", v).
+jr_excepted(ce, n, v) :- jr_harg(ce, n, a), jr_knob_call(a, spec, nm), router_mw_except(spec, nm),
+    call_arg(a, 0, arr), expr_kind(_, "ARRAY_LITERAL", _, arr), expr_child(_, arr, _, _, x), expr_value(x, "str", v).
+
+// http: every function a router calls, receiver-checked
+entry_point(m, "http") :- jr_node_fn(_, _, m).
+
+// ── local paths ─────────────────────────────────────────────────────────────
+.decl jr_local(c0:symbol, c1:symbol)
+jr_local(ce, lp) :- jr_pathed(ce), call_arg(ce, 0, p), jr_str(p, lp).
+jr_local(ce, "*") :- jr_pathless(ce), jr_reg(ce, _, cn), router_use(cn).
+.decl jr_cont_src(c0:symbol)
+jr_cont_src(r) :- jr_reg(r, _, rn), (router_verb(rn, _) ; router_use(rn)).
+jr_cont_src(r) :- jr_new(r).
+jr_cont_src(r) :- call_site(_, "METHOD_CALL", cn, _, _, _, r, _, _), router_base_path(cn).
+jr_local(ce, lp) :- jr_pathless(ce), jr_reg(ce, _, cn), router_verb(cn, _), jr_recv(ce, r),
+    jr_local(r, lp), jr_reg(r, _, rn), (router_verb(rn, _) ; router_use(rn)).
+jr_local(ce, "/") :- jr_pathless(ce), jr_reg(ce, _, cn), router_verb(cn, _), jr_recv(ce, r),
+    (jr_new(r) ; call_site(_, "METHOD_CALL", bn, _, _, _, r, _, _), router_base_path(bn)).
+// on a variable: the path of the previous registration on that app in this module
+.decl jr_pathless_var(c0:symbol)
+jr_pathless_var(ce) :- jr_pathless(ce), jr_reg(ce, _, cn), router_verb(cn, _), jr_recv(ce, r), !jr_cont_src(r).
+.decl jr_keyn(c0:symbol, c1:number)
+jr_keyn(ce, n) :- jr_key_x(ce, x), expr_span(_, l, c, _, _, x),
+    to_number(l) < 200000, to_number(c) < 10000, n = to_number(l) * 10000 + to_number(c).
+.decl jr_prev_cand(c0:symbol, c1:symbol, c2:number)
+jr_prev_cand(ce, r2, n2) :- jr_pathless_var(ce), jr_reg(ce, a, _), jr_keyn(ce, n), call_site(_, _, _, _, _, _, ce, m, _),
+    jr_reg(r2, a, rn), (router_verb(rn, _) ; router_use(rn)), r2 != ce, call_site(_, _, _, _, _, _, r2, m, _),
+    jr_keyn(r2, n2), n2 < n.
+.decl jr_prev(c0:symbol, c1:symbol)
+jr_prev(ce, r2) :- jr_prev_cand(ce, _, _), b = max x : { jr_prev_cand(ce, _, x) }, jr_prev_cand(ce, r2, b).
+.decl jr_has_prev(c0:symbol)
+jr_has_prev(ce) :- jr_prev(ce, _).
+jr_local(ce, lp) :- jr_prev(ce, r2), jr_local(r2, lp).
+jr_local(ce, "/") :- jr_pathless_var(ce), !jr_has_prev(ce).
+jr_local(ce, lp) :- jr_reg(ce, _, cn), router_mount_foreign(cn), call_arg(ce, 0, p), jr_str(p, pv),
+    jr_merge(pv, "*", lp).
+jr_mreq(pv, "*") :- jr_reg(ce, _, cn), router_mount_foreign(cn), call_arg(ce, 0, p), jr_str(p, pv).
+
+.decl jr_on_piece(c0:symbol, c1:number, c2:symbol)
+jr_on_piece(ce, pos, v) :- jr_reg(ce, _, cn), router_on(cn), call_arg(ce, pos, x), pos <= 1,
+    !expr_kind(_, "ARRAY_LITERAL", _, x), jr_str(x, v).
+jr_on_piece(ce, pos, v) :- jr_reg(ce, _, cn), router_on(cn), call_arg(ce, pos, x), pos <= 1,
+    expr_kind(_, "ARRAY_LITERAL", _, x), expr_child(_, x, _, _, el), jr_str(el, v).
+.decl jr_on_verb(c0:symbol, c1:symbol)
+jr_on_verb(ce, vv) :- jr_on_piece(ce, 0, w), router_verb_name(w, vv).
+jr_on_verb(ce, w) :- jr_on_piece(ce, 0, w), !router_verb_name(w, _).
+
+// ── entries: (list, key, kind, verb, path, call, ordinal) ───────────────────
+.decl jr_entry_base(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
+jr_entry_base(ce, a, "route", vv, lp, b) :- jr_reg(ce, a, cn), router_verb(cn, vv), jr_local(ce, lp),
+    jr_recv(ce, r), jr_val(r, a, b).
+jr_entry_base(ce, a, "mw", "ANY", lp, b) :- jr_reg(ce, a, cn), router_use(cn), jr_local(ce, lp),
+    jr_recv(ce, r), jr_val(r, a, b).
+jr_entry_base(ce, a, "route", "ANY", lp, b) :- jr_reg(ce, a, cn), router_mount_foreign(cn), jr_local(ce, lp),
+    jr_recv(ce, r), jr_val(r, a, b).
+jr_entry_base(ce, a, "route", vv, lp, b) :- jr_reg(ce, a, _), jr_on_verb(ce, vv), jr_on_piece(ce, 1, lp),
+    jr_recv(ce, r), jr_val(r, a, b).
+jr_mreq(b, lp) :- jr_entry_base(_, _, _, _, lp, b).
+.decl jr_entry(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:number)
+jr_entry(a, k2, kind, vv, p, ce, n) :- jr_entry_base(ce, a, kind, vv, lp, b), jr_merge(b, lp, p),
+    jr_harg(ce, n, _), jr_key(ce, k), s = to_string(n),
+    k2 = cat(k, cat(",", cat(substr("00000", 0, 5 - strlen(s)), s))).
+.decl jr_entry_own(c0:symbol, c1:symbol)
+jr_entry_own(ce, p) :- jr_entry(_, _, _, _, p, ce, _).
+
+// ── flattening a root ───────────────────────────────────────────────────────
+.decl jr_flat(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
+jr_flat(r, r, "/", "", "", "") :- jr_root(r).
+.decl jr_cutoff(c0:symbol, c1:symbol, c2:symbol)
+jr_cutoff(site, k, m) :- jr_inc(_, _, site, _), jr_key(site, k), call_site(_, _, _, _, _, _, site, m, _).
+jr_flat(r, s, np, nk, cut, cm) :- jr_flat(r, a, p, kp, _, _), jr_inc(a, s, site, pre),
+    jr_merge(p, pre, np), jr_key(site, k), nk = cat(kp, cat(k, ".")), strlen(nk) < 160,
+    jr_cutoff(site, cut, cm).
+jr_mreq(p, pre) :- jr_flat(_, a, p, _, _, _), jr_inc(a, _, _, pre).
+.decl jr_fcand(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:number, c7:symbol)
+jr_fcand(r, fk, kind, vv, p, ce, n, pre) :- jr_flat(r, a, pre, kp, "", _), jr_entry(a, k, kind, vv, p, ce, n),
+    fk = cat(kp, k).
+jr_fcand(r, fk, kind, vv, p, ce, n, pre) :- jr_flat(r, a, pre, kp, cut, _), cut != "",
+    jr_entry(a, k, kind, vv, p, ce, n), k < cut, fk = cat(kp, k).
+jr_fcand(r, fk, kind, vv, p, ce, n, pre) :- jr_flat(r, a, pre, kp, cut, cm), cut != "",
+    jr_entry(a, k, kind, vv, p, ce, n), call_site(_, _, _, _, _, _, ce, em, _), em != cm, fk = cat(kp, k).
+jr_mreq(pre, p) :- jr_fcand(_, _, _, _, p, _, _, pre).
+.decl jr_fentry(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:number)
+jr_fentry(r, fk, kind, vv, fp, ce, n) :- jr_fcand(r, fk, kind, vv, p, ce, n, pre), jr_merge(pre, p, fp).
+
+// http_route(Handler, Verb, FullPath, App, Order) — a route a served app answers, its
+// full path composed through every basePath and mount; App is the `new` that built
+// the root app, Order its registration key there (compares as program order).
+http_route(m, vv, fp, r, fk) :- jr_fentry(r, fk, "route", vv, fp, ce, n), jr_last(ce, n),
+    jr_route_node(ce, n, m), !contains("{}", fp).
+
+// route_registered_by(RegMethod, Handler, Verb, FullPath, App) — the function whose body makes the
+// registering call (a registration function, an app factory, a module body)
+route_registered_by(rm, m, vv, fp, r) :- jr_fentry(r, _, "route", vv, fp, ce, n), jr_last(ce, n),
+    jr_route_node(ce, n, m), !contains("{}", fp), call_site(_, _, _, _, _, rm, ce, _, _).
+
+.decl jr_partial(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+jr_partial(m, vv, fp, r, "dynamic_route_path") :- jr_fentry(r, _, "route", vv, fp, ce, n), jr_last(ce, n),
+    jr_route_node(ce, n, m), contains("{}", fp), jr_entry_own(ce, op), contains("{}", op).
+jr_partial(m, vv, fp, r, "dynamic_mount_prefix") :- jr_fentry(r, _, "route", vv, fp, ce, n), jr_last(ce, n),
+    jr_route_node(ce, n, m), contains("{}", fp), jr_entry_own(ce, op), !contains("{}", op).
+// http_route_partial(Handler, Verb, KnownPath, App, Reason) — a route whose path is
+// not fully static: what is known, `{}` for each unknown piece, and why
+http_route_partial(m, vv, fp, r, why) :- jr_partial(m, vv, fp, r, why).
+remote_undetermined(m, "http", why) :- jr_partial(m, _, _, _, why).
+
+// http_mount(ParentApp, ChildApp, Prefix, Order) — `route(prefix, child)`
+http_mount(a, s, pre, k) :- jr_inc(a, s, site, pre), jr_key(site, k).
+framework_undetermined(m, "mount", "unresolved_mount") :- jr_reg(ce, _, cn), router_mount_app(cn),
+    call_arg(ce, 1, sx), !expr_value(sx, "router_app", _), call_site(_, _, _, _, _, m, ce, _, _).
+framework_undetermined(m, "mount", "foreign_mount") :- jr_reg(ce, _, cn), router_mount_foreign(cn),
+    !jr_has_fn(ce, 100), call_site(_, _, _, _, _, m, ce, _, _).
+
+// ── middleware application ──────────────────────────────────────────────────
+.decl jr_hent(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+jr_hent(r, hk, ce, vv, fp) :- jr_fentry(r, hk, "route", vv, fp, ce, n), jr_last(ce, n), !contains("{}", fp).
+// (root, key, call, ordinal, scope, verb): `use` entries, and a verb registration whose
+// function takes `next` and calls it
+.decl jr_ment(c0:symbol, c1:symbol, c2:symbol, c3:number, c4:symbol, c5:symbol)
+jr_ment(r, mk, ce, n, q, vv) :- jr_fentry(r, mk, "mw", vv, q, ce, n), !contains("{}", q).
+jr_ment(r, mk, ce, n, q, vv) :- jr_fentry(r, mk, "route", vv, q, ce, n), !contains("{}", q),
+    jr_node_fn(ce, n, m), jr_calls_next(m).
+.decl jr_calls_next(c0:symbol)
+jr_calls_next(m) :- jr_node_fn(_, _, m), param_decl("client", _, "1", m, p), expr_param(_, p, f),
+    expr_child(_, ce, "CALLEE", _, f), call_site(_, _, _, _, _, _, ce, _, _).
+.decl jr_verb_ok(c0:symbol, c1:symbol)
+jr_verb_ok("ANY", v) :- jr_hent(_, _, _, v, _).
+jr_verb_ok(v, v) :- jr_hent(_, _, _, v, _).
+.decl jr_spair(c0:symbol, c1:symbol)
+jr_spair(q, p) :- jr_ment(r, mk, _, _, q, _), jr_hent(r, hk, _, _, p), mk < hk.
+
+.decl jr_spath(c0:symbol)
+jr_spath(q) :- jr_spair(q, _).
+jr_spath(p) :- jr_spair(_, p).
+.decl jr_slash(c0:symbol, c1:number)
+jr_slash(p, i) :- jr_spath(p), i = range(0, strlen(p)), substr(p, i, 1) = "/".
+.decl jr_next_slash(c0:symbol, c1:number, c2:number)
+jr_next_slash(p, i, j) :- jr_slash(p, i), j = min x : { jr_slash(p, x), x > i }.
+.decl jr_has_next(c0:symbol, c1:number)
+jr_has_next(p, i) :- jr_next_slash(p, i, _).
+.decl jr_seg_at(c0:symbol, c1:number, c2:symbol)
+jr_seg_at(p, i, t) :- jr_next_slash(p, i, j), t = substr(p, i + 1, j - i - 1).
+jr_seg_at(p, i, t) :- jr_slash(p, i), !jr_has_next(p, i), t = substr(p, i + 1, strlen(p) - i - 1).
+.decl jr_seg_ne(c0:symbol, c1:number)
+jr_seg_ne(p, i) :- jr_seg_at(p, i, t), t != "".
+.decl jr_seg(c0:symbol, c1:number, c2:symbol)
+jr_seg(p, k, t) :- jr_seg_at(p, i, t), t != "", k = count : { jr_seg_ne(p, x), x < i }.
+.decl jr_nseg(c0:symbol, c1:number)
+jr_nseg(p, n) :- jr_spath(p), n = count : { jr_seg(p, _, _) }.
+.decl jr_lit(c0:symbol)
+jr_lit(t) :- jr_seg(_, _, t), substr(t, 0, 1) != ":", t != "*".
+.decl jr_qtail(c0:symbol)
+jr_qtail(q) :- jr_nseg(q, n), n >= 1, jr_seg(q, n - 1, "*").
+.decl jr_qfix(c0:symbol, c1:number)
+jr_qfix(q, n - 1) :- jr_qtail(q), jr_nseg(q, n).
+jr_qfix(q, n) :- jr_nseg(q, n), !jr_qtail(q).
+.decl jr_len_ok(c0:symbol, c1:symbol)
+jr_len_ok(q, p) :- jr_spair(q, p), jr_qtail(q), jr_qfix(q, f), jr_nseg(p, np), np >= f.
+jr_len_ok(q, p) :- jr_spair(q, p), !jr_qtail(q), jr_nseg(q, n), jr_nseg(p, n).
+.decl jr_conflict(c0:symbol, c1:symbol)
+jr_conflict(q, p) :- jr_spair(q, p), jr_qfix(q, f), jr_seg(q, i, x), i < f, jr_seg(p, i, y),
+    jr_lit(x), jr_lit(y), x != y.
+.decl jr_undec(c0:symbol, c1:symbol)
+jr_undec(q, p) :- jr_spair(q, p), jr_qfix(q, f), jr_seg(q, i, x), i < f, jr_seg(p, i, y),
+    jr_lit(x), !jr_lit(y).
+.decl jr_scope_ok(c0:symbol, c1:symbol)
+jr_scope_ok(q, p) :- jr_len_ok(q, p), !jr_conflict(q, p), !jr_undec(q, p).
+
+.decl jr_applies(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
+jr_applies(r, hk, mk, mce, mn) :- jr_ment(r, mk, mce, mn, q, mv), jr_hent(r, hk, _, hv, p), mk < hk,
+    jr_verb_ok(mv, hv), jr_scope_ok(q, p), !jr_excepted(mce, mn, p).
+jr_applies(r, hk, mk, ce, mn) :- jr_hent(r, hk, ce, vv, fp), jr_fentry(r, mk, "route", vv, fp, ce, mn),
+    jr_last(ce, n), mn < n.
+framework_undetermined(mw, "middleware_scope", "param_vs_literal_scope") :- jr_ment(r, mk, mce, mn, q, mv),
+    jr_hent(r, hk, _, hv, p), mk < hk, jr_verb_ok(mv, hv), jr_len_ok(q, p), !jr_conflict(q, p), jr_undec(q, p), jr_node(mce, mn, mw).
+.decl jr_applies_k(c0:symbol, c1:symbol, c2:symbol)
+jr_applies_k(r, hk, mk) :- jr_applies(r, hk, mk, _, _).
+.decl jr_rank(c0:symbol, c1:symbol, c2:symbol, c3:number)
+jr_rank(r, hk, mk, pos) :- jr_applies_k(r, hk, mk), pos = count : { jr_applies_k(r, hk, k2), k2 < mk }.
+
+// middleware_applies(Mw, Handler, Verb, FullPath, Position, App) — in served app App, Mw runs before Handler on
+// a request for Verb FullPath, at Position (0 first). Mw is the project function, or
+// the registering argument expression for library middleware.
+// a spread no rule could read stands in the chain: no position after it is claimed
+.decl jr_dyn_key(c0:symbol, c1:symbol)
+jr_dyn_key(a, k) :- jr_spread(ce, p, _), !jr_spread_known(ce, p), jr_reg(ce, a, _), jr_key(ce, k0),
+    s = to_string(p * 100), k = cat(k0, cat(",", cat(substr("00000", 0, 5 - strlen(s)), s))).
+.decl jr_fdyn(c0:symbol, c1:symbol)
+jr_fdyn(r, fk) :- jr_flat(r, a, _, kp, _, _), jr_dyn_key(a, k), fk = cat(kp, k).
+.decl jr_after_dyn(c0:symbol, c1:symbol, c2:symbol)
+jr_after_dyn(r, hk, mk) :- jr_applies_k(r, hk, mk), jr_fdyn(r, sk), sk < hk, sk < mk.
+middleware_applies(mw, h, vv, fp, to_string(pos), r) :- jr_hent(r, hk, ce, vv, fp), jr_last(ce, n),
+    jr_route_node(ce, n, h), jr_applies(r, hk, mk, mce, mn), jr_node(mce, mn, mw), jr_rank(r, hk, mk, pos),
+    !jr_after_dyn(r, hk, mk).
+
+// middleware_registered_at(Mw, Handler, Verb, FullPath, App, RegCall) — the registering call that puts Mw in the
+// chain of Handler on App: an app-level `use(..)` (or a verb registration that calls next), or the route's own
+// call for its per-route middleware
+middleware_registered_at(mw, h, vv, fp, r, mce) :- jr_hent(r, hk, ce, vv, fp), jr_last(ce, n),
+    jr_route_node(ce, n, h), jr_applies(r, hk, mk, mce, mn), jr_node(mce, mn, mw), !jr_after_dyn(r, hk, mk).
+
+// a registration inside a branch or a loop is still emitted, and said to be one: the block of the function
+// that makes the call, whose span holds the call
+.decl jr_in_block(c0:symbol, c1:symbol)
+jr_in_block(ce, k) :- jr_reg(ce, _, _), expr_owner(_, h, mod, ce), expr_span(_, l, c, _, _, ce),
+    block_owner(k, h, b), block_span(_, mod, l1, c1, l2, c2, b),
+    (to_number(l) > to_number(l1) ; to_number(l) = to_number(l1), to_number(c) >= to_number(c1)),
+    (to_number(l) < to_number(l2) ; to_number(l) = to_number(l2), to_number(c) <= to_number(c2)).
+.decl jr_cond_kind(c0:symbol)
+jr_cond_kind("IF"). jr_cond_kind("ELSE"). jr_cond_kind("SWITCH"). jr_cond_kind("SWITCH_CASE"). jr_cond_kind("CATCH").
+.decl jr_loop_kind(c0:symbol)
+jr_loop_kind("FOR"). jr_loop_kind("FOR_IN"). jr_loop_kind("FOR_OF"). jr_loop_kind("WHILE"). jr_loop_kind("DO").
+framework_undetermined(m, "registration", "conditional_registration") :- jr_in_block(ce, k), jr_cond_kind(k),
+    jr_last(ce, n), jr_node_fn(ce, n, m).
+framework_undetermined(m, "registration", "loop_registration") :- jr_in_block(ce, k), jr_loop_kind(k),
+    jr_last(ce, n), jr_node_fn(ce, n, m).
+
+// middleware_site(Mw, Kind, Callee, Specifier) — what a middleware node is
+.decl jr_mw_arg(c0:symbol, c1:number, c2:symbol)
+jr_mw_arg(ce, n, a) :- jr_entry(_, _, "mw", _, _, ce, n), jr_harg(ce, n, a).
+jr_mw_arg(ce, n, a) :- jr_harg(ce, n, a), jr_last(ce, l), n < l, jr_entry(_, _, "route", _, _, ce, n).
+middleware_site(m, "project_fn", "", "") :- jr_mw_arg(ce, n, a), jr_node_fn(ce, n, m), !expr_kind(_, "CALL", _, a).
+middleware_site(m, "factory_result", cn, "") :- jr_mw_arg(ce, n, a), jr_node_fn(ce, n, m),
+    call_site(_, _, cn, _, _, _, a, _, _).
+middleware_site(a, "library_call", n, spec) :- jr_mw_arg(ce, k, a), !jr_has_fn(ce, k),
+    call_site(_, _, _, _, _, _, a, _, _), expr_child(_, a, "CALLEE", _, c), expr_binding(_, v, c),
+    var_import(_, imp, v), import_decl(_, spec, _, _, n, _, _, _, imp).

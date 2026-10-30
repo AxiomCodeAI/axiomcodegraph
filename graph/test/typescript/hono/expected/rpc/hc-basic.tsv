@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: four client functions reach their routes; index is /; $url makes no edge
+# census: hc_client, hc_dollar_call, hc_element_param, apptype_typeof
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/users	server.ts:4:13	server.ts:8:13	0
+route	GET	/users/:id	server.ts:5:16	server.ts:8:13	1
+route	POST	/users	server.ts:6:14	server.ts:8:13	2
+route	GET	/	server.ts:9:52	server.ts:8:13	3
+rpc	client.ts:11:1	GET	/users/:id	server.ts:5:16
+rpc	client.ts:14:1	POST	/users	server.ts:6:14
+rpc	client.ts:17:1	GET	/	server.ts:9:52
+rpc	client.ts:8:1	GET	/users	server.ts:4:13
+submount	/users	server.ts:9:20
+regby	server.ts:1:1	server.ts:4:13	GET	/users	server.ts:8:13
+regby	server.ts:1:1	server.ts:5:16	GET	/users/:id	server.ts:8:13
+regby	server.ts:1:1	server.ts:6:14	POST	/users	server.ts:8:13
+regby	server.ts:1:1	server.ts:9:52	GET	/	server.ts:8:13

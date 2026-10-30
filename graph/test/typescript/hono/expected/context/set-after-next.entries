@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: started flows to the handler; finished is set after next() and is read back only by the middleware itself
+entry	index.ts:10:9	http
+entry	index.ts:16:14	http

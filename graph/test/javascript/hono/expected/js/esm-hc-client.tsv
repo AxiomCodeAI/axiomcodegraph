@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: a typed-less JS hc client: both calls reach the only served app's routes by path (route_shape)
+# census: hc_client, hc_dollar_call, hc_element_param (JavaScript: no type argument, SPEC 3.5 route_shape)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/tasks	server.js:4:19	server.js:3:13	0
+route	POST	/tasks/:id/done	server.js:5:29	server.js:3:13	1
+rpc	client.js:10:1	POST	/tasks/:id/done	server.js:5:29
+rpc	client.js:7:1	GET	/tasks	server.js:4:19
+regby	server.js:1:1	server.js:4:19	GET	/tasks	server.js:3:13
+regby	server.js:1:1	server.js:5:29	POST	/tasks/:id/done	server.js:3:13

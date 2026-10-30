@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an app only served through serve(): its route still in the table
+# census: serve_fetch
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/served	index.ts:7:20	index.ts:6:13	0
+regby	index.ts:1:1	index.ts:7:20	GET	/served	index.ts:6:13
