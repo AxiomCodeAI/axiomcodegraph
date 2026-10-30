@@ -532,7 +532,10 @@ hr_route_row(m, vv, fp, ai, fk) :- hr_fentry(r, fk, "route", vv, fp, ce, n), hr_
 .decl hr_route_rl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number, c6:number)
 hr_route_rl(m, vv, fp, ai, fk, to_number(substr(fk, 0, 7)), to_number(substr(fk, 8, 5))) :- hr_route_row(m, vv, fp, ai, fk), strlen(fk) >= 13.
 .decl hr_route_ml(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
-hr_route_ml(m, vv, fp, ai, l) :- hr_route_rl(m, vv, fp, ai, _, _, _), l = min x : { hr_route_rl(m, vv, fp, ai, _, x, _) }.
+// (the minimum once per (handler, verb, path, app), not once per row of the group)
+.decl hr_route_grp(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_route_grp(m, vv, fp, ai) :- hr_route_rl(m, vv, fp, ai, _, _, _).
+hr_route_ml(m, vv, fp, ai, l) :- hr_route_grp(m, vv, fp, ai), l = min x : { hr_route_rl(m, vv, fp, ai, _, x, _) }.
 .decl hr_route_mc(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number, c5:number)
 hr_route_mc(m, vv, fp, ai, l, c) :- hr_route_ml(m, vv, fp, ai, l), c = min y : { hr_route_rl(m, vv, fp, ai, _, l, y) }.
 .decl hr_route_cand(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
@@ -691,8 +694,16 @@ hr_calls_next(m) :- hr_node_fn(_, _, m), param_decl("client", _, "1", _, m, p),
 .decl hr_verb_ok(c0:symbol, c1:symbol)
 hr_verb_ok("ANY", v) :- hr_hent(_, _, _, v, _).
 hr_verb_ok(v, v) :- hr_hent(_, _, _, v, _).
+// (scope, path) pairs whose match is decided: every scope a root's middleware writes against every path its handlers have,
+// distinct values first. The join through each (middleware key, handler key) pair with mk < hk gave the same decisions
+// (a pair is only consulted beside such a key pair, and a segment's kind depends on the segment alone) at the size of
+// hr_applies (2.1 s for 9k pairs on a large project)
 .decl hr_spair(c0:symbol, c1:symbol)
-hr_spair(q, p) :- hr_ment(r, mk, _, _, q, _), hr_hent(r, hk, _, _, p), mk < hk.
+.decl hr_rscope(c0:symbol, c1:symbol)
+hr_rscope(r, q) :- hr_ment(r, _, _, _, q, _).
+.decl hr_rpath(c0:symbol, c1:symbol)
+hr_rpath(r, p) :- hr_hent(r, _, _, _, p).
+hr_spair(q, p) :- hr_rscope(r, q), hr_rpath(r, p).
 
 // segments of a path, empty ones skipped
 .decl hr_spath(c0:symbol)
@@ -745,8 +756,12 @@ hr_applies(r, hk, mk, mce, mn) :- hr_ment(r, mk, mce, mn, q, mv), hr_hent(r, hk,
 // the earlier arguments of the route's own call
 hr_applies(r, hk, mk, ce, mn) :- hr_hent(r, hk, ce, vv, fp), hr_fentry(r, mk, "route", vv, fp, ce, mn),
     hr_last(ce, n), mn < n, !hr_dyn_arg(ce, mn).
-framework_undetermined(mw, "middleware_scope", "param_vs_literal_scope") :- hr_ment(r, mk, mce, mn, q, mv),
-    hr_hent(r, hk, _, hv, p), mk < hk, hr_verb_ok(mv, hv), hr_len_ok(q, p), !hr_conflict(q, p), hr_undec(q, p), hr_node(mce, mn, mw).
+// (the few undecidable (scope, path) pairs first, then the entries holding them: joined the other way round it walked
+// every middleware/handler pair of every root for 8 rows, 1.7 s on a large project)
+.decl hr_undec_pair(c0:symbol, c1:symbol)
+hr_undec_pair(q, p) :- hr_undec(q, p), hr_len_ok(q, p), !hr_conflict(q, p).
+framework_undetermined(mw, "middleware_scope", "param_vs_literal_scope") :- hr_undec_pair(q, p), hr_ment(r, mk, mce, mn, q, mv),
+    hr_hent(r, hk, _, hv, p), mk < hk, hr_verb_ok(mv, hv), hr_node(mce, mn, mw).
 // a scoped `use` against a route under an unknown prefix cannot be decided (SPEC 3.3 [iter2]): no row,
 // and the middleware says so; a `*` scope on the same app is decidable and is not declared
 framework_undetermined(mw, "middleware_scope", "partial_route_scope") :- hr_fentry(r, mk, "mw", _, q, mce, mn),
@@ -851,7 +866,11 @@ framework_undetermined(h, "middleware_chain", "dynamic_middleware_list") :- hr_u
 // a chain holding a middleware that ANOTHER element of a loop mount brought in (one candidate's `*` use reaches the
 // routes of the candidates after it): which elements run, and in what order, is decided at run time (SPEC R13b)
 .decl hr_each_pfx(c0:symbol, c1:symbol)
-hr_each_pfx(mk, pfx) :- hr_applies_k(_, _, mk), i = range(0, strlen(mk)), substr(mk, i, 1) = "~", pfx = substr(mk, 0, i + 6).
+// (a key is scanned once, and only one that holds a loop-mount mark at all: the scan per applies row, of every key, cost
+// 3 s for no row on a large project)
+.decl hr_each_key(c0:symbol)
+hr_each_key(mk) :- hr_applies_k(_, _, mk), contains("~", mk).
+hr_each_pfx(mk, pfx) :- hr_each_key(mk), i = range(0, strlen(mk)), substr(mk, i, 1) = "~", pfx = substr(mk, 0, i + 6).
 framework_undetermined(h, "middleware_chain", "dynamic_middleware_list") :- hr_applies_k(r, hk, mk), hr_each_pfx(mk, pfx),
     (strlen(hk) < strlen(pfx) ; substr(hk, 0, strlen(pfx)) != pfx), hr_hent(r, hk, ce, _, _), hr_last(ce, n), hr_route_node(ce, n, h).
 

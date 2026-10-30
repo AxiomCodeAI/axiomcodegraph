@@ -373,8 +373,9 @@ hr_app(e, a) :- hr_destr_of(e, v), hr_app(v, a).
 .decl hr_viacall(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 hr_viacall(e, ce, w, v) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hr_objcall(q, ce, w, o),
     rd_obj_prop(o, n, v).
-hr_viacall(e, ce, w, v) :- expr_referenced("client", "VARIABLE", d, e), var_binding("client", _, "PROPERTY", src, i, d), i != "",
-    hr_objcall(i, ce, w, o), rd_obj_prop(o, src, v).
+// (from the call's object outward: this is recursive, and starting at every variable read rescanned them all each round)
+hr_viacall(e, ce, w, v) :- hr_objcall(i, ce, w, o), var_binding("client", _, "PROPERTY", src, i, d), i != "",
+    rd_obj_prop(o, src, v), expr_referenced("client", "VARIABLE", d, e).
 // (list, call, created app)
 .decl hr_objret_inst(c0:symbol, c1:symbol, c2:symbol)
 hr_objret_inst(l, ce, t) :- hr_viacall(_, ce, w, v), hr_app(v, t), expr_enclosing_method(t, w), l = cat(ce, cat("#", t)).
@@ -412,12 +413,22 @@ hr_def_val(x, o) :- hr_on(), call_site("client", "FUNCTION_CALL", _, _, _, x, _)
     import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec), router_route_def(spec, orig),
     expr_child("client", x, "ARGUMENT", "0", a), hr_def_obj(a, o).
 hr_def_val(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_val(i, o).
-hr_def_val(e, o) :- hr_on(), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_val(c, o).
-// an object literal written in place or held by a const, through `as T` / `satisfies T` / parentheses
+hr_def_val(e, o) :- hr_def_val(c, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e), expr_kind_is_transparent(k).
+// an object literal written in place or held by a const, through `as T` / `satisfies T` / parentheses: read only for
+// the expressions a definition is taken from (createRoute's argument, a wrapper call's arguments), never for every
+// object literal and every read of one in the program
+.decl hr_def_obj_need(c0:symbol)
+hr_def_obj_need(a) :- hr_on(), call_site("client", "FUNCTION_CALL", _, _, _, x, _),
+    expr_child("client", x, "METHOD_NAME", _, f), expr_referenced("client", "IMPORT_BINDING", ih, f),
+    import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec), router_route_def(spec, orig),
+    expr_child("client", x, "ARGUMENT", "0", a).
+hr_def_obj_need(a) :- hr_def_call(x, _), expr_child("client", x, "ARGUMENT", _, a).
+hr_def_obj_need(c) :- hr_def_obj_need(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c).
+hr_def_obj_need(i) :- hr_def_obj_need(r), hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "".
 .decl hr_def_obj(c0:symbol, c1:symbol)
-hr_def_obj(o, o) :- hr_on(), expr_kind("client", "OBJECT_LITERAL", _, o).
-hr_def_obj(e, o) :- hr_on(), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_obj(c, o).
-hr_def_obj(r, o) :- hr_on(), hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_obj(i, o).
+hr_def_obj(o, o) :- hr_def_obj_need(o), expr_kind("client", "OBJECT_LITERAL", _, o).
+hr_def_obj(e, o) :- hr_def_obj_need(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c), hr_def_obj(c, o).
+hr_def_obj(r, o) :- hr_def_obj_need(r), hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_def_obj(i, o).
 // …a project function that RETURNS a definition (`authRoute(scope, { method, path, .. })` returning
 // `createRoute({ ...config, middleware })`): the call is a definition, the object the function builds. Its keys spread
 // from a parameter (`...config`) are that call's argument's own (hr_def_spread), so each call is its own route
@@ -429,14 +440,26 @@ hr_def_val(x, o) :- hr_def_call(x, w), hr_ret_expr(w, e), hr_def_val(e, o).
 hr_def_spread(x, o, o2) :- hr_def_call(x, w), hr_ret_expr(w, e), hr_def_val(e, o), expr_child("client", o, "SPREAD_OPERAND", _, sx),
     hv_spread_src(sx, y), hr_def_param(y, p), param_decl("client", _, pos, _, w, p), expr_child("client", x, "ARGUMENT", pos, a), hr_def_obj(a, o2).
 hr_def_val(x, o2) :- hr_def_spread(x, _, o2).
-// a reference to a parameter, through `as T` and parentheses
+// a reference to a parameter, through `as T` and parentheses; read only where a definition can name one: a spread
+// into an object, a definition's method or path value, the receiver of a property read inside an array spread
+.decl hr_def_param_need(c0:symbol)
+hr_def_param_need(y) :- hv_spread_src(_, y).
+hr_def_param_need(pv) :- rd_obj_prop(_, k, pv), (router_def_key(k, "method") ; router_def_key(k, "path")).
+hr_def_param_need(q) :- hr_sp_el(z), property_access_name(z, _), expr_child("client", z, "RECEIVER", _, q).
+hr_def_param_need(c) :- hr_def_param_need(y), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c).
+.decl hr_sp_el(c0:symbol)
+hr_sp_el(y) :- hr_on(), expr_kind("client", "SPREAD_ELEMENT", _, el), expr_child("client", el, _, _, y).
+hr_sp_el(c) :- hr_sp_el(y), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c).
+hr_sp_el(c) :- hr_sp_el(y), expr_kind("client", "BINARY_EXPRESSION", _, y), (expr_operator("client", "??", y) ; expr_operator("client", "||", y)),
+    expr_child("client", y, "LEFT_OPERAND", _, c).
 .decl hr_def_param(c0:symbol, c1:symbol)
-hr_def_param(y, p) :- hr_on(), expr_referenced("client", "PARAMETER", p, y).
-hr_def_param(y, p) :- hr_on(), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c), hr_def_param(c, p).
+hr_def_param(y, p) :- hr_def_param_need(y), expr_referenced("client", "PARAMETER", p, y).
+hr_def_param(y, p) :- hr_def_param_need(y), expr_kind("client", k, _, y), expr_kind_is_transparent(k), expr_child("client", y, _, _, c), hr_def_param(c, p).
 // `import * as routes from './routes'; app.openapi(routes.get, h)`
-hr_def_val(e, o) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, r),
-    expr_referenced("client", "IMPORT_BINDING", ih, r), import_binds_namespace(ih, "client", m),
-    module_export_any("client", m, n, "VARIABLE", v), var_initializer("client", _, i, v), hr_def_val(i, o).
+// (from the definition outward: it is recursive, and starting at every property read rescanned them all each round)
+hr_def_val(e, o) :- hr_def_val(i, o), var_initializer("client", _, i, v), module_export_any("client", m, n, "VARIABLE", v),
+    import_binds_namespace(ih, "client", m), expr_referenced("client", "IMPORT_BINDING", ih, r),
+    expr_child("client", e, "RECEIVER", _, r), property_access_name(e, n).
 .decl hr_openapi_def(c0:symbol, c1:symbol)
 hr_openapi_def(ce, o) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "0", x), hr_def_val(x, o).
 rd_demand(v) :- hr_openapi_def(_, o), rd_obj_prop(o, k, v), (router_def_key(k, "method") ; router_def_key(k, "path")).
