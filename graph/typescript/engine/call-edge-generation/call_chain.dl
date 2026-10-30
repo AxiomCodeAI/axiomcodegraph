@@ -167,6 +167,9 @@ cb_handed_live(ce, pos) :- cb_handed_arg(ce, pos, _), call_runs_method(ce, b), m
 cb_handed_live(ce, pos) :- cb_handed_arg(ce, pos, _), call_runs_method(ce, b), method_prov(b, "client"),
     param_decl("client", _, pos, _, b, p), !kr_registry_param(p), cb_param_runs(p).
 cb_param_runs(p) :- expr_referenced("client", "PARAMETER", p, e), !cb_ref_inert(e).
+// a parameter property (`constructor(private readonly onTimeout: () => void)`) is also a field: the class
+// runs it through `this.onTimeout` wherever the field is read, though the constructor never names it
+cb_param_runs(p) :- param_declares_field("client", f, p), expr_holder(_, f).
 cb_ref_inert(e) :- expr_referenced("client", "PARAMETER", _, e), expr_child("client", x, _, _, e),
     expr_operator("client", op, x), cb_inert_op(op).
 cb_inert_op("===").
