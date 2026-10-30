@@ -322,10 +322,51 @@ hr_objcall(ce, ce, w, o) :- hr_call_of(ce, w), hr_ret_expr(w, e), hr_objlit(e, o
 hr_objcall(r, ce, w, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hr_objcall(i, ce, w, o).
 // …or a PARAMETER such a result is passed into (`mountHttp(runtime)` where `runtime = await createRuntime()`, then
 // `const { usersRoutes } = runtime` inside): what each call passes there
+// One source only: when the results of two DIFFERENT functions reach the parameter (`attach(host, ordersModule())`,
+// `attach(host, invoicesModule())`), a read of it has no call context to tell which call's object it is, and every
+// mount the function makes would take both objects' sub-apps (hono-8-01); those sub-apps are declared instead
+// (hr_unknown_mount, unresolved_mount)
 hr_objcall(r, ce, w, o) :- hr_objcall(a, ce, w, o), expr_child("client", oc, "ARGUMENT", pos, a), hr_call_of(oc, f),
-    param_decl("client", _, pos, _, f, p), expr_referenced("client", "PARAMETER", p, r).
+    param_decl("client", _, pos, _, f, p), !hr_objpar_amb(p), expr_referenced("client", "PARAMETER", p, r).
 hr_objcall(e, ce, w, o) :- hr_objcall(c, ce, w, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
     (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+// ── a returned object handed to a PARAMETER: one source or several ─────────────
+// hr_objcall follows an object a function returns into a parameter it is passed to (`mountHttp(runtime)`), with no
+// call context: every call's object reaches every read of the parameter. That is right while every call passes the
+// result of the SAME function (each call's apps are copies of one template), and wrong when two calls pass objects of
+// two different functions: each mount the function makes would take both objects' sub-apps (hono-8-01). Which
+// functions' results reach a parameter is decided here from calls and bindings only, before any app is known, so the
+// app flow can test it.
+// a function that returns an object literal (written in place, or a const holding one)
+.decl hr_objfn(c0:symbol)
+hr_objfn(w) :- hr_on(), hr_ret_expr(w, e), expr_kind("client", "OBJECT_LITERAL", _, e).
+hr_objfn(w) :- hr_on(), hr_ret_expr(w, e), hr_denotes_var(e, v), var_initializer("client", _, i, v), i != "",
+    expr_kind("client", "OBJECT_LITERAL", _, i).
+// (expression, function whose returned object it holds)
+.decl hr_psrc(c0:symbol, c1:symbol)
+hr_psrc(x, w) :- hr_objfn(w), hr_call_of(x, w).
+hr_psrc(e, w) :- hr_psrc(c, w), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+hr_psrc(r, w) :- hr_psrc(i, w), var_initializer("client", _, i, v), hr_denotes_var(r, v).
+hr_psrc(r, w) :- hr_psrc_p(p, w), expr_referenced("client", "PARAMETER", p, r).
+// (parameter, function whose returned object a call passes there)
+.decl hr_psrc_p(c0:symbol, c1:symbol)
+hr_psrc_p(p, w) :- hr_psrc(a, w), expr_child("client", oc, "ARGUMENT", pos, a), hr_call_of(oc, f),
+    param_decl("client", _, pos, _, f, p).
+// a parameter a mount in its function reads its sub-app from (`const { http } = mod; host.route('/', http)`,
+// `host.route('/', mod.http)`): the only place where taking every call's object at once makes a route false
+.decl hr_marg_need(c0:symbol)
+hr_marg_need(sx) :- hr_on(), call_site("client", "METHOD_CALL", cn, _, _, ce, _), router_mount_app(cn),
+    expr_child("client", ce, "ARGUMENT", "1", sx).
+hr_marg_need(c) :- hr_marg_need(x), expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", x, _, _, c).
+hr_marg_need(q) :- hr_marg_need(x), property_access_name(x, _), expr_child("client", x, "RECEIVER", _, q).
+hr_marg_need(i) :- hr_marg_need(x), expr_referenced("client", "VARIABLE", d, x), var_binding("client", _, "PROPERTY", _, i, d), i != "".
+.decl hr_pmount(c0:symbol)
+hr_pmount(p) :- hr_marg_need(x), expr_referenced("client", "PARAMETER", p, x).
+// such a parameter two different functions' objects reach
+.decl hr_objpar_amb(c0:symbol)
+hr_objpar_amb(p) :- hr_pmount(p), hr_psrc_p(p, w1), hr_psrc_p(p, w2), w1 < w2.
 // an element of a const array literal, read through a for..of binding over it
 // (`for (const p of plugins) app.route(p.prefix, p.app)`)
 .decl hr_arr(c0:symbol, c1:symbol)
@@ -666,6 +707,9 @@ hr_root(a) :- hr_list(a), !hr_included(a).
 .decl hr_unknown_mount(c0:symbol)
 hr_unknown_mount(s) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_mount_app(cn), !hr_app(r, _),
     expr_child("client", ce, "ARGUMENT", "1", sx), hr_app(sx, s).
+// …or an app held by an object that reaches a parameter together with another function's object (hono-8-01): the
+// function mounts one of them per call, and which one is not followed here
+hr_unknown_mount(s) :- hr_objpar_amb(p), hr_psrc_p(p, w), hr_objcall(_, _, w, o), rd_obj_prop(o, _, v), hr_app(v, s).
 
 // ── a declarative route list (SPEC ruling R13) ──────────────────────────────
 // `const routes = [{ path: '/x', handler: subApp }]; for (const r of routes) app.route(r.path, r.handler)`.
