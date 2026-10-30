@@ -419,3 +419,27 @@ router_valid_read("valid").
 // router_handler_spread(Name): `...x.name(a, b)` spreads its arguments as handlers
 .decl router_handler_spread(c0:symbol)
 router_handler_spread("createHandlers").
+
+// ── the request context's environment and store (framework-behavior/http-router-ctx-type.dl) ──
+// the member of an environment type that lists the context keys and their types
+.decl router_env_vars(c0:symbol)
+router_env_vars("Variables").
+// a context's keyed read and write, and its whole-store view
+.decl router_ctx_get(c0:symbol)
+router_ctx_get("get").
+.decl router_ctx_set(c0:symbol)
+router_ctx_set("set").
+.decl router_ctx_var(c0:symbol)
+router_ctx_var("var").
+// a helper whose first type argument is the environment of the function it is handed
+.decl router_env_call(c0:symbol)
+router_env_call("createMiddleware").
+// a type operator that takes a function type and gives what it returns (TypeScript's own)
+.decl ts_type_return_operator(c0:symbol)
+ts_type_return_operator("ReturnType").
+// validators from other packages, same (target, schema) arguments (gap census K2)
+router_validator("hono-openapi", "validator").
+router_validator("@hono/valibot-validator", "vValidator").
+router_validator("@hono/typebox-validator", "tbValidator").
+router_validator("@hono/arktype-validator", "arktypeValidator").
+router_validator("@hono/standard-validator", "sValidator").

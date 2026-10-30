@@ -1,0 +1,180 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP ROUTER CONTEXT VALUE TYPES  (what a context read holds)
+//
+// http-router-chain.dl ties a context write to the reads that see it (ctx_key_flow).
+// This file gives the READ a type, so a call on the value it returns resolves like a
+// call on any typed receiver:
+//
+//   const { keys } = c.get('services')     // the type declared for key `services`
+//   await keys.verify(id)                  // ... so this reaches KeyService.verify
+//   c.var.db.query(...)                    // the same through the `var` view
+//
+// The type of key k is declared once, in the app's environment type: the first type
+// argument of the context type, of the app class, of the factory or of the middleware
+// helper (`Context<Env>`, `new App<Env>()`, `createFactory<Env>()`,
+// `createMiddleware<Env>(fn)`, `MiddlewareHandler<Env>`), an object whose
+// variables member (knob router_env_vars) lists the keys. The environment is found
+// from the context PARAMETER of the function that reads it:
+//   (a) the parameter is annotated with a type carrying an environment;
+//   (b) the function is the initializer of a variable annotated with one;
+//   (c) the function is handed to a call whose first type argument is one
+//       (knob router_env_call);
+//   (d) the function is handed to a method call on an app value whose environment is
+//       known: built with one, declared with one (directly, through an alias, or as
+//       `ReturnType<typeof f>` of a function returning such an app), or reached through
+//       the calls that return the app (knob router_returns_app, router_base_path).
+//
+// Typing only: the rules add expr_type / expr_shape rows, never an edge, so a call on
+// the value still goes through the ordinary member lookup and dispatch. Everything here
+// is POSITIVE (no negation): it sits in the expr_type fixpoint, and it must not read the
+// route table (http_route reads the call graph under negation), which is why app values
+// are followed here by their syntax and declarations, not by hr_app.
+// ============================================================================
+
+// ── an environment type: an object type with a variables member ─────────────
+// (env reference, the variables field)
+.decl hcx_env_vars(c0:symbol, c1:symbol)
+hcx_env_vars(e, fv) :- hr_on(), type_ref("client", _, _, _, _, _, _, e), ref_shape_target(e, o),
+    declared_field(o, vn, _, fv), router_env_vars(vn).
+hcx_env_vars(e, fv) :- hr_on(), type_ref("client", _, _, _, _, _, _, e), ref_type_target(e, _, o),
+    declared_field(o, vn, _, fv), router_env_vars(vn).
+
+// ── a type reference that carries an environment as its first argument ──────
+// (reference, env reference)
+.decl hcx_envref(c0:symbol, c1:symbol)
+hcx_envref(r, e) :- type_ref("client", "TYPE_REFERENCE", _, _, _, _, _, r),
+    type_ref_parent("client", r, "0", e), hcx_env_vars(e, _).
+// `type AppContext = Context<Env>`, `type App = OpenAPIApp<Env>`
+hcx_envref(r, e) :- alias_rhs(r, "client", rhs), hcx_envref(rhs, e).
+// `type App = ReturnType<typeof newApp>`: the app the function returns
+hcx_envref(r, e) :- hcx_return_of_query(r, f), method_returns_expr(f, x), hcx_app_env(x, e).
+
+// `ReturnType<typeof f>` (the reference, the function the query names in its module)
+.decl hcx_return_of_query(c0:symbol, c1:symbol)
+hcx_return_of_query(r, f) :- type_ref("client", "TYPE_REFERENCE", _, rt, _, _, _, r), ts_type_return_operator(rt),
+    type_ref_parent("client", r, "0", q), type_ref("client", "TYPE_QUERY", _, tn, _, _, _, q),
+    type_ref_module("client", m, q), scope_name_binds("client", m, tn, _, "METHOD", f).
+hcx_return_of_query(r, f) :- type_ref("client", "TYPE_REFERENCE", _, rt, _, _, _, r), ts_type_return_operator(rt),
+    type_ref_parent("client", r, "0", q), type_ref("client", "TYPE_QUERY", _, tn, _, _, _, q),
+    type_ref_module("client", m, q), scope_name_binds("client", m, tn, _, "VARIABLE", v), var_is_function(v, f).
+
+// ── an app value whose environment is known ─────────────────────────────────
+// (expression, env reference)
+.decl hcx_app_env(c0:symbol, c1:symbol)
+// built with it: `new App<Env>()`, `createFactory<Env>()`
+hcx_app_env(x, e) :- hr_new(x), call_type_argument(x, "0", e), hcx_env_vars(e, _).
+hcx_app_env(x, e) :- hr_factory_call(x), call_type_argument(x, "0", e), hcx_env_vars(e, _).
+// `factory.createApp()`, and every call that returns the app it was called on
+hcx_app_env(x, e) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_factory_app(cn), hcx_app_env(r, e).
+hcx_app_env(x, e) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_returns_app(cn), hcx_app_env(r, e).
+hcx_app_env(x, e) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_base_path(cn), hcx_app_env(r, e).
+// parentheses, `await`, casts
+hcx_app_env(x, e) :- hcx_app_env(c, e), expr_child("client", x, _, _, c),
+    expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+// a variable holding one (here or imported), or declared as one
+hcx_app_env(x, e) :- hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "", hcx_app_env(i, e).
+hcx_app_env(x, e) :- hr_denotes_var(x, v), var_type_ref("client", r, v), hcx_envref(r, e).
+// a parameter declared as one (`app: App`, `app: OpenAPIApp<Env>`)
+hcx_app_env(x, e) :- expr_referenced("client", "PARAMETER", p, x), param_type_ref("client", r, p), hcx_envref(r, e).
+// a call of a project function that returns one (`const app = newApp()`)
+hcx_app_env(x, e) :- expr_call_candidate(x, w), method_returns_expr(w, y), hcx_app_env(y, e).
+
+// ── the environment a function's context parameter has ──────────────────────
+// (function, env reference)
+.decl hcx_fn_env(c0:symbol, c1:symbol)
+// (a) annotated: `(c: Context<Env>) => …`, `(c: AppContext) => …`
+hcx_fn_env(m, e) :- param_decl("client", _, "0", _, m, p), param_type_ref("client", r, p), hcx_envref(r, e).
+// (b) the initializer of a variable declared `MiddlewareHandler<Env>`
+hcx_fn_env(m, e) :- var_is_function(v, m), var_type_ref("client", r, v), hcx_envref(r, e).
+// (b2) returned from a function declared to return one (`function auth(): MiddlewareHandler<Env> { return async (c, next) => .. }`)
+hcx_fn_env(m, e) :- method_return_ref("client", r, f), hcx_envref(r, e), method_returns_expr(f, x), expr_anon_decl("client", m, x).
+// (c) handed to `createMiddleware<Env>(fn)`
+hcx_fn_env(m, e) :- callback_arg(ce, _, m), call_type_argument(ce, "0", e), hcx_env_vars(e, _),
+    call_site("client", _, cn, _, _, ce, _), router_env_call(cn).
+// (d) handed to a method of an app value with a known environment (a route, a middleware)
+hcx_fn_env(m, e) :- callback_arg(ce, _, m), call_site("client", "METHOD_CALL", _, _, r, ce, _), hcx_app_env(r, e).
+// …or to a factory's handler helper (`factory.createHandlers(fn)`, `factory.createMiddleware(fn)`)
+hcx_fn_env(m, e) :- callback_arg(ce, _, m), call_site("client", "METHOD_CALL", cn, _, r, ce, _),
+    (router_handler_spread(cn) ; router_factory_mw(cn)), hcx_app_env(r, e).
+
+// ── the context expression, and its environment ─────────────────────────────
+.decl hcx_ctx(c0:symbol, c1:symbol)
+hcx_ctx(x, e) :- expr_referenced("client", "PARAMETER", p, x), param_decl("client", _, "0", _, m, p), hcx_fn_env(m, e).
+
+// the variables object (env reference, the variables field)
+// the field of key k (env reference, key, field)
+.decl hcx_key_field(c0:symbol, c1:symbol, c2:symbol)
+hcx_key_field(e, k, fk) :- hcx_env_vars(e, fv), field_type_ref("client", vr, fv), ref_shape_target(vr, vo),
+    declared_field(vo, k, _, fk).
+hcx_key_field(e, k, fk) :- hcx_env_vars(e, fv), field_type_ref("client", vr, fv), ref_type_target(vr, _, vo),
+    declared_field(vo, k, _, fk).
+
+// ── `c.get(k)`: the type declared for k ─────────────────────────────────────
+.decl hcx_get(c0:symbol, c1:symbol, c2:symbol)
+hcx_get(ce, e, key) :- call_site("client", "METHOD_CALL", gn, _, r, ce, _), router_ctx_get(gn), hcx_ctx(r, e),
+    expr_child("client", ce, "ARGUMENT", "0", k), expr_literal_value("client", key, k).
+expr_type(ce, prov, t) :- hcx_get(ce, e, key), hcx_key_field(e, key, fk), field_type(fk, prov, t).
+expr_shape(ce, s) :- hcx_get(ce, e, key), hcx_key_field(e, key, fk), field_shape(fk, s).
+
+// ── `c.var`: the variables object, so `c.var.k` and `const { k } = c.var` are its members ─
+.decl hcx_var(c0:symbol, c1:symbol)
+hcx_var(x, e) :- property_access_recv(x, vn, r), router_ctx_var(vn), hcx_ctx(r, e).
+expr_type(x, prov, t) :- hcx_var(x, e), hcx_env_vars(e, fv), field_type(fv, prov, t).
+expr_shape(x, s) :- hcx_var(x, e), hcx_env_vars(e, fv), field_shape(fv, s).
+
+// ── NO ENVIRONMENT DECLARED: the type of what the app's own middleware writes ─
+// `new App()` (or `App<any>`, or a context parameter written `c: any`) declares no key
+// types, and the compiler types every read `any`. What the read holds is then what a
+// function handed to the SAME app writes under that key (`c.set('orders', new
+// OrderService(..))`): the value's type, wherever it is known. Keyed by the app the
+// writer and the reader are registered on, never by the key alone, so two apps that use
+// one key for different things do not mix. (A write in a parent app read in a sub-app it
+// mounts is not followed here: the mount is in the route table, which this stratum may
+// not read.)
+// (expression, the expression that created the app's route list)
+.decl hcx_app_root(c0:symbol, c1:symbol)
+hcx_app_root(x, x) :- hr_new(x).
+hcx_app_root(x, x) :- hr_factory_call(x).
+hcx_app_root(x, a) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_factory_app(cn), hcx_app_root(r, a).
+hcx_app_root(x, a) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_returns_app(cn), hcx_app_root(r, a).
+hcx_app_root(x, a) :- call_site("client", "METHOD_CALL", cn, _, r, x, _), router_base_path(cn), hcx_app_root(r, a).
+hcx_app_root(x, a) :- hcx_app_root(c, a), expr_child("client", x, _, _, c),
+    expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+hcx_app_root(x, a) :- hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "", hcx_app_root(i, a).
+hcx_app_root(x, a) :- expr_call_candidate(x, w), method_returns_expr(w, y), hcx_app_root(y, a).
+// (function, app root): a function handed to a method of the app (a route, a middleware)
+.decl hcx_fn_root(c0:symbol, c1:symbol)
+hcx_fn_root(m, a) :- callback_arg(ce, _, m), call_site("client", "METHOD_CALL", _, _, r, ce, _), hcx_app_root(r, a).
+// the context parameter of such a function, typed or not
+.decl hcx_ctx_root(c0:symbol, c1:symbol)
+hcx_ctx_root(x, a) :- expr_referenced("client", "PARAMETER", p, x), param_decl("client", _, "0", _, m, p), hcx_fn_root(m, a).
+// (app root, key, written value)
+.decl hcx_set_root(c0:symbol, c1:symbol, c2:symbol)
+hcx_set_root(a, key, v) :- call_site("client", "METHOD_CALL", sn, _, r, ce, _), router_ctx_set(sn), hcx_ctx_root(r, a),
+    expr_child("client", ce, "ARGUMENT", "0", k), expr_literal_value("client", key, k),
+    expr_child("client", ce, "ARGUMENT", "1", v).
+// `c.get(k)` and `c.var.k` on the same app take the written value's type
+.decl hcx_read_root(c0:symbol, c1:symbol, c2:symbol)
+hcx_read_root(ce, a, key) :- call_site("client", "METHOD_CALL", gn, _, r, ce, _), router_ctx_get(gn), hcx_ctx_root(r, a),
+    expr_child("client", ce, "ARGUMENT", "0", k), expr_literal_value("client", key, k).
+hcx_read_root(x, a, key) :- property_access_recv(x, key, v), property_access_recv(v, vn, r), router_ctx_var(vn), hcx_ctx_root(r, a).
+expr_type(x, prov, t) :- hcx_read_root(x, a, key), hcx_set_root(a, key, v), expr_type(v, prov, t).
+expr_shape(x, s) :- hcx_read_root(x, a, key), hcx_set_root(a, key, v), expr_shape(v, s).
+
+// ── `c.req.valid(target)` after a function validator: what the validator returns ──
+// `app.post(p, validator('json', (value) => new Role(..)), (c) => c.req.valid('json').toJSON())`: the
+// validated value IS the validator function's result. Read off the registration's own arguments (the
+// validator before the handler in one call), not off the route table, for the stratum reason above.
+.decl hcx_valid_fn(c0:symbol, c1:symbol, c2:symbol)   // (registration call, target, validator function)
+hcx_valid_fn(rce, t, f) :- expr_child("client", rce, "ARGUMENT", vp, vce), hr_knob_call(vce, spec, n), router_validator_fn(spec, n),
+    expr_child("client", vce, "ARGUMENT", "0", tx), expr_literal_value("client", t, tx), callback_arg(vce, "1", f),
+    expr_child("client", rce, "ARGUMENT", hp, _), to_number(vp) < to_number(hp).
+.decl hcx_valid_read(c0:symbol, c1:symbol)             // (read, validator function)
+hcx_valid_read(ce, f) :- hcx_valid_fn(rce, t, f), callback_arg(rce, hp, m), expr_child("client", rce, "ARGUMENT", vp, vce),
+    hr_knob_call(vce, _, _), to_number(vp) < to_number(hp),
+    expr_referenced("client", "PARAMETER", p, cx), param_decl("client", _, "0", _, m, p),
+    property_access_recv(rq, rn, cx), router_ctx_req(rn),
+    call_site("client", "METHOD_CALL", vn, _, rq, ce, _), router_valid_read(vn),
+    expr_child("client", ce, "ARGUMENT", "0", tx), expr_literal_value("client", t, tx).
+expr_type(ce, prov, t) :- hcx_valid_read(ce, f), method_returns_expr(f, x), expr_kind("client", _, "ROOT", x), expr_type(x, prov, t).
+expr_shape(ce, s) :- hcx_valid_read(ce, f), method_returns_expr(f, x), expr_kind("client", _, "ROOT", x), expr_shape(x, s).

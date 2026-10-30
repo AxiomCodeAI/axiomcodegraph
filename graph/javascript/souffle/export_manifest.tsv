@@ -61,3 +61,5 @@ ctx_key_flow	ctx-key-flow.csv
 remote_edge	remote-edge.csv
 remote_unserved	remote-unserved.csv
 route_registered_by	route-registered-by.csv
+method_dispatch_candidate	dispatch-candidates.csv
+fn_value_call	function-value-call.csv

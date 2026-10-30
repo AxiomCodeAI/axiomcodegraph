@@ -116,3 +116,11 @@ router_openapi("openapi").
 router_route_def("@hono/zod-openapi", "createRoute").
 .decl router_def_key(c0:symbol, c1:symbol)
 router_def_key("method", "method"). router_def_key("path", "path"). router_def_key("middleware", "middleware").
+
+// the context's keyed write and read, and its whole-store view (framework-behavior/http-router-ctx-value.dl)
+.decl router_ctx_set(c0:symbol)
+router_ctx_set("set").
+.decl router_ctx_get(c0:symbol)
+router_ctx_get("get").
+.decl router_ctx_var(c0:symbol)
+router_ctx_var("var").

@@ -1,0 +1,40 @@
+// ============================================================================
+// Resolution · MEMBERS OF AN ANONYMOUS SHAPE  (a shape's field is a value too)
+//
+// An object type written in place (`{ keys: KeyService; db: { primary: Db } }`) owns
+// its members through the type-reference row (ref_shape_target). A property access on
+// a shape-typed receiver already gives the member's NAMED type (expr-type.dl), but two
+// readings of the same member had no rule:
+//
+//   * the member is itself a shape: `services.db.primary` -- `services.db` had no shape,
+//     so `.primary` and everything below it was untyped;
+//   * the member is DESTRUCTURED out of a shape-typed value: `const { keys } = services`
+//     -- var_binding_target reads expr_type only, so a name bound out of a shape had no
+//     type at all, while `services.keys` one line up resolved.
+//
+// Both are the shape mirror of rules that exist for a named owner (expr-type.dl's
+// field_shape clause, reference-types.dl's var_binding_target), and read the same
+// member tables. Positive and inside the expr_type fixpoint, like their mirrors.
+// ============================================================================
+
+// `services.db` where `services` is a shape and `db` is declared with an object type
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f),
+    field_shape(f, s).
+expr_decl_ref(e, r) :- property_access_recv(e, n, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f),
+    field_type_ref(_, r, f).
+
+// `const { keys, db } = services` where `services` is a shape
+var_type(v, prov, ft) :- var_binding("client", _, "PROPERTY", src, e, v),
+    e != "",
+    expr_shape(e, s),
+    field_in_scope(s, src, _, f),
+    field_type(f, prov, ft).
+var_shape(v, sh) :- var_binding("client", _, "PROPERTY", src, e, v),
+    e != "",
+    expr_shape(e, s),
+    field_in_scope(s, src, _, f),
+    field_shape(f, sh).
