@@ -313,9 +313,12 @@ def timeout_checks():
     with contextlib.redirect_stderr(io.StringIO()): spec.loader.exec_module(m)
     work = tempfile.mkdtemp(prefix='axiomcode-timeout-')
     try:
-        try: out = m.run(['context', 'anything', work], timeout=0.01); raised = ''
+        # the words come as the server's own ToolError, which the client marks isError; a bare exception would lose them,
+        # and a plain return would pass the failure off as an answer
+        try: out = m.run(['context', 'anything', work], timeout=0.01); raised = 'returned as an answer'
+        except m.ToolError as e: out, raised = str(e), ''
         except Exception as e: out, raised = '', repr(e)
-        check("timeout: an MCP call past the server's timeout answers in words, not with an exception",
+        check("timeout: an MCP call past the server's timeout fails in words that say so, as a tool error",
               not raised and 'did not answer within' in out, raised or out)
     finally:
         shutil.rmtree(work, ignore_errors=True)

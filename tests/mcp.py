@@ -190,11 +190,96 @@ class Session:
         return ''.join(c.get('text', '') for c in self.ask('tools/call', {'name': name, 'arguments': arguments}).get('content', []))
 
     def close(self):
+        """ends the server; returns what it wrote on stderr, which says which half served (the fallback's banner)"""
         self.timer.cancel()
         self.p.stdin.close()
         self.p.wait()
+        err = self.p.stderr.read()
         self.p.stdout.close()
         self.p.stderr.close()
+        return err
+
+
+FALLBACK_BANNER = 'serving with the built-in fallback'
+# holds a repository's build lock the way a build does (ax_fresh._flock: LOCK_EX on .axiomcode/build.lock), from a
+# process of its own, and says so once it has it
+HOLD = ("import fcntl, os, sys, time; fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644); "
+        "fcntl.flock(fd, fcntl.LOCK_EX); print('held', flush=True); time.sleep(120)")
+
+
+def check_failures(label, cmd, cwd, env=None, workdir=None, sdk=None):
+    """A call the CLI could not carry out is a tool error (isError), never an answer: a bash that is not there, a verb
+    that crashed or was killed, an exit no verb uses, silence, a timeout with no build running, and a refusal (nothing
+    named X, no graph: exit 2, as an argument the tool lacks already is, #1567). The controls are what must NOT be an
+    error: an answer, an empty one, `path` saying "no chain" (exit 1, in words), and the note that a graph is still
+    being built (exit 2 while the build lock is held). The CLI is a fake bash that says what each case needs, so what is
+    tested is the server's own reading of it; the words must survive, and the SDK puts a prefix on them, so substrings.
+    `sdk` True or False asserts which half served the mode, read off the stderr banner."""
+    if os.name == 'nt':
+        return []
+    bad = []
+    here = workdir or cwd                                   # the server's cwd, which is the repository every tool asks about
+    fakes = tempfile.mkdtemp(prefix='ax-bash-')
+    base = {k: v for k, v in (env or os.environ).items() if k != 'AXIOMCODE_BASH'}
+    base.update(AXIOMCODE_MCP_TIMEOUT='2', AXIOMCODE_REFRESH_INTERVAL='0')
+
+    def fake(name, body):
+        p = os.path.join(fakes, name)
+        with open(p, 'w') as f:
+            f.write('#!/bin/sh\n' + body + '\n')
+        os.chmod(p, 0o755)
+        return p
+    crash = r"""printf 'Traceback (most recent call last):\n  File "x.py", line 1, in <module>\nValueError: bad\n' >&2; exit 1"""
+    note = 'the graph for $PWD is being built (starting; 0m01s so far). Nothing else is needed: ask again in a minute or two'
+    cases = [('missing', os.path.join(fakes, 'no-bash'), True, ['could not start']),
+             ('boom', fake('boom', "printf 'boom\\n' >&2; exit 7"), True, ['boom', 'exit 7']),
+             ('slow', fake('slow', 'exec sleep 30'), True, ['did not answer within']),     # exec: the kill reaches the sleeper
+             ('crash', fake('crash', crash), True, ['Traceback']),
+             ('no chain', fake('nochain', 'echo "no chain of resolved calls connects a and b in either direction"; exit 1'), False, ['no chain']),
+             ('empty ok', fake('empty', 'exit 0'), False, ['(no output, exit 0)']),
+             ('building', fake('building', f'echo "{note}"; exit 2'), False, ['being built']),
+             ('refusal', fake('refusal', 'echo "nothing named zz is declared in this graph. Exact names that are close: a, b"; exit 2'), True, ['close:', 'exit 2']),
+             ('silent 1', fake('silent', 'exit 1'), True, ['(no output, exit 1)'])]
+    served = None
+    try:
+        for name, bash, want, needles in cases:
+            s = Session(cmd, here, dict(base, AXIOMCODE_BASH=bash))
+            holder = None
+            try:
+                if name == 'building':              # after the start, so the server's own start-up sees no .axiomcode
+                    os.makedirs(os.path.join(here, '.axiomcode'), exist_ok=True)
+                    holder = subprocess.Popen([sys.executable, '-c', HOLD, os.path.join(here, '.axiomcode', 'build.lock')],
+                                              stdout=subprocess.PIPE, text=True)
+                    holder.stdout.readline()
+                res = s.ask('tools/call', {'name': 'path', 'arguments': {'start': 'a', 'end': 'b'}})
+            finally:
+                if holder:
+                    holder.kill(); holder.wait(); holder.stdout.close()
+                    shutil.rmtree(os.path.join(here, '.axiomcode'), ignore_errors=True)
+                err = s.close()
+            if served is None:
+                served = 'the fallback' if FALLBACK_BANNER in err else 'the SDK'
+            text = ' '.join(c.get('text', '') for c in res.get('content', []))
+            if bool(res.get('isError')) != want:
+                bad.append(f"{label}, {name}: isError {res.get('isError')!r}, want {want}: {text[:300]!r}")
+            for n in needles:
+                if n not in text:
+                    bad.append(f"{label}, {name}: the words lack {n!r}: {text[:300]!r}")
+    finally:
+        shutil.rmtree(fakes, ignore_errors=True)
+    print(f"{label}: failures checked, served by {served}")
+    if sdk is not None and served != ('the SDK' if sdk else 'the fallback'):
+        bad.append(f"{label}: served by {served}, but this mode was meant to test {'the SDK' if sdk else 'the fallback'}")
+    return bad
+
+
+def sdk_python():
+    """an interpreter with the MCP SDK, so the failure checks run on that half too: AXIOMCODE_SDK_PYTHON, else this
+    one; None when neither imports it"""
+    for py in filter(None, (os.environ.get('AXIOMCODE_SDK_PYTHON'), sys.executable)):
+        if subprocess.run([py, '-c', 'import mcp.server.mcpserver'], capture_output=True).returncode == 0:
+            return py
+    return None
 
 
 def check_install_move(work):
@@ -309,6 +394,7 @@ def main():
         bad += check('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
         # the SDK when the launcher finds one, which ignored an argument it did not know (#1567); else the fallback again
         bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
+        bad += check_failures('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
         bad += check_front_door()
         if os.name != 'nt':
             bad += check_install_move(work)
@@ -316,6 +402,15 @@ def main():
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
         bad += check_arguments(env_note, [sys.executable, '-S', SERVER], repo)
+        bad += check_failures(env_note, [sys.executable, '-S', SERVER], repo, sdk=False)
+        # the same failures through the SDK, when an interpreter has it (a venv with `pip install mcp`, named by
+        # AXIOMCODE_SDK_PYTHON); the skip is said out loud, so a run without the SDK is not mistaken for one with it
+        py = sdk_python()
+        if py:
+            bad += check_failures('server.py (SDK)', [py, SERVER], repo, sdk=True)
+        else:
+            print('SDK path skipped: mcp not importable (python3 -m venv <dir> && <dir>/bin/pip install mcp && '
+                  'AXIOMCODE_SDK_PYTHON=<dir>/bin/python python3 tests/mcp.py)')
 
         # The plugin's own server entries, run as their hosts run them, from a copy of the plugin under a path
         # with a space, which splits an unquoted path into two words.
@@ -329,6 +424,8 @@ def main():
             server = json.load(f)['mcpServers']['axiomcode']
         bad += check('.codex-plugin/mcp.json', [server['command'], *server['args']], repo, base,
                      os.path.join(plugin, server.get('cwd', '.')))
+        bad += check_failures('.codex-plugin/mcp.json', [server['command'], *server['args']], repo, base,
+                              os.path.join(plugin, server.get('cwd', '.')))
 
         # Cursor's own manifest names the server with ${CURSOR_PLUGIN_ROOT}, which Cursor replaces with the
         # plugin directory before it starts the command, and starts it in the user's project.
@@ -338,6 +435,7 @@ def main():
         cmd = [server['command'], *map(expand, server['args'])]
         env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
         bad += check('.cursor-plugin/plugin.json', cmd, repo, env, repo)
+        bad += check_failures('.cursor-plugin/plugin.json', cmd, repo, env, repo)
 
         with open(os.path.join(plugin, '.mcp.json')) as f:
             server = json.load(f)['mcpServers']['axiomcode']
@@ -345,6 +443,10 @@ def main():
         cmd = [server['command'], *map(expand, server['args'])]
         env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
         bad += check('.mcp.json', cmd, repo, env, repo)
+        bad += check_failures('.mcp.json', cmd, repo, env, repo)
+        if py:                                  # Claude Code's entry with the SDK's interpreter first in the launcher's search
+            sdk_env = dict(env, AXIOMCODE_PYTHON=py, PATH=os.path.dirname(py) + os.pathsep + env.get('PATH', ''))
+            bad += check_failures('.mcp.json (SDK python)', cmd, repo, sdk_env, repo, sdk=True)
 
         # A uv on PATH that cannot build its environment is passed over for the fallback, rather than started
         # and left to exit before `initialize` (#1249). python3 and python are shadowed by interpreters without
