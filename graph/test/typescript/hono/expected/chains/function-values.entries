@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (fn_value (SPEC R21; call-chain break class 2)): routes, middleware chains, ctx flows
+# census: fn_value (SPEC R21; call-chain break class 2)
+entry	app.ts:10:23	http
+entry	app.ts:12:23	http
+entry	app.ts:14:21	http
+entry	app.ts:16:26	http
+entry	app.ts:18:22	http
+entry	app.ts:23:25	http
+entry	app.ts:8:23	http

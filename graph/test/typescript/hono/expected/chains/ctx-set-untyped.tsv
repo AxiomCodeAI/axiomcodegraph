@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (ctx_di (SPEC R18 untyped; call-chain break class 1)): routes, middleware chains, ctx flows
+# census: ctx_di (SPEC R18 untyped; call-chain break class 1)
+route	GET	/orders/list	app.ts:10:25	app.ts:5:13	1
+route	GET	/reports/total	app.ts:21:23	app.ts:5:13	3
+mw	app.ts:6:22	app.ts:10:25	GET	/orders/list	0	app.ts:5:13
+mw	app.ts:17:18	app.ts:21:23	GET	/reports/total	0	app.ts:5:13
+ctx	app.ts:17:18	app.ts:21:23	orders
+ctx	app.ts:6:22	app.ts:10:25	orders
+submount	/reports	app.ts:22:5
+regby	app.ts:1:1	app.ts:10:25	GET	/orders/list	app.ts:5:13
+regby	app.ts:1:1	app.ts:21:23	GET	/reports/total	app.ts:5:13

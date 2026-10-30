@@ -1,0 +1,58 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: R19: callback parameters typed only by Array.map/reduce, Promise.then, Map.forEach, tuple elements from shift()/Object.entries, and a validator's output reach the project methods
+# census: callback_generic (SPEC R19; call-chain break class 3)
+fn	app.ts:10:18
+fn	app.ts:11:20
+fn	app.ts:12:23
+fn	app.ts:13:19
+fn	app.ts:18:21
+fn	app.ts:19:3
+fn	app.ts:9:19
+fn	model.ts:10:3
+fn	model.ts:13:3
+fn	model.ts:20:3
+fn	model.ts:23:3
+fn	model.ts:30:3
+fn	model.ts:33:3
+fn	model.ts:36:3
+fn	model.ts:7:3
+fn	report.ts:11:1
+fn	report.ts:12:31
+fn	report.ts:15:1
+fn	report.ts:22:1
+fn	report.ts:24:17
+fn	report.ts:30:1
+fn	report.ts:34:1
+fn	report.ts:3:1
+fn	report.ts:4:29
+fn	report.ts:7:1
+fn	report.ts:8:32
+edge	app.ts:10:18	report.ts:7:1
+edge	app.ts:11:20	report.ts:11:1
+edge	app.ts:12:23	report.ts:15:1
+edge	app.ts:12:23	report.ts:30:1
+edge	app.ts:13:19	report.ts:22:1
+edge	app.ts:13:19	report.ts:34:1
+edge	app.ts:18:21	model.ts:7:3
+edge	app.ts:19:3	model.ts:10:3
+edge	app.ts:9:19	report.ts:3:1
+edge	model.ts:30:3	model.ts:7:3
+edge	report.ts:11:1	model.ts:36:3
+edge	report.ts:11:1	report.ts:12:31
+edge	report.ts:12:31	model.ts:10:3
+edge	report.ts:15:1	model.ts:23:3
+edge	report.ts:22:1	report.ts:24:17
+edge	report.ts:24:17	model.ts:13:3
+edge	report.ts:30:1	model.ts:20:3
+edge	report.ts:34:1	model.ts:7:3
+edge	report.ts:3:1	model.ts:33:3
+edge	report.ts:3:1	report.ts:4:29
+edge	report.ts:4:29	model.ts:10:3
+edge	report.ts:7:1	model.ts:33:3
+edge	report.ts:7:1	report.ts:8:32
+edge	report.ts:8:32	model.ts:13:3
+chain	roles-map	GET	/roles	app.ts:9:19	report.ts:3:1	report.ts:4:29	model.ts:10:3
+chain	rank-reduce	GET	/rank	app.ts:10:18	report.ts:7:1	report.ts:8:32	model.ts:13:3
+chain	latest-then	GET	/latest	app.ts:11:20	report.ts:11:1	report.ts:12:31	model.ts:10:3
+chain	providers-tuple	GET	/providers	app.ts:12:23	report.ts:15:1	model.ts:23:3
+chain	names-map-foreach	GET	/names	app.ts:13:19	report.ts:22:1	report.ts:24:17	model.ts:13:3
+chain	validator-output	-	-	app.ts:19:3	model.ts:10:3
