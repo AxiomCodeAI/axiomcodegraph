@@ -1,0 +1,12 @@
+ambiguous_unknown	FUNCTION_CALL	Ticker#start() @L20 -> -
+ambiguous_unknown	FUNCTION_CALL	Ticker#start() @L21 -> -
+callback_handed	CONSTRUCTOR_CALL	app#start() @L10 -> app#countTick()
+callback_handed	CONSTRUCTOR_CALL	app#start() @L9 -> app#reportTimeout()
+known_edge	CONSTRUCTOR_CALL	app#start() @L10 -> Ticker#<new>(() =,number)
+known_edge	CONSTRUCTOR_CALL	app#start() @L12 -> Silent#<new>(() =)
+known_edge	CONSTRUCTOR_CALL	app#start() @L13 -> Ignores#<new>(() =)
+known_edge	CONSTRUCTOR_CALL	app#start() @L9 -> Watchdog#<new>(() =,string)
+known_edge	METHOD_CALL	Watchdog#expire() @L8 -> Watchdog#<arrow@5>()
+known_edge	METHOD_CALL	app#start() @L11 -> Ticker#start()
+known_edge	METHOD_CALL	app#start() @L14 -> Silent#name()
+known_edge	METHOD_CALL	app#start() @L14 -> Watchdog#expire()
