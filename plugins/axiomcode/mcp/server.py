@@ -126,11 +126,17 @@ def unknown_arguments(name, arguments):
     said = [f"{k}: unexpected argument" for k in extra]
     return f"invalid arguments for {name}: " + '; '.join(said) + f". {name} takes: {', '.join(params) or 'no arguments'}"
 
-try:
-    import importlib
-    ToolError = importlib.import_module(MCPServer.__module__.rsplit('.', 1)[0] + '.exceptions').ToolError
-except Exception:
-    ToolError = ValueError
+# A FAILURE IS RAISED, NOT RETURNED. A client marks a result isError only when the tool raised, and only the server's
+# own ToolError keeps the words: the SDK (mcp ≥ 2.3) replaces any other exception's message with a bare "Error
+# executing tool", and the fallback puts the type in front. So run() raises this one class, from whichever half serves.
+if MCPServer.__module__ == '_fallback':
+    from _fallback import ToolError
+else:
+    try:
+        import importlib
+        ToolError = importlib.import_module(MCPServer.__module__.rsplit('.', 1)[0] + '.exceptions').ToolError
+    except Exception:
+        ToolError = ValueError                  # an SDK with no exceptions module: the result is still isError, wordless
 
 class Server(MCPServer):
     def tool(self, *a, **k):
@@ -152,6 +158,9 @@ srv = Server('axiomcode')
 
 # launch.js hands over the bash it chose, because on Windows a bare `bash` is WSL's or nothing (#1233).
 BASH = os.environ.get('AXIOMCODE_BASH') or 'bash'
+# how long a call may take before it is given up as a failure (seconds; a first build is minutes, so the default is
+# generous); AXIOMCODE_MCP_TIMEOUT exists for a test that must see the timeout in seconds, not in minutes
+TIMEOUT = float(os.environ.get('AXIOMCODE_MCP_TIMEOUT') or 900)
 
 # THE TIMER (#1305). The hooks refresh the graph while an agent works; an edit made in an editor or a terminal while the
 # session sits idle is caught only at the next prompt. The server lives as long as the session, so once
@@ -190,12 +199,36 @@ def _timer(interval):
                 if time.time() - fresh.last_update(repo) >= interval: fresh.hook_kick(repo, 'the timer')
             except Exception: pass
 
-def run(args, cwd=None, timeout=900):
+def repository(args, cwd=None):
+    """the repository a call asks about: the last positional argument that is a directory (a flag's value, `--in <dir>`,
+    is not one), else the working directory"""
+    pos = [a for i, a in enumerate(args[1:], 1) if args[i - 1] not in VALUED]
+    return next((a for a in reversed(pos) if os.path.isdir(a)), cwd or os.getcwd())
+
+# WHAT A FAILURE IS. The CLI's exits: 0 is an answer, however empty; 1 is `path` saying in words that no chain connects
+# the two; 2 is a refusal with its correction (nothing named X and the nearest names, no graph, no such directory),
+# and ALSO the note that the graph is still being built. A refusal is a failure of the call, as an argument the tool
+# does not take already is (#1567): the client marks the result isError and the model still reads the words. The
+# building note is not: it is told apart by the build lock, which a build holds for as long as it runs. A crash, a
+# kill, an exit no verb uses, or silence is a failure whatever the code says.
+def failed(r, repo):
+    """whether a finished call is a failure the client must see as one, not an answer"""
+    if r.returncode == 0: return False
+    if r.returncode < 0 or r.returncode not in (1, 2): return True
+    if 'Traceback (most recent call last)' in (r.stderr or ''): return True
+    if r.returncode == 1: return not ((r.stdout or '').strip() or (r.stderr or '').strip())
+    try: return not scripts_module('ax_fresh').building(os.path.realpath(repo))
+    except Exception: return True
+
+def run(args, cwd=None, timeout=None):
+    """the CLI's words for a call; a call that failed (failed, a bash that will not start, a timeout with no build
+    running) raises ToolError with the words, so the client marks the result isError and the model still reads them"""
+    if timeout is None: timeout = TIMEOUT
     for a in args[1:]:
         if os.path.isdir(a) and os.path.isdir(os.path.join(a, '.axiomcode')): SEEN.add(os.path.realpath(a))
     # A QUERY ON A REPOSITORY WITH NO GRAPH YET does not hold the call for the length of a first build (minutes; past this
-    # server's timeout it came back as a bare "Error executing tool"): the build is started in the background and the
-    # answer says what stage it is at (ax_contract.ensure_graph). `index` is asked for a build and still waits for it.
+    # server's timeout it is a failure saying only that): the build is started in the background and the answer says
+    # what stage it is at (ax_contract.ensure_graph). `index` is asked for a build and still waits for it.
     env = dict(os.environ, AXIOMCODE_BUILD_NOWAIT='1', AXIOMCODE_SURFACE='mcp') if args and args[0] != 'index' else None
     root = plugin_root()
     ax = os.path.join(root, 'skills', 'axiomcode', 'scripts', 'axiomcode')
@@ -204,6 +237,7 @@ def run(args, cwd=None, timeout=900):
     if o: return f"axiomcode: {o}."
     note = stale_note(root)
     head = (note + '\n') if note else ''
+    repo = repository(args, cwd)
     try:
         # On Windows the arguments travel in AXIOMCODE_ARGV, not on the command line: Git Bash parses a command line by
         # msys rules (`'` quotes, `\"` is no escape), so a question holding an apostrophe lost every argument after it.
@@ -213,23 +247,22 @@ def run(args, cwd=None, timeout=900):
             argv, env = [BASH, ax], dict(env or os.environ, AXIOMCODE_ARGV=''.join(f'{a}\x1f' for a in args))
         r = subprocess.run(argv, cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
     except OSError as e:
-        return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
-                "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
+        raise ToolError(f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
+                        "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.") from None
     except subprocess.TimeoutExpired:
-        # a flag's value (`--in <dir>`) is not the repository
-        pos = [a for i, a in enumerate(args[1:], 1) if args[i - 1] not in VALUED]
-        repo = next((a for a in reversed(pos) if os.path.isdir(a)), cwd or os.getcwd())
         try:
             ax_fresh = scripts_module('ax_fresh'); ax_contract = scripts_module('ax_contract')
             if ax_fresh.building(os.path.realpath(repo)): return head + ax_contract.building_note(os.path.realpath(repo))
         except Exception: pass
-        return head + (f"axiomcode {args[0] if args else ''} did not answer within {timeout} s. Nothing was changed; "
-                       f"see {os.path.join(repo, '.axiomcode', 'build.log')} if a build was running, and ask again.")
+        raise ToolError(head + f"axiomcode {args[0] if args else ''} did not answer within {timeout:g} s. Nothing was changed; "
+                        f"see {os.path.join(repo, '.axiomcode', 'build.log')} if a build was running, and ask again.") from None
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
     # an answer given from a graph that predates some edit says so, and names the files (#1305); one given from a graph a
     # fallback engine built, in place of the checkout's own, names that engine
     if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith(('graph refresh:', 'graph built by:')))
-    return head + (out.strip() or f"(no output, exit {r.returncode})")
+    text = head + (out.strip() or f"(no output, exit {r.returncode})")
+    if failed(r, repo): raise ToolError(text + (f"\n(exit {r.returncode})" if out.strip() else ''))
+    return text
 
 # THE TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
 # graph, a refresh in flight) are kept for what they say; a clause that names a flag or a parameter to set is dropped.
@@ -249,6 +282,13 @@ def plain(text):
         if keep and ''.join(keep).strip(): out.append(' '.join(keep).rstrip(' ;,'))
     return '\n'.join(out)
 
+def answer(args):
+    """a tool's answer: the CLI's words with the option-naming clauses dropped. A failure run() raises goes the same
+    way — its words through plain(), then on as the ToolError the client marks isError — so the model reads the
+    correction (the nearest names, the fix) either way, and a flag it cannot pass is named in neither."""
+    try: return plain(run(args))
+    except ToolError as e: raise ToolError(plain(str(e))) from None
+
 
 # THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as
 # numbered places with the code of the function each sits in, so a place is understood without opening its file,
@@ -259,20 +299,20 @@ def context(task: str, source: bool = False) -> str:
     """How something works, from a task in words: the files and callables the task touches, and for a "how does X
     work" question the call FLOW — every step in the order the calls are written, with ⚠ where the graph lost a
     call. source=True asks for the flow with each step's code, so it is read without opening files."""
-    return plain(run(['context', task] + (['--source'] if source else []) + [os.getcwd()]))
+    return answer(['context', task] + (['--source'] if source else []) + [os.getcwd()])
 
 @srv.tool()
 def impact(name: str = '') -> str:
     """What a change reaches. With a name (as written in the code: Owner.method, function, Type, or file.py:123): who
     calls it, what depends on it further out, and which tests exercise it, each with its code. With no name: the same
     for the declarations your uncommitted edits changed."""
-    return plain(run(['impact'] + ([name] if name.strip() else []) + [os.getcwd()]))
+    return answer(['impact'] + ([name] if name.strip() else []) + [os.getcwd()])
 
 @srv.tool()
 def path(start: str, end: str) -> str:
     """How one declaration reaches another: every hop of the call chain with the code at the line the call is
     written on. start / end as written in the code (Owner.method, function, Type)."""
-    return plain(run(['path', start, end, os.getcwd()]))
+    return answer(['path', start, end, os.getcwd()])
 
 @srv.tool()
 def link(site: str = '', target: str = '') -> str:
@@ -282,12 +322,12 @@ def link(site: str = '', target: str = '') -> str:
     whether the graph took it (a link whose line changed is dropped, never trusted). target "-" removes the site's links;
     target "not:<declaration>" rejects a lead (a by-name or one-of-a-set guess) at that site, which is then not walked.
     Never link a guess, and never link a candidate for its rank alone."""
-    return plain(run(['link'] + ([site] if site.strip() else []) + ([target] if site.strip() and target.strip() else []) + [os.getcwd()]))
+    return answer(['link'] + ([site] if site.strip() else []) + ([target] if site.strip() and target.strip() else []) + [os.getcwd()])
 
 @srv.tool()
 def tests() -> str:
     """The tests your uncommitted edits reach, each with its code, and the command that runs exactly those."""
-    return plain(run(['tests', os.getcwd()]))
+    return answer(['tests', os.getcwd()])
 
 if __name__ == '__main__':
     # catch up on whatever changed while no session was running (#1305): started, never waited on
