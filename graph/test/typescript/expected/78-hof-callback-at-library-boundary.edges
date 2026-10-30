@@ -7,6 +7,7 @@ ambiguous_unknown	CONSTRUCTOR_CALL	store#<module-init>() @L9 -> -
 ambiguous_unknown	METHOD_CALL	store#known() @L17 -> -
 ambiguous_unknown	METHOD_CALL	store#store() @L12 -> -
 ambiguous_unknown	METHOD_CALL	store#store() @L13 -> -
+callback_handed	FUNCTION_CALL	app#useEach(number[]) @L48 -> app#<arrow@48>(?)
 callback_registered	FUNCTION_CALL	app#atStartup() @L38 -> app#<arrow@38>()
 callback_registered	FUNCTION_CALL	plugin#<module-init>() @L7 -> plugin#<arrow@7>()
 callback_registered	FUNCTION_CALL	store#deferred() @L24 -> store#onUpdated()

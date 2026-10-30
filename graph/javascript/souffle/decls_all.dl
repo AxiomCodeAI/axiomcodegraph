@@ -634,3 +634,5 @@
 .decl remote_edge(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl remote_unserved(c0:symbol, c1:symbol, c2:symbol)
 .decl route_registered_by(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+.decl method_dispatch_candidate(c0:symbol, c1:symbol, c2:symbol)
+.decl fn_value_call(c0:symbol, c1:symbol)

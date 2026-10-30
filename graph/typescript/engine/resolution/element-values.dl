@@ -1,0 +1,42 @@
+// ============================================================================
+// Resolution · TYPES THAT ARRIVE AS AN ELEMENT  (SPEC R19, framework-free)
+//
+// The no-library clauses in contextual-params.dl type a callback's element parameter from
+// the RECEIVER'S DECLARED REFERENCE (`xs: Role[]`, `getItems(): Role[]`). Three readings of
+// the same reference were missing, and each left a parameter or a binding untyped:
+//
+//   * a call whose function declares no return type gives back what it returns:
+//     `roles() { return this.entries }` then `ledger.roles().map((r) => r.toJSON())`;
+//   * the element-taking members of a built-in container hand back one element:
+//     `pairs.shift()!`, `pairs.pop()`, `pairs.at(0)`, `pairs.find(..)`;
+//   * an array pattern over a value whose reference is a tuple binds the member at its
+//     position: `const [, first] = pairs.shift()!` binds `first` to the tuple's member 1.
+//
+// References only, positive, inside the expr_type fixpoint like the rules they extend.
+// ============================================================================
+.decl elem_taking_member(c0:symbol)
+elem_taking_member("shift"). elem_taking_member("pop"). elem_taking_member("at").
+elem_taking_member("find"). elem_taking_member("findLast").
+
+// a call of a function with no declared return: the reference of what it returns
+expr_decl_ref(e, r) :- expr_call_candidate(e, callee),
+    !method_declares_return(callee),
+    method_returns_expr(callee, x),
+    expr_kind("client", _, "ROOT", x),
+    expr_decl_ref(x, r).
+// `xs.shift()`: one element of a built-in container
+expr_decl_ref(e, c) :- call_site("client", "METHOD_CALL", n, _, recv, e, _),
+    elem_taking_member(n),
+    expr_decl_ref(recv, rr),
+    builtin_elem_ref(rr, c).
+// `x!`, `(x)`: the same reference
+expr_decl_ref(e, r) :- expr_kind("client", k, _, e), (k = "NON_NULL_EXPRESSION" ; k = "PARENTHESIZED_EXPRESSION"),
+    expr_child("client", e, _, _, x),
+    expr_decl_ref(x, r).
+// `const [, first] = <tuple>`: the member at the bound position
+var_type(v, prov, t) :- var_binding("client", _, "INDEX", i, e, v), e != "",
+    !var_has_declared_type(v),
+    expr_decl_ref(e, tr),
+    type_ref(_, "TUPLE", _, _, _, _, _, tr),
+    type_ref_parent(_, tr, i, mr),
+    ref_type_target(mr, prov, t).

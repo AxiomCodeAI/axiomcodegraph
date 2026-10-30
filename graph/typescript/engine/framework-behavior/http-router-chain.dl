@@ -68,6 +68,9 @@ framework_undetermined(m, "ctx_key", "dynamic_ctx_key") :- hb_get_site(m, _, k),
 .decl hb_chain(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number)
 hb_chain(h, vv, p, mw, to_number(pos)) :- middleware_applies(mw, h, vv, p, pos, _).
 hb_chain(h, vv, p, h, 100000) :- http_route(h, vv, p, _, _).
+// …and on a PARTIAL route (SPEC R23): the key flows along its decided chain (middleware_applies under the partial
+// path) whatever the path is. A middleware that only MAY apply (middleware_may_apply) is no position on it.
+hb_chain(h, vv, p, h, 100000) :- http_route_partial(h, vv, p, _, _).
 
 // ctx_key_flow(Setter, Reader, Key) — on some route's chain, Setter runs before Reader
 // (or is Reader) and writes the context key Reader reads.

@@ -284,8 +284,10 @@ def main():
                 continue
             # a function the site HANDS OVER (`xs.map(cb)`) is not a call the compiler lists at that
             # site, nor is the handler a publish reaches through a keyed registry (`event_dispatch`): the
-            # pairs are scored against the compiler, the .edges golden still carries both
-            if f[5] in ('callback_registered', 'event_dispatch'):
+            # pairs are scored against the compiler, the .edges golden still carries both. A function handed
+            # to a PROJECT function (`apply(upper, s)`, `callback_handed`) is the same hand-over: the compiler
+            # resolves that site to `apply`, which the pairs already score, never to `upper`
+            if f[5] in ('callback_registered', 'callback_handed', 'event_dispatch'):
                 continue
             seen.add(f"{n.label(f[1])} -> {n.label(f[3])}")
         else:

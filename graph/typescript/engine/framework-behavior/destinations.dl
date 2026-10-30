@@ -141,9 +141,10 @@ rd_call0(ce, w) :- call_site("client", _, _, _, _, ce, _),
     call_chain_edge(ce, _, "-", w, "client", st, _), st != "callback_registered".
 rd_call0(ce, w) :- loop_elem_callee(ce, w).
 .decl rd_ret_top(c0:symbol, c1:symbol)
-rd_ret_top(w, e) :- rd_call0(_, w), method_returns_expr(w, e), !rd_ret_inner(w, e).
-.decl rd_ret_inner(c0:symbol, c1:symbol)
-rd_ret_inner(w, e) :- rd_call0(_, w), method_returns_expr(w, e), expr_child("client", p, _, _, e), method_returns_expr(w, p).
+// the returned expression itself: a ROOT (method_returns_expr also holds every sub-expression under a
+// `return`). Read off the expression's own root flag rather than by joining each returned expression with
+// its parents, which ran over every returned sub-expression of every called function in the program.
+rd_ret_top(w, e) :- rd_call0(_, w), method_returns_expr(w, e), expr_kind("client", _, "ROOT", e).
 .decl rd_ret_one(c0:symbol, c1:symbol)
 rd_ret_one(w, e) :- rd_ret_top(w, e), 1 = count : { rd_ret_top(w, _) }.
 .decl rd_call0_one(c0:symbol, c1:symbol)
