@@ -1,0 +1,42 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: R21: callbacks, handler tables (literal and const keys), returned functions, options-object functions, array elements and bound methods reach their targets (rt where the compiler sees only a signature); a table read with an undecided key is a declared unknown
+# census: fn_value (SPEC R21; call-chain break class 2)
+fn	app.ts:10:23
+fn	app.ts:12:23
+fn	app.ts:14:21
+fn	app.ts:16:26
+fn	app.ts:18:22
+fn	app.ts:23:25
+fn	app.ts:8:23
+fn	app.ts:8:50
+fn	ops.ts:12:1
+fn	ops.ts:18:1
+fn	ops.ts:24:1
+fn	ops.ts:25:10
+fn	ops.ts:28:1
+fn	ops.ts:32:1
+fn	ops.ts:40:3
+fn	ops.ts:43:3
+fn	ops.ts:6:1
+fn	ops.ts:9:1
+edge	app.ts:10:23	ops.ts:6:1
+edge	app.ts:10:23	ops.ts:9:1
+edge	app.ts:12:23	ops.ts:12:1
+edge	app.ts:12:23	ops.ts:24:1
+edge	app.ts:12:23	ops.ts:25:10
+edge	app.ts:14:21	ops.ts:28:1
+edge	app.ts:18:22	ops.ts:40:3
+edge	app.ts:18:22	ops.ts:43:3
+edge	app.ts:8:23	app.ts:8:50
+edge	app.ts:8:23	ops.ts:18:1
+edge	app.ts:8:50	ops.ts:6:1
+edge	app.ts:16:26	ops.ts:9:1	rt
+edge	ops.ts:18:1	app.ts:8:50	rt
+edge	ops.ts:25:10	ops.ts:12:1	rt
+edge	ops.ts:28:1	ops.ts:32:1	rt
+chain	retry-callback	GET	/retry/x1	app.ts:8:23	ops.ts:18:1	app.ts:8:50	ops.ts:6:1
+chain	table-const-key	GET	/table/x1	app.ts:10:23	ops.ts:9:1
+chain	tryit-returned	GET	/tryit/x1	app.ts:12:23	ops.ts:25:10	ops.ts:12:1
+chain	options-fn	GET	/options	app.ts:14:21	ops.ts:28:1	ops.ts:32:1
+chain	array-element	GET	/pipeline/x1	app.ts:16:26	ops.ts:9:1
+chain	bound-method	GET	/mail/x1	app.ts:18:22	ops.ts:43:3
+ccunknown	app.ts:23:25

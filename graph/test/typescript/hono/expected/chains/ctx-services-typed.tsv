@@ -1,0 +1,24 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: R18 chains fixture: routes, middleware chains, ctx flows
+# census: ctx_di (SPEC R18)
+route	GET	/keys/:key	handlers.ts:5:1	app.ts:10:13	2
+route	GET	/users/:id	app.ts:16:23	app.ts:10:13	3
+route	GET	/f/whoami/:id	app.ts:21:51	app.ts:10:13	5
+route	GET	/i/u/:id	handlers.ts:11:1	app.ts:10:13	7
+mw	wire.ts:12:48	handlers.ts:5:1	GET	/keys/:key	0	app.ts:10:13
+mw	wire.ts:19:52	handlers.ts:5:1	GET	/keys/:key	1	app.ts:10:13
+mw	wire.ts:12:48	app.ts:16:23	GET	/users/:id	0	app.ts:10:13
+mw	wire.ts:12:48	app.ts:21:51	GET	/f/whoami/:id	0	app.ts:10:13
+mw	wire.ts:12:48	app.ts:21:51	GET	/f/whoami/:id	1	app.ts:10:13
+mw	wire.ts:12:48	handlers.ts:11:1	GET	/i/u/:id	0	app.ts:10:13
+mw	app.ts:26:15	handlers.ts:11:1	GET	/i/u/:id	1	app.ts:10:13
+ctx	app.ts:26:15	handlers.ts:11:1	users
+ctx	wire.ts:12:48	app.ts:16:23	services
+ctx	wire.ts:12:48	app.ts:21:51	services
+ctx	wire.ts:12:48	handlers.ts:5:1	services
+ctx	wire.ts:12:48	wire.ts:19:52	audit
+submount	/f	app.ts:22:5
+submount	/i	app.ts:31:5
+regby	app.ts:1:1	app.ts:16:23	GET	/users/:id	app.ts:10:13
+regby	app.ts:1:1	app.ts:21:51	GET	/f/whoami/:id	app.ts:10:13
+regby	app.ts:1:1	handlers.ts:11:1	GET	/i/u/:id	app.ts:10:13
+regby	app.ts:1:1	handlers.ts:5:1	GET	/keys/:key	app.ts:10:13

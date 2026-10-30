@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (ctx_di, negative (SPEC R18-R21 negative controls)): routes, middleware chains, ctx flows
+# census: ctx_di, negative (SPEC R18-R21 negative controls)
+entry	app.ts:10:21	http
+entry	app.ts:15:25	http
+entry	app.ts:17:24	http
+entry	app.ts:21:16	http
+entry	app.ts:26:21	http
+entry	app.ts:30:18	http

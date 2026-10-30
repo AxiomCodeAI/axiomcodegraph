@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: chains fixture, ESM JavaScript (createMiddleware provider, c.get destructured, c.var two members deep): routes, middleware chains, ctx flows
+# census: ctx_di (SPEC R18, the JavaScript form; call-chain break class 1)
+entry	index.js:14:24	http
+entry	index.js:20:30	http
+entry	index.js:5:34	http

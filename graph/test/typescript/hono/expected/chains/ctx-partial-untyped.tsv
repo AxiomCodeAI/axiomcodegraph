@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: R23: the sub-app provider is in both partial routes decided chain (mwp 0) and its orders key flows to both handlers; the root scoped use only may apply (partial_route_scope), so its tenant key gives no flow and the /list reader is no_setter_on_chain
+# census: ctx_di on a rebased root, untyped (SPEC R23 with R18 setter-type form, on PARTIAL routes)
+ctx	app.ts:8:17	app.ts:12:21	orders
+ctx	app.ts:8:17	app.ts:16:22	orders
+partial	app.ts:12:21	GET	dynamic_mount_prefix
+partial	app.ts:16:22	GET	dynamic_mount_prefix
+mwp	app.ts:8:17	app.ts:12:21	GET	0
+mwp	app.ts:8:17	app.ts:16:22	GET	0
+unknown	app.ts:12:21	no_setter_on_chain	app.ts:12:21
+unknown	app.ts:26:1	dynamic_mount_prefix	app.ts:12:21
+unknown	app.ts:26:1	dynamic_mount_prefix	app.ts:16:22
+unknown	app.ts:26:1	partial_route_scope	app.ts:21:19

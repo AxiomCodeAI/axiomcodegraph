@@ -1,0 +1,20 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: R23 + R18 setter-type form on partial routes: with no Env, c.get(k) / c.var.k take the type of the decided-chain setter value (OrderService); the compiler types them any and the run-time trace observes handler -> service (rt); service -> repository is static. The root scoped middleware ran at run time (the unset variable gives /api/orders) but is no chain hop: statically it only may apply. At run time ORDERS_PREFIX is unset, so the chains are requested under the default
+# census: ctx_di on a rebased root, untyped (SPEC R23 with R18 setter-type form, on PARTIAL routes)
+fn	app.ts:12:21
+fn	app.ts:16:22
+fn	app.ts:21:19
+fn	app.ts:8:17
+fn	orders.ts:10:3
+fn	orders.ts:13:3
+fn	orders.ts:16:3
+fn	orders.ts:23:3
+fn	orders.ts:26:3
+fn	orders.ts:29:3
+edge	app.ts:8:17	orders.ts:10:3
+edge	app.ts:8:17	orders.ts:23:3
+edge	orders.ts:26:3	orders.ts:13:3
+edge	orders.ts:29:3	orders.ts:16:3
+edge	app.ts:12:21	orders.ts:26:3	rt
+edge	app.ts:16:22	orders.ts:29:3	rt
+chain	orders-list	GET	/api/orders/list	app.ts:8:17	app.ts:12:21	orders.ts:26:3	orders.ts:13:3
+chain	orders-total	GET	/api/orders/total	app.ts:8:17	app.ts:16:22	orders.ts:29:3	orders.ts:16:3
