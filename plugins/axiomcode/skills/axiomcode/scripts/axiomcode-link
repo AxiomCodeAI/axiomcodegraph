@@ -2,6 +2,8 @@
 """axiomcode link <file:line> <target> [<callee as written>] [<repo>]
 axiomcode link [<repo>]                         every asserted link, and whether the graph took it (--json)
 axiomcode link <file:line> - [<repo>]           remove the links at that site (or --remove <file:line> [<target>])
+                                                (<target> as a name, or its declaration's file:line: two `<arrow>`s at one
+                                                site are two links, told apart only by where each is declared)
 
 Records that the call written at file:line reaches <target> — a declaration as the graph names it (Owner.method,
 function) or its file:line — where the graph could not resolve it. The link is kept in axiomcode-links.tsv at the
