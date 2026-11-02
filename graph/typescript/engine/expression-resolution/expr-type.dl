@@ -162,6 +162,57 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     namespace_member(prov, qt, n, "TYPE", t).
 
+// ── A CONST DECLARED IN A NAMESPACE — `N.run(x)`, `N.env.get(k)` ────────────
+// `declare namespace N { export const run: Runner; }` with `interface Runner { (x): void }`.
+// The const is a VARIABLE whose enclosing type is the namespace, so namespace_member
+// (types, methods, fields) never lists it and the access `N.run` had no type: the call
+// through it found no call signature, and a member call one hop further found no
+// receiver. This is how a runtime or a standard-library namespace publishes a callable
+// object or a constructor (`var Format: FormatConstructor` inside a namespace).
+//
+// The namespace receiver comes three ways: a namespace typed as a value (a local
+// namespace, a nested one), one typed as a static receiver (a global the binder knew
+// as ambient), and a bare global name the binder could not bind at all, which resolves
+// by name to a global NAMESPACE_TYPE exactly as rule (2d) in callee-resolution does
+// for a namespace's functions. The name lookup is only for a reference the binder
+// left unbound or ambient, so a local of the same name keeps its own binding.
+//
+// A const that holds a function literal is left to the method lookup that already
+// answers with its body; its annotation beside it would add a bodiless signature as a
+// second answer. A const whose type has no call signature stays uncallable: the call
+// rules ask the type for a call signature, and a plain interface has none.
+namespace_value_member(prov, ns, name, v) :- var_enclosing_type(prov, ns, v),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
+    var_decl(prov, name, _, sk, _, _, v),
+    namespace_value_scope(sk),
+    name != "",
+    !var_is_function(v, _).
+namespace_value_scope("NAMESPACE_SCOPE").
+namespace_value_scope("AMBIENT_SCOPE").
+expr_namespace_decl(q, ns) :- expr_type(q, prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+expr_namespace_decl(q, ns) :- expr_static_type(q, prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+expr_namespace_decl(q, ns) :- expr_kind("client", "IDENTIFIER_REFERENCE", _, q),
+    expr_referenced("client", rk, _, q),
+    unbound_global_ref_kind(rk),
+    expr_name("client", n, q),
+    n != "",
+    global_decl_wide(n, "TYPE", prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+unbound_global_ref_kind("UNKNOWN").
+unbound_global_ref_kind("AMBIENT_GLOBAL").
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
+    expr_namespace_decl(q, ns),
+    scope_sibling(ns, sib),
+    namespace_value_member(_, sib, n, v),
+    var_type(v, prov, t).
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_namespace_decl(q, ns),
+    scope_sibling(ns, sib),
+    namespace_value_member(_, sib, n, v),
+    var_shape(v, s).
+
 // ── `this` ──────────────────────────────────────────────────────────────────
 expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
     expr_enclosing_type(e, t).
@@ -361,6 +412,20 @@ expr_shape(e, s) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
 binary_op_names_operand("||", "LEFT_OPERAND").
 binary_op_names_operand("??", "LEFT_OPERAND").
 binary_op_names_operand("&&", "RIGHT_OPERAND").
+// …and that same operand's named TYPE: `const list = map.get(k) ?? []; list.push(x)`.
+// The compiler types `a ?? b` as `NonNullable<A> | B`, so the left operand's type is a
+// member of the result whatever the right one is; dropping the nullish part is free here
+// because `undefined` and `null` have no member table to look anything up in. The SHAPE
+// rule above already flowed; the named type did not, so a defaulted collection or a
+// defaulted service object lost its receiver type at the default.
+//
+// Still only the operand the compiler names, for the reason above: the right operand's
+// type beside it puts a second, wrong declaration into a site the left one decides.
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    binary_op_names_operand(op, r),
+    expr_child("client", e, r, _, side),
+    expr_type(side, prov, t).
 
 // ── an ARROW / FUNCTION expression — the value IS the function ──────────────
 // `anonymousDeclarationHash` gives the ts_method the expression introduces. Java
@@ -406,6 +471,84 @@ expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
     name_binds_any(mod, "String", prov, "TYPE", t).
 edge_role_is_binary_operand("LEFT_OPERAND").
 edge_role_is_binary_operand("RIGHT_OPERAND").
+
+// ── ARITHMETIC — `(end - start).toFixed(1)`, `(-x).toString()` ──────────────
+// `-`, `*`, `/`, `%`, `**`, the bitwise and shift operators, and unary `-`, `~`, `++`,
+// `--` yield a number, or a bigint when the operands are bigints: the compiler rejects
+// every other operand type for these operators (an object with a numeric valueOf
+// included), so an operand typed anything but BigInt means the result is a number.
+// Unary `+` is a number unconditionally. The receiver had no type at all before, so a
+// call on a computed number — formatting a duration, rounding a ratio — resolved to
+// nothing.
+//
+// Keyed on what the operand IS typed, never on what it is not: "a number unless an
+// operand is a bigint" would negate expr_type inside its own fixpoint. An operand with
+// no type (an untyped value) therefore gives the result no type either.
+//
+// `+` is a number only when BOTH operands are numbers. One string operand makes it a
+// concatenation (the rule above), and that must stay a string and nothing else.
+operand_typed_named(x, n) :- expr_type(x, prov, t),
+    type_decl(prov, n, _, _, _, _, t).
+operand_not_bigint(x) :- operand_typed_named(x, n), n != "BigInt".
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_only_binary_op(op),
+    expr_child("client", e, r, _, operand),
+    edge_role_is_binary_operand(r),
+    operand_not_bigint(operand),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_only_binary_op(op),
+    expr_child("client", e, r, _, operand),
+    edge_role_is_binary_operand(r),
+    operand_typed_named(operand, "BigInt"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "BigInt", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", "+", e),
+    expr_child("client", e, "LEFT_OPERAND", _, l),
+    operand_typed_named(l, "Number"),
+    expr_child("client", e, "RIGHT_OPERAND", _, r),
+    operand_typed_named(r, "Number"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_unary_op(op),
+    expr_child("client", e, "UNARY_OPERAND", _, operand),
+    operand_not_bigint(operand),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_unary_op(op),
+    op != "+",
+    expr_child("client", e, "UNARY_OPERAND", _, operand),
+    operand_typed_named(operand, "BigInt"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "BigInt", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", "+", e),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+numeric_only_binary_op("-").
+numeric_only_binary_op("*").
+numeric_only_binary_op("/").
+numeric_only_binary_op("%").
+numeric_only_binary_op("**").
+numeric_only_binary_op("&").
+numeric_only_binary_op("|").
+numeric_only_binary_op("^").
+numeric_only_binary_op("<<").
+numeric_only_binary_op(">>").
+numeric_only_binary_op(">>>").
+numeric_unary_op("-").
+numeric_unary_op("+").
+numeric_unary_op("~").
+numeric_unary_op("++").
+numeric_unary_op("--").
 
 // ── an ARRAY literal receiver — `[1,2].map(f)` ─────────────────────────────
 expr_type(e, prov, t) :- expr_kind("client", "ARRAY_LITERAL", _, e),

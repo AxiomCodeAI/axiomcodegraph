@@ -1,0 +1,9 @@
+known_edge	METHOD_PARAM	0	Bus [METHOD_PARAM] -> Listener
+known_edge	METHOD_RETURN	0	MapConstructor [METHOD] -> Map
+known_edge	OBJECT_CREATION_TYPE	0	Bus [EXPRESSION] -> Map
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ELEMENT	1	Bus [EXPRESSION] -> Listener
+known_edge	TYPE_ELEMENT	1	Bus [METHOD_PARAM] -> Listener
+known_edge	TYPE_ELEMENT	1	Bus [VARIABLE] -> Listener
+known_edge	VARIABLE_TYPE	0	globals [VARIABLE] -> MapConstructor

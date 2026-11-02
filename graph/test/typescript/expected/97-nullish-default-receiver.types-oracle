@@ -1,0 +1,9 @@
+97-nullish-default-receiver [types]
+  precision 0.8333   (5 correct, 1 wrong)
+  recall    0.8333   (5 of 6 the compiler resolved)
+  sites 14   resolved 14 (100.0%)
+  tiers known_edge=14
+  contexts METHOD_PARAM=5  METHOD_RETURN=1  OBJECT_CREATION_TYPE=2  SUPER_TYPE=2  TYPE_ELEMENT=3  VARIABLE_TYPE=1
+  not scored: 0 rows whose target is not a client declaration
+    WRONG   globals USES MapConstructor
+    MISSING globals.d USES MapConstructor
