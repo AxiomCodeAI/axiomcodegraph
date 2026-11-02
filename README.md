@@ -311,9 +311,10 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 
 ## CLI commands
 
-Three questions, each answered as numbered places with the code of the function each one sits in. The MCP server
-offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`. Finding where code lives is
-left to your own search: bring the name you found to these commands.
+Three questions, `impact`, `path` and `tests`, each answered as numbered places with the code of the function each
+one sits in. The MCP server offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`, with
+`context(task)` and `link(site, target)` beside them. Finding where code lives is left to your own search: bring
+the name you found to these commands.
 
 | command | what it answers |
 |---|---|
@@ -321,8 +322,11 @@ left to your own search: bring the name you found to these commands.
 | `axiomcode impact` | the same for the declarations your uncommitted edits changed; the answer starts with `your edits:` |
 | `axiomcode path <A> <B>` | how A reaches B: every hop of the call chain, with the code at each call |
 | `axiomcode tests` | the tests your uncommitted edits reach, and a last `run:` line with the command that runs them |
+| `axiomcode context "<task>"` | how something works, as a narrative: the files and callables the task touches and, for a how-does-X-work question, the call flow step by step; `--source` carries each step's code |
 | `axiomcode link <file:line> <target>` | record where a call the graph could not resolve lands (kept in `axiomcode-links.tsv`); impact, path and tests then walk it, labelled `[asserted]`. Alone, lists the links and whether each was applied |
 | `axiomcode index` | build the graph explicitly (the first query builds it too); `--lang`, `--src` and `--library` narrow it |
+| `axiomcode report` | where an answer verifiably helped: every Redirected / Helped / Useful chain the end-of-turn receipts recorded, as one HTML page (`.axiomcode/assists.html`) |
+| `axiomcode graph` | the codebase as one interactive page: directories, files, types and methods, and the call edges between them. Prints the page's path, `.axiomcode/graph/graph.html` |
 
 A name is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
 `file.py:123`. It is resolved exactly; a miss lists the nearest names. `axiomcode help <command>` prints one
