@@ -1,0 +1,10 @@
+ambiguous_unknown	METHOD_CALL	use#untyped(any) @L38 -> -
+known_edge	FUNCTION_CALL	use#shapeMethod({ run(x: number): number }) @L32 -> use#run(number)
+known_edge	METHOD_CALL	use#aliasParam(Opts,Opts,Opts) @L15 -> Clock#now()
+known_edge	METHOD_CALL	use#aliasParam(Opts,Opts,Opts) @L16 -> Port#execute(number)
+known_edge	METHOD_CALL	use#aliasVar(Opts) @L23 -> Clock#now()
+known_edge	METHOD_CALL	use#inlineParam({ port: Port },{ port: Port }) @L19 -> Port#execute(number)
+known_edge	METHOD_CALL	use#inlineVar({ port: Port; n: number }) @L8 -> Port#execute(number)
+known_edge	METHOD_CALL	use#memberAccess({ port: Port }) @L11 -> Port#execute(number)
+known_edge	METHOD_CALL	use#nestedShape({ deps: { port: Port } }) @L28 -> Port#execute(number)
+known_edge	METHOD_CALL	use#otherShape({ port: { execute(x: number): number } }) @L46 -> use#execute(number)

@@ -1,0 +1,6 @@
+# A destructured parameter's caller is labelled with one slot per bound name, `aliasParam(Opts,Opts,Opts)`, where the
+# compiler oracle prints the annotation, `aliasParam(Opts)`. The callee is right: each of
+# these appears in the engine output under that caller label (see .edges).
+use#aliasParam(Opts) -> Clock#now()
+use#aliasParam(Opts) -> Port#execute(number)
+use#inlineParam({ port: Port }) -> Port#execute(number)

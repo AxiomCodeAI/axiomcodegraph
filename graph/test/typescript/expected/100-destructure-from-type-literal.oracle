@@ -1,0 +1,7 @@
+oracle=9 engine=9 agree=6 missing=3 (known 3, NEW 0) extra=3
+  known    use#aliasParam(Opts) -> Clock#now()
+  known    use#aliasParam(Opts) -> Port#execute(number)
+  known    use#inlineParam({ port: Port }) -> Port#execute(number)
+  extra    use#aliasParam(Opts,Opts,Opts) -> Clock#now()
+  extra    use#aliasParam(Opts,Opts,Opts) -> Port#execute(number)
+  extra    use#inlineParam({ port: Port },{ port: Port }) -> Port#execute(number)
