@@ -198,7 +198,15 @@ class Names:
         for r in rows(f'{ir}/all-typescript-methods.csv'):
             h = r['tsMethodUniqueHash']
             ps = []
-            for p in sorted(params.get(h, []), key=lambda x: int(x.get('position') or 0)):
+            # A destructured parameter has a row for the pattern and one per name it binds, all at the pattern's
+            # position (bindingSourceKind PROPERTY/INDEX): one parameter, labelled once, as the compiler prints it.
+            by_pos = {}
+            for p in params.get(h, []):
+                pos = int(p.get('position') or 0)
+                bound = (p.get('bindingSourceKind') or 'NONE') != 'NONE'
+                if pos not in by_pos or (by_pos[pos][0] and not bound):
+                    by_pos[pos] = (bound, p)
+            for _, p in sorted((pos, bp[1]) for pos, bp in by_pos.items()):
                 if p.get('isReceiverParameter') == 'true':
                     continue
                 t = simple(p.get('parameterTypeName') or p.get('parameterBaseType'))
