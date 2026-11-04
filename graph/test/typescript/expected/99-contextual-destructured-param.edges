@@ -1,0 +1,9 @@
+ambiguous_unknown	METHOD_CALL	use#otherConst(?,?,?) @L34 -> -
+ambiguous_unknown	METHOD_CALL	use#untyped(any,any,any) @L28 -> -
+known_edge	FUNCTION_CALL	use#<module-init>() @L40 -> use#define({ name: string } & { lifecycle?: Slots })
+known_edge	FUNCTION_CALL	use#<module-init>() @L46 -> use#define({ name: string } & { lifecycle?: Slots })
+known_edge	METHOD_CALL	use#<arrow@43>(?,?,?) @L43 -> Utils#send(string)
+known_edge	METHOD_CALL	use#<arrow@49>(?) @L49 -> Utils#send(string)
+known_edge	METHOD_CALL	use#annotated(Ctx,Ctx,Ctx) @L23 -> Utils#send(string)
+known_edge	METHOD_CALL	use#plainConst(?) @L18 -> Utils#send(string)
+known_edge	METHOD_CALL	use#viaConst(?,?,?) @L13 -> Utils#send(string)
