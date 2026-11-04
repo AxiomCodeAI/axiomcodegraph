@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ax_langs.py <repo> <verb-script> [args…]  — ask every language's graph, for a repository written in several.
 
-axiomcode-build gives each language its own graph: the main one (most files) at .axiomcode/out/graph.sqlite, as it
+axiomcode-build gives each language its own graph: the main one (most code) at .axiomcode/out/graph.sqlite, as it
 always was, and every other at .axiomcode/lang/<lang>/out/graph.sqlite. A graph holds one language and no call is
 followed from one to another; what a question needs is that NONE of them is left out. So the verb runs once per graph
 (AXIOMCODE_GRAPH / AXIOMCODE_GRAPH_LANG name it), all at once, and the answers are put together:
