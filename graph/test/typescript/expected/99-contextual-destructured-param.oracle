@@ -1,8 +1,1 @@
-oracle=7 engine=6 agree=3 missing=4 (known 4, NEW 0) extra=3
-  known    use#<arrow@43>(?) -> Utils#send(string)
-  known    use#annotated(Ctx) -> Utils#send(string)
-  known    use#otherConst(?) -> Other#send(string)
-  known    use#viaConst(?) -> Utils#send(string)
-  extra    use#<arrow@43>(?,?,?) -> Utils#send(string)
-  extra    use#annotated(Ctx,Ctx,Ctx) -> Utils#send(string)
-  extra    use#viaConst(?,?,?) -> Utils#send(string)
+oracle=7 engine=7 agree=7 missing=0 (known 0, NEW 0) extra=0
