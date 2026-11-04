@@ -1,0 +1,4 @@
+known_edge	read	Bus#annotated(string,Listener) -> Bus#listeners
+known_edge	read	Bus#direct(string,Listener) -> Bus#listeners
+known_edge	read	Bus#label(string) -> Bus#labels
+known_edge	read	Bus#on(string,Listener) -> Bus#listeners

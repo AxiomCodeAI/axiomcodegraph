@@ -1,0 +1,4 @@
+ambiguous_unknown	read	scorers#fn(?) -> -
+ambiguous_unknown	read	scorers#plain(string) -> -
+ambiguous_unknown	read	scorers#scoreArrow(?) -> -
+known_edge	read	x#viaNamed(string) -> scorers#score

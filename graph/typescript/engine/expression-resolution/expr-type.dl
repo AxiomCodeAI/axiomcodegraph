@@ -162,6 +162,57 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     namespace_member(prov, qt, n, "TYPE", t).
 
+// ── A CONST DECLARED IN A NAMESPACE — `N.run(x)`, `N.env.get(k)` ────────────
+// `declare namespace N { export const run: Runner; }` with `interface Runner { (x): void }`.
+// The const is a VARIABLE whose enclosing type is the namespace, so namespace_member
+// (types, methods, fields) never lists it and the access `N.run` had no type: the call
+// through it found no call signature, and a member call one hop further found no
+// receiver. This is how a runtime or a standard-library namespace publishes a callable
+// object or a constructor (`var Format: FormatConstructor` inside a namespace).
+//
+// The namespace receiver comes three ways: a namespace typed as a value (a local
+// namespace, a nested one), one typed as a static receiver (a global the binder knew
+// as ambient), and a bare global name the binder could not bind at all, which resolves
+// by name to a global NAMESPACE_TYPE exactly as rule (2d) in callee-resolution does
+// for a namespace's functions. The name lookup is only for a reference the binder
+// left unbound or ambient, so a local of the same name keeps its own binding.
+//
+// A const that holds a function literal is left to the method lookup that already
+// answers with its body; its annotation beside it would add a bodiless signature as a
+// second answer. A const whose type has no call signature stays uncallable: the call
+// rules ask the type for a call signature, and a plain interface has none.
+namespace_value_member(prov, ns, name, v) :- var_enclosing_type(prov, ns, v),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
+    var_decl(prov, name, _, sk, _, _, v),
+    namespace_value_scope(sk),
+    name != "",
+    !var_is_function(v, _).
+namespace_value_scope("NAMESPACE_SCOPE").
+namespace_value_scope("AMBIENT_SCOPE").
+expr_namespace_decl(q, ns) :- expr_type(q, prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+expr_namespace_decl(q, ns) :- expr_static_type(q, prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+expr_namespace_decl(q, ns) :- expr_kind("client", "IDENTIFIER_REFERENCE", _, q),
+    expr_referenced("client", rk, _, q),
+    unbound_global_ref_kind(rk),
+    expr_name("client", n, q),
+    n != "",
+    global_decl_wide(n, "TYPE", prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns).
+unbound_global_ref_kind("UNKNOWN").
+unbound_global_ref_kind("AMBIENT_GLOBAL").
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
+    expr_namespace_decl(q, ns),
+    scope_sibling(ns, sib),
+    namespace_value_member(_, sib, n, v),
+    var_type(v, prov, t).
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_namespace_decl(q, ns),
+    scope_sibling(ns, sib),
+    namespace_value_member(_, sib, n, v),
+    var_shape(v, s).
+
 // ── `this` ──────────────────────────────────────────────────────────────────
 expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
     expr_enclosing_type(e, t).
@@ -177,6 +228,60 @@ expr_shape(e, s) :- this_expr(e), expr_enclosing_method(e, m), method_declared_t
 this_expr(e) :- expr_referenced("client", "THIS", _, e).
 this_expr(e) :- expr_kind("client", "THIS_REFERENCE", _, e).
 method_declared_this(m, p) :- param_shape("client", "THIS", _, _, p), param_decl("client", _, _, _, m, p).
+
+// ── `this` IN AN OBJECT LITERAL WRITTEN AS `X & ThisType<T>` ────────────────
+// `defineProto<Counter>({ inc() {…}, twice() { return this.inc() } })` where the parameter is
+// `ProtoFor<T> = { … } & ThisType<T>`: the compiler types `this` in the literal's methods as
+// T, which is the whole point of the marker. It is how a prototype table, a mixin or a store
+// definition is written when its methods run with the instance as receiver. Nothing typed
+// `this` there, so every `this.m()` in such a table resolved to nothing.
+//
+// thistype_arg(Ref, ArgRef): the contextual reference carries ThisType, with ArgRef as its
+// argument written in Ref's own scope. Found through an intersection, a parenthesised type,
+// and an alias, where the alias's own parameter is replaced by Ref's argument for it. That
+// argument is then either a written type or the CALLEE's type variable, bound by the call
+// (call_tvar_arg_binding, which covers an explicit type argument).
+//
+// Function-valued members only: an arrow property does not bind `this`, so it keeps the
+// enclosing one.
+thistype_arg(r, a) :- type_ref(prov, "TYPE_REFERENCE", _, "ThisType", _, _, _, r),
+    type_ref_parent(prov, r, "0", a).
+thistype_arg(r, a) :- type_ref(prov, k, _, _, _, _, _, r),
+    thistype_carrier_kind(k),
+    type_ref_parent(prov, r, _, c),
+    thistype_arg(c, a).
+thistype_arg(r, a) :- type_ref_resolves(_, r, t),
+    type_alias_target(_, ar, t),
+    thistype_arg(ar, v),
+    type_ref_type_param(_, tp, v),
+    type_param(_, pname, _, _, t, tp),
+    type_arg_binding(r, pname, a).
+thistype_arg(r, a) :- type_ref_resolves(_, r, t),
+    type_alias_target(_, ar, t),
+    thistype_arg(ar, a),
+    !type_ref_type_param(_, _, a).
+thistype_carrier_kind("INTERSECTION").
+thistype_carrier_kind("PARENTHESIZED").
+
+objlit_this_type(l, prov, t) :- objlit_ctx_ref(l, r),
+    thistype_arg(r, a),
+    !type_ref_type_param(_, _, a),
+    ref_type_target(a, prov, t).
+objlit_this_type(l, prov, t) :- expr_child("client", ce, "ARGUMENT", pos, l),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    expr_call_candidate(ce, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    thistype_arg(r, a),
+    type_ref_type_param(_, tp, a),
+    type_param(_, _, _, _, m, tp),
+    call_tvar_arg_binding(ce, tp, prov, t).
+
+expr_type(e, prov, t) :- this_expr(e),
+    expr_enclosing_method(e, lm),
+    objlit_member_fn(l, _, lm),
+    !method_kind(_, "ARROW_FUNCTION", _, lm),
+    objlit_this_type(l, prov, t).
 
 // `this` INSIDE A STATIC METHOD IS THE CLASS, so its members are the STATICS. A helper
 // class that calls its own statics through `this` is ordinary TypeScript —
@@ -307,6 +412,20 @@ expr_shape(e, s) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
 binary_op_names_operand("||", "LEFT_OPERAND").
 binary_op_names_operand("??", "LEFT_OPERAND").
 binary_op_names_operand("&&", "RIGHT_OPERAND").
+// …and that same operand's named TYPE: `const list = map.get(k) ?? []; list.push(x)`.
+// The compiler types `a ?? b` as `NonNullable<A> | B`, so the left operand's type is a
+// member of the result whatever the right one is; dropping the nullish part is free here
+// because `undefined` and `null` have no member table to look anything up in. The SHAPE
+// rule above already flowed; the named type did not, so a defaulted collection or a
+// defaulted service object lost its receiver type at the default.
+//
+// Still only the operand the compiler names, for the reason above: the right operand's
+// type beside it puts a second, wrong declaration into a site the left one decides.
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    binary_op_names_operand(op, r),
+    expr_child("client", e, r, _, side),
+    expr_type(side, prov, t).
 
 // ── an ARROW / FUNCTION expression — the value IS the function ──────────────
 // `anonymousDeclarationHash` gives the ts_method the expression introduces. Java
@@ -352,6 +471,84 @@ expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
     name_binds_any(mod, "String", prov, "TYPE", t).
 edge_role_is_binary_operand("LEFT_OPERAND").
 edge_role_is_binary_operand("RIGHT_OPERAND").
+
+// ── ARITHMETIC — `(end - start).toFixed(1)`, `(-x).toString()` ──────────────
+// `-`, `*`, `/`, `%`, `**`, the bitwise and shift operators, and unary `-`, `~`, `++`,
+// `--` yield a number, or a bigint when the operands are bigints: the compiler rejects
+// every other operand type for these operators (an object with a numeric valueOf
+// included), so an operand typed anything but BigInt means the result is a number.
+// Unary `+` is a number unconditionally. The receiver had no type at all before, so a
+// call on a computed number — formatting a duration, rounding a ratio — resolved to
+// nothing.
+//
+// Keyed on what the operand IS typed, never on what it is not: "a number unless an
+// operand is a bigint" would negate expr_type inside its own fixpoint. An operand with
+// no type (an untyped value) therefore gives the result no type either.
+//
+// `+` is a number only when BOTH operands are numbers. One string operand makes it a
+// concatenation (the rule above), and that must stay a string and nothing else.
+operand_typed_named(x, n) :- expr_type(x, prov, t),
+    type_decl(prov, n, _, _, _, _, t).
+operand_not_bigint(x) :- operand_typed_named(x, n), n != "BigInt".
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_only_binary_op(op),
+    expr_child("client", e, r, _, operand),
+    edge_role_is_binary_operand(r),
+    operand_not_bigint(operand),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_only_binary_op(op),
+    expr_child("client", e, r, _, operand),
+    edge_role_is_binary_operand(r),
+    operand_typed_named(operand, "BigInt"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "BigInt", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", "+", e),
+    expr_child("client", e, "LEFT_OPERAND", _, l),
+    operand_typed_named(l, "Number"),
+    expr_child("client", e, "RIGHT_OPERAND", _, r),
+    operand_typed_named(r, "Number"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_unary_op(op),
+    expr_child("client", e, "UNARY_OPERAND", _, operand),
+    operand_not_bigint(operand),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    numeric_unary_op(op),
+    op != "+",
+    expr_child("client", e, "UNARY_OPERAND", _, operand),
+    operand_typed_named(operand, "BigInt"),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "BigInt", prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "UNARY_EXPRESSION", _, e),
+    expr_operator("client", "+", e),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Number", prov, "TYPE", t).
+numeric_only_binary_op("-").
+numeric_only_binary_op("*").
+numeric_only_binary_op("/").
+numeric_only_binary_op("%").
+numeric_only_binary_op("**").
+numeric_only_binary_op("&").
+numeric_only_binary_op("|").
+numeric_only_binary_op("^").
+numeric_only_binary_op("<<").
+numeric_only_binary_op(">>").
+numeric_only_binary_op(">>>").
+numeric_unary_op("-").
+numeric_unary_op("+").
+numeric_unary_op("~").
+numeric_unary_op("++").
+numeric_unary_op("--").
 
 // ── an ARRAY literal receiver — `[1,2].map(f)` ─────────────────────────────
 expr_type(e, prov, t) :- expr_kind("client", "ARRAY_LITERAL", _, e),
@@ -426,6 +623,15 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f),
     field_type(f, prov, t).
+// …and the member's SHAPE, off a shape qualifier. The typed-qualifier clause for
+// field_shape is below; without this one a chain of inline object types, `ctx.common.issues`
+// with `ctx: { common: { issues: Issue[] } }`, went one level deep and stopped: `ctx` had a
+// shape, `ctx.common` read a shape-typed member off it and got nothing, and every call on
+// the rest of the chain was unresolved.
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f),
+    field_shape(f, s).
 // ── A PROPERTY ACCESS WHOSE MEMBER IS A GETTER ─────────────────────────────
 // `get entityToSyncMetadatas(): EntityMetadata[]`, read as
 // `this.entityToSyncMetadatas.map(...)`. Every rule above looks the member up in
@@ -471,6 +677,21 @@ expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, mprov, m),
     module_export(mprov, m, n, "VARIABLE", v),
     var_type(v, prov, t).
+// …and its SHAPE, which is the half a function-typed export has: `export const parse:
+// Parser = makeParser(1)` where `Parser` aliases a function type. The named import of the
+// same const already reads var_shape (the IMPORT_BINDING clause above); read off the
+// namespace, `ns.parse(x)` had a type-less, shape-less callee and resolved to nothing, while
+// `import { parse }` beside it resolved. The value is a factory's result, so var_is_function
+// has no literal to find and the declared shape is the only answer there is.
+//
+// Only there. Where the const DOES hold a function literal, rule (8) already answers with its
+// body, and adding the annotation's bodiless signature beside it turned an implementation the
+// site was right to name into a two-way hedge.
+expr_shape(e, s) :- property_access_recv(e, n, q),
+    expr_namespace(q, _, m),
+    module_export(_, m, n, "VARIABLE", v),
+    !var_is_function(v, _),
+    var_shape(v, s).
 expr_static_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, prov, m),
     module_export(prov, m, n, "TYPE", t).

@@ -1,0 +1,1 @@
+known_edge	read	use#memberAccess({ port: Port }) -> { port: Port }#port

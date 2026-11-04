@@ -1,0 +1,4 @@
+known_edge	METHOD_CALL	x#flat(Flat) @L15 -> Logger#write(string)
+known_edge	METHOD_CALL	x#named(Named) @L16 -> Logger#write(string)
+known_edge	METHOD_CALL	x#record(Order) @L8 -> Logger#write(string)
+known_edge	METHOD_CALL	x#record(Order) @L9 -> Logger#write(string)

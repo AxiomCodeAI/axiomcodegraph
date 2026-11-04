@@ -18,7 +18,14 @@ instead of no server at all.
 """
 import inspect, json, sys, typing
 
-__all__ = ["MCPServer"]
+__all__ = ["MCPServer", "ToolError"]
+
+
+class ToolError(Exception):
+    """A failure the tool anticipated and put into words: the words are the result's text and the result is marked
+    isError, as the SDK's own ToolError is. Any other exception is marked the same way, but with its type in front,
+    because its words were never meant for the caller."""
+
 
 _JSON_TYPE = {str: "string", int: "integer", float: "number", bool: "boolean", list: "array", dict: "object"}
 
@@ -132,6 +139,8 @@ class MCPServer:
             try:
                 out = t["fn"](**args)
                 return {"content": [{"type": "text", "text": "" if out is None else str(out)}]}
+            except ToolError as e:
+                return {"content": [{"type": "text", "text": str(e)}], "isError": True}
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
         if m == "ping":

@@ -1,0 +1,2 @@
+oracle=7 engine=6 agree=6 missing=1 (known 1, NEW 0) extra=0
+  known    x#b() -> x#a()

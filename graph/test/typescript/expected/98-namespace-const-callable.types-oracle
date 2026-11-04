@@ -1,0 +1,10 @@
+98-namespace-const-callable [types]
+  precision 0.6000   (3 correct, 2 wrong)
+  recall    0.7500   (3 of 4 the compiler resolved)
+  sites 5   resolved 5 (100.0%)
+  tiers known_edge=5
+  contexts METHOD_RETURN=1  SUPER_TYPE=2  VARIABLE_TYPE=2
+  not scored: 0 rows whose target is not a client declaration
+    WRONG   Local USES Runner
+    WRONG   Local USES Step
+    MISSING use USES Step

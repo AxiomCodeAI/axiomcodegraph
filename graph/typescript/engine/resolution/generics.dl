@@ -52,6 +52,17 @@ expr_decl_ref(e, r) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_type_ref(_, r, f).
+// An un-annotated field takes its initializer's reference, the field twin of the
+// variable rule below: `private readonly byKey = new Map<string, Entry[]>()` then
+// `this.byKey.get(k)` substitutes V exactly as an annotated field does. The field's
+// TYPE already came from the initializer (reference-types.dl); its type arguments did
+// not, so the call resolved and its result had no type.
+expr_decl_ref(e, r) :- property_access_recv(e, n, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    !field_has_declared_type(f),
+    field_initializer("client", init, f),
+    expr_decl_ref(init, r).
 // A chained receiver: `getItems().find(p)` — the reference is the callee's declared
 // RETURN type, which carries its own arguments.
 expr_decl_ref(e, r) :- expr_call_candidate(e, callee),

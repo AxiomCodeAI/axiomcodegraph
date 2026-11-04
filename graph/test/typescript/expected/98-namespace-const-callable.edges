@@ -1,0 +1,12 @@
+ambient_terminal	FUNCTION_CALL	use#<module-init>() @L17 -> use#makeRunner()
+ambiguous_unknown	METHOD_CALL	use#controls() @L30 -> -
+ambiguous_unknown	METHOD_CALL	use#suite() @L7 -> -
+ambiguous_unknown	METHOD_CALL	use#suite() @L8 -> -
+ambiguous_unknown	METHOD_CALL	use#suite() @L9 -> -
+callback_registered	METHOD_CALL	use#suite() @L7 -> use#<arrow@7>()
+callback_registered	METHOD_CALL	use#suite() @L8 -> use#<arrow@8>()
+known_edge	METHOD_CALL	use#controls() @L31 -> Local#helper()
+known_edge	METHOD_CALL	use#controls() @L32 -> Local#arrow(?)
+known_edge	METHOD_CALL	use#local() @L22 -> Runner#<arrow@13>(number)
+known_edge	METHOD_CALL	use#local() @L23 -> Runner#describe()
+known_edge	METHOD_CALL	use#shadowed({ test(name: string): void }) @L35 -> use#test(string)

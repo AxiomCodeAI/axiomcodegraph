@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module x#runOn   x.ts:20
+  unimported_module globals#<module>   globals.d.ts:1
+  unimported_module x#<module>   x.ts:1

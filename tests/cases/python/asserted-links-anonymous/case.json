@@ -1,0 +1,191 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "BASE: one call site linked to an anonymous function: the link names it by its declaration, since every one of the lambdas shares the name <lambda>",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "app/wire.py:8"
+   ],
+   "want": [
+    "linked app/bus.py:10:13 `listener` → <lambda> (app/wire.py:8) [asserted]"
+   ]
+  },
+  {
+   "why": "a second link from the SAME site to ANOTHER of the lambdas is a second link, not a replacement of the first (both are named <lambda>)",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "app/wire.py:9"
+   ],
+   "want": [
+    "linked app/bus.py:10:13 `listener` → <lambda> (app/wire.py:9) [asserted]"
+   ]
+  },
+  {
+   "why": "both links are kept and both applied",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "[applied] app/bus.py:10:13  → <lambda> (app/wire.py:8)",
+    "[applied] app/bus.py:10:13  → <lambda> (app/wire.py:9)"
+   ]
+  },
+  {
+   "why": "CONTROL: re-linking the same site to the same declaration replaces its row (idempotent)",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "app/wire.py:8"
+   ],
+   "want": [
+    "linked app/bus.py:10:13 `listener` → <lambda> (app/wire.py:8) [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: still two links after the re-link",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "→ <lambda> (app/wire.py:8)",
+    "→ <lambda> (app/wire.py:9)"
+   ],
+   "avoid": [
+    "3 asserted link(s)"
+   ]
+  },
+  {
+   "why": "removing by the placeholder name would remove two different links: refused, naming each declaration",
+   "run": [
+    "link",
+    "--remove",
+    "app/bus.py:10",
+    "<lambda>"
+   ],
+   "expect_error": true,
+   "want": [
+    "`<lambda>` names 2 links at app/bus.py:10",
+    "(app/wire.py:8)",
+    "(app/wire.py:9)",
+    "file:line"
+   ]
+  },
+  {
+   "why": "nothing was removed by the refused removal",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)"
+   ]
+  },
+  {
+   "why": "removing by the declaration's file:line removes that link only",
+   "run": [
+    "link",
+    "--remove",
+    "app/bus.py:10",
+    "app/wire.py:8"
+   ],
+   "want": [
+    "removed 1 link(s) at app/bus.py:10"
+   ]
+  },
+  {
+   "why": "the other anonymous target's link stays",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "1 asserted link(s)",
+    "→ <lambda> (app/wire.py:9)"
+   ],
+   "avoid": [
+    "→ <lambda> (app/wire.py:8)"
+   ]
+  },
+  {
+   "why": "CONTROL: the same site linked to two NAMED functions keeps both",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "on_created"
+   ],
+   "want": [
+    "→ on_created [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: the second named function",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "on_updated"
+   ],
+   "want": [
+    "→ on_updated [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: three links: one anonymous, two named",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "3 asserted link(s)",
+    "→ <lambda> (app/wire.py:9)",
+    "→ on_created",
+    "→ on_updated"
+   ]
+  },
+  {
+   "why": "CONTROL: --remove <site> <name> removes only the one named",
+   "run": [
+    "link",
+    "--remove",
+    "app/bus.py:10",
+    "on_created"
+   ],
+   "want": [
+    "removed 1 link(s) at app/bus.py:10"
+   ]
+  },
+  {
+   "why": "CONTROL: the other named link and the anonymous one stay",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "→ <lambda> (app/wire.py:9)",
+    "→ on_updated"
+   ],
+   "avoid": [
+    "→ on_created  "
+   ]
+  },
+  {
+   "why": "`-` still removes every link at the site",
+   "run": [
+    "link",
+    "app/bus.py:10",
+    "-"
+   ],
+   "want": [
+    "removed 2 link(s) at app/bus.py:10"
+   ]
+  }
+ ]
+}

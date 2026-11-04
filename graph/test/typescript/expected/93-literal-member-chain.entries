@@ -1,0 +1,5 @@
+── entry_point (4) ──
+  exported_from_entry_module x#flat   x.ts:15
+  exported_from_entry_module x#named   x.ts:16
+  exported_from_entry_module x#record   x.ts:7
+  unimported_module x#<module>   x.ts:1

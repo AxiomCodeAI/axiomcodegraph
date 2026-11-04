@@ -190,6 +190,45 @@ expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     expr_shape(recv, s),
     method_in_scope(s, cn, _, m).
 
+// (6b) `call` / `apply` / `bind` ON A METHOD READ AS A VALUE: `this.render.bind(this)`,
+// `proto.check.call(inst, x)`. The receiver is an access that names a METHOD, so it has no
+// type or shape of its own for rules (4) to (6) to search, and the Function prototype carve-out
+// in member-lookup.dl attaches only to a scope with a call signature. The compiler types the
+// receiver as the method's function type and answers with its `bind`. method_value
+// (value-flow.dl) recognises the same receiver but runs after this resolver, so the lookup is
+// repeated here exactly as rules (4) and (6) make it. A getter is excluded: reading it runs it,
+// and the value handed over is whatever it returns.
+expr_call_candidate(ce, fm) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    function_prototype_member(cn, fm),
+    property_access_recv(recv, n, q),
+    expr_type(q, _, qt),
+    method_in_scope(qt, n, "false", m),
+    !method_kind(_, "GETTER", _, m),
+    !method_kind(_, "SETTER", _, m).
+expr_call_candidate(ce, fm) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    function_prototype_member(cn, fm),
+    property_access_recv(recv, n, q),
+    expr_shape(q, s),
+    method_in_scope(s, n, _, m),
+    !method_kind(_, "GETTER", _, m),
+    !method_kind(_, "SETTER", _, m).
+// …and what the bound result runs. `const write = sink.write.bind(sink); write(x)` calls
+// `write`, which is what the compiler names. Typed only through `bind`'s generic return, the
+// call reached the bodiless function types inside that return in the standard library and
+// nothing else, a wrong answer as soon as (6b) gave the `bind` site its target.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    var_initializer("client", _, bc, v),
+    call_site("client", _, "bind", _, recv, bc, _),
+    recv != "",
+    property_access_recv(recv, n, q),
+    expr_type(q, _, qt),
+    method_in_scope(qt, n, "false", m),
+    !method_kind(_, "GETTER", _, m),
+    !method_kind(_, "SETTER", _, m).
+
 // (5b) A MEMBER OF AN OBJECT LITERAL BOUND TO A NAME — `handlers.viaShorthand(n)`.
 // An OBJECT_LITERAL_METHOD's owner is the literal's EXPRESSION, not a type, so it is in
 // no member table at all: `method_in_scope` is keyed on a scope and there is no scope
@@ -484,6 +523,21 @@ expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _
     call_callee_expr(_, ce, ne),
     expr_type(ne, _, ctorType),
     constructor_in_scope(ctorType, ctor).
+// …and where the callee's type is a SHAPE rather than a declared type: a parameter typed
+// `{ new (def: D): T }`, or an alias of one, as a factory taking "the class to build" is
+// written. Rule (3) reads expr_shape for a plain call through a callable shape; construction
+// read only expr_type, so the construct signature on the literal was never consulted and
+// `new C(def)` resolved to nothing. Same lookup, construct side.
+//
+// Not where the callee is a variable known to HOLD a class (`const Ctor: new () => Dog = Dog`):
+// the class's own constructor already answers there, and the annotation's bodiless signature
+// beside it would hedge a site that was right.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_shape(ne, s),
+    !callee_holds_class(ne),
+    constructor_in_scope(s, ctor).
+callee_holds_class(ne) :- expr_referenced("client", "VARIABLE", v, ne), class_valued_var(v, _).
 
 // (10) `super(...)` — the enclosing class's `extends` parent's constructor. Never
 // an implements edge: `implements` inherits nothing, so it has no constructor to run.
