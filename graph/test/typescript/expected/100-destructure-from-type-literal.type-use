@@ -1,0 +1,9 @@
+known_edge	FIELD_TYPE	1	Opts [TYPE] -> Clock
+known_edge	FIELD_TYPE	1	Opts [TYPE] -> Port
+known_edge	FIELD_TYPE	1	use [EXPRESSION] -> Clock
+known_edge	FIELD_TYPE	1	use [METHOD_PARAM] -> Clock
+known_edge	FIELD_TYPE	1	use [METHOD_PARAM] -> Port
+known_edge	FIELD_TYPE	2	use [METHOD_PARAM] -> Port
+known_edge	METHOD_PARAM	0	use [METHOD_PARAM] -> Opts
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
