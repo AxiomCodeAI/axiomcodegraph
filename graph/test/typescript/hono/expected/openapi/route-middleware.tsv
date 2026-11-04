@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: audit (app-level) then guard (routeDef.middleware); the inline json body schema
+# census: create_route, openapi_register, use_global
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/notes	index.ts:19:21	index.ts:17:13	2
+mw	index.ts:6:34	index.ts:19:21	POST	/notes	0	index.ts:17:13
+mw	index.ts:7:34	index.ts:19:21	POST	/notes	1	index.ts:17:13
+schema	index.ts:19:21	json	expr@index.ts:13:63
+regby	index.ts:1:1	index.ts:19:21	POST	/notes	index.ts:17:13

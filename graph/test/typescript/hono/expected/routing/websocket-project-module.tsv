@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O10 residual: upgradeWebSocket from a project module (relative and path alias) is a library-call handler; chat middleware precedes it
+# census: verb_multi_handler (oracle gap O10 residual; SPEC R5)
+route	GET	/live	lib:hono/bun.createBunWebSocket().upgradeWebSocket@index.ts:9:18	index.ts:8:13	0
+route	GET	/chat/ws	lib:hono/bun.createBunWebSocket().upgradeWebSocket@chat.ts:10:3	index.ts:8:13	2
+mw	chat.ts:6:3	lib:hono/bun.createBunWebSocket().upgradeWebSocket@chat.ts:10:3	GET	/chat/ws	0	index.ts:8:13
+submount	/chat	index.ts:10:5
+regby	chat.ts:1:1	lib:hono/bun.createBunWebSocket().upgradeWebSocket@chat.ts:10:3	GET	/chat/ws	index.ts:8:13
+regby	index.ts:1:1	lib:hono/bun.createBunWebSocket().upgradeWebSocket@index.ts:9:18	GET	/live	index.ts:8:13

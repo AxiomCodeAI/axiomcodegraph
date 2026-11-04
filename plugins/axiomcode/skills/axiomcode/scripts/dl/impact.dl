@@ -337,6 +337,30 @@ direct(q, c, "uses", cat("serves what this sends across a process boundary (", c
 direct(q, c, "uses", cat("framework-mediated, not a call: ", cat(mech, cat(" via ", cat(detail, cat(" [", cat(conf, "]")))))), "framework", "", 0)
     :- target(q, "method", m, _), framework(c, m, mech, detail, conf), c != m.
 
+// ── an HTTP router's chain ────────────────────────────────────────────────────────────────────────────
+// mw_applies(Mw, Handler, Verb, Path, Position): the router runs Mw before Handler for that route; a change to the
+// middleware (what it rejects, what it puts on the request) reaches the handler with no call between them.
+// ctx_flow(Setter, Reader, Key): a request-context key Setter writes and Reader, later on the same chain, reads.
+// Certainty `framework`: the router joins them, not a resolved call.
+.decl mw_applies(mw:symbol, h:symbol, verb:symbol, path:symbol, pos:symbol)              .input mw_applies
+.decl ctx_flow(s:symbol, r:symbol, key:symbol)                                          .input ctx_flow
+// route_schema(Handler, Target, SchemaDecl): the route validates its Target input (json, query, ...) with the schema
+// declared at SchemaDecl or one built from it; http_route(Handler, Verb, Path): the route the handler serves
+.decl route_schema(h:symbol, t:symbol, d:symbol)                                         .input route_schema
+.decl http_route(h:symbol, verb:symbol, path:symbol)                                     .input http_route
+.decl schema_route(d:symbol, h:symbol, t:symbol)
+schema_route(d, h, t) :- route_schema(h, t, d).
+.decl schema_routed(d:symbol, h:symbol)
+schema_routed(d, h) :- route_schema(h, _, d), http_route(h, _, _).
+direct(q, h, "uses", cat("validates the ", cat(t, cat(" input of ", cat(v, cat(" ", cat(p, " with this schema")))))), "framework", "", 0)
+    :- target(q, k, d, _), (k = "field" ; k = "var"), schema_route(d, h, t), http_route(h, v, p).
+direct(q, h, "uses", cat("validates its ", cat(t, " input with this schema")), "framework", "", 0)
+    :- target(q, k, d, _), (k = "field" ; k = "var"), schema_route(d, h, t), !schema_routed(d, h).
+direct(q, h, "uses", cat("runs after this as middleware on ", cat(v, cat(" ", cat(p, cat(" (chain position ", cat(pos, ")")))))), "framework", "", 0)
+    :- target(q, "method", m, _), mw_applies(m, h, v, p, pos), h != m.
+direct(q, r, "reads", cat("reads the request-context key(s) '", cat(k, "' this sets, later on the same route chain")), "framework", "", 0)
+    :- target(q, "method", m, _), ctx_flow(m, r, k), r != m.
+
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "clinit", t, _), injected(t, c, kind).
 // a method that DEFINES a bean (@Bean): whoever is injected with the type it returns. Keyed on `bean_factory`,

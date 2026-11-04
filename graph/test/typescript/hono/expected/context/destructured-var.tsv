@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: db and origin flow to /both through a destructured c.var, origin to /one by name
+route	GET	/both	index.ts:19:18	index.ts:18:13	1
+route	GET	/one	index.ts:23:17	index.ts:18:13	2
+mw	index.ts:10:13	index.ts:19:18	GET	/both	0	index.ts:18:13
+mw	index.ts:10:13	index.ts:23:17	GET	/one	0	index.ts:18:13
+ctx	index.ts:10:13	index.ts:19:18	db
+ctx	index.ts:10:13	index.ts:19:18	origin
+ctx	index.ts:10:13	index.ts:23:17	origin
+regby	index.ts:1:1	index.ts:19:18	GET	/both	index.ts:18:13
+regby	index.ts:1:1	index.ts:23:17	GET	/one	index.ts:18:13

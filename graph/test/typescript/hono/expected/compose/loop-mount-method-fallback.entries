@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m29/hono-4-05: only the loop element class is partial; /admin/signin exact and not also partial
+# census: mount_dynamic_prefix_call (stress-4 mutation m29 shape; violation hono-4-05)
+entry	index.ts:11:30	http
+entry	index.ts:24:30	http

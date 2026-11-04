@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m28/hono-4-02/R6: three per-call test apps, each chain use 0, param 1, json 2
+# census: app_request_test (stress-4 mutation m28 shape; violation hono-4-02, SPEC R6)
+entry	routes.test.ts:12:16	http
+entry	routes.ts:9:3	http

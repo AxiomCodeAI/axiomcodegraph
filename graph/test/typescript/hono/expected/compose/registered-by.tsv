@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route_registered_by: registerGetMonitor and registerListMonitors for the /v1 routes, the module initializer for /
+# census: app_factory_fn (SPEC 4 [iter2] route_registered_by: the method enclosing each registering call)
+route	GET	/	index.ts:11:14	index.ts:10:13	0
+route	GET	/v1/monitors/:id	monitors.ts:4:28	index.ts:10:13	1
+route	GET	/v1/monitors	monitors.ts:7:24	index.ts:10:13	2
+route	POST	/v1/monitors	monitors.ts:8:25	index.ts:10:13	3
+submount	/v1	index.ts:12:5
+regby	index.ts:1:1	index.ts:11:14	GET	/	index.ts:10:13
+regby	monitors.ts:3:1	monitors.ts:4:28	GET	/v1/monitors/:id	index.ts:10:13
+regby	monitors.ts:6:1	monitors.ts:7:24	GET	/v1/monitors	index.ts:10:13
+regby	monitors.ts:6:1	monitors.ts:8:25	POST	/v1/monitors	index.ts:10:13

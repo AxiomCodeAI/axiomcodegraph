@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (ctx_di, negative (SPEC R18-R21 negative controls)): routes, middleware chains, ctx flows
+# census: ctx_di, negative (SPEC R18-R21 negative controls)
+route	POST	/typed/save	app.ts:15:25	app.ts:9:13	1
+route	POST	/typed/ctx	app.ts:17:24	app.ts:9:13	2
+route	POST	/loose/save	app.ts:26:21	app.ts:9:13	4
+route	POST	/all	app.ts:30:18	app.ts:9:13	5
+mw	app.ts:10:21	app.ts:15:25	POST	/typed/save	0	app.ts:9:13
+mw	app.ts:10:21	app.ts:17:24	POST	/typed/ctx	0	app.ts:9:13
+mw	app.ts:21:16	app.ts:26:21	POST	/loose/save	0	app.ts:9:13
+ctx	app.ts:10:21	app.ts:17:24	users
+ctx	app.ts:21:16	app.ts:26:21	store
+submount	/loose	app.ts:27:5
+regby	app.ts:1:1	app.ts:15:25	POST	/typed/save	app.ts:9:13
+regby	app.ts:1:1	app.ts:17:24	POST	/typed/ctx	app.ts:9:13
+regby	app.ts:1:1	app.ts:26:21	POST	/loose/save	app.ts:9:13
+regby	app.ts:1:1	app.ts:30:18	POST	/all	app.ts:9:13

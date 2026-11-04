@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-07/R10: cors(...) and the basicAuth(...) call inside guard are the middleware; their option callbacks are not
+# census: builtin_mw_import, mw_factory_returning_fn (violation hono-2-07, SPEC R10)
+route	GET	/x	index.ts:16:15	index.ts:13:13	2
+mw	lib:hono/cors.cors@index.ts:14:14	index.ts:16:15	GET	/x	0	index.ts:13:13
+mw	lib:hono/basic-auth.basicAuth@index.ts:10:10	index.ts:16:15	GET	/x	1	index.ts:13:13
+regby	index.ts:1:1	index.ts:16:15	GET	/x	index.ts:13:13

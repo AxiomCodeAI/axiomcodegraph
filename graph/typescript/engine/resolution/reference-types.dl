@@ -202,6 +202,7 @@ var_type(v, prov, t) :- var_initializer("client", _, e, v),
 var_shape(v, s) :- var_initializer("client", _, e, v),
     e != "",
     !var_has_declared_type(v),
+    !var_is_destructured(v),
     expr_shape(e, s).
 
 // `const s = "text"` and friends — a literal initializer types the variable by its

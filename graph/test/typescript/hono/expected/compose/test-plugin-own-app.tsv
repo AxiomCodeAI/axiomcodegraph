@@ -1,0 +1,38 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R16/hono-6-02: test-built plugins (declarative definePlugin routes, register(app), direct mountPlugin) are routes ONLY of the test app that mounted them; production serves only its core plugins; a request inside an assertion argument reaches its own app (O26); a register-only plugin's absent routes mount nothing (no unresolved_mount)
+# census: app_request_test, plugin_list_mount (SPEC R16; R6, R13b; violation hono-6-02; oracle gap O26)
+route	GET	/api/defined	__tests__/define-plugin.test.ts:10:37	__tests__/define-plugin.test.ts:12:17	0
+route	GET	/imp	__tests__/define-plugin.test.ts:22:47	__tests__/define-plugin.test.ts:25:17	0
+route	GET	/alpha	__tests__/mount.test.ts:8:14	__tests__/mount.test.ts:13:15	0
+route	GET	/beta	__tests__/mount.test.ts:8:14	__tests__/mount.test.ts:20:15	0
+route	GET	/gamma	__tests__/mount.test.ts:8:14	__tests__/mount.test.ts:27:15	0
+route	GET	/health	app.ts:10:22	app.ts:9:15	0
+route	GET	/admin/audit	plugins/audit.ts:5:16	app.ts:9:15	1
+route	GET	/admin/audit/:id	plugins/audit.ts:6:19	app.ts:9:15	2
+route	GET	/admin/tenants	plugins/tenants.ts:6:14	app.ts:9:15	3
+request	__tests__/define-plugin.test.ts:18:37	GET	/imp	__tests__/define-plugin.test.ts:22:47
+request	__tests__/define-plugin.test.ts:9:63	GET	/api/defined	__tests__/define-plugin.test.ts:10:37
+request	__tests__/mount.test.ts:12:25	GET	/alpha	__tests__/mount.test.ts:8:14
+request	__tests__/mount.test.ts:19:31	GET	/beta	__tests__/mount.test.ts:8:14
+request	__tests__/mount.test.ts:26:30	GET	/gamma	__tests__/mount.test.ts:8:14
+submount	/api/defined	sdk.ts:34:11
+submount	/imp	__tests__/define-plugin.test.ts:22:13
+submount	/alpha	sdk.ts:34:11
+submount	/beta	sdk.ts:34:11
+submount	/gamma	sdk.ts:34:11
+submount	/admin/audit	sdk.ts:34:11
+submount	/admin/tenants	plugins/tenants.ts:13:9
+regby	__tests__/define-plugin.test.ts:21:7	__tests__/define-plugin.test.ts:22:47	GET	/imp	__tests__/define-plugin.test.ts:25:17
+regby	__tests__/define-plugin.test.ts:9:63	__tests__/define-plugin.test.ts:10:37	GET	/api/defined	__tests__/define-plugin.test.ts:12:17
+regby	__tests__/mount.test.ts:6:1	__tests__/mount.test.ts:8:14	GET	/alpha	__tests__/mount.test.ts:13:15
+regby	__tests__/mount.test.ts:6:1	__tests__/mount.test.ts:8:14	GET	/beta	__tests__/mount.test.ts:20:15
+regby	__tests__/mount.test.ts:6:1	__tests__/mount.test.ts:8:14	GET	/gamma	__tests__/mount.test.ts:27:15
+regby	app.ts:8:1	app.ts:10:22	GET	/health	app.ts:9:15
+regby	plugins/audit.ts:1:1	plugins/audit.ts:5:16	GET	/admin/audit	app.ts:9:15
+regby	plugins/audit.ts:1:1	plugins/audit.ts:6:19	GET	/admin/audit/:id	app.ts:9:15
+regby	plugins/tenants.ts:4:1	plugins/tenants.ts:6:14	GET	/admin/tenants	app.ts:9:15
+unknown	__tests__/define-plugin.test.ts:22:9	conditional_registration	__tests__/define-plugin.test.ts:22:47
+unknown	plugins/tenants.ts:13:5	conditional_registration	plugins/tenants.ts:6:14
+unknown	sdk.ts:34:7	conditional_registration	__tests__/define-plugin.test.ts:10:37
+unknown	sdk.ts:34:7	conditional_registration	__tests__/mount.test.ts:8:14
+unknown	sdk.ts:34:7	conditional_registration	plugins/audit.ts:5:16
+unknown	sdk.ts:34:7	conditional_registration	plugins/audit.ts:6:19

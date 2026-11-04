@@ -1,0 +1,13 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O24/R13: a plugin factory's second instance that nothing imports or mounts is no root at its local paths; a never-imported plugin module's handlers are partial unresolved_mount
+# census: plugin_list_mount (oracle gap O24; SPEC R13 / R13b)
+route	GET	/	app.ts:12:16	app.ts:11:15	0
+route	POST	/auth/magic-link/request	plugins/magic-link.ts:12:27	app.ts:11:15	1
+route	GET	/auth/magic-link/verify	plugins/magic-link.ts:13:25	app.ts:11:15	2
+submount	/auth/magic-link	app.ts:6:41
+partial	plugins/legacy-export.ts:8:22	GET	unresolved_mount
+regby	app.ts:10:1	app.ts:12:16	GET	/	app.ts:11:15
+regby	plugins/magic-link.ts:10:1	plugins/magic-link.ts:12:27	POST	/auth/magic-link/request	app.ts:11:15
+regby	plugins/magic-link.ts:10:1	plugins/magic-link.ts:13:25	GET	/auth/magic-link/verify	app.ts:11:15
+unknown	app.ts:6:37	conditional_registration	plugins/magic-link.ts:12:27
+unknown	app.ts:6:37	conditional_registration	plugins/magic-link.ts:13:25
+unknown	plugins/legacy-export.ts:9:79	unresolved_mount	plugins/legacy-export.ts:8:22

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an all('*') function that calls next is middleware for /x
+# census: await_next, verb_literal_path
+entry	index.ts:6:14	http
+entry	index.ts:9:15	http

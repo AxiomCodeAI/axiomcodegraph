@@ -1,0 +1,190 @@
+// ============================================================================
+// CONFIG-RESOLUTION · HTTP ROUTER APPLICATIONS  (JavaScript: which values are apps)
+//
+// The JavaScript counterpart of typescript/engine/config-resolution/http-router-apps.dl.
+// JavaScript has no declared types, but it has resolution/value-flow.dl: a value
+// follows its binding through consts, imports and exports (ESM and CommonJS),
+// parameters at resolved calls and returned values. So an application is one more
+// VALUE KIND there, `router_app`, keyed by the `new X()` that built it, and the flow
+// engine carries it wherever it goes. Rules here only say where the value starts and
+// which calls hand it back (`app.get(...)` returns the app, `basePath` a value sharing
+// its route list).
+//
+// LIMIT, stated: a function that builds and returns an app yields the SAME value at
+// every call here (the flow engine has one allocation per `new`), so two sub-apps made
+// by one factory share a list. The TypeScript engine splits them per call.
+//
+// Framework names live in config-resolution/knobs.dl only (router_*).
+// ============================================================================
+
+// ── a specifier as the package it names ─────────────────────────────────────
+// `npm:x@4/sub` and `jsr:@s/x@^4/sub` are `x/sub` and `@s/x/sub`; a URL under a knob
+// prefix is the package (`/mod.ts`) or its subpath; anything else is itself.
+.decl jr_spec_raw(c0:symbol)
+jr_spec_raw(raw) :- import_decl(_, raw, _, _, _, _, _, _, _).
+.decl jr_unscheme(c0:symbol, c1:symbol)
+jr_unscheme(raw, x) :- jr_spec_raw(raw), router_spec_scheme(s), strlen(raw) > strlen(s),
+    substr(raw, 0, strlen(s)) = s, x = substr(raw, strlen(s), strlen(raw) - strlen(s)).
+.decl jr_ver_at(c0:symbol, c1:number)
+jr_ver_at(x, i) :- jr_unscheme(_, x), i = range(1, strlen(x)), substr(x, i, 1) = "@".
+.decl jr_slash_after(c0:symbol, c1:number, c2:number)
+jr_slash_after(x, i, j) :- jr_ver_at(x, i), j = range(i, strlen(x)), substr(x, j, 1) = "/".
+.decl jr_ver_end(c0:symbol, c1:number, c2:number)
+jr_ver_end(x, i, j) :- jr_ver_at(x, i), j = min y : { jr_slash_after(x, i, y) }.
+jr_ver_end(x, i, strlen(x)) :- jr_ver_at(x, i), !jr_slash_after(x, i, _).
+.decl jr_spec(c0:symbol, c1:symbol)
+jr_spec(raw, raw) :- jr_spec_raw(raw).
+jr_spec(raw, x) :- jr_unscheme(raw, x), !jr_ver_at(x, _).
+jr_spec(raw, y) :- jr_unscheme(raw, x), jr_ver_at(x, i), jr_ver_end(x, i, j),
+    y = cat(substr(x, 0, i), substr(x, j, strlen(x) - j)).
+.decl jr_url_rest(c0:symbol, c1:symbol, c2:symbol)
+jr_url_rest(raw, pkg, rest) :- jr_spec_raw(raw), router_spec_url(pre, pkg), strlen(raw) > strlen(pre),
+    substr(raw, 0, strlen(pre)) = pre, rest = substr(raw, strlen(pre), strlen(raw) - strlen(pre)).
+.decl jr_url_path(c0:symbol, c1:symbol, c2:symbol)
+jr_url_path(raw, pkg, rest) :- jr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "/".
+jr_url_path(raw, pkg, r2) :- jr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "@",
+    j = min y : { y = range(0, strlen(rest)), substr(rest, y, 1) = "/" }, r2 = substr(rest, j, strlen(rest) - j).
+jr_spec(raw, pkg) :- jr_url_path(raw, pkg, "/mod.ts").
+
+.decl jr_module(c0:symbol)
+jr_module(spec) :- router_app_class(spec, _).
+jr_module(spec) :- router_mw_wrapper(spec, _).
+jr_module(spec) :- router_mw_combinator(spec, _).
+jr_module(spec) :- router_mw_except(spec, _).
+jr_module(spec) :- router_rpc_client(spec, _).
+jr_module(spec) :- router_test_client(spec, _).
+jr_module(spec) :- router_route_def(spec, _).
+
+// jr_ref(Expr, Specifier, Name): Expr denotes export Name of a knob module ("" = the
+// module itself), through an import, a require, a destructure or a member read
+.decl jr_ref(c0:symbol, c1:symbol, c2:symbol)
+jr_ref(e, spec, "") :- expr_kind(_, "MODULE_EDGE_CALL", _, e), expr_module_edge(_, imp, e),
+    import_decl(_, raw, _, _, _, _, _, _, imp), jr_spec(raw, spec), jr_module(spec).
+jr_ref(e, spec, "") :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_decl(_, raw, _, bf, _, _, _, _, imp), import_binds_whole_module(bf), jr_spec(raw, spec), jr_module(spec).
+jr_ref(e, spec, n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_decl(_, raw, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "", jr_spec(raw, spec), jr_module(spec).
+jr_ref(e, spec, n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), jr_ref(r, spec, "").
+jr_ref(e, spec, n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), !var_import(_, _, v),
+    var_init(_, _, i, v), jr_ref(i, spec, n).
+
+.decl jr_new(c0:symbol)
+jr_new(ne) :- expr_kind(_, "NEW", _, ne), expr_child(_, ne, "CALLEE", _, c), jr_ref(c, spec, n),
+    router_app_class(spec, n).
+
+// ── the value kind ──────────────────────────────────────────────────────────
+expr_value(ne, "router_app", ne) :- jr_new(ne).
+expr_value(ce, "router_app", a) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _),
+    (router_returns_app(cn) ; router_base_path(cn)), expr_value(r, "router_app", a).
+
+// ── a registration: a call on an app value ──────────────────────────────────
+.decl jr_registrar(c0:symbol)
+jr_registrar(n) :- router_verb(n, _).
+jr_registrar(n) :- router_use(n).
+jr_registrar(n) :- router_on(n).
+jr_registrar(n) :- router_mount_app(n).
+jr_registrar(n) :- router_mount_foreign(n).
+jr_registrar(n) :- router_fallback(n).
+jr_registrar(n) :- router_openapi(n).
+.decl jr_reg(c0:symbol, c1:symbol, c2:symbol)
+jr_reg(ce, a, cn) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), jr_registrar(cn),
+    expr_value(r, "router_app", a).
+.decl jr_recv(c0:symbol, c1:symbol)
+jr_recv(ce, r) :- jr_reg(ce, _, _), call_site(_, "METHOD_CALL", _, _, r, _, ce, _, _).
+
+// ── strings: what the flow engine knows a value to be, else a hole ─────────
+.decl jr_need_str(c0:symbol)
+jr_need_str(p) :- jr_reg(ce, _, _), call_arg(ce, 0, p).
+jr_need_str(p) :- jr_reg(ce, _, cn), router_on(cn), call_arg(ce, 1, p).
+jr_need_str(el) :- jr_reg(ce, _, cn), router_on(cn), call_arg(ce, pos, x), pos <= 1,
+    expr_kind(_, "ARRAY_LITERAL", _, x), expr_child(_, x, _, _, el).
+jr_need_str(p) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), router_base_path(cn),
+    expr_value(r, "router_app", _), call_arg(ce, 0, p).
+.decl jr_has_str(c0:symbol)
+jr_has_str(p) :- jr_need_str(p), expr_value(p, "str", _).
+.decl jr_str(c0:symbol, c1:symbol)
+jr_str(p, s) :- jr_need_str(p), expr_value(p, "str", s).
+jr_str(p, "{}") :- jr_need_str(p), !jr_has_str(p).
+
+// ── the base each app value carries (basePath), where it can be followed ───
+// Same module, through consts and chains. A value reached any other way (an import, a
+// parameter) is taken at the base of the list it belongs to, `/`; that misses a
+// basePath applied in another module, and the routes come out without it.
+.decl jr_base(c0:symbol, c1:symbol)
+jr_base(ne, "/") :- jr_new(ne).
+jr_base(ce, b) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), router_returns_app(cn),
+    expr_value(ce, "router_app", _), jr_base(r, b).
+jr_base(ce, nb) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), router_base_path(cn),
+    jr_base(r, b), call_arg(ce, 0, p), jr_str(p, pv), jr_bmerge(b, pv, nb), strlen(nb) < 300.
+jr_bmreq(b, pv) :- call_site(_, "METHOD_CALL", cn, _, r, _, ce, _, _), router_base_path(cn),
+    jr_base(r, b), call_arg(ce, 0, p), jr_str(p, pv).
+jr_base(e, b) :- expr_kind(_, "IDENTIFIER", _, e), expr_value(e, "router_app", _), expr_binding(_, v, e),
+    !var_import(_, _, v), var_init(_, _, i, v), jr_base(i, b).
+.decl jr_has_base(c0:symbol)
+jr_has_base(e) :- jr_base(e, _).
+.decl jr_val(c0:symbol, c1:symbol, c2:symbol)
+jr_val(e, a, b) :- expr_value(e, "router_app", a), jr_base(e, b).
+jr_val(e, a, "/") :- expr_value(e, "router_app", a), !jr_has_base(e).
+
+// ── mergePath, for basePath (a stratum of its own: the base decides which values
+// have one, and the later merges depend on that)
+.decl jr_bmreq(c0:symbol, c1:symbol)
+.decl jr_bmerge(c0:symbol, c1:symbol, c2:symbol)
+.decl jr_blead(c0:symbol, c1:symbol)
+jr_blead(x, x) :- (jr_bmreq(x, _) ; jr_bmreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) = "/".
+jr_blead(x, y) :- (jr_bmreq(x, _) ; jr_bmreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) != "/", y = cat("/", x).
+jr_blead("", "/") :- (jr_bmreq("", _) ; jr_bmreq(_, "")).
+jr_bmerge(a, b, a1) :- jr_bmreq(a, b), jr_blead(a, a1), jr_blead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) = "/".
+jr_bmerge(a, b, r) :- jr_bmreq(a, b), jr_blead(a, a1), jr_blead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) = "/", r = cat(substr(a1, 0, strlen(a1) - 1), b1).
+jr_bmerge(a, b, a1) :- jr_bmreq(a, b), jr_blead(a, a1), jr_blead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) != "/".
+jr_bmerge(a, b, r) :- jr_bmreq(a, b), jr_blead(a, a1), jr_blead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) != "/", r = cat(a1, b1).
+
+// ── mergePath ───────────────────────────────────────────────────────────────
+.decl jr_mreq(c0:symbol, c1:symbol)
+.decl jr_merge(c0:symbol, c1:symbol, c2:symbol)
+.decl jr_lead(c0:symbol, c1:symbol)
+jr_lead(x, x) :- (jr_mreq(x, _) ; jr_mreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) = "/".
+jr_lead(x, y) :- (jr_mreq(x, _) ; jr_mreq(_, x)), strlen(x) >= 1, substr(x, 0, 1) != "/", y = cat("/", x).
+jr_lead("", "/") :- (jr_mreq("", _) ; jr_mreq(_, "")).
+jr_merge(a, b, a1) :- jr_mreq(a, b), jr_lead(a, a1), jr_lead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) = "/".
+jr_merge(a, b, r) :- jr_mreq(a, b), jr_lead(a, a1), jr_lead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) = "/", r = cat(substr(a1, 0, strlen(a1) - 1), b1).
+jr_merge(a, b, a1) :- jr_mreq(a, b), jr_lead(a, a1), jr_lead(b, "/"),
+    substr(a1, strlen(a1) - 1, 1) != "/".
+jr_merge(a, b, r) :- jr_mreq(a, b), jr_lead(a, a1), jr_lead(b, b1), b1 != "/",
+    substr(a1, strlen(a1) - 1, 1) != "/", r = cat(a1, b1).
+
+// ── mounts and roots ────────────────────────────────────────────────────────
+.decl jr_inc(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+jr_inc(a, s, ce, pre) :- jr_reg(ce, a, cn), router_mount_app(cn), jr_recv(ce, r), jr_val(r, a, b),
+    call_arg(ce, 1, sx), expr_value(sx, "router_app", s), s != a,
+    call_arg(ce, 0, px), jr_str(px, pv), jr_merge(b, pv, pre).
+jr_mreq(b, pv) :- jr_reg(ce, a, cn), router_mount_app(cn), jr_recv(ce, r), jr_val(r, a, b),
+    call_arg(ce, 0, px), jr_str(px, pv).
+.decl jr_included(c0:symbol)
+jr_included(s) :- jr_reg(ce, a, cn), router_mount_app(cn), call_arg(ce, 1, sx),
+    expr_value(sx, "router_app", s), s != a.
+.decl jr_root(c0:symbol)
+jr_root(a) :- jr_new(a), !jr_included(a).
+
+// ── position keys ───────────────────────────────────────────────────────────
+// The first argument's position: a chain `app.get(…).post(…)` starts every call at
+// the same receiver, and the arguments are what moves left to right.
+.decl jr_need_key(c0:symbol)
+jr_need_key(ce) :- jr_reg(ce, _, _).
+.decl jr_key_expr(c0:symbol, c1:symbol)
+jr_key_expr(ce, a) :- jr_need_key(ce), call_arg(ce, 0, a).
+.decl jr_has_arg(c0:symbol)
+jr_has_arg(ce) :- jr_key_expr(ce, _).
+.decl jr_key_x(c0:symbol, c1:symbol)
+jr_key_x(ce, a) :- jr_key_expr(ce, a).
+jr_key_x(ce, ce) :- jr_need_key(ce), !jr_has_arg(ce).
+.decl jr_key(c0:symbol, c1:symbol)
+jr_key(ce, k) :- jr_key_x(ce, x), expr_span(_, l, c, _, _, x), strlen(l) <= 7, strlen(c) <= 5,
+    k = cat(cat(substr("0000000", 0, 7 - strlen(l)), l), cat(":", cat(substr("00000", 0, 5 - strlen(c)), c))).

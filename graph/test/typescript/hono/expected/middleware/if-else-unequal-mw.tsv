@@ -1,0 +1,22 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R15 clause 2: unequal if/else branches start at the same position, each conditional; a later middleware continues after the longer branch and its chain is dynamic_middleware_list; /api/ping (nothing after the branch) and /health are not dynamic
+# census: use_conditional_loop, use_scoped (SPEC R15 clause 2)
+route	GET	/health	index.ts:28:20	index.ts:18:13	5
+route	GET	/api/ping	index.ts:29:22	index.ts:18:13	6
+route	GET	/api/items/:id	index.ts:30:27	index.ts:18:13	7
+mw	index.ts:12:38	index.ts:28:20	GET	/health	0	index.ts:18:13
+mw	index.ts:12:38	index.ts:29:22	GET	/api/ping	0	index.ts:18:13
+mw	index.ts:13:40	index.ts:29:22	GET	/api/ping	1	index.ts:18:13
+mw	index.ts:14:37	index.ts:29:22	GET	/api/ping	2	index.ts:18:13
+mw	index.ts:15:35	index.ts:29:22	GET	/api/ping	1	index.ts:18:13
+mw	index.ts:12:38	index.ts:30:27	GET	/api/items/:id	0	index.ts:18:13
+mw	index.ts:13:40	index.ts:30:27	GET	/api/items/:id	1	index.ts:18:13
+mw	index.ts:14:37	index.ts:30:27	GET	/api/items/:id	2	index.ts:18:13
+mw	index.ts:15:35	index.ts:30:27	GET	/api/items/:id	1	index.ts:18:13
+mw	index.ts:16:34	index.ts:30:27	GET	/api/items/:id	3	index.ts:18:13
+regby	index.ts:1:1	index.ts:28:20	GET	/health	index.ts:18:13
+regby	index.ts:1:1	index.ts:29:22	GET	/api/ping	index.ts:18:13
+regby	index.ts:1:1	index.ts:30:27	GET	/api/items/:id	index.ts:18:13
+unknown	index.ts:21:3	conditional_registration	index.ts:13:40
+unknown	index.ts:22:3	conditional_registration	index.ts:14:37
+unknown	index.ts:24:3	conditional_registration	index.ts:15:35
+unknown	index.ts:30:1	dynamic_middleware_list	index.ts:30:27

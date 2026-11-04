@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: non-last args are per-route middleware in argument order; handler is the last
+# census: verb_multi_handler, await_next
+entry	index.ts:13:1	http
+entry	index.ts:20:27	http
+entry	index.ts:21:19	http
+entry	index.ts:6:40	http
+entry	index.ts:9:34	http

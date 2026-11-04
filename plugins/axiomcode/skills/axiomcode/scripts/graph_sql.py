@@ -3615,6 +3615,9 @@ def _has_framework_hops(q, at=None, site_file=None):
         import ax_registration
         if at is not None and ax_registration.key_edges(q, at, site_file): return True
         if ax_registration.filter_links(q): return True     # fw_edge "filter": a servlet filter a test's context holds
+        # an HTTP router's chain (dl/impact.dl mw_applies / ctx_flow): direct rows the rules have and this port does not
+        for t in ('ext_middleware_applies', 'ext_ctx_key_flow', 'ext_route_schema'):
+            if _has(q, t) and q(f"SELECT 1 FROM {t} LIMIT 1"): return True
     except Exception:
         return True                               # cannot tell: decline, because answering smaller is the failure
     try:

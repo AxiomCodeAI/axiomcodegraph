@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: import_map.json to npm:hono@4; hono/factory via the prefix map; createMiddleware's arg is the middleware
+# census: none (corpus gap). a standalone import_map.json mapping bare hono to npm:hono@4 (prefix map for hono/*): shape from Hono's
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/mapped	main.ts:11:20	main.ts:9:13	1
+mw	main.ts:6:32	main.ts:11:20	GET	/mapped	0	main.ts:9:13
+regby	main.ts:1:1	main.ts:11:20	GET	/mapped	main.ts:9:13

@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: mount: ANY /legacy/* served by the foreign function, which is an http entry
+# census: mount_foreign
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+# iteration 3: the mount is a store entry with a chain (O8); its route row and regby row re-derived
+route	ANY	/legacy/*	index.ts:5:1	index.ts:9:13	0
+route	GET	/new	index.ts:11:17	index.ts:9:13	1
+regby	index.ts:1:1	index.ts:11:17	GET	/new	index.ts:9:13
+regby	index.ts:1:1	index.ts:5:1	ANY	/legacy/*	index.ts:9:13

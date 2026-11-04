@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: inline (expression), local, named, default, namespace member and barrel re-export each resolve to the declaration
+# census: zvalidator, req_valid (SPEC 3.9 declaration forms)
+entry	index.ts:14:70	http
+entry	index.ts:15:47	http
+entry	index.ts:16:46	http
+entry	index.ts:17:52	http
+entry	index.ts:18:54	http
+entry	index.ts:19:53	http

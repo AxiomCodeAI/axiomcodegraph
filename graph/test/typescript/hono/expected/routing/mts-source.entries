@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an .mts module is parsed like .ts
+# census: new_hono, verb_literal_path (an .mts module)
+entry	server.mts:6:17	http
+entry	server.mts:7:18	http

@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-04: handlers.login (namespace member) handles POST /auth/login built from a template over a literal
+# census: openapi_register, create_route (violation hono-1-04)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/auth/login	auth.handlers.ts:3:22	index.ts:8:14	0
+regby	index.ts:1:1	auth.handlers.ts:3:22	POST	/auth/login	index.ts:8:14

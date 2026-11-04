@@ -1,0 +1,16 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-05: the template prefix /v1/${group} keeps its known pieces: partial GET /v1/{}/ping and /v1/{}/status/:part (runtime /v1/system/... matches), global use 0 and the sub-app's use 1, the /v1/* use is partial_route_scope
+# census: route_mount_nonliteral, use_scoped, use_global (violation hono-7-05: a partial route whose unknown piece
+route	GET	/health	main.ts:23:20	main.ts:13:13	2
+mw	main.ts:14:14	main.ts:23:20	GET	/health	0	main.ts:13:13
+partial	system.ts:8:21	GET	dynamic_mount_prefix
+partial	system.ts:9:29	GET	dynamic_mount_prefix
+ppath	system.ts:8:21	GET	/v1/{}/ping
+ppath	system.ts:9:29	GET	/v1/{}/status/:part
+mwp	main.ts:14:14	system.ts:8:21	GET	0
+mwp	main.ts:14:14	system.ts:9:29	GET	0
+mwp	system.ts:4:17	system.ts:8:21	GET	1
+mwp	system.ts:4:17	system.ts:9:29	GET	1
+regby	main.ts:1:1	main.ts:23:20	GET	/health	main.ts:13:13
+unknown	main.ts:22:1	dynamic_mount_prefix	system.ts:8:21
+unknown	main.ts:22:1	dynamic_mount_prefix	system.ts:9:29
+unknown	main.ts:22:1	partial_route_scope	main.ts:17:26

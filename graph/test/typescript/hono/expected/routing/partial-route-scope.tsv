@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: the /list route under an unknown prefix is partial; the /v1/* use against it is partial_route_scope
+# census: use_scoped, route_mount_nonliteral (SPEC 3.3 [iter2] partial_route_scope)
+partial	index.ts:9:20	GET	dynamic_mount_prefix
+unknown	index.ts:14:1	dynamic_mount_prefix	index.ts:9:20
+unknown	index.ts:14:1	partial_route_scope	index.ts:6:38

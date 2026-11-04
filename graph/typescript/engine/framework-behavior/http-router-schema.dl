@@ -1,0 +1,149 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP ROUTER SCHEMAS  (what a route validates, and who reads it)
+//
+//   route_schema(Handler, Target, SchemaDecl)
+//       the route's request part Target (json, query, param, form, header, cookie) or
+//       its `response` is validated by the schema declared at SchemaDecl: a variable,
+//       or the schema expression itself when it is written in place. A schema built from
+//       another (`Base.extend(..)`, `Base.merge(X)`, `z.array(Base)`, `Base.openapi('N')`)
+//       carries its bases too, so a change to Base reaches every route that validates
+//       with something derived from it.
+//   valid_read(ReadExpr, Handler, Target, SchemaDecl)
+//       `c.req.valid(Target)` in a route's handler reads what that route's validator for
+//       Target produced. A read with no validator for its target on the route is declared
+//       (framework_undetermined `valid_without_validator`).
+//
+// Two sources: a validator middleware argument (`zValidator('json', S)`, knob
+// router_validator) and an OpenAPI route definition's `request` and `responses`.
+// ============================================================================
+
+// ── (route call, handler, target, schema expression) ────────────────────────
+.decl hs_validates(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hs_validates(ce, h, t, sx) :- hr_harg(ce, _, a), hr_knob_call(a, spec, n), router_validator(spec, n),
+    expr_child("client", a, "ARGUMENT", "0", tx), rd_val(tx, t), expr_child("client", a, "ARGUMENT", "1", sx),
+    hr_last(ce, l), hr_node_fn(ce, l, h).
+// a function validator validates its target, with no schema
+.decl hs_validates_fn(c0:symbol, c1:symbol, c2:symbol)
+hs_validates_fn(ce, h, t) :- hr_harg(ce, _, a), hr_knob_call(a, spec, n), router_validator_fn(spec, n),
+    expr_child("client", a, "ARGUMENT", "0", tx), rd_val(tx, t), hr_last(ce, l), hr_node_fn(ce, l, h).
+rd_demand(tx) :- hr_harg(_, _, a), hr_knob_call(a, spec, n), (router_validator(spec, n) ; router_validator_fn(spec, n)),
+    expr_child("client", a, "ARGUMENT", "0", tx).
+// an OpenAPI definition: request.params / query / headers / cookies, request.body's
+// content schemas, and every response's content schemas
+hs_validates(ce, h, t, sx) :- hr_openapi_def(ce, o), hr_node_fn(ce, 100, h),
+    rd_obj_prop(o, rk, rq), router_def_key(rk, "request"), rd_obj_prop(rq, k, sx), router_def_request_target(k, t).
+hs_validates(ce, h, t, sx) :- hr_openapi_def(ce, o), hr_node_fn(ce, 100, h),
+    rd_obj_prop(o, rk, rq), router_def_key(rk, "request"), rd_obj_prop(rq, bk, body), router_def_key(bk, "body"),
+    rd_obj_prop(body, ck, ct), router_def_key(ck, "content"), rd_obj_prop(ct, mime, mt), router_def_body_target(mime, t),
+    rd_obj_prop(mt, sk, sx), router_def_key(sk, "schema").
+// the definition's responses, one per status entry: under any key, a computed one too
+// (`[Status.OK]: ..`), and the entries of a module-level object spread into it (`...errorResponses`)
+.decl hs_resp_obj(c0:symbol, c1:symbol)
+hs_resp_obj(o, rs) :- hr_openapi_def(_, o), rd_obj_prop(o, rk, rs), router_def_key(rk, "responses"),
+    expr_kind("client", "OBJECT_LITERAL", _, rs).
+hs_resp_obj(o, ro) :- hr_openapi_def(_, o), rd_obj_prop(o, rk, rs), router_def_key(rk, "responses"),
+    hr_denotes_var(rs, v), rd_init_obj(v, ro).
+hs_resp_obj(o, ro) :- hs_resp_obj(o, rs), expr_child("client", rs, _, _, sp), expr_kind("client", "SPREAD_ELEMENT", _, sp),
+    expr_child("client", sp, _, _, x), hr_denotes_var(x, v), rd_init_obj(v, ro).
+hs_resp_obj(o, ro) :- hs_resp_obj(o, rs), expr_child("client", rs, _, _, sp), expr_kind("client", "SPREAD_ELEMENT", _, sp),
+    expr_child("client", sp, _, _, x), expr_kind("client", "OBJECT_LITERAL", _, x), ro = x.
+.decl hs_resp(c0:symbol, c1:symbol)
+hs_resp(o, r1) :- hs_resp_obj(o, rs), expr_child("client", rs, "OBJECT_PROPERTY_VALUE", _, r1).
+hs_validates(ce, h, "response", sx) :- hr_openapi_def(ce, o), hr_node_fn(ce, 100, h), hs_resp(o, r1),
+    rd_obj_prop(r1, ck, ct), router_def_key(ck, "content"), rd_obj_prop(ct, _, mt),
+    rd_obj_prop(mt, sk, sx), router_def_key(sk, "schema").
+// a response or a request body built by a project helper (`200: jsonBody(User, 'ok')` returning `{ content: {
+// 'application/json': { schema } } }`, a helper spreading another `{ ...jsonBody(s, d), required: true }`): the
+// schema is the argument the outermost call passes for the parameter the innermost object names
+.decl hs_hneed(c0:symbol)
+hs_hneed(r1) :- hs_resp(_, r1).
+hs_hneed(b) :- hr_openapi_def(_, o), rd_obj_prop(o, rk, rq), router_def_key(rk, "request"), rd_obj_prop(rq, bk, b),
+    router_def_key(bk, "body").
+hs_hneed(ro) :- hs_hneed(x), hr_call_of(x, w), hr_ret_expr(w, ro).
+hs_hneed(c) :- hs_hneed(o), expr_kind("client", "OBJECT_LITERAL", _, o), expr_child("client", o, _, _, sp),
+    expr_kind("client", "SPREAD_ELEMENT", _, sp), expr_child("client", sp, _, _, c).
+// (object or call, content type, schema expression, possibly a parameter of the helper)
+.decl hs_cs(c0:symbol, c1:symbol, c2:symbol)
+hs_cs(o, mime, sx) :- hs_hneed(o), rd_obj_prop(o, ck, ct), router_def_key(ck, "content"), rd_obj_prop(ct, mime, mt),
+    rd_obj_prop(mt, sk, sx), router_def_key(sk, "schema").
+hs_cs(o, mime, sx) :- hs_hneed(o), expr_kind("client", "OBJECT_LITERAL", _, o), expr_child("client", o, _, _, sp),
+    expr_kind("client", "SPREAD_ELEMENT", _, sp), expr_child("client", sp, _, _, c), hs_cs(c, mime, sx).
+hs_cs(x, mime, sx) :- hs_hneed(x), hr_call_of(x, w), hr_ret_expr(w, ro), hs_cs(ro, mime, sx), !hs_param_of(sx, w, _).
+hs_cs(x, mime, ax) :- hs_hneed(x), hr_call_of(x, w), hr_ret_expr(w, ro), hs_cs(ro, mime, px), hs_param_of(px, w, pos),
+    expr_child("client", x, "ARGUMENT", pos, ax).
+.decl hs_param_of(c0:symbol, c1:symbol, c2:symbol)
+hs_param_of(px, w, pos) :- hr_on(), expr_referenced("client", "PARAMETER", pp, px), param_decl("client", _, pos, _, w, pp).
+.decl hs_is_param(c0:symbol)
+hs_is_param(px) :- hr_on(), expr_referenced("client", "PARAMETER", _, px).
+hs_validates(ce, h, "response", sx) :- hr_openapi_def(ce, o), hr_node_fn(ce, 100, h),
+    hs_resp(o, r1), call_site("client", _, _, _, _, r1, _),
+    hs_cs(r1, _, sx), !hs_is_param(sx).
+hs_validates(ce, h, t, sx) :- hr_openapi_def(ce, o), hr_node_fn(ce, 100, h),
+    rd_obj_prop(o, rk, rq), router_def_key(rk, "request"), rd_obj_prop(rq, bk, b), router_def_key(bk, "body"),
+    call_site("client", _, _, _, _, b, _), hs_cs(b, mime, sx), router_def_body_target(mime, t), !hs_is_param(sx).
+
+// ── the declaration a schema expression names ───────────────────────────────
+// (expression, declaration): a const (here, imported, re-exported, a namespace member),
+// else the expression itself
+.decl hs_decl_var(c0:symbol, c1:symbol)
+hs_decl_var(sx, v) :- hs_validates(_, _, _, sx), hr_denotes_var(sx, v).
+hs_decl_var(sx, v) :- hs_validates(_, _, _, sx), property_access_name(sx, n), expr_child("client", sx, "RECEIVER", _, r),
+    expr_referenced("client", "IMPORT_BINDING", ih, r), import_binds_namespace(ih, "client", m),
+    module_export_any("client", m, n, "VARIABLE", v).
+.decl hs_named(c0:symbol)
+hs_named(sx) :- hs_decl_var(sx, _).
+.decl hs_decl(c0:symbol, c1:symbol)
+hs_decl(sx, v) :- hs_decl_var(sx, v).
+hs_decl(sx, sx) :- hs_validates(_, _, _, sx), !hs_named(sx).
+
+// ── composition: a schema and every schema it is built from ─────────────────
+// the expressions of a declaration's tree (a variable's initializer, or the expression)
+.decl hs_root(c0:symbol, c1:symbol)
+hs_root(d, i) :- hs_need(d), var_initializer("client", _, i, d), i != "".
+hs_root(d, d) :- hs_need(d), expr_kind("client", _, _, d).
+.decl hs_need(c0:symbol)
+hs_need(d) :- hs_decl(_, d).
+hs_need(b) :- hs_base(_, b).
+.decl hs_desc(c0:symbol, c1:symbol)
+hs_desc(d, i) :- hs_root(d, i).
+hs_desc(d, c) :- hs_desc(d, e), expr_child("client", e, _, _, c).
+// a reference to the schema library
+.decl hs_lib_ref(c0:symbol)
+hs_lib_ref(e) :- hr_on(), expr_referenced("client", "IMPORT_BINDING", ih, e), hr_import_spec(ih, spec), router_schema_module(spec).
+// a variable referenced in the tree, which is itself a schema
+.decl hs_base_cand(c0:symbol, c1:symbol)
+hs_base_cand(d, v) :- hs_desc(d, e), hr_denotes_var(e, v), v != d.
+.decl hs_base(c0:symbol, c1:symbol)
+hs_base(d, v) :- hs_base_cand(d, v), hs_lib_tree(v).
+// (decided without the recursion through hs_base: a candidate is a schema when its own
+// tree names the library, or names a variable whose tree does, transitively)
+.decl hs_lib_tree(c0:symbol)
+hs_lib_tree(v) :- hs_base_cand(_, v), var_initializer("client", _, i, v), i != "", hs_tdesc(i, e), hs_lib_ref(e).
+hs_lib_tree(v) :- hs_base_cand(_, v), var_initializer("client", _, i, v), i != "", hs_tdesc(i, e),
+    hr_denotes_var(e, w), w != v, hs_lib_tree(w).
+.decl hs_tdesc(c0:symbol, c1:symbol)
+hs_tdesc(i, i) :- hs_base_cand(_, v), var_initializer("client", _, i, v), i != "".
+hs_tdesc(i, c) :- hs_tdesc(i, e), expr_child("client", e, _, _, c).
+.decl hs_closure(c0:symbol, c1:symbol)
+hs_closure(d, d) :- hs_need(d).
+hs_closure(d, b) :- hs_closure(d, x), hs_base(x, b).
+
+// route_schema(Handler, Target, SchemaDecl) — the route's Target is validated by the
+// schema declared at SchemaDecl, or by one built from it
+route_schema(h, t, b) :- hs_validates(_, h, t, sx), hs_decl(sx, d), hs_closure(d, b).
+
+// ── `c.req.valid(target)` ───────────────────────────────────────────────────
+.decl hs_read(c0:symbol, c1:symbol, c2:symbol)
+hs_read(ce, m, t) :- call_site("client", "METHOD_CALL", vn, _, q, ce, _), router_valid_read(vn),
+    property_access_name(q, rn), router_ctx_req(rn), expr_child("client", q, "RECEIVER", _, c), hb_ctx_ref(c, m),
+    expr_child("client", ce, "ARGUMENT", "0", tx), rd_val(tx, t).
+rd_demand(tx) :- hr_on(), call_site("client", "METHOD_CALL", vn, _, q, ce, _), router_valid_read(vn),
+    property_access_name(q, rn), router_ctx_req(rn), expr_child("client", ce, "ARGUMENT", "0", tx).
+// valid_read(ReadExpr, Handler, Target, SchemaDecl) — the read gets what the route's
+// validator for Target produced
+valid_read(ce, h, t, d) :- hs_read(ce, h, t), hs_validates(_, h, t, sx), hs_decl(sx, d).
+.decl hs_read_ok(c0:symbol)
+hs_read_ok(ce) :- hs_read(ce, h, t), hs_validates(_, h, t, _).
+hs_read_ok(ce) :- hs_read(ce, h, t), hs_validates_fn(_, h, t).
+framework_undetermined(h, "valid_read", "valid_without_validator") :- hs_read(ce, h, _), !hs_read_ok(ce),
+    hr_node_fn(_, _, h).

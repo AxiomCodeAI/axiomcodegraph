@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O10: upgradeWebSocket destructured from createBunWebSocket() is a library-call handler
+# census: none (oracle gap O10, JavaScript): a library function taken by destructuring a library call's result
+route	GET	/ws	lib:hono/bun.createBunWebSocket().upgradeWebSocket@index.js:8:16	index.js:7:13	0
+regby	index.js:1:1	lib:hono/bun.createBunWebSocket().upgradeWebSocket@index.js:8:16	GET	/ws	index.js:7:13

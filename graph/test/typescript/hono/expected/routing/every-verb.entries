@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ten routes, PURGE via on, path-less post continues /chain; all is ANY
+# census: verb_literal_path, verb_chained, on_method, export_default_app
+entry	index.ts:10:26	http
+entry	index.ts:11:25	http
+entry	index.ts:12:23	http
+entry	index.ts:13:20	http
+entry	index.ts:14:27	http
+entry	index.ts:17:18	http
+entry	index.ts:18:9	http
+entry	index.ts:7:19	http
+entry	index.ts:8:20	http
+entry	index.ts:9:23	http

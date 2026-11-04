@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: CJS twin of negative-js: only /real; Map and router callbacks absent
+# census: none for CommonJS (corpus gap); CJS twin of js/negative-js
+entry	index.js:17:18	http

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: registered paths unchanged by strict:false
+# census: strict_false, new_hono_options
+entry	index.ts:7:20	http
+entry	index.ts:8:21	http

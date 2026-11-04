@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: R8b control: an unconditional literal basePath reassignment is exact under /api for every later registration; /health before it stays at /health
+# census: basepath (SPEC R8a/R8b control: an app variable re-pointed at a LITERAL basePath with no condition)
+route	GET	/health	index.ts:10:20	index.ts:9:11	0
+route	GET	/api/version	index.ts:12:21	index.ts:9:11	1
+route	GET	/api/users/:id	index.ts:7:19	index.ts:9:11	2
+submount	/api/users	index.ts:13:5
+regby	index.ts:1:1	index.ts:10:20	GET	/health	index.ts:9:11
+regby	index.ts:1:1	index.ts:12:21	GET	/api/version	index.ts:9:11
+regby	index.ts:1:1	index.ts:7:19	GET	/api/users/:id	index.ts:9:11

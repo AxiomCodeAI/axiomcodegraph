@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m38b/hono-5-06: the sync wrapper serves both inner routes behind its use(*)
+# census: bun_serve (stress-5 mutation m38b shape; violation hono-5-06)
+route	GET	/hello	main.ts:9:21	wrap.ts:4:19	1
+route	POST	/echo	main.ts:10:21	wrap.ts:4:19	2
+mw	wrap.ts:5:20	main.ts:9:21	GET	/hello	0	wrap.ts:4:19
+mw	wrap.ts:5:20	main.ts:10:21	POST	/echo	0	wrap.ts:4:19
+submount	/	wrap.ts:9:11
+regby	main.ts:1:1	main.ts:10:21	POST	/echo	wrap.ts:4:19
+regby	main.ts:1:1	main.ts:9:21	GET	/hello	wrap.ts:4:19

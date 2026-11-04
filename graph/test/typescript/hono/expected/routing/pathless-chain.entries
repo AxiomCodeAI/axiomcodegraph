@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: first path-less get is /, later path-less verbs continue the chain's path
+# census: verb_chained
+entry	index.ts:10:17	http
+entry	index.ts:11:9	http
+entry	index.ts:12:8	http
+entry	index.ts:14:25	http
+entry	index.ts:14:54	http
+entry	index.ts:7:9	http

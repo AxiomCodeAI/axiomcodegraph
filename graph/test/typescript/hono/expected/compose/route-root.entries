@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route('/') merges unprefixed, chained
+# census: route_mount_root
+entry	index.ts:10:20	http
+entry	index.ts:6:21	http
+entry	index.ts:7:22	http

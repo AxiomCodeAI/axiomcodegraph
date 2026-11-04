@@ -1,0 +1,14 @@
+// ============================================================================
+// Call-edge generation · THE DISPATCH AND FUNCTION-VALUE ENVELOPE  (exported, as TypeScript exports it)
+//
+// The flow engine resolves a call to the functions its receiver's VALUE may run, so a
+// JavaScript call edge already names the override that runs. The two envelope relations
+// TypeScript exports are kept here under the same names and columns, so a reader that widens
+// a call to what may run (impact, the chain checks) reads one schema for both languages:
+//
+//   method_dispatch_candidate(Base, Impl, Kind)  Impl, in a subclass, overrides Base
+//   fn_value_call(Caller, Fn)                    Caller hands Fn over at a call that runs it
+// ============================================================================
+method_dispatch_candidate(base, impl, "override") :- type_own_member(t, n, impl), type_ancestor(t, s),
+    type_own_member(s, n, base), base != impl.
+fn_value_call(caller, m) :- call_chain_edge(_, caller, "-", m, "client", "callback_registered", _), caller != m.

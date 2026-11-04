@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-06: the request on fixture.app reaches GET /api/flow
+# census: app_request_test (violation hono-2-06)
+entry	app.ts:5:24	http

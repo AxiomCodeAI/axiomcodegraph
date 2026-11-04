@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Deno.serve / Bun.serve inside a start function; the route from the exported app
+# census: deno_serve, bun_serve
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/deno	index.ts:9:18	index.ts:8:20	0
+regby	index.ts:1:1	index.ts:9:18	GET	/deno	index.ts:8:20
