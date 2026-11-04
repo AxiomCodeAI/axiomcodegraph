@@ -187,6 +187,13 @@ hr_fprop(a, v) :- hr_farg(a), property_access_name(a, n), expr_child("client", a
 hr_fprop(a, v) :- hr_farg(a), expr_referenced("client", "VARIABLE", d, a), var_binding("client", _, "PROPERTY", src, i, d), i != "",
     hr_fobj(i, o), rd_obj_prop(o, src, v).
 hr_farg(v) :- hr_fprop(_, v).
+// a route builder's `.handler` (http-router-apps.dl hr_bld_call): the property is the method's own parameter, so its value
+// is that method call's argument (`({ handler: fn, route })` returned by `.handler(fn)`)
+.decl hr_bld_arg(c0:symbol, c1:symbol)
+hr_bld_arg(a, y) :- hr_farg(a), property_access_name(a, n), expr_child("client", a, "RECEIVER", _, q), hr_bld_call(q, c, h, o),
+    rd_obj_prop(o, n, v), expr_referenced("client", "PARAMETER", p, v), param_decl("client", _, pos, _, h, p),
+    expr_child("client", c, "ARGUMENT", pos, y).
+hr_farg(y) :- hr_bld_arg(_, y).
 .decl hr_wrapper_call(c0:symbol)
 hr_wrapper_call(a) :- call_site("client", "METHOD_CALL", cn, _, r, a, _), router_factory_mw(cn), hr_factory_val(r, _).
 hr_wrapper_call(a) :- hr_detached(a, n, _), router_factory_mw(n).
@@ -212,6 +219,7 @@ hr_fn(a, m) :- hr_farg(a), hr_call_of(a, f), hr_ret_expr(f, e), hr_fn(e, m).
 hr_fn(a, m) :- hr_farg(a), hr_wrapper_call(a), expr_child("client", a, "ARGUMENT", "0", x), hr_fn(x, m).
 hr_fn(a, m) :- hr_farg(a), hr_assign_call(a), expr_child("client", a, "ARGUMENT", "0", x), hr_fn(x, m).
 hr_fn(a, m) :- hr_fprop(a, v), hr_fn(v, m).
+hr_fn(a, m) :- hr_bld_arg(a, y), hr_fn(y, m).
 hr_fn(a, m) :- hr_farg(a), expr_kind("client", k, _, a), expr_kind_is_transparent(k),
     expr_child("client", a, _, _, c), hr_fn(c, m).
 
