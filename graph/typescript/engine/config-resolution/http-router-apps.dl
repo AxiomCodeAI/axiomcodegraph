@@ -58,6 +58,11 @@ hr_url_path(raw, pkg, rest) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) =
 hr_url_path(raw, pkg, r2) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "@",
     j = min y : { y = range(0, strlen(rest)), substr(rest, y, 1) = "/" }, r2 = substr(rest, j, strlen(rest) - j).
 hr_spec(raw, pkg) :- hr_url_path(raw, pkg, "/mod.ts").
+// a published alias and its subpaths (`@hono/hono`, `@hono/hono/factory`): the package's own name. The alias must end
+// at a `/` or at the end, so another package that only starts with it (`@hono/hono-x`) is itself
+hr_spec(raw, pkg) :- hr_spec(raw, x), router_spec_alias(x, pkg).
+hr_spec(raw, cat(pkg, substr(x, strlen(a), strlen(x) - strlen(a)))) :- hr_spec(raw, x), router_spec_alias(a, pkg),
+    strlen(x) > strlen(a) + 1, substr(x, 0, strlen(a) + 1) = cat(a, "/").
 .decl hr_import_spec(c0:symbol, c1:symbol)
 hr_import_spec(ih, s) :- rd_import_path(ih, raw), hr_spec(raw, s).
 
@@ -501,6 +506,48 @@ hr_def_param(y, p) :- hr_def_param_need(y), expr_kind("client", k, _, y), expr_k
 hr_def_val(e, o) :- hr_def_val(i, o), var_initializer("client", _, i, v), module_export_any("client", m, n, "VARIABLE", v),
     import_binds_namespace(ih, "client", m), expr_referenced("client", "IMPORT_BINDING", ih, r),
     expr_child("client", e, "RECEIVER", _, r), property_access_name(e, n).
+// …a route BUILDER: a project function W returns an object whose method H (a closure of W) hands back `{ route,
+// handler }` (`const ep = defineEndpoint({ method, path, .. }).handler(async (c) => ..)`, then
+// `app.openapi(ep.route, ep.handler)`). Each such method call is its own route: the definition is what W's call was given
+// (createRoute(config) of W's parameter, or of an object W spreads it into, which adds W's own keys), the handler the
+// method call's argument (http-router-routes.dl hr_bld_arg). Read only from a registration's `.route` / `.handler`
+// argument, never for every object a call returns.
+.decl hr_bld_need(c0:symbol)
+hr_bld_need(q) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", pos, a), (pos = "0" ; pos = "1"),
+    property_access_name(a, _), expr_child("client", a, "RECEIVER", _, q).
+hr_bld_need(i) :- hr_bld_need(x), hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "".
+hr_bld_need(c) :- hr_bld_need(x), expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", x, _, _, c).
+// (method call, an expression its callee returns, or one inside it through parentheses and casts)
+.decl hr_bld_ret(c0:symbol, c1:symbol)
+hr_bld_ret(x, e) :- hr_bld_need(x), call_site("client", "METHOD_CALL", _, _, _, x, _), hr_call_of(x, h), hr_ret_expr(h, e).
+hr_bld_ret(x, c) :- hr_bld_ret(x, e), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, c).
+// (expression, the method call it is, the method, the object literal it returns)
+.decl hr_bld_call(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_bld_call(x, x, h, o) :- hr_bld_ret(x, o), expr_kind("client", "OBJECT_LITERAL", _, o), hr_call_of(x, h), hr_ret_expr(h, _).
+hr_bld_call(x, c, h, o) :- hr_bld_need(x), hr_denotes_var(x, v), var_initializer("client", _, i, v), i != "", hr_bld_call(i, c, h, o).
+hr_bld_call(x, c, h, o) :- hr_bld_need(x), expr_kind("client", k, _, x), (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION"),
+    expr_child("client", x, _, _, y), hr_bld_call(y, c, h, o).
+// (registration argument `ep.route`, the call of W the method was called on, the createRoute call W made, its argument)
+.decl hr_bld_route(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hr_bld_route(e, c1, d, a) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "0", e),
+    property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hr_bld_call(q, c, _, o), rd_obj_prop(o, n, v),
+    hr_denotes_var(v, rv), var_initializer("client", _, d, rv), d != "",
+    call_site("client", "FUNCTION_CALL", _, _, _, d, _), expr_child("client", d, "METHOD_NAME", _, f),
+    expr_referenced("client", "IMPORT_BINDING", ih, f), import_binding("client", _, _, orig, _, ih), hr_import_spec(ih, spec),
+    router_route_def(spec, orig), expr_child("client", d, "ARGUMENT", "0", a),
+    call_site("client", "METHOD_CALL", _, _, c1, c, _), c1 != "".
+// the object createRoute is given in W (in place or a const), with W's own keys
+hr_def_val(e, o) :- hr_bld_route(e, _, d, _), hr_def_val(d, o).
+hr_def_param_need(a) :- hr_bld_route(_, _, _, a).
+// …and what W's call was given: W's parameter passed on, or spread into that object
+.decl hr_bld_cfg(c0:symbol, c1:symbol)
+hr_bld_cfg(e, y) :- hr_bld_route(e, c1, _, a), hr_def_param(a, p), hr_call_of(c1, w), param_decl("client", _, pos, _, w, p),
+    expr_child("client", c1, "ARGUMENT", pos, y).
+hr_bld_cfg(e, y) :- hr_bld_route(e, c1, _, a), hr_def_obj(a, o), expr_child("client", o, "SPREAD_OPERAND", _, sx), hv_spread_src(sx, z),
+    hr_def_param(z, p), hr_call_of(c1, w), param_decl("client", _, pos, _, w, p), expr_child("client", c1, "ARGUMENT", pos, y).
+hr_def_obj_need(y) :- hr_bld_cfg(_, y).
+hr_def_val(e, o2) :- hr_bld_cfg(e, y), hr_def_obj(y, o2).
 .decl hr_openapi_def(c0:symbol, c1:symbol)
 hr_openapi_def(ce, o) :- hr_reg(ce, _, cn), router_openapi(cn), expr_child("client", ce, "ARGUMENT", "0", x), hr_def_val(x, o).
 rd_demand(v) :- hr_openapi_def(_, o), rd_obj_prop(o, k, v), (router_def_key(k, "method") ; router_def_key(k, "path")).

@@ -288,6 +288,10 @@ router_spec_url("https://deno.land/x/hono", "hono").
 router_spec_url("https://esm.sh/hono", "hono").
 // the JSR name of the package
 router_app_class("@hono/hono", "Hono").
+// router_spec_alias(Published, Package): a package published under another name, whose subpaths are the package's
+// (`@hono/hono/factory`, as an import map's key or after `jsr:`, is `hono/factory`)
+.decl router_spec_alias(c0:symbol, c1:symbol)
+router_spec_alias("@hono/hono", "hono").
 // router_verb(Method, Verb): a route registration and the verb it serves
 .decl router_verb(c0:symbol, c1:symbol)
 router_verb("get", "GET").       router_verb("post", "POST").

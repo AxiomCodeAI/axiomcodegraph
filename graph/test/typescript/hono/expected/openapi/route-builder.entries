@@ -1,0 +1,5 @@
+# hand-reviewed 2026-11-04 against the fixture and the oracle's runtime half (the static half cannot follow a closure's local through the builder and reports both registrations unknown: an oracle gap): GET /items/:id with its param schema, GET /v1/items with the version builder's key check at position 0; the never-registered /drafts and the docs.openapi look-alike are no route
+# census: create_route, openapi_register, new_openapihono (route builder: a project helper returns { route, handler }
+entry	builder.ts:5:10	http
+entry	routes.ts:11:12	http
+entry	routes.ts:17:12	http
