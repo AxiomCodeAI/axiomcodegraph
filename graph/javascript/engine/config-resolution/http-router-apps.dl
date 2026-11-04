@@ -45,6 +45,11 @@ jr_url_path(raw, pkg, rest) :- jr_url_rest(raw, pkg, rest), substr(rest, 0, 1) =
 jr_url_path(raw, pkg, r2) :- jr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "@",
     j = min y : { y = range(0, strlen(rest)), substr(rest, y, 1) = "/" }, r2 = substr(rest, j, strlen(rest) - j).
 jr_spec(raw, pkg) :- jr_url_path(raw, pkg, "/mod.ts").
+// a published alias and its subpaths (`@hono/hono`, `@hono/hono/factory`): the package's own name. The alias must end
+// at a `/` or at the end, so another package that only starts with it (`@hono/hono-x`) is itself
+jr_spec(raw, pkg) :- jr_spec(raw, x), router_spec_alias(x, pkg).
+jr_spec(raw, cat(pkg, substr(x, strlen(a), strlen(x) - strlen(a)))) :- jr_spec(raw, x), router_spec_alias(a, pkg),
+    strlen(x) > strlen(a) + 1, substr(x, 0, strlen(a) + 1) = cat(a, "/").
 
 .decl jr_module(c0:symbol)
 jr_module(spec) :- router_app_class(spec, _).

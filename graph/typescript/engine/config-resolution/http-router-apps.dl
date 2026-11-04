@@ -58,6 +58,11 @@ hr_url_path(raw, pkg, rest) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) =
 hr_url_path(raw, pkg, r2) :- hr_url_rest(raw, pkg, rest), substr(rest, 0, 1) = "@",
     j = min y : { y = range(0, strlen(rest)), substr(rest, y, 1) = "/" }, r2 = substr(rest, j, strlen(rest) - j).
 hr_spec(raw, pkg) :- hr_url_path(raw, pkg, "/mod.ts").
+// a published alias and its subpaths (`@hono/hono`, `@hono/hono/factory`): the package's own name. The alias must end
+// at a `/` or at the end, so another package that only starts with it (`@hono/hono-x`) is itself
+hr_spec(raw, pkg) :- hr_spec(raw, x), router_spec_alias(x, pkg).
+hr_spec(raw, cat(pkg, substr(x, strlen(a), strlen(x) - strlen(a)))) :- hr_spec(raw, x), router_spec_alias(a, pkg),
+    strlen(x) > strlen(a) + 1, substr(x, 0, strlen(a) + 1) = cat(a, "/").
 .decl hr_import_spec(c0:symbol, c1:symbol)
 hr_import_spec(ih, s) :- rd_import_path(ih, raw), hr_spec(raw, s).
 
