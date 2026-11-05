@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-08/O3: @scope/client/v2 resolves through package.json exports; the client reaches GET /sessions
+# census: hc_client (violation hono-2-08; oracle gap O3: a workspace package subpath through package.json exports)
+route	GET	/sessions	packages/server/src/app.ts:4:37	packages/server/src/app.ts:3:13	0
+rpc	packages/client/lib/client.ts:4:1	GET	/sessions	packages/server/src/app.ts:4:37
+regby	packages/server/src/app.ts:1:1	packages/server/src/app.ts:4:37	GET	/sessions	packages/server/src/app.ts:3:13

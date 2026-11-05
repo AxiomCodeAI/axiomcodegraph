@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O16: sub-apps bound by await import are mounted on R1 test roots; every request is served
+# census: app_request_test (oracle gap O16; SPEC R1)
+entry	admin.ts:3:53	http
+entry	skills.test.ts:11:13	http
+entry	skills.ts:4:22	http
+entry	skills.ts:5:23	http

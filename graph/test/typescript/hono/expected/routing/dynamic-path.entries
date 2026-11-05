@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: run-time path: partial + dynamic_route_path, the literal sibling still a route (the partly-known /v${version}/status handler is still an http entry: orchestrator ruling, it is registered on a recognised app)
+# census: verb_template_path (non-decidable partition)
+entry	index.ts:8:32	http
+entry	index.ts:9:19	http

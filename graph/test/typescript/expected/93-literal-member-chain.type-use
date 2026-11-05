@@ -1,0 +1,8 @@
+known_edge	FIELD_TYPE	0	Meta [FIELD] -> Logger
+known_edge	FIELD_TYPE	0	Named [FIELD] -> Meta
+known_edge	FIELD_TYPE	1	Flat [FIELD] -> Logger
+known_edge	FIELD_TYPE	2	Order [FIELD] -> Logger
+known_edge	FIELD_TYPE	4	Order [FIELD] -> Logger
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Flat
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Named
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Order

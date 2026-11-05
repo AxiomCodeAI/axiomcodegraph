@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m40/hono-5-04: if/else library middleware are alternatives at position 0, each keyed at its call, each conditional
+# census: use_conditional_loop (stress-5 mutation m40 shape; violation hono-5-04)
+route	GET	/x	index.ts:15:15	index.ts:9:13	2
+mw	lib:hono/logger.logger@index.ts:11:16	index.ts:15:15	GET	/x	0	index.ts:9:13
+mw	lib:hono/logger.logger@index.ts:13:16	index.ts:15:15	GET	/x	0	index.ts:9:13
+regby	index.ts:1:1	index.ts:15:15	GET	/x	index.ts:9:13
+unknown	index.ts:11:3	conditional_registration	index.ts:1:1
+unknown	index.ts:13:3	conditional_registration	index.ts:1:1

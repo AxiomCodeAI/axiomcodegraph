@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-07: the createMiddleware arg inside the project factory is the middleware, the entry, and the session setter for /me
+# census: create_middleware, mw_factory_returning_fn, ctx_set, ctx_get (violation hono-1-07, JavaScript)
+entry	app.js:9:16	http
+entry	session.js:4:27	http

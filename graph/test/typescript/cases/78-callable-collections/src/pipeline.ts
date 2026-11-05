@@ -30,7 +30,7 @@ export function runIndexed(node: Node, i: number): Node {
   return pick(steps[0](node))
 }
 
-// a table read under a computed key reaches every entry; under a written key, only that entry
+// a table read under a computed key is a declared unknown (SPEC R21a); under a written key, only that entry
 export function runByKey(node: Node, k: 'grow' | 'shrink'): Node {
   return table[k](node)
 }

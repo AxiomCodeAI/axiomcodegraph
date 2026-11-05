@@ -295,6 +295,24 @@ def stable_name(g, mid, display, tfile):
     return display, (f"{tfile}:{ln[0][0]}" if ln else tfile)
 
 
+def same_target(a, b, g=None, mid=None):
+    """two links name ONE declaration: the same recorded name in the same recorded file (and line, when the file carries
+    one). A name alone is not a declaration: every arrow function, lambda and anonymous class shares its placeholder name
+    (`<arrow>`, `<lambda>`), so one site linked to two of them is two links. With a graph and the id `b` resolved to, a
+    row recorded under another spelling of that declaration (the file gained a second one of its name since) is it too."""
+    if a.get('target') == b.get('target') and (a.get('target_file') or '') == (b.get('target_file') or ''): return True
+    if g is not None and mid is not None:
+        try: ts = g.targets(a.get('target') or '', a.get('target_file') or '')
+        except sqlite3.Error: return False
+        return len(ts) == 1 and ts[0][0] == mid
+    return False
+
+
+def target_label(target, tfile):
+    """a target as printed: a placeholder name (`<arrow>`) says nothing alone, so it is printed with its declaration"""
+    return f"{target} ({tfile})" if tfile and re.split(r'[.:]', target or '')[-1].startswith('<') else target
+
+
 def is_value_lib(g, sid):
     """a site resolved only into a library method that runs a value (Method.invoke, Function.apply)"""
     rows = g.q("SELECT e.tier, s.callee_name FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id WHERE e.call_site_id = ?", sid)
@@ -1165,9 +1183,43 @@ def list_links(repo, as_json=False):
     print(f"{len(rows)} asserted link(s) in {os.path.relpath(links_path(repo), repo)}:")
     for r in rows:
         where = r['site'] + (f" (now line {r['now']})" if r.get('now') and r['site'] and int(r['site'].split(':')[1]) != r['now'] else '')
-        tgt = f"NOT {r['target']} (a lead rejected: not walked)" if r.get('rejects') else r['target']
+        tl = target_label(r['target'], r.get('target_file'))
+        tgt = f"NOT {tl} (a lead rejected: not walked)" if r.get('rejects') else tl
         print(f"  {r['link']:>3}. [{r['status']}] {where}  → {tgt}" + (f"  — {r['reason']}" if r['reason'] else ''))
     return 0
+
+
+def removal_targets(repo, at_site, tgt):
+    """the links at one site that `--remove <site> <tgt>` names -> [link], or a refusal (str). <tgt> is a name as the link
+    recorded it, or a declaration's file:line (the only way to tell two `<arrow>`s at one site apart). A name that covers
+    links to more than one declaration removes none of them: it is refused with the file:line of each."""
+    text = [l for l in at_site if l['target'] == tgt or (l.get('target_file') or '') == tgt]
+    ids = set()
+    for db, _r, live in graph_dbs(repo):
+        if not live: continue
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                g = Graph(con)
+                want = {t[0] for t in g.targets(tgt)}
+                if not want: continue
+                gone = set()
+                for l in at_site:
+                    ts = g.targets(l['target'], l.get('target_file') or '')
+                    if len(ts) == 1 and ts[0][0] in want: ids.add(id(l))
+                    if not ts: gone.add(id(l))
+                if len(want) == 1:
+                    # the declaration it names: exactly the links that resolve to it (and a stale one recorded under that name)
+                    return [l for l in at_site if id(l) in ids or (id(l) in gone and any(l is x for x in text))]
+            finally: con.close()
+        except sqlite3.Error: continue
+    hit = [l for l in at_site if any(l is x for x in text) or id(l) in ids]
+    decls = sorted({(l['target'], l.get('target_file') or '') for l in hit})
+    if len(decls) > 1:
+        return (f"`{tgt}` names {len(decls)} links at {at_site[0]['file']}:{at_site[0]['line']} "
+                f"({'; '.join(f'{t} ({tf})' if tf else t for t, tf in decls)}): name the one to remove by its declaration's "
+                f"file:line, or `-` for all of them")
+    return hit
 
 
 def main(argv):
@@ -1192,8 +1244,11 @@ def main(argv):
     links, bad = read_links(repo)
     if remove or (len(args) > 1 and args[1] == '-'):
         tgt = args[1] if len(args) > 1 and args[1] != '-' else None
-        keep = [l for l in links if not (l['file'] == f and l['line'] == line and (tgt is None or l['target'] == tgt)
-                                          and (col is None or l.get('col') in (None, col)))]
+        at_site = [l for l in links if l['file'] == f and l['line'] == line and (col is None or l.get('col') in (None, col))]
+        hit = at_site if tgt is None else removal_targets(repo, at_site, tgt)
+        if isinstance(hit, str):
+            print(f"axiomcode link: {hit}", file=sys.stderr); return 1
+        keep = [l for l in links if not any(l is h for h in hit)]
         gone = len(links) - len(keep)
         write_links(repo, keep + [])   # malformed lines are dropped only by hand; they stay listed until fixed
         _restore_bad(repo, bad)
@@ -1230,24 +1285,27 @@ def main(argv):
     new.update(callee=r.get('callee_written') or callee, caller=g.display(r['caller']) if r.get('caller') else '',
                target=r['target_display'], target_file=r.get('target_file') or '', **({'not': True} if reject else {}))
     new['target'], new['target_file'] = stable_name(g, r['callee_id'], r['target_display'], new['target_file'])
-    g.con.close()
     # the column the link resolved to is recorded even when none was given: it is what the link names from now on
     if r.get('col') and not new.get('col'): new['col'] = r['col']; new['ncol'] = norm_col(L[line - 1], r['col'])
-    dup = [l for l in links if l['file'] == f and l['line'] == line and l['target'] == new['target'] and l.get('col') == new.get('col')
-           and bool(l.get('not')) == bool(new.get('not'))]
+    # re-linking the same site to the same DECLARATION replaces that row; the same name declared elsewhere (two arrows
+    # handed to one registry) is another link
+    dup = [l for l in links if l['file'] == f and l['line'] == line and l.get('col') == new.get('col')
+           and bool(l.get('not')) == bool(new.get('not')) and same_target(l, new, g, r['callee_id'])]
+    g.con.close()
     links = [l for l in links if l not in dup] + [new]
     t0 = time.time()
     write_links(repo, links); _restore_bad(repo, bad)
     res = apply_repo(repo)
     ms = (time.time() - t0) * 1000
     note_ = next((x['reason'] for live, rs in res.values() if live for l_, x in rs
-                  if l_['file'] == f and l_['line'] == line and l_['target'] == new['target'] and l_.get('col') == new.get('col') and x['status'] in ('applied', 'moved')), '')
+                  if l_['file'] == f and l_['line'] == line and same_target(l_, new) and l_.get('col') == new.get('col') and x['status'] in ('applied', 'moved')), '')
     where = f"{f}:{line}" + (f":{new['col']}" if new.get('col') else '')
+    shown = target_label(new['target'], new['target_file'])
     if reject:
-        print(f"rejected the lead {where} → {new['target']}: no walk takes it from now on (the engine's row is kept; "
+        print(f"rejected the lead {where} → {shown}: no walk takes it from now on (the engine's row is kept; "
               f"`axiomcode link {where} -` restores it)  — applied to {sum(1 for v in res.values() if v[0])} graph(s) in {ms:.0f} ms")
         return 0
-    print(f"linked {where} `{new['callee']}` → {new['target']} [asserted]" + (" (the graph already had this edge; recorded, nothing added)" if r['status'] == 'redundant' else '')
+    print(f"linked {where} `{new['callee']}` → {shown} [asserted]" + (" (the graph already had this edge; recorded, nothing added)" if r['status'] == 'redundant' else '')
           + (f"; {note_}" if note_ else '') + f"  — applied to {sum(1 for v in res.values() if v[0])} graph(s) in {ms:.0f} ms")
     return 0
 

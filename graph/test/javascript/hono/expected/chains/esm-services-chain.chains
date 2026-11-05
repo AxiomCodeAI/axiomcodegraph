@@ -1,0 +1,23 @@
+# hand-reviewed 2026-10-28 against the fixture, the compiler call-chain oracle and the runtime trace: the JavaScript twin of the R18 chains: the compiler types c.get(k) / c.var.k as any and the repository db as any, so handler -> service and repository -> db are run-time edges (rt); service -> repository resolves statically through the field the constructor builds
+# census: ctx_di (SPEC R18, the JavaScript form; call-chain break class 1)
+fn	index.js:14:24
+fn	index.js:20:30
+fn	index.js:5:34
+fn	services.js:10:3
+fn	services.js:16:3
+fn	services.js:19:3
+fn	services.js:22:3
+fn	services.js:28:3
+fn	services.js:31:3
+fn	services.js:34:3
+fn	services.js:7:3
+edge	index.js:5:34	services.js:28:3
+edge	services.js:28:3	services.js:16:3
+edge	services.js:31:3	services.js:19:3
+edge	services.js:34:3	services.js:22:3
+edge	index.js:14:24	services.js:31:3	rt
+edge	index.js:20:30	services.js:34:3	rt
+edge	services.js:19:3	services.js:7:3	rt
+edge	services.js:22:3	services.js:10:3	rt
+chain	order-find	GET	/orders/x1	index.js:5:34	index.js:14:24	services.js:31:3	services.js:19:3	services.js:7:3
+chain	order-total	GET	/orders/x1/total	index.js:5:34	index.js:20:30	services.js:34:3	services.js:22:3	services.js:10:3

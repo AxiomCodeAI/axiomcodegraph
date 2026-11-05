@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: started flows to the handler; finished is set after next() and is read back only by the middleware itself
+route	GET	/	index.ts:16:14	index.ts:8:13	1
+mw	index.ts:10:9	index.ts:16:14	GET	/	0	index.ts:8:13
+ctx	index.ts:10:9	index.ts:10:9	finished
+ctx	index.ts:10:9	index.ts:10:9	started
+ctx	index.ts:10:9	index.ts:16:14	started
+regby	index.ts:1:1	index.ts:16:14	GET	/	index.ts:8:13
+unknown	index.ts:16:14	no_setter_on_chain	index.ts:16:14

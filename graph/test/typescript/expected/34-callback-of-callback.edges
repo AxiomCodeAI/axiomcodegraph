@@ -1,3 +1,4 @@
+callback_handed	FUNCTION_CALL	exec#viaClientCallbackOfCallback() @L32 -> exec#<arrow@32>(?)
 callback_registered	CONSTRUCTOR_CALL	exec#viaExecutor() @L12 -> exec#<arrow@12>(?,?)
 callback_registered	CONSTRUCTOR_CALL	exec#viaRenamedExecutor() @L20 -> exec#<arrow@20>(?,?)
 callback_registered	FUNCTION_CALL	exec#withSink((emit: Sink) =) @L29 -> exec#<arrow@29>()

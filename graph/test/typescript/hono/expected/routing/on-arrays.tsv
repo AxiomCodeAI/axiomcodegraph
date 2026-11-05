@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: verbs x paths cross product, one handler four routes; lower-case verb upper-cased
+# census: on_method_array, on_method
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/form	index.ts:7:52	index.ts:5:13	0
+route	POST	/form	index.ts:7:52	index.ts:5:13	1
+route	GET	/form/legacy	index.ts:7:52	index.ts:5:13	2
+route	POST	/form/legacy	index.ts:7:52	index.ts:5:13	3
+route	PURGE	/cache/:key	index.ts:8:32	index.ts:5:13	4
+route	PUT	/lower	index.ts:9:27	index.ts:5:13	5
+regby	index.ts:1:1	index.ts:7:52	GET	/form	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:52	GET	/form/legacy	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:52	POST	/form	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:52	POST	/form/legacy	index.ts:5:13
+regby	index.ts:1:1	index.ts:8:32	PURGE	/cache/:key	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:27	PUT	/lower	index.ts:5:13

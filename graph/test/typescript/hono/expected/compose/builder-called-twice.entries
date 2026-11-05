@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-02/R6: the helper makes two apps; /logo.png on the root, POST /import partial dynamic_mount_prefix under the sub-app
+# census: app_factory_fn (violation hono-2-02, SPEC R6; oracle gap O9)
+entry	main.ts:10:22	http
+entry	users.ts:9:33	http

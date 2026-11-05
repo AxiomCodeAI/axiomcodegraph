@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and a run of the pinned hono: user and role are set before the next() that runs on their path (the early next() is in a branch), so both reach the handler
+# census: ctx_set, ctx_get, ctx_next_in_branch
+entry	index.js:13:9	http
+entry	index.js:21:14	http
+entry	index.js:8:9	http

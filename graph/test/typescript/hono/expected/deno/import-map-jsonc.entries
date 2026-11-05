@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: bare @hono/hono through a commented deno.jsonc
+# census: none (corpus gap). bare JSR name `@hono/hono` mapped by deno.jsonc (comments stripped): shape from Hono's Deno docs, corpus gap.
+entry	main.ts:5:19	http

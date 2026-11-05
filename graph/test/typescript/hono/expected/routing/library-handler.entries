@@ -1,0 +1,2 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-1-03/R5: routes whose handler is a library call are keyed at the call (serveStatic x2); no project entry
+# census: verb_literal_path (violation hono-1-03; SPEC R5)

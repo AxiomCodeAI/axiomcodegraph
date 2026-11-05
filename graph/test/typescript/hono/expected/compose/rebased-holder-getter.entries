@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-01/R8a through a getter: both controller routes partial dynamic_mount_prefix, no exact rows
+# census: basepath (violation hono-3-01, SPEC R8a; holder read through a getter)
+entry	index.ts:29:20	http
+entry	index.ts:30:22	http

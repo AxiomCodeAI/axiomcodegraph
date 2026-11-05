@@ -1,0 +1,13 @@
+ambiguous_unknown	METHOD_CALL	Bus#untyped(any,Listener) @L35 -> -
+known_edge	CONSTRUCTOR_CALL	bus#<module-init>() @L7 -> MapConstructor#<arrow@10>()
+known_edge	CONSTRUCTOR_CALL	bus#<module-init>() @L8 -> MapConstructor#<arrow@10>()
+known_edge	METHOD_CALL	Bus#annotated(string,Listener) @L30 -> Map#get(T)
+known_edge	METHOD_CALL	Bus#annotated(string,Listener) @L31 -> Array#push(T[])
+known_edge	METHOD_CALL	Bus#direct(string,Listener) @L16 -> Array#push(T[])
+known_edge	METHOD_CALL	Bus#direct(string,Listener) @L16 -> Map#get(T)
+known_edge	METHOD_CALL	Bus#label(string) @L19 -> Map#get(T)
+known_edge	METHOD_CALL	Bus#label(string) @L19 -> String#trim()
+known_edge	METHOD_CALL	Bus#nonNullable(Listener[],Listener) @L24 -> Array#push(T[])
+known_edge	METHOD_CALL	Bus#on(string,Listener) @L11 -> Map#get(T)
+known_edge	METHOD_CALL	Bus#on(string,Listener) @L12 -> Array#push(T[])
+known_edge	METHOD_CALL	Bus#on(string,Listener) @L13 -> Map#set(T,T)

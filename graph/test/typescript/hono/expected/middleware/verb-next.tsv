@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an all('*') function that calls next is middleware for /x
+# census: await_next, verb_literal_path
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	ANY	/*	index.ts:6:14	index.ts:5:13	0
+route	GET	/x	index.ts:9:15	index.ts:5:13	1
+mw	index.ts:6:14	index.ts:9:15	GET	/x	0	index.ts:5:13
+regby	index.ts:1:1	index.ts:6:14	ANY	/*	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:15	GET	/x	index.ts:5:13

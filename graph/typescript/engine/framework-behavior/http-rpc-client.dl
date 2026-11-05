@@ -1,0 +1,272 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · HTTP RPC CLIENT  (a request that names a route of a known app)
+//
+// Three ways a program sends a request to an app whose route table this engine has
+// (config-resolution/http-router-routes.dl), all in one language:
+//   * `app.request('/items/42', { method })`            the app value itself, in a test;
+//   * `testClient(app).items[':id'].$get()`            a client over an app value;
+//   * `hc<AppType>(base).users[':id'].$get()`           a typed client, where AppType is
+//     `typeof <app value>` (directly or through a type alias, imported or not).
+// Each property is a path segment (`index` adds none, `[':id']` adds the written
+// segment) and `$<verb>` sends. The send is joined to the route of that app whose full
+// path it fits: `exact` when every segment is equal, `route_shape` when a route
+// parameter stood in for a written segment; of several, the fewest stand-ins win.
+//
+//   remote_edge(Sender, Handler, "http", "<VERB> <path>", Confidence)
+//   remote_unserved(Sender, "http", "<VERB> <path>")     a send no route of the app fits
+//
+// Names (the client functions, the `$verb` methods) live in knobs.dl.
+// ============================================================================
+
+// ── the app a client is over ────────────────────────────────────────────────
+// (client root expression, app list)
+.decl hc_client_root(c0:symbol, c1:symbol)
+hc_client_root(ce, a) :- hr_knob_call(ce, spec, n), router_test_client(spec, n),
+    expr_child("client", ce, "ARGUMENT", "0", x), hr_app(x, a).
+// `hc<T>(...)`: T is `typeof v`, or a type alias of it
+.decl hc_typed_call(c0:symbol, c1:symbol)
+hc_typed_call(ce, r) :- hr_knob_call(ce, spec, n), router_rpc_client(spec, n),
+    type_ref("client", _, "METHOD_TYPE_ARGUMENT", _, _, ce, _, r), hc_tref_pos0(r).
+.decl hc_tref_pos0(c0:symbol)
+hc_tref_pos0(r) :- hr_on(), ts_type_reference(_, "METHOD_TYPE_ARGUMENT", _, _, _, _, "0", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r).
+.decl hc_type_query(c0:symbol, c1:symbol)
+hc_type_query(ce, q) :- hc_typed_call(ce, q), type_ref("client", "TYPE_QUERY", _, _, _, _, _, q).
+hc_type_query(ce, q) :- hc_typed_call(ce, r), type_ref_resolves("client", r, t), type_alias_target("client", q, t),
+    type_ref("client", "TYPE_QUERY", _, _, _, _, _, q).
+// the variable a type query names: by its name in the module the query is written in
+// (the IR does not link a TYPE_QUERY to its variable)
+.decl hc_query_var(c0:symbol, c1:symbol)
+hc_query_var(ce, v) :- hc_type_query(ce, q), type_ref("client", _, _, tn, _, _, _, q), type_ref_module("client", m, q),
+    var_decl("client", tn, _, _, _, m, v).
+// …or imported into that module under the name (`import { todos } from './api'; hc<typeof todos>`)
+hc_query_var(ce, v) :- hc_type_query(ce, q), type_ref("client", _, _, tn, _, _, _, q), type_ref_module("client", m, q),
+    import_binding("client", _, tn, _, m, ih), import_binds(ih, "client", "VARIABLE", v).
+hc_client_root(ce, a) :- hc_query_var(ce, v), var_initializer("client", _, i, v), i != "", hr_app(i, a).
+rd_demand(p) :- hr_app(r, _), call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_app_request(cn),
+    expr_child("client", ce, "ARGUMENT", "0", p).
+
+// ── the path a client expression has accumulated ────────────────────────────
+.decl hc_cpath(c0:symbol, c1:symbol, c2:symbol)
+hc_cpath(ce, a, "") :- hc_client_root(ce, a).
+hc_cpath(r, a, p) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hc_cpath(i, a, p).
+hc_cpath(e, a, p) :- property_access_name(e, n), router_rpc_index(n), expr_child("client", e, "RECEIVER", _, q),
+    hc_cpath(q, a, p).
+hc_cpath(e, a, cat(p, cat("/", n))) :- property_access_name(e, n), !router_rpc_index(n), !router_rpc_verb(n, _),
+    expr_child("client", e, "RECEIVER", _, q), hc_cpath(q, a, p), strlen(p) < 300.
+hc_cpath(e, a, cat(p, cat("/", k))) :- expr_kind("client", "ELEMENT_ACCESS", _, e), expr_child("client", e, "RECEIVER", _, q),
+    hc_cpath(q, a, p), expr_child("client", e, "INDEX_ARGUMENT", _, x), hc_lit_index(x), expr_literal_value("client", k, x), strlen(p) < 300.
+hc_cpath(e, a, cat(p, "/{}")) :- expr_kind("client", "ELEMENT_ACCESS", _, e), expr_child("client", e, "RECEIVER", _, q),
+    hc_cpath(q, a, p), expr_child("client", e, "INDEX_ARGUMENT", _, x), !hc_lit_index(x), strlen(p) < 300.
+.decl hc_lit_index(c0:symbol)
+hc_lit_index(x) :- hr_on(), expr_child("client", _, "INDEX_ARGUMENT", _, x), (expr_literal_type("client", "STRING", x) ; expr_literal_type("client", "NO_SUBSTITUTION_TEMPLATE", x)).
+hc_cpath(e, a, p) :- hc_cpath(c, a, p), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    expr_kind_is_transparent(k).
+// a function that returns a client: each call is that client
+hc_cpath(ce, a, p) :- hr_call_of(ce, w), method_returns_expr(w, e), hc_cpath(e, a, p).
+// A BUNDLE OF CLIENTS: an object literal whose members are clients, or functions returning one
+// (`{ health: hc<H>(..), config: (id) => hc<C>(`../${id}/config`) }`), returned by a factory and
+// kept in a variable; `bundle.health.$get()` and `bundle.config(id).identity.$put()` are sends
+.decl hc_objval(c0:symbol)
+hc_objval(v) :- hc_cpath(v, _, _).
+hc_objval(v) :- expr_anon_decl("client", m, v), hr_ret_expr(m, r), hc_cpath(r, _, _).
+.decl hc_obj(c0:symbol, c1:symbol)
+hc_obj(o, o) :- rd_obj_prop(o, _, v), hc_objval(v).
+hc_obj(r, o) :- hr_denotes_var(r, v), var_initializer("client", _, i, v), i != "", hc_obj(i, o).
+hc_obj(r, o) :- hr_denotes_var(r, v), var_reassigned_value(v, i), hc_obj(i, o).
+hc_obj(ce, o) :- hr_call_of(ce, w), hr_ret_expr(w, e), hc_obj(e, o).
+hc_obj(e, o) :- hc_obj(c, o), expr_child("client", e, _, _, c), expr_kind("client", k, _, e),
+    (expr_kind_is_transparent(k) ; k = "AWAIT_EXPRESSION").
+hc_cpath(e, a, p) :- property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), hc_obj(q, o),
+    rd_obj_prop(o, n, v), hc_cpath(v, a, p).
+hc_cpath(ce, a, p) :- call_site("client", "METHOD_CALL", n, _, q, ce, _), hc_obj(q, o), rd_obj_prop(o, n, fv),
+    expr_anon_decl("client", m, fv), hr_ret_expr(m, r), hc_cpath(r, a, p).
+
+// ── the sends: (site, sender, app, verb, path) ──────────────────────────────
+.decl hc_send(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+hc_send(ce, from, a, vv, p) :- call_site("client", "METHOD_CALL", cn, _, q, ce, _), router_rpc_verb(cn, vv),
+    hc_cpath(q, a, p0), p0 != "", p = p0, expr_enclosing_method(ce, from).
+hc_send(ce, from, a, vv, "/") :- call_site("client", "METHOD_CALL", cn, _, q, ce, _), router_rpc_verb(cn, vv),
+    hc_cpath(q, a, ""), expr_enclosing_method(ce, from).
+// `app.request(path, init?)`: GET unless the init names a method
+.decl hc_req(c0:symbol, c1:symbol, c2:symbol)
+hc_req(ce, a, p) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_app_request(cn), hr_app(r, a),
+    expr_child("client", ce, "ARGUMENT", "0", x), rd_val(x, raw), strlen(raw) >= 1, substr(raw, 0, 1) = "/",
+    hc_strip(raw, p), !hc_preq_any(ce).
+// an init the request does not write in place (a parameter, a parsed value), or one whose method is computed: the
+// verb is not decidable (SPEC ruling R17), so the send stands for every verb (`*`) and joins as method_unknown
+.decl hc_req_mu(c0:symbol)
+hc_req_mu(ce) :- hc_req(ce, _, _), expr_child("client", ce, "ARGUMENT", "1", o), !expr_kind("client", "OBJECT_LITERAL", _, o).
+hc_req_mu(ce) :- hc_req(ce, _, _), expr_child("client", ce, "ARGUMENT", "1", o), rd_obj_prop(o, key, _), ts_http_init_method_key(key),
+    !hc_req_has_method(ce).
+// A TEST HELPER that requests the path it is handed (`async function hit(path, init?) { return app.request(path, init) }`):
+// one send per call of the helper, its path and init that call's arguments. (request, helper, path position)
+.decl hc_preq(c0:symbol, c1:symbol, c2:symbol)
+hc_preq(ce, w, pos) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_app_request(cn), hr_app(r, _),
+    expr_child("client", ce, "ARGUMENT", "0", x), expr_referenced("client", "PARAMETER", pp, x), param_decl("client", _, pos, _, w, pp),
+    expr_enclosing_method(ce, w).
+.decl hc_preq_any(c0:symbol)
+hc_preq_any(ce) :- hc_preq(ce, _, _).
+rd_demand(ax) :- hc_preq(_, w, pos), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, ax).
+// (call of the helper, request, app, path)
+.decl hc_preq_at(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hc_preq_at(oc, ce, a, p) :- hc_preq(ce, w, pos), call_site("client", _, _, _, r, ce, _), hr_app(r, a), hr_call_of(oc, w),
+    expr_child("client", oc, "ARGUMENT", pos, ax), rd_val(ax, raw), strlen(raw) >= 1, substr(raw, 0, 1) = "/", hc_strip(raw, p).
+hc_strip_need(raw) :- hc_preq(_, w, pos), hr_call_of(oc, w), expr_child("client", oc, "ARGUMENT", pos, ax), rd_val(ax, raw),
+    strlen(raw) >= 1, substr(raw, 0, 1) = "/".
+// the init that call hands it: none (GET), an object literal (its literal method, or GET), anything else (`*`)
+.decl hc_preq_init(c0:symbol, c1:symbol, c2:symbol)
+hc_preq_init(oc, ce, ia) :- hc_preq_at(oc, ce, _, _), expr_child("client", ce, "ARGUMENT", "1", x1), expr_referenced("client", "PARAMETER", ip, x1),
+    param_decl("client", _, ipos, _, _, ip), expr_child("client", oc, "ARGUMENT", ipos, ia).
+// …or the init the helper writes in place (`app.request(path, { method: 'POST', body })`): the same for every call
+hc_preq_init(oc, ce, x1) :- hc_preq_at(oc, ce, _, _), expr_child("client", ce, "ARGUMENT", "1", x1), !expr_referenced("client", "PARAMETER", _, x1).
+.decl hc_preq_has_init(c0:symbol, c1:symbol)
+hc_preq_has_init(oc, ce) :- hc_preq_init(oc, ce, _).
+.decl hc_preq_verb(c0:symbol, c1:symbol, c2:symbol)
+hc_preq_verb(oc, ce, "GET") :- hc_preq_at(oc, ce, _, _), !expr_child("client", ce, "ARGUMENT", "1", _).
+hc_preq_verb(oc, ce, "GET") :- hc_preq_at(oc, ce, _, _), expr_child("client", ce, "ARGUMENT", "1", _), !hc_preq_has_init(oc, ce).
+hc_preq_verb(oc, ce, vv) :- hc_preq_init(oc, ce, o), rd_obj_prop(o, key, val), ts_http_init_method_key(key),
+    expr_literal_value("client", w, val), ts_http_verb_name(w, vv).
+hc_preq_verb(oc, ce, "GET") :- hc_preq_init(oc, ce, o), expr_kind("client", "OBJECT_LITERAL", _, o), !hc_obj_has_method_key(o).
+hc_preq_verb(oc, ce, "*") :- hc_preq_init(oc, ce, o), !expr_kind("client", "OBJECT_LITERAL", _, o).
+// …a method key whose value is not a literal verb: not decidable (SPEC ruling R17)
+hc_preq_verb(oc, ce, "*") :- hc_preq_init(oc, ce, o), hc_obj_has_method_key(o), !hc_obj_lit_method(o).
+.decl hc_obj_lit_method(c0:symbol)
+hc_obj_lit_method(o) :- hc_preq_init(_, _, o), rd_obj_prop(o, key, val), ts_http_init_method_key(key), expr_literal_value("client", w, val),
+    ts_http_verb_name(w, _).
+.decl hc_obj_has_method_key(c0:symbol)
+hc_obj_has_method_key(o) :- hc_preq_init(_, _, o), rd_obj_prop(o, key, _), ts_http_init_method_key(key).
+hc_send(oc, from, a, vv, p) :- hc_preq_at(oc, ce, a, p), hc_preq_verb(oc, ce, vv), expr_enclosing_method(ce, from).
+.decl hc_req_method(c0:symbol, c1:symbol)
+hc_req_method(ce, vv) :- hc_req(ce, _, _), expr_child("client", ce, "ARGUMENT", "1", o), rd_obj_prop(o, key, val),
+    ts_http_init_method_key(key), expr_literal_value("client", w, val), ts_http_verb_name(w, vv).
+.decl hc_req_has_method(c0:symbol)
+hc_req_has_method(ce) :- hc_req_method(ce, _).
+hc_send(ce, from, a, vv, p) :- hc_req(ce, a, p), hc_req_method(ce, vv), expr_enclosing_method(ce, from).
+hc_send(ce, from, a, "*", p) :- hc_req(ce, a, p), hc_req_mu(ce), expr_enclosing_method(ce, from).
+// `app.request(new Request(url, init?))` / `app.fetch(new Request(url, init?), env)`: the
+// URL's path (scheme and host dropped), the verb from the request's init
+.decl hc_reqobj(c0:symbol, c1:symbol, c2:symbol)
+hc_reqobj(ce, a, nq) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), (router_app_request(cn) ; router_app_fetch(cn)),
+    hr_app(r, a), expr_child("client", ce, "ARGUMENT", "0", nq),
+    call_site("client", "CONSTRUCTOR_CALL", rc, _, _, nq, _), router_request_class(rc).
+rd_demand(u) :- hc_reqobj(_, _, nq), expr_child("client", nq, "ARGUMENT", "0", u).
+.decl hc_reqobj_url(c0:symbol, c1:symbol)
+hc_reqobj_url(ce, url) :- hc_reqobj(ce, _, nq), expr_child("client", nq, "ARGUMENT", "0", u), rd_val(u, url).
+.decl hc_url_sch(c0:symbol, c1:number)
+hc_url_sch(url, i) :- (hc_reqobj_url(_, url) ; hc_req_abs(_, _, url)), strlen(url) >= 3, i = range(0, strlen(url) - 2), substr(url, i, 3) = "://".
+.decl hc_url_after(c0:symbol, c1:symbol)
+hc_url_after(url, r) :- hc_url_sch(url, _), i = min x : { hc_url_sch(url, x) }, r = substr(url, i + 3, strlen(url) - i - 3).
+.decl hc_url_slash(c0:symbol, c1:number)
+hc_url_slash(r, i) :- hc_url_after(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "/".
+.decl hc_url_path(c0:symbol, c1:symbol)
+hc_url_full(url, p) :- hc_url_after(url, r), m = min x : { hc_url_slash(r, x) }, p = substr(r, m, strlen(r) - m).
+hc_url_full(url, "/") :- hc_url_after(url, r), !hc_url_slash(r, _).
+hc_url_full(url, url) :- hc_reqobj_url(_, url), strlen(url) >= 1, substr(url, 0, 1) = "/".
+hc_url_path(url, p) :- hc_url_full(url, raw), hc_strip(raw, p).
+// a request's query string and fragment are not part of the path (SPEC ruling R9): `/x?path=…`
+// and `/x#top` are requests for `/x`
+.decl hc_url_full(c0:symbol, c1:symbol)
+.decl hc_strip_need(c0:symbol)
+hc_strip_need(raw) :- hc_url_full(_, raw).
+hc_strip_need(raw) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_app_request(cn), hr_app(r, _),
+    expr_child("client", ce, "ARGUMENT", "0", x), rd_val(x, raw), strlen(raw) >= 1, substr(raw, 0, 1) = "/".
+.decl hc_cut(c0:symbol, c1:number)
+hc_cut(raw, i) :- hc_strip_need(raw), i = range(0, strlen(raw)), (substr(raw, i, 1) = "?" ; substr(raw, i, 1) = "#").
+.decl hc_strip(c0:symbol, c1:symbol)
+hc_strip(raw, raw) :- hc_strip_need(raw), !hc_cut(raw, _).
+hc_strip(raw, p) :- hc_strip_need(raw), m = min i : { hc_cut(raw, i) }, p0 = substr(raw, 0, m),
+    ((p0 = "", p = "/") ; (p0 != "", p = p0)).
+
+.decl hc_reqobj_method(c0:symbol, c1:symbol)
+hc_reqobj_method(ce, vv) :- hc_reqobj(ce, _, nq), expr_child("client", nq, "ARGUMENT", "1", o), rd_obj_prop(o, key, val),
+    ts_http_init_method_key(key), expr_literal_value("client", w, val), ts_http_verb_name(w, vv).
+.decl hc_reqobj_has_method(c0:symbol)
+hc_reqobj_has_method(ce) :- hc_reqobj_method(ce, _).
+hc_send(ce, from, a, vv, p) :- hc_reqobj(ce, a, _), hc_reqobj_url(ce, url), hc_url_path(url, p), !contains("{}", p),
+    hc_reqobj_method(ce, vv), expr_enclosing_method(ce, from).
+hc_send(ce, from, a, "GET", p) :- hc_reqobj(ce, a, _), hc_reqobj_url(ce, url), hc_url_path(url, p), !contains("{}", p),
+    !hc_reqobj_has_method(ce), expr_enclosing_method(ce, from).
+hc_send(ce, from, a, "GET", p) :- hc_req(ce, a, p), !hc_req_has_method(ce), !hc_req_mu(ce), expr_enclosing_method(ce, from).
+// `app.request('http://localhost/x')`: the URL's path
+.decl hc_req_abs(c0:symbol, c1:symbol, c2:symbol)
+hc_req_abs(ce, a, url) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), router_app_request(cn), hr_app(r, a),
+    expr_child("client", ce, "ARGUMENT", "0", x), rd_val(x, url), contains("://", url).
+hc_req(ce, a, p) :- hc_req_abs(ce, a, url), hc_url_path(url, p).
+
+// ── the routes a send may reach: those of the app's root, under its prefix ──
+// (app, verb, full path relative to the app, handler)
+.decl hc_app_route(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+// The app a send names is flattened AS IF it were served on its own: a request sent to a
+// sub-app (`subApp.request('/posts')`, `hc<typeof subApp>`) is answered by its routes relative
+// to it, not by the mounting app's full paths. Same flattening as http-router-routes.dl.
+.decl hc_target(c0:symbol)
+hc_target(a) :- hc_send(_, _, a, _, _).
+.decl hc_flat(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
+hc_flat(a, a, "/", "", "", "") :- hc_target(a).
+hc_flat(r, s, np, nk, cut, cm) :- hc_flat(r, a, p, kp, _, _), hr_inc(a, s, site, pre, kd), kd != "mount_each",
+    hr_merge(p, pre, np), hr_key(site, k), nk = cat(kp, cat(k, ".")), strlen(nk) < 160, hr_cutoff(site, cut, cm).
+hc_flat(r, s, np, nk, "", "") :- hc_flat(r, a, p, kp, _, _), hr_inc(a, s, site, pre, "mount_each"), hr_each_ord(site, s, o),
+    hr_merge(p, pre, np), hr_key(site, k), nk = cat(kp, cat(k, cat("~", cat(o, ".")))), strlen(nk) < 160.
+hr_mreq(p, pre) :- hc_flat(_, a, p, _, _, _), hr_inc(a, _, _, pre, _).
+.decl hc_fcand(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:number, c5:symbol)
+hc_fcand(r, vv, p, ce, n, pre) :- hc_flat(r, a, pre, _, "", _), hr_entry(a, _, "route", vv, p, ce, n).
+hc_fcand(r, vv, p, ce, n, pre) :- hc_flat(r, a, pre, _, cut, _), cut != "", hr_entry(a, k, "route", vv, p, ce, n), k < cut.
+hc_fcand(r, vv, p, ce, n, pre) :- hc_flat(r, a, pre, _, cut, cm), cut != "", hr_entry(a, _, "route", vv, p, ce, n),
+    expr_module("client", em, ce), em != cm.
+hr_mreq(pre, p) :- hc_fcand(_, _, p, _, _, pre).
+hc_app_route(a, vv, fp, h) :- hc_fcand(a, vv, p, ce, n, pre), hr_last(ce, n), hr_route_node(ce, n, h),
+    hr_merge(pre, p, fp), !contains("{}", fp).
+
+// segments of both ends
+.decl hc_path(c0:symbol)
+hc_path(p) :- hc_send(_, _, _, _, p).
+hc_path(p) :- hc_app_route(_, _, p, _).
+.decl hc_slash(c0:symbol, c1:number)
+hc_slash(p, i) :- hc_path(p), i = range(0, strlen(p)), substr(p, i, 1) = "/".
+.decl hc_next(c0:symbol, c1:number, c2:number)
+hc_next(p, i, j) :- hc_slash(p, i), j = min x : { hc_slash(p, x), x > i }.
+.decl hc_has_next(c0:symbol, c1:number)
+hc_has_next(p, i) :- hc_next(p, i, _).
+.decl hc_seg_at(c0:symbol, c1:number, c2:symbol)
+hc_seg_at(p, i, t) :- hc_next(p, i, j), t = substr(p, i + 1, j - i - 1).
+hc_seg_at(p, i, t) :- hc_slash(p, i), !hc_has_next(p, i), t = substr(p, i + 1, strlen(p) - i - 1).
+.decl hc_seg_ne(c0:symbol, c1:number)
+hc_seg_ne(p, i) :- hc_seg_at(p, i, t), t != "".
+.decl hc_seg(c0:symbol, c1:number, c2:symbol)
+hc_seg(p, k, t) :- hc_seg_at(p, i, t), t != "", k = count : { hc_seg_ne(p, x), x < i }.
+.decl hc_nseg(c0:symbol, c1:number)
+hc_nseg(p, n) :- hc_path(p), n = count : { hc_seg(p, _, _) }.
+.decl hc_param(c0:symbol)
+hc_param(t) :- hc_seg(_, _, t), substr(t, 0, 1) = ":".
+hc_param("*").
+// a computed segment of a send (`${id}`) is one segment of anything
+.decl hc_hole(c0:symbol)
+hc_hole(x) :- hc_seg(_, _, x), contains("{}", x).
+
+// a send fits a route of the same app: same segment count, each written segment equal or
+// under a route parameter; the verb equal, or the route's ANY
+.decl hc_pair(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+hc_pair(ce, h, p, rp) :- hc_send(ce, _, a, sv, p), hc_app_route(a, rv, rp, h), (rv = sv ; rv = "ANY" ; sv = "*"),
+    hc_nseg(p, n), hc_nseg(rp, n).
+.decl hc_conflict(c0:symbol, c1:symbol)
+hc_conflict(p, rp) :- hc_pair(_, _, p, rp), hc_seg(p, k, x), hc_seg(rp, k, y), x != y, !hc_param(y), !hc_hole(x).
+.decl hc_ndiff(c0:symbol, c1:symbol, c2:number)
+hc_ndiff(p, rp, n) :- hc_pair(_, _, p, rp), !hc_conflict(p, rp), n = count : { hc_seg(p, k, x), hc_seg(rp, k, y), x != y }.
+.decl hc_best(c0:symbol, c1:number)
+hc_best(ce, b) :- hc_pair(ce, _, p, _), hc_ndiff(p, _, _), b = min n : { hc_pair(ce, _, p2, rp2), hc_ndiff(p2, rp2, n) }.
+
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "exact") :- hc_send(ce, from, _, sv, p), sv != "*", hc_pair(ce, h, p, rp),
+    hc_ndiff(p, rp, 0), hc_best(ce, 0), from != h.
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "route_shape") :- hc_send(ce, from, _, sv, p), sv != "*", hc_pair(ce, h, p, rp),
+    hc_ndiff(p, rp, n), n > 0, hc_best(ce, n), from != h.
+// a send with a computed segment can be any request of its shape: every route it fits
+remote_edge(from, h, "http", cat(sv, cat(" ", p)), "route_shape") :- hc_send(ce, from, _, sv, p), sv != "*", contains("{}", p),
+    hc_pair(ce, h, p, rp), hc_ndiff(p, rp, n), n > 0, from != h.
+// a send whose verb is not decidable: every route of any verb its path fits best (SPEC ruling R17)
+remote_edge(from, h, "http", cat("* ", p), conf) :- hc_send(ce, from, _, "*", p), hc_pair(ce, h, p, rp),
+    hc_ndiff(p, rp, n), (hc_best(ce, n) ; contains("{}", p)), from != h, ts_remote_confidence_method_unknown(conf).
+.decl hc_served(c0:symbol)
+hc_served(ce) :- hc_best(ce, _).
+remote_unserved(from, "http", cat(sv, cat(" ", p))) :- hc_send(ce, from, _, sv, p), !contains("{}", p), !hc_served(ce).
+// a send with a computed segment that no route fits: where it goes is not known here
+remote_undetermined(from, "http", "dynamic_rpc_path") :- hc_send(ce, from, _, _, p), contains("{}", p), !hc_served(ce).

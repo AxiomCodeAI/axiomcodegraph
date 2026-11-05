@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: require-destructured Hono and cors; sub-app from module.exports mounted at /api/users; cors reaches it, not /health
+# census: new_hono, route_mount_literal, builtin_mw_import (CommonJS JavaScript; SPEC 10 C2: no CJS project
+entry	index.js:11:20	http
+entry	users.js:4:19	http

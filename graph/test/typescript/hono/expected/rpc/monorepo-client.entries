@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: client through a wrapper function and inline hc reaches the basePath'd routes
+# census: hc_client, hc_dollar_call, hc_element_param
+entry	server/app.ts:4:19	http
+entry	server/app.ts:5:36	http

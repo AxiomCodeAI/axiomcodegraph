@@ -1,0 +1,1 @@
+{ "name": "@scope/client", "private": true, "exports": { "./v2": { "types": "./lib/v2/index.ts", "import": "./lib/v2/index.ts" } } }

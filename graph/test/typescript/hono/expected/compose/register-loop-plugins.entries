@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O11: plugins mounted in a loop by an uncalled register(app: Hono): partial unresolved_app_value, never roots
+# census: route_mount_literal (oracle gap O11; SPEC 2 a mount argument is never a root)
+entry	plugins.ts:3:45	http
+entry	plugins.ts:4:41	http

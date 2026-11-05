@@ -1,0 +1,12 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "two calls of one helper pass the objects of two DIFFERENT functions into its parameter; the helper mounts the sub-app it destructures, so each call's app serves its own module's routes only, never the other module's handler under its prefix",
+   "run": ["context", "who serves DELETE /orders/:invoiceId"],
+   "avoid": ["route: DELETE /orders/:invoiceId"]},
+  {"why": "the same, the other way round",
+   "run": ["context", "who serves DELETE /invoices/:orderId"],
+   "avoid": ["route: DELETE /invoices/:orderId"]},
+  {"why": "CONTROL: a helper whose parameter only ever receives the object of ONE function (called twice, mounted at /east and /west) still mounts its sub-app at each prefix",
+   "run": ["context", "who serves DELETE /east/:orderId"],
+   "want": ["route: DELETE /east/:orderId -> <arrow> src/routes/orders.ts:6"]}
+ ]}

@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (callback_generic (SPEC R19; call-chain break class 3)): routes, middleware chains, ctx flows
+# census: callback_generic (SPEC R19; call-chain break class 3)
+route	GET	/roles	app.ts:9:19	app.ts:6:13	0
+route	GET	/rank	app.ts:10:18	app.ts:6:13	1
+route	GET	/latest	app.ts:11:20	app.ts:6:13	2
+route	GET	/providers	app.ts:12:23	app.ts:6:13	3
+route	GET	/names	app.ts:13:19	app.ts:6:13	4
+route	POST	/roles	app.ts:19:3	app.ts:6:13	6
+mw	lib:hono/validator.validator@app.ts:18:3	app.ts:19:3	POST	/roles	0	app.ts:6:13
+regby	app.ts:1:1	app.ts:10:18	GET	/rank	app.ts:6:13
+regby	app.ts:1:1	app.ts:11:20	GET	/latest	app.ts:6:13
+regby	app.ts:1:1	app.ts:12:23	GET	/providers	app.ts:6:13
+regby	app.ts:1:1	app.ts:13:19	GET	/names	app.ts:6:13
+regby	app.ts:1:1	app.ts:19:3	POST	/roles	app.ts:6:13
+regby	app.ts:1:1	app.ts:9:19	GET	/roles	app.ts:6:13

@@ -14,6 +14,10 @@ ambiguous_unknown	METHOD_CALL	use#reduceElement(User[]) @L58 -> -
 ambiguous_unknown	METHOD_CALL	use#thenBare(Repo) @L61 -> -
 ambiguous_unknown	METHOD_CALL	use#thenParam(Promise) @L64 -> -
 ambiguous_unknown	METHOD_CALL	use#thenThenMap(Promise) @L82 -> -
+callback_handed	METHOD_CALL	shadow#ctlOwnPromise(Promise) @L29 -> shadow#<arrow@29>(?)
+callback_handed	METHOD_CALL	shadow#ctlOwnSet(Set) @L26 -> shadow#<arrow@26>(?)
+callback_handed	METHOD_CALL	use#ctlOwnMap(Lazy) @L109 -> use#<arrow@109>(?)
+callback_handed	METHOD_CALL	use#ctlOwnThen(Lazy) @L106 -> use#<arrow@106>(?)
 callback_registered	METHOD_CALL	use#<arrow@77>(?) @L78 -> use#<arrow@78>(?)
 callback_registered	METHOD_CALL	use#<arrow@82>(?) @L83 -> use#<arrow@83>(?)
 callback_registered	METHOD_CALL	use#aliasGeneric(Many) @L73 -> use#<arrow@73>(?)

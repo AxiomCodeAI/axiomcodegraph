@@ -1,0 +1,5 @@
+known_edge	read	Ticker#start() -> Ticker#handle
+known_edge	read	Ticker#start() -> Ticker#ms
+known_edge	read	Ticker#start() -> Ticker#onTick
+known_edge	read	Watchdog#expire() -> Watchdog#label
+known_edge	write	Ticker#start() -> Ticker#handle

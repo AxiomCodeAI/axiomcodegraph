@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: R1: the app built inside the it() callback is a served root; its /health route and the request from the callback reach it
+# census: app_request_test (SPEC R1: oracle gap O1/O5)
+entry	app.test.ts:12:24	http

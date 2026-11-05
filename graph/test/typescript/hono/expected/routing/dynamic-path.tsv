@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: run-time path: partial + dynamic_route_path, the literal sibling still a route
+# census: verb_template_path (non-decidable partition)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/fixed	index.ts:9:19	index.ts:5:13	0
+partial	index.ts:8:32	GET	dynamic_route_path
+regby	index.ts:1:1	index.ts:9:19	GET	/fixed	index.ts:5:13
+unknown	index.ts:8:1	dynamic_route_path	index.ts:8:32

@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O2: startServer is never called in the program yet its body runs: /api/status is mounted under /api, the sub-app is not served bare
+# census: app_factory_fn (oracle gap O2)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/status	api.ts:4:20	server.ts:8:15	0
+submount	/api	server.ts:9:7
+regby	api.ts:1:1	api.ts:4:20	GET	/api/status	server.ts:8:15

@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: R8b (O27): routes registered through a module-level app variable after a conditional rebase (run-time base; literal base behind a condition) are partial dynamic_mount_prefix, never exact; /health, registered before the rebase, stays exact
+# census: basepath (SPEC R8a/R8b, oracle note O27: a module-level app variable rebased under a condition)
+entry	index.ts:11:19	http
+entry	index.ts:14:20	http
+entry	index.ts:19:21	http
+entry	index.ts:26:21	http

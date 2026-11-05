@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: four test functions reach their routes (three app.request, one testClient); /nowhere is unserved
+# census: app_request_test, test_client
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/health	app.ts:4:19	app.ts:3:20	0
+route	POST	/items	app.ts:5:19	app.ts:3:20	1
+route	GET	/items/:id	app.ts:6:22	app.ts:3:20	2
+rpc	app.test.ts:21:1	GET	/health	app.ts:4:19
+request	app.test.ts:11:1	POST	/items	app.ts:5:19
+request	app.test.ts:16:1	GET	/items/42	app.ts:6:22
+request	app.test.ts:6:1	GET	/health	app.ts:4:19
+regby	app.ts:1:1	app.ts:4:19	GET	/health	app.ts:3:20
+regby	app.ts:1:1	app.ts:5:19	POST	/items	app.ts:3:20
+regby	app.ts:1:1	app.ts:6:22	GET	/items/:id	app.ts:3:20
+unserved	app.test.ts:27:1	GET /nowhere

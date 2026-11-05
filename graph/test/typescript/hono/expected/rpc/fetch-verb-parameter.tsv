@@ -1,0 +1,25 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R17/O25/hono-6-03: an undecidable method (an init the helper is handed, a parameter verb, a method set in a branch, a replayed init) joins every route on the path with method_unknown; base_unknown wins when the base is unknown too; a literal DELETE and an omitted init (GET) join one verb
+# census: request_fetch, app_request_test (SPEC R17; stress-6 oracle note O25; violation hono-6-03)
+route	GET	/api/skills/:id	server.ts:8:28	server.ts:7:13	0
+route	PUT	/api/skills/:id	server.ts:9:28	server.ts:7:13	1
+route	DELETE	/api/skills/:id	server.ts:10:31	server.ts:7:13	2
+route	GET	/_discovery	server.ts:11:24	server.ts:7:13	3
+route	POST	/_discovery	server.ts:12:25	server.ts:7:13	4
+request	discovery.ts:2:1	*	/_discovery	server.ts:11:24	method_unknown
+request	discovery.ts:2:1	*	/_discovery	server.ts:12:25	method_unknown
+request	server.test.ts:5:1	*	/api/skills/2	server.ts:10:31	method_unknown
+request	server.test.ts:5:1	*	/api/skills/2	server.ts:8:28	method_unknown
+request	server.test.ts:5:1	*	/api/skills/2	server.ts:9:28	method_unknown
+request	server.test.ts:5:1	GET	/api/skills/1	server.ts:8:28
+request	skills-client.ts:12:1	DELETE	/api/skills/${}	server.ts:10:31
+request	skills-client.ts:2:1	*	/api/skills${}	server.ts:10:31	base_unknown
+request	skills-client.ts:2:1	*	/api/skills${}	server.ts:8:28	base_unknown
+request	skills-client.ts:2:1	*	/api/skills${}	server.ts:9:28	base_unknown
+request	skills-client.ts:7:1	*	/api/skills/${}	server.ts:10:31	method_unknown
+request	skills-client.ts:7:1	*	/api/skills/${}	server.ts:8:28	method_unknown
+request	skills-client.ts:7:1	*	/api/skills/${}	server.ts:9:28	method_unknown
+regby	server.ts:1:1	server.ts:10:31	DELETE	/api/skills/:id	server.ts:7:13
+regby	server.ts:1:1	server.ts:11:24	GET	/_discovery	server.ts:7:13
+regby	server.ts:1:1	server.ts:12:25	POST	/_discovery	server.ts:7:13
+regby	server.ts:1:1	server.ts:8:28	GET	/api/skills/:id	server.ts:7:13
+regby	server.ts:1:1	server.ts:9:28	PUT	/api/skills/:id	server.ts:7:13

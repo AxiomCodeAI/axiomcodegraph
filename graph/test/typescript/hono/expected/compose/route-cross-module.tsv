@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: default-exported sub-app's three routes under /users; / local maps to /users
+# census: route_mount_literal, export_default_app
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.ts:8:14	index.ts:6:13	0
+route	GET	/users	users.ts:5:16	index.ts:6:13	1
+route	GET	/users/:id	users.ts:6:19	index.ts:6:13	2
+route	POST	/users	users.ts:7:17	index.ts:6:13	3
+submount	/users	index.ts:9:5
+regby	index.ts:1:1	index.ts:8:14	GET	/	index.ts:6:13
+regby	users.ts:1:1	users.ts:5:16	GET	/users	index.ts:6:13
+regby	users.ts:1:1	users.ts:6:19	GET	/users/:id	index.ts:6:13
+regby	users.ts:1:1	users.ts:7:17	POST	/users	index.ts:6:13

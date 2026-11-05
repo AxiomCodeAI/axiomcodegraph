@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: sub-app resolved through export { default as } from
+# census: reexport_default_as, route_mount_literal
+entry	routes/books.ts:4:16	http

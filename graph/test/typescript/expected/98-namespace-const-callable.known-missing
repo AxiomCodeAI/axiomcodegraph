@@ -1,0 +1,7 @@
+# Accepted gaps for 98-namespace-const-callable: each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# The control const that HOLDS an arrow: the compiler names the annotation's signature, the
+# engine names the arrow's body, the same accepted shape as 92-namespace-typed-const. Kept on
+# purpose: the namespace-const rule must not add the bodiless signature beside the body.
+use#controls() -> Step#<arrow@14>(number)

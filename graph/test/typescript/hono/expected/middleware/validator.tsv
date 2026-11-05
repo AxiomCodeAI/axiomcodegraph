@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: zValidator and validator are per-route middleware before the handler; NewPost is the json schema the handler's valid('json') reads
+# census: zvalidator, validator_builtin, req_valid
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/posts	index.ts:11:49	index.ts:10:13	1
+route	GET	/search	index.ts:15:3	index.ts:10:13	3
+mw	lib:@hono/zod-validator.zValidator@index.ts:11:20	index.ts:11:49	POST	/posts	0	index.ts:10:13
+mw	lib:hono/validator.validator@index.ts:14:3	index.ts:15:3	GET	/search	0	index.ts:10:13
+schema	index.ts:11:49	json	index.ts:8:7
+validread	index.ts:11:63	index.ts:11:49	json	index.ts:8:7
+regby	index.ts:1:1	index.ts:11:49	POST	/posts	index.ts:10:13
+regby	index.ts:1:1	index.ts:15:3	GET	/search	index.ts:10:13

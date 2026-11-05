@@ -47,6 +47,7 @@ TIER_RANK = {
     'dispatch': 2,              # a base method to an override that is actually instantiated
     'overload': 0,              # the overload signature a call selected runs its set's implementation: one body, certain
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
+    'callback_handed': 3,       # handed to a project function whose body can run it
     'event_dispatch': 3,        # emitted here, handled there
     'asserted': 3,              # a link someone recorded (axiomcode link) where the engine resolved nothing: read, not derived
     'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
@@ -71,6 +72,7 @@ TIER_NOTE = {
     'dispatch':             'a base method to an override the project instantiates',
     'overload':             'the call selected an overload signature; this is the implementation that runs',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
+    'callback_handed':      'handed to a project function whose body can run it',
     'event_dispatch':       'emitted here, handled there',
     'asserted':             'ASSERTED by a link (axiomcode-links.tsv): someone read the call and recorded its target; the engine did not resolve it',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
@@ -179,7 +181,7 @@ DIRECT_CERT = {
     'implicit_constructor': 'resolved', 'written': 'resolved',
     'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',
-    'callback_registered': 'registered', 'event_dispatch': 'registered',
+    'callback_registered': 'registered', 'callback_handed': 'registered', 'event_dispatch': 'registered',
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
     'asserted': 'asserted',         # a link someone recorded (ax_links.py): an edge, never `resolved`

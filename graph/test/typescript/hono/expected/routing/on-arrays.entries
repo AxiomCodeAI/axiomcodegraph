@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: verbs x paths cross product, one handler four routes; lower-case verb upper-cased
+# census: on_method_array, on_method
+entry	index.ts:7:52	http
+entry	index.ts:8:32	http
+entry	index.ts:9:27	http

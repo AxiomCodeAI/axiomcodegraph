@@ -370,6 +370,33 @@ expr_decl_ref(e, c) :- expr_referenced("client", "PARAMETER", p, e),
 expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     lambda_param_type(p, prov, t).
 
+// ── …AND THE NAMES A CONTEXTUALLY TYPED PARAMETER IS DESTRUCTURED INTO ──────
+// `const poll: (ctx: TickCtx) => R = async ({ data, utils }) => utils.http(..)`, and the same
+// arrow written where an interface member or a function-typed field is expected. The pattern
+// parameter takes its type from that context above, but a bound name reads the pattern's type
+// through param_type (reference-types.dl, binding_pattern_type), which only an annotation fills:
+// so `utils` stayed untyped and every call on it was unresolved, while `ctx.utils.http(..)` on
+// the same arrow resolved. The bound name takes the type of the field it names, exactly as for
+// an annotated pattern; its uses are typed here, beside the plain parameter's, and not through
+// param_type, which overload rejection reads under negation.
+lambda_binding_target(bh, prov, t) :- param_binding(_, _, pos, "PROPERTY", _, m, bh),
+    param_decl(_, _, pos, _, m, ph),
+    lambda_param_type(ph, prov, t).
+lambda_binding_type(bh, prov, ft) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    lambda_binding_target(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+lambda_binding_shape(bh, sh) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    lambda_binding_target(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, sh).
+expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", bh, e),
+    lambda_binding_type(bh, prov, t).
+expr_shape(e, sh) :- expr_referenced("client", "PARAMETER", bh, e),
+    lambda_binding_shape(bh, sh).
+
 // ── …AND A CALLBACK THAT RECEIVES A MODULE NAMESPACE ────────────────────────
 // `import("./m").then((m) => m.run(1))` — the same namespace as the awaited form, only
 // reached through a callback. `await` is not required for a dynamic import to be
@@ -653,6 +680,15 @@ objlit_ctx_ref(l, r) :- expr_child("client", ce, "ARGUMENT", pos, l),
     param_type_ref(_, r, p).
 objlit_ctx_scope(l, s) :- objlit_ctx_ref(l, r), ref_type_target(r, _, s).
 objlit_ctx_scope(l, s) :- objlit_ctx_ref(l, r), ref_shape_target(r, s).
+// …and a literal written as a PROPERTY of a typed literal takes the type of the field it fills:
+// `define({ lifecycle: { start: async (ctx) => .. } })`, where the parameter is
+// `{ lifecycle?: Slots }`. The outer literal had a scope and the inner one none, so every
+// function in a nested slot (a config's hooks, a router's handlers) took no parameter types.
+objlit_ctx_ref(l, r) :- objlit_prop(p, name, l),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    objlit_ctx_scope(p, s),
+    field_in_scope(s, name, _, f),
+    field_type_ref(_, r, f).
 
 // a property is a KEY and a VALUE at the same position under the literal; a method is its own row
 objlit_prop(l, name, val) :- expr_child("client", l, "OBJECT_PROPERTY_KEY", pos, key),

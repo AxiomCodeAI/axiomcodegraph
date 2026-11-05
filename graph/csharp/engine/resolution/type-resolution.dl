@@ -109,6 +109,107 @@ type_name_cand(prov, mod, s, ar, gk, 1) :-
     type_qn_tail(prov, qn, p, s), module_ns_chain(prov, mod, p),
     type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk).
 
+// ── ...FROM THE SITE'S NAMESPACE, NOT THE FILE'S ────────────────────────────
+// The candidate above is per FILE: module_ns_chain holds every namespace the file
+// declares a type in. A file declaring P.Models, P.Other.Models and a class in P
+// therefore offered `Models.Report` written in P both P.Models.Report and
+// P.Other.Models.Report -- and P.Other is a child of P, not in scope there.
+//
+// C# reads the first segment from the namespaces enclosing the SITE, innermost
+// outward, and the innermost level that has a match wins: it does not merge
+// levels, and a name found at a level hides the same name read in full from the
+// global namespace. So per (site namespace, written name), the candidates are
+// ranked by the length of the prefix they were found under and only the longest
+// survives; a full match is the outermost level and survives only when no
+// enclosing namespace matched.
+//
+// PRUNE-ONLY. The file-level answer is kept as it is and a site drops from it only
+// what its own namespace rules out; the site's own answer is always one of the
+// file-level ones, so nothing correct is lost. A site whose enclosing type is not
+// known drops nothing.
+type_name_rel_at(prov, n, ar, gk, p) :-
+    type_qn_tail(prov, qn, p, n),
+    type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk).
+type_name_rel_src(prov, n, ar, gk) :- type_name_rel_at(prov, n, ar, gk, _).
+
+// The namespaces a name written in `ns` is read from, with the length of each.
+ns_read_level(prov, ns, ns, l) :- ns_exists(prov, ns), l = strlen(ns).
+ns_read_level(prov, ns, p, l) :- ns_prefix(prov, ns, p), l = strlen(p).
+
+// A dotted name some site in this file actually writes. type_name_resolves answers
+// every tail of every type in every file whose chain holds its prefix, written or
+// not, so the scoping below is keyed on what is written. Keyed by FILE as well, so
+// the probe into type_name_resolves binds (module, name) and reuses the index its
+// consumers already need rather than building one on the name alone.
+type_name_written_dotted(prov, mod, n) :-
+    type_ref_name(prov, tr, n), contains(".", n), type_ref_module(prov, tr, mod).
+type_name_written_dotted(prov, mod, n) :-
+    expr_written_name(prov, e, n), contains(".", n), expr_ultimate_module(prov, e, mod).
+type_name_written_dotted(prov, mod, n) :-
+    call_callee_name(prov, e, n), contains(".", n), call_module(prov, e, mod).
+type_name_written_dotted(prov, mod, n) :-
+    heritage_slot(prov, t, _, n, _, ""), contains(".", n), type_module(prov, t, mod).
+
+type_name_scope_demand(prov, mod, ns, n, ar) :-
+    type_name_written_dotted(prov, mod, n),
+    type_name_resolves(prov, mod, n, ar, _),
+    module_namespace_own(prov, mod, ns).
+type_name_scope_level(prov, ns, n, ar, gk, l) :-
+    type_name_scope_demand(prov, _, ns, n, ar),
+    ns_read_level(prov, ns, p, l),
+    type_name_rel_at(prov, n, ar, gk, p).
+type_name_scope_best(prov, ns, n, ar, b) :-
+    type_name_scope_level(prov, ns, n, ar, _, _),
+    b = max l : { type_name_scope_level(prov, ns, n, ar, _, l) }.
+type_name_scope_keep(prov, ns, n, ar, gk) :-
+    type_name_scope_level(prov, ns, n, ar, gk, b),
+    type_name_scope_best(prov, ns, n, ar, b).
+
+// type_name_out_of_scope(Prov, Namespace, Name, Arity, GroupKey) -- a file-level
+// answer that a site in `ns` does not see: a relative candidate not at the
+// innermost matching level (a child or sibling namespace, or a shallower level),
+// or a full match hidden by a relative one.
+type_name_out_of_scope(prov, ns, n, ar, gk) :-
+    type_name_scope_demand(prov, mod, ns, n, ar),
+    type_name_resolves(prov, mod, n, ar, gk),
+    type_name_rel_src(prov, n, ar, gk),
+    !type_name_scope_keep(prov, ns, n, ar, gk).
+type_name_out_of_scope(prov, ns, n, ar, gk) :-
+    type_name_scope_demand(prov, mod, ns, n, ar),
+    type_name_resolves(prov, mod, n, ar, gk),
+    !type_name_rel_src(prov, n, ar, gk),
+    type_name_scope_best(prov, ns, n, ar, _).
+
+// The site side, one per consumer below: the written name, the site's enclosing
+// type, and that type's namespace. Joined from the (small) out-of-scope set, so only
+// sites that write a pruned name are visited.
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "TYPE"), t = o.
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "METHOD"), method_owner(prov, t, o).
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "FIELD"), field_decl(prov, _, t, o).
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "PROPERTY"), property_decl(prov, _, t, o).
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "EVENT"), event_decl(prov, _, t, o).
+type_ref_scope_type(prov, tr, t) :-
+    type_ref_owner(prov, tr, o, "METHOD_PARAMETER"), param_of(prov, o, m), method_owner(prov, t, m).
+type_ref_scope_type(prov, tr, t) :-
+    type_ref_owner(prov, tr, o, "VARIABLE"), var_method(prov, o, m), method_owner(prov, t, m).
+type_ref_scope_type(prov, tr, t) :- type_ref_owner(prov, tr, o, "EXPRESSION"), expr_ultimate_type(prov, o, t).
+
+type_ref_name_dropped(prov, tr, gk) :-
+    type_name_out_of_scope(prov, ns, n, ar, gk),
+    type_ref_name(prov, tr, n), type_ref_argc(prov, tr, ar),
+    type_ref_scope_type(prov, tr, t), type_namespace(prov, t, ns).
+expr_name_dropped(prov, e, gk) :-
+    type_name_out_of_scope(prov, ns, n, ar, gk),
+    expr_written_name(prov, e, n), expr_type_argc(prov, e, ar),
+    expr_ultimate_type(prov, e, t), type_namespace(prov, t, ns).
+expr_callee_name_dropped(prov, e, gk) :-
+    type_name_out_of_scope(prov, ns, n, ar, gk),
+    call_callee_name(prov, e, n), call_type_argc(prov, e, ar),
+    expr_ultimate_type(prov, e, t), type_namespace(prov, t, ns).
+heritage_name_dropped(prov, t, n, gk) :-
+    type_name_out_of_scope(prov, ns, n, ar, gk),
+    heritage_slot(prov, t, _, n, ar, ""), type_namespace(prov, t, ns).
+
 // ── A CLIENT FILE NAMING A STAGED LIBRARY TYPE ──────────────────────────────
 // Every clause above is SINGLE-PROVENANCE: it joins a module and a declaration
 // under one `prov`, so a client module and a library namespace are never brought
@@ -266,7 +367,8 @@ type_ref_resolves(prov, tr, gk) :-
     !type_ref_type_param(prov, tr, _),
     type_ref_argc(prov, tr, ar),
     type_ref_module(prov, tr, mod),
-    type_name_resolves(prov, mod, n, ar, gk).
+    type_name_resolves(prov, mod, n, ar, gk),
+    !type_ref_name_dropped(prov, tr, gk).
 
 // The module a type reference is written in, by owner kind. Every owner kind that
 // can carry a reference is listed; one that is missing makes every reference in that

@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: chains fixture (R18 on PARTIAL routes): the served root is rebased by a run-time prefix in a server holder, so both sub-app routes are partial dynamic_mount_prefix with their decidable chain (the provider at 0)
+# census: ctx_di on a rebased root (SPEC R18 on a PARTIAL route: http_route_partial, dynamic_mount_prefix)
+entry	app.ts:10:16	http
+entry	app.ts:14:19	http
+entry	app.ts:18:22	http

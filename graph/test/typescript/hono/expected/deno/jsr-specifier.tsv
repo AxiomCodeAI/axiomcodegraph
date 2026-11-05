@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: jsr:@hono/hono app with jsr logger: one route, logger before it; served by Deno.serve(app.fetch)
+# census: deno_serve. jsr:@hono/hono and jsr:@hono/hono@^4/logger specifiers are a shape from Hono's Deno
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/jsr	main.ts:9:17	main.ts:7:13	1
+mw	lib:hono/logger.logger@main.ts:8:9	main.ts:9:17	GET	/jsr	0	main.ts:7:13
+regby	main.ts:1:1	main.ts:9:17	GET	/jsr	main.ts:7:13

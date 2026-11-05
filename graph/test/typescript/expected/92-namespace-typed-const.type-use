@@ -1,0 +1,2 @@
+known_edge	METHOD_RETURN	0	scorers [METHOD] -> Scorer
+known_edge	VARIABLE_TYPE	0	scorers [VARIABLE] -> Scorer

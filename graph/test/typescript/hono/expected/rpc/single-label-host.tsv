@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m37/hono-5-08/R14a: billing:9000 and an unknown base join as base_unknown; the dotted external host never joins
+# census: request_fetch (stress-5 mutation m37 shape; violation hono-5-08, SPEC R14a)
+route	GET	/api/invoices	index.ts:7:26	index.ts:6:13	0
+route	GET	/api/health	index.ts:8:24	index.ts:6:13	1
+request	index.ts:11:1	GET	/api/invoices	index.ts:7:26	base_unknown
+request	index.ts:17:1	GET	/api/health	index.ts:8:24	base_unknown
+regby	index.ts:1:1	index.ts:7:26	GET	/api/invoices	index.ts:6:13
+regby	index.ts:1:1	index.ts:8:24	GET	/api/health	index.ts:6:13

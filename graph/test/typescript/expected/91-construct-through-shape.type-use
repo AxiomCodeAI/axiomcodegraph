@@ -1,0 +1,10 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	x [EXPRESSION] -> -
+known_edge	METHOD_PARAM	0	Button [METHOD_PARAM] -> WidgetDef
+known_edge	METHOD_PARAM	0	ButtonCtor [METHOD_PARAM] -> WidgetDef
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> ButtonCtor
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> WidgetClass
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> WidgetDef
+known_edge	METHOD_PARAM	1	x [METHOD_PARAM] -> WidgetDef
+known_edge	METHOD_RETURN	0	ButtonCtor [METHOD] -> Button
+known_edge	METHOD_RETURN	0	x [METHOD] -> Button
+known_edge	METHOD_RETURN	1	x [METHOD_PARAM] -> Button

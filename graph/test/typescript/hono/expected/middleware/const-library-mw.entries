@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m31/hono-4-07: a const bound to jwt(...) is keyed at the call at module level, in a builder and in a branch
+# census: use_scoped (stress-4 mutation m31 shapes; violation hono-4-07, SPEC R10/R11)
+entry	index.ts:12:19	http
+entry	index.ts:18:29	http
+entry	index.ts:28:34	http

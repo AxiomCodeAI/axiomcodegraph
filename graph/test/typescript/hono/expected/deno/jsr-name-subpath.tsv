@@ -1,0 +1,8 @@
+# hand-reviewed 2026-11-04 against the fixture and the oracle: @hono/hono and @hono/hono/factory named by the import map key; the factory's argument is the middleware of /admin/users; the @hono/hono-kit look-alike is a project function, so what it returns is the middleware of /open
+# census: an import map keyed by the JSR name (@hono/hono) and its subpaths imported under that name
+route	GET	/admin/users	main.ts:16:25	main.ts:14:13	1
+route	GET	/open	main.ts:17:27	main.ts:14:13	3
+mw	main.ts:8:31	main.ts:16:25	GET	/admin/users	0	main.ts:14:13
+mw	kit/factory.ts:3:57	main.ts:17:27	GET	/open	0	main.ts:14:13
+regby	main.ts:1:1	main.ts:16:25	GET	/admin/users	main.ts:14:13
+regby	main.ts:1:1	main.ts:17:27	GET	/open	main.ts:14:13

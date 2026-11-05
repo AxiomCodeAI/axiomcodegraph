@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: project files under lib/ and libs/ are project keys: /from-lib and /users/:id served by the lib/ app
+# census: route_mount_literal (project sources under lib/ and libs/, a common monorepo layout)
+entry	lib/app.ts:4:22	http
+entry	libs/users/routes.ts:4:19	http

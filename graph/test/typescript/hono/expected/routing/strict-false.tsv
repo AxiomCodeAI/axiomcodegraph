@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: registered paths unchanged by strict:false
+# census: strict_false, new_hono_options
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/about/	index.ts:7:20	index.ts:5:13	0
+route	GET	/contact	index.ts:8:21	index.ts:5:13	1
+regby	index.ts:1:1	index.ts:7:20	GET	/about/	index.ts:5:13
+regby	index.ts:1:1	index.ts:8:21	GET	/contact	index.ts:5:13

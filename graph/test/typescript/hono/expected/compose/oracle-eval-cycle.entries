@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O15: the oracle terminates on the destructure-and-rebuild cycle and is linear on a 25-link builder chain; the app's route, middleware and ctx flow are unaffected
+# census: new_hono_inside_function (oracle gap O15)
+entry	index.ts:12:23	http
+entry	index.ts:16:33	http

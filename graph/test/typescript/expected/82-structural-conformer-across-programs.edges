@@ -1,3 +1,4 @@
+callback_handed	METHOD_CALL	app/pipeline#build(string[]) @L15 -> app/pipeline#<arrow@15>(?)
 known_edge	CONSTRUCTOR_CALL	Pipeline#map((value: T) =) @L10 -> Pipeline#<new>(T[])
 known_edge	CONSTRUCTOR_CALL	app/pipeline#build(string[]) @L15 -> Pipeline#<new>(T[])
 known_edge	CONSTRUCTOR_CALL	fixture/use#<module-init>() @L16 -> Bag#<new>()

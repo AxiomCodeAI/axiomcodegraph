@@ -29,10 +29,15 @@
 // parser's general name column and holds the identifier for an IDENTIFIER_REFERENCE,
 // so reading it unguarded turns variables into strings.
 cfg_path_arg(ce) :- expr_child("client", ce, "ARGUMENT", _, a),
-    expr_literal_type("client", "STRING", a),
+    cfg_string_literal_type(t), expr_literal_type("client", t, a),
     expr_literal_value("client", v, a),
     strlen(v) >= 1,
     substr(v, 0, 1) = "/".
+
+// a backtick string with no `${}` is a string as much as a quoted one is
+.decl cfg_string_literal_type(c0:symbol)
+cfg_string_literal_type("STRING").
+cfg_string_literal_type("NO_SUBSTITUTION_TEMPLATE").
 
 // ── a NAMED function passed by reference as an argument ─────────────────────
 // `callback_arg` holds only for an ARROW_FUNCTION or FUNCTION_EXPRESSION written at

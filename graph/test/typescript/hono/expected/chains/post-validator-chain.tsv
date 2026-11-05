@@ -1,0 +1,14 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: chains fixture (POST routes behind a json validator, zValidator and the built-in validator): routes, middleware chains with the library validator at position 1, ctx flows, schema and the validated read
+# census: ctx_di + zvalidator + req_valid (SPEC R18 with SPEC 3.9; call-chain break class 1 on a POST route)
+route	POST	/orders	app.ts:21:54	app.ts:17:13	2
+route	POST	/orders/:id/items	app.ts:34:3	app.ts:17:13	4
+mw	app.ts:12:41	app.ts:21:54	POST	/orders	0	app.ts:17:13
+mw	lib:@hono/zod-validator.zValidator@app.ts:21:21	app.ts:21:54	POST	/orders	1	app.ts:17:13
+mw	app.ts:12:41	app.ts:34:3	POST	/orders/:id/items	0	app.ts:17:13
+mw	lib:hono/validator.validator@app.ts:30:3	app.ts:34:3	POST	/orders/:id/items	1	app.ts:17:13
+ctx	app.ts:12:41	app.ts:21:54	services
+ctx	app.ts:12:41	app.ts:34:3	services
+schema	app.ts:21:54	json	app.ts:10:7
+validread	app.ts:22:17	app.ts:21:54	json	app.ts:10:7
+regby	app.ts:1:1	app.ts:21:54	POST	/orders	app.ts:17:13
+regby	app.ts:1:1	app.ts:34:3	POST	/orders/:id/items	app.ts:17:13

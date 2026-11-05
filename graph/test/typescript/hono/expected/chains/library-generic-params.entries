@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: chains fixture (callback_generic (SPEC R19; call-chain break class 3)): routes, middleware chains, ctx flows
+# census: callback_generic (SPEC R19; call-chain break class 3)
+entry	app.ts:10:18	http
+entry	app.ts:11:20	http
+entry	app.ts:12:23	http
+entry	app.ts:13:19	http
+entry	app.ts:19:3	http
+entry	app.ts:9:19	http

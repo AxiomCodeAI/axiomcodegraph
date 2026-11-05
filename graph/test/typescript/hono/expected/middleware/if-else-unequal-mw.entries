@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R15 clause 2: unequal if/else branches start at the same position, each conditional; a later middleware continues after the longer branch and its chain is dynamic_middleware_list; /api/ping (nothing after the branch) and /health are not dynamic
+# census: use_conditional_loop, use_scoped (SPEC R15 clause 2)
+entry	index.ts:12:38	http
+entry	index.ts:13:40	http
+entry	index.ts:14:37	http
+entry	index.ts:15:35	http
+entry	index.ts:16:34	http
+entry	index.ts:28:20	http
+entry	index.ts:29:22	http
+entry	index.ts:30:27	http

@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: /admin/* reaches both admin routes; /orgs/:org/* reaches billing; /public gets nothing
+# census: use_scoped, path_wildcard
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/admin/users	index.ts:17:25	index.ts:13:13	2
+route	GET	/admin/users/:id	index.ts:18:29	index.ts:13:13	3
+route	GET	/orgs/:org/billing	index.ts:19:31	index.ts:13:13	4
+route	GET	/public	index.ts:20:20	index.ts:13:13	5
+mw	index.ts:6:38	index.ts:17:25	GET	/admin/users	0	index.ts:13:13
+mw	index.ts:6:38	index.ts:18:29	GET	/admin/users/:id	0	index.ts:13:13
+mw	index.ts:9:35	index.ts:19:31	GET	/orgs/:org/billing	0	index.ts:13:13
+regby	index.ts:1:1	index.ts:17:25	GET	/admin/users	index.ts:13:13
+regby	index.ts:1:1	index.ts:18:29	GET	/admin/users/:id	index.ts:13:13
+regby	index.ts:1:1	index.ts:19:31	GET	/orgs/:org/billing	index.ts:13:13
+regby	index.ts:1:1	index.ts:20:20	GET	/public	index.ts:13:13
