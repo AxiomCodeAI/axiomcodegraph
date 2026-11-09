@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m25: controller routes mounted on a typed holder at a getter-read prefix: one partial unresolved_app_value per route
+# census: prop_receiver_route (stress-4 mutation m25 shape; SPEC R2, hono-2-04 residue)
+partial	index.ts:21:33	DELETE	unresolved_app_value
+partial	index.ts:22:30	GET	unresolved_app_value
+unknown	index.ts:42:5	unresolved_app_value	index.ts:21:33
+unknown	index.ts:42:5	unresolved_app_value	index.ts:22:30

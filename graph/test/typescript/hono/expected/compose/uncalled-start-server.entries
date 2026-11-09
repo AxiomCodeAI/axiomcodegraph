@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O2: startServer is never called in the program yet its body runs: /api/status is mounted under /api, the sub-app is not served bare
+# census: app_factory_fn (oracle gap O2)
+entry	api.ts:4:20	http

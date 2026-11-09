@@ -3,6 +3,7 @@ ambiguous_unknown	METHOD_CALL	generic#useLibrary() @L45 -> -
 boundary_lib	CONSTRUCTOR_CALL	generic#useLibrary() @L42 -> Cell#<new>(T)
 boundary_lib	FUNCTION_CALL	generic#useLibrary() @L45 -> container#unwrap(Cell)
 boundary_lib	METHOD_CALL	generic#useLibrary() @L45 -> Cell#value()
+callback_handed	FUNCTION_CALL	generic#inferredFromArgument() @L35 -> generic#<arrow@35>(?)
 known_edge	CONSTRUCTOR_CALL	Box#map((t: T) =) @L16 -> Box#<new>(T)
 known_edge	CONSTRUCTOR_CALL	generic#fromReceiver() @L21 -> Box#<new>(T)
 known_edge	CONSTRUCTOR_CALL	generic#fromReceiver() @L21 -> Item#<new>()

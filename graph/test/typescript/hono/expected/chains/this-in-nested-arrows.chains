@@ -1,0 +1,53 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: R20: this in arrows nested 1, 2 and 3 deep in a method, in a stored arrow, and in an arrow inside a static method reaches the class's own members
+# census: this_arrow (SPEC R20; call-chain break class 4)
+fn	app.ts:10:18
+fn	app.ts:6:20
+fn	app.ts:7:19
+fn	app.ts:8:21
+fn	app.ts:9:19
+fn	resp.ts:15:3
+fn	resp.ts:18:3
+fn	resp.ts:21:3
+fn	resp.ts:24:3
+fn	resp.ts:28:3
+fn	resp.ts:29:27
+fn	resp.ts:32:3
+fn	resp.ts:33:27
+fn	resp.ts:33:42
+fn	resp.ts:36:3
+fn	resp.ts:37:27
+fn	resp.ts:37:42
+fn	resp.ts:37:57
+fn	resp.ts:40:3
+fn	resp.ts:41:17
+fn	resp.ts:42:21
+fn	resp.ts:5:3
+fn	resp.ts:8:3
+fn	resp.ts:9:23
+edge	app.ts:10:18	resp.ts:8:3
+edge	app.ts:6:20	resp.ts:28:3
+edge	app.ts:7:19	resp.ts:32:3
+edge	app.ts:8:21	resp.ts:36:3
+edge	app.ts:9:19	resp.ts:40:3
+edge	resp.ts:28:3	resp.ts:29:27
+edge	resp.ts:29:27	resp.ts:18:3
+edge	resp.ts:32:3	resp.ts:33:27
+edge	resp.ts:33:27	resp.ts:33:42
+edge	resp.ts:33:42	resp.ts:18:3
+edge	resp.ts:33:42	resp.ts:21:3
+edge	resp.ts:36:3	resp.ts:37:27
+edge	resp.ts:37:27	resp.ts:37:42
+edge	resp.ts:37:42	resp.ts:37:57
+edge	resp.ts:37:57	resp.ts:18:3
+edge	resp.ts:37:57	resp.ts:21:3
+edge	resp.ts:37:57	resp.ts:24:3
+edge	resp.ts:40:3	resp.ts:41:17
+edge	resp.ts:41:17	resp.ts:42:21
+edge	resp.ts:42:21	resp.ts:18:3
+edge	resp.ts:8:3	resp.ts:9:23
+edge	resp.ts:9:23	resp.ts:5:3
+chain	prices-depth1	GET	/prices	app.ts:6:20	resp.ts:28:3	resp.ts:29:27	resp.ts:18:3
+chain	taxes-depth2	GET	/taxes	app.ts:7:19	resp.ts:32:3	resp.ts:33:27	resp.ts:33:42	resp.ts:21:3
+chain	rounded-depth3	GET	/rounded	app.ts:8:21	resp.ts:36:3	resp.ts:37:27	resp.ts:37:42	resp.ts:37:57	resp.ts:24:3
+chain	later-stored-arrow	GET	/later	app.ts:9:19	resp.ts:40:3	resp.ts:41:17	resp.ts:42:21	resp.ts:18:3
+chain	fail-static-this	GET	/fail	app.ts:10:18	resp.ts:8:3	resp.ts:9:23	resp.ts:5:3

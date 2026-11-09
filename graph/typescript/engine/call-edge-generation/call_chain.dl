@@ -134,6 +134,51 @@ call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :-
     caller != m,
     invocation_site(ce, kind).
 
+// …and a function handed to a PROJECT function (`withRetry(2, () => load(id))`, `tryit(purge)`): the
+// site hands it over exactly as it does to a library one, and the compiler names the hop. The callee's
+// body, which runs it, keeps its own edge (fn_value_call); this one is the site's, so it carries the
+// hand-over and nothing from another caller.
+//
+// Only where the hand-over can run it. A getter read (`new Context(Request.empty)`) hands over what the
+// getter RETURNS, not the getter. A body that never reads the parameter (`on(_e, _listener) {}`), or
+// only compares it (`c === undefined`), cannot run what it was given. And a keyed registry's slot
+// (keyed_registry.dl) is run by the publish on the same key, not by the subscribe that files it.
+call_chain_edge(ce, caller, "-", m, "client", "callback_handed", kind) :-
+    cb_handed_arg(ce, pos, m),
+    cb_handed_live(ce, pos),
+    call_from(ce, caller),
+    caller != m,
+    invocation_site(ce, kind).
+
+.decl cb_handed_arg(c0:symbol, c1:symbol, c2:symbol)   // (call, argument position, function handed there)
+.decl cb_handed_live(c0:symbol, c1:symbol)             // (call, position): a body that runs the call may run it
+.decl cb_param_runs(c0:symbol)                         // a parameter whose value the body can call or pass on
+.decl cb_ref_inert(c0:symbol)                          // a reference that only tests the value
+.decl cb_inert_op(c0:symbol)
+cb_handed_arg(ce, pos, m) :- call_runs_client_body(ce),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    !expr_kind("client", "CALL_EXPRESSION", _, a),
+    expr_callable(a, m),
+    !method_is_accessor(m),
+    method_prov(m, "client").
+// a position with no parameter of its own: a rest parameter's tail, or `arguments`
+cb_handed_live(ce, pos) :- cb_handed_arg(ce, pos, _), call_runs_method(ce, b), method_prov(b, "client"),
+    !param_decl("client", _, pos, _, b, _).
+cb_handed_live(ce, pos) :- cb_handed_arg(ce, pos, _), call_runs_method(ce, b), method_prov(b, "client"),
+    param_decl("client", _, pos, _, b, p), !kr_registry_param(p), cb_param_runs(p).
+cb_param_runs(p) :- expr_referenced("client", "PARAMETER", p, e), !cb_ref_inert(e).
+// a parameter property (`constructor(private readonly onTimeout: () => void)`) is also a field: the class
+// runs it through `this.onTimeout` wherever the field is read, though the constructor never names it
+cb_param_runs(p) :- param_declares_field("client", f, p), expr_holder(_, f).
+cb_ref_inert(e) :- expr_referenced("client", "PARAMETER", _, e), expr_child("client", x, _, _, e),
+    expr_operator("client", op, x), cb_inert_op(op).
+cb_inert_op("===").
+cb_inert_op("!==").
+cb_inert_op("==").
+cb_inert_op("!=").
+cb_inert_op("typeof").
+cb_inert_op("!").
+
 // …and a function written inside a JSX `{…}` (resolution/value-flow.dl, jsx_handed_value). The `{…}` is
 // the site: an intrinsic tag has no call site of its own, and the expression positions the edge.
 call_chain_edge(r, caller, "-", m, "client", "callback_registered", "JSX_COMPONENT_CALL") :-

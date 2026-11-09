@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: deno.land/x URL mod.ts app, etag from middleware.ts; export default app
+# census: none (corpus gap). https://deno.land/x/hono@v3.x/mod.ts and /middleware.ts: shape from Hono's Deno docs (v3 era), corpus gap.
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/url	main.ts:8:17	main.ts:6:13	1
+mw	lib:hono/middleware.etag@main.ts:7:9	main.ts:8:17	GET	/url	0	main.ts:6:13
+regby	main.ts:1:1	main.ts:8:17	GET	/url	main.ts:6:13

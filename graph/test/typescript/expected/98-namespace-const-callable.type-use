@@ -1,0 +1,5 @@
+known_edge	METHOD_RETURN	0	use [METHOD] -> Runner
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	VARIABLE_TYPE	0	Local [VARIABLE] -> Runner
+known_edge	VARIABLE_TYPE	0	Local [VARIABLE] -> Step

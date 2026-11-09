@@ -24,11 +24,13 @@ export interface ExtRelation {
  */
 export const EXT_QUERIED: ReadonlySet<string> = new Set([
   'bean_def', 'call_runs_edge', 'call_site_unresolved', 'config_affects_method', 'config_binding', 'config_key_ref',
-  'config_unresolved', 'ctor_implicit_type', 'decorated_name_target', 'di_edge', 'fn_value_call', 'framework_edge',
+  'config_unresolved', 'ctor_implicit_type', 'ctx_key_flow', 'decorated_name_target', 'di_edge', 'fn_value_call',
+  'framework_edge', 'framework_undetermined', 'http_mount', 'http_route', 'http_route_partial', 'http_served_by',
   'inject_point', 'lib_callback_edge', 'lib_callback_site', 'library_receiver', 'method_returns_method',
-  'method_returns_param', 'persistence_field', 'remote_edge', 'remote_unsent', 'remote_unserved', 'return_value',
-  'state_call_alloc', 'state_call_open', 'state_gate', 'state_gate_alloc', 'state_world_of_gated',
-  'type_base_unresolved', 'unresolved_value_callee',
+  'method_returns_param', 'middleware_applies', 'middleware_may_apply', 'middleware_registered_at', 'middleware_site',
+  'persistence_field', 'registration_conditional', 'remote_edge', 'remote_unsent', 'remote_unserved', 'return_value',
+  'route_registered_by', 'route_schema', 'router_node_at', 'state_call_alloc', 'state_call_open', 'state_gate',
+  'state_gate_alloc', 'state_world_of_gated', 'type_base_unresolved', 'unresolved_value_callee', 'valid_read',
 ]);
 
 /** relation<TAB>file per line; comments and blanks skipped. */

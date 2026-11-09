@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: registerUsers' routes spliced at the call (order 1-2); typeof-param registration mounted at /v1
+# census: app_factory_fn
+entry	index.ts:13:18	http
+entry	index.ts:9:14	http
+entry	monitors.ts:6:24	http
+entry	users.ts:4:21	http
+entry	users.ts:5:22	http

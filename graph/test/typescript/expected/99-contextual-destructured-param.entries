@@ -1,0 +1,5 @@
+── entry_point (4) ──
+  exported_from_entry_module use#annotated   use.ts:22
+  exported_from_entry_module use#define   use.ts:39
+  unimported_module globals#<module>   globals.d.ts:1
+  unimported_module use#<module>   use.ts:1

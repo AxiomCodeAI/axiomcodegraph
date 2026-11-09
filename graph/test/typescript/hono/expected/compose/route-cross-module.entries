@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: default-exported sub-app's three routes under /users; / local maps to /users
+# census: route_mount_literal, export_default_app
+entry	index.ts:8:14	http
+entry	users.ts:5:16	http
+entry	users.ts:6:19	http
+entry	users.ts:7:17	http

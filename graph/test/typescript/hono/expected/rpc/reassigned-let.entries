@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-03/R7: postId is reassigned, so it is a hole: read -> GET /posts/:id, update -> PUT /posts/:id; the const fixed folds to /posts/p1
+# census: app_request_test (violation hono-2-03, SPEC R7; oracle gap O13)
+entry	api.ts:4:19	http
+entry	api.ts:5:23	http
+entry	api.ts:6:23	http

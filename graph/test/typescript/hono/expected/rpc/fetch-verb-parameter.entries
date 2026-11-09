@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R17/O25/hono-6-03: an undecidable method (an init the helper is handed, a parameter verb, a method set in a branch, a replayed init) joins every route on the path with method_unknown; base_unknown wins when the base is unknown too; a literal DELETE and an omitted init (GET) join one verb
+# census: request_fetch, app_request_test (SPEC R17; stress-6 oracle note O25; violation hono-6-03)
+entry	server.ts:10:31	http
+entry	server.ts:11:24	http
+entry	server.ts:12:25	http
+entry	server.ts:8:28	http
+entry	server.ts:9:28	http

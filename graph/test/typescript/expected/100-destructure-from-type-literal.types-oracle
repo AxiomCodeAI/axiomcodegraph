@@ -1,0 +1,7 @@
+100-destructure-from-type-literal [types]
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 12   resolved 12 (100.0%)
+  tiers known_edge=12
+  contexts FIELD_TYPE=8  METHOD_PARAM=2  SUPER_TYPE=2
+  not scored: 0 rows whose target is not a client declaration

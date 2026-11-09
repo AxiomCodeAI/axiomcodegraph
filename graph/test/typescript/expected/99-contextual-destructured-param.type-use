@@ -1,0 +1,12 @@
+known_edge	FIELD_TYPE	0	Ctx [FIELD] -> Utils
+known_edge	FIELD_TYPE	2	use [METHOD_PARAM] -> Slots
+known_edge	FIELD_TYPE	2	use [VARIABLE] -> Other
+known_edge	METHOD_PARAM	0	use [METHOD_PARAM] -> Ctx
+known_edge	METHOD_PARAM	1	use [VARIABLE] -> Ctx
+known_edge	METHOD_PARAM	2	Slots [TYPE] -> Ctx
+known_edge	METHOD_RETURN	0	Promise [METHOD] -> Promise
+known_edge	METHOD_RETURN	0	PromiseLike [METHOD] -> PromiseLike
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ELEMENT	4	Promise [METHOD_PARAM] -> PromiseLike
+known_edge	TYPE_ELEMENT	4	PromiseLike [METHOD_PARAM] -> PromiseLike

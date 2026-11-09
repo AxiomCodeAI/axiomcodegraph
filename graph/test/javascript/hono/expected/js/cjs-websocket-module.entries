@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O10 residual (CommonJS): upgradeWebSocket from a project module's module.exports is a library-call handler keyed at the call; its callback is no entry
+# census: cjs_require_hono_destructure (oracle gap O10 residual, CommonJS)
+entry	routes/container.js:6:17	http

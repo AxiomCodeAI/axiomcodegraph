@@ -198,7 +198,15 @@ class Names:
         for r in rows(f'{ir}/all-typescript-methods.csv'):
             h = r['tsMethodUniqueHash']
             ps = []
-            for p in sorted(params.get(h, []), key=lambda x: int(x.get('position') or 0)):
+            # A destructured parameter has a row for the pattern and one per name it binds, all at the pattern's
+            # position (bindingSourceKind PROPERTY/INDEX): one parameter, labelled once, as the compiler prints it.
+            by_pos = {}
+            for p in params.get(h, []):
+                pos = int(p.get('position') or 0)
+                bound = (p.get('bindingSourceKind') or 'NONE') != 'NONE'
+                if pos not in by_pos or (by_pos[pos][0] and not bound):
+                    by_pos[pos] = (bound, p)
+            for _, p in sorted((pos, bp[1]) for pos, bp in by_pos.items()):
                 if p.get('isReceiverParameter') == 'true':
                     continue
                 t = simple(p.get('parameterTypeName') or p.get('parameterBaseType'))
@@ -284,8 +292,10 @@ def main():
                 continue
             # a function the site HANDS OVER (`xs.map(cb)`) is not a call the compiler lists at that
             # site, nor is the handler a publish reaches through a keyed registry (`event_dispatch`): the
-            # pairs are scored against the compiler, the .edges golden still carries both
-            if f[5] in ('callback_registered', 'event_dispatch'):
+            # pairs are scored against the compiler, the .edges golden still carries both. A function handed
+            # to a PROJECT function (`apply(upper, s)`, `callback_handed`) is the same hand-over: the compiler
+            # resolves that site to `apply`, which the pairs already score, never to `upper`
+            if f[5] in ('callback_registered', 'callback_handed', 'event_dispatch'):
                 continue
             seen.add(f"{n.label(f[1])} -> {n.label(f[3])}")
         else:

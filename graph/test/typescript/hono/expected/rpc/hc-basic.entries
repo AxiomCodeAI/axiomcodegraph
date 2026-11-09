@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: four client functions reach their routes; index is /; $url makes no edge
+# census: hc_client, hc_dollar_call, hc_element_param, apptype_typeof
+entry	server.ts:4:13	http
+entry	server.ts:5:16	http
+entry	server.ts:6:14	http
+entry	server.ts:9:52	http

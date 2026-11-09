@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: six targets each read and linked; valid('json') on /missing is valid_without_validator
+# census: req_valid, zvalidator, validator_builtin (SPEC 3.9 targets)
+entry	index.ts:24:3	http
+entry	index.ts:29:45	http

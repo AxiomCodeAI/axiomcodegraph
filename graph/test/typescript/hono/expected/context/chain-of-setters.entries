@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: lang flows to greet and the handler; greeting flows to the handler
+# census: ctx_set, ctx_get, verb_multi_handler
+entry	index.ts:12:39	http
+entry	index.ts:18:38	http
+entry	index.ts:8:44	http

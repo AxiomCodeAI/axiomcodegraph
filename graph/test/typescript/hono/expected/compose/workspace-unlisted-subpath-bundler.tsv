@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-29 against the fixture, the oracle and tsc --traceResolution on a real workspace link (not resolved under bundler): R22a: the unlisted subpath import is unbound, so app.route(/adapters) is unresolved_mount and nothing is served under /adapters; the never-mounted adapters app keeps its own root row (/list), as every never-mounted exported app does
+# census: workspace_subpath (SPEC R22a; violation hono-5-06 shape)
+route	GET	/health	apps/api/src/index.ts:11:20	apps/api/src/index.ts:10:13	0
+route	GET	/list	packages/core/adapters/index.ts:5:23	packages/core/adapters/index.ts:4:25	0
+regby	apps/api/src/index.ts:1:1	apps/api/src/index.ts:11:20	GET	/health	apps/api/src/index.ts:10:13
+regby	packages/core/adapters/index.ts:1:1	packages/core/adapters/index.ts:5:23	GET	/list	packages/core/adapters/index.ts:4:25
+unknown	apps/api/src/index.ts:12:1	unresolved_mount	apps/api/src/index.ts:1:1

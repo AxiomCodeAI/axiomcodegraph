@@ -1,0 +1,5 @@
+ambiguous_unknown	TYPE_ELEMENT	1	Ticker [FIELD] -> -
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Ignores
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Silent
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Ticker
+known_edge	OBJECT_CREATION_TYPE	0	app [EXPRESSION] -> Watchdog

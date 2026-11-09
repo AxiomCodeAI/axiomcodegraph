@@ -1,0 +1,23 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: ten routes, PURGE via on, path-less post continues /chain; all is ANY
+# census: verb_literal_path, verb_chained, on_method, export_default_app
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/items	index.ts:7:19	index.ts:5:13	0
+route	POST	/items	index.ts:8:20	index.ts:5:13	1
+route	PUT	/items/:id	index.ts:9:23	index.ts:5:13	2
+route	DELETE	/items/:id	index.ts:10:26	index.ts:5:13	3
+route	PATCH	/items/:id	index.ts:11:25	index.ts:5:13	4
+route	OPTIONS	/items	index.ts:12:23	index.ts:5:13	5
+route	ANY	/health	index.ts:13:20	index.ts:5:13	6
+route	PURGE	/cache	index.ts:14:27	index.ts:5:13	7
+route	GET	/chain	index.ts:17:18	index.ts:5:13	8
+route	POST	/chain	index.ts:18:9	index.ts:5:13	9
+regby	index.ts:1:1	index.ts:10:26	DELETE	/items/:id	index.ts:5:13
+regby	index.ts:1:1	index.ts:11:25	PATCH	/items/:id	index.ts:5:13
+regby	index.ts:1:1	index.ts:12:23	OPTIONS	/items	index.ts:5:13
+regby	index.ts:1:1	index.ts:13:20	ANY	/health	index.ts:5:13
+regby	index.ts:1:1	index.ts:14:27	PURGE	/cache	index.ts:5:13
+regby	index.ts:1:1	index.ts:17:18	GET	/chain	index.ts:5:13
+regby	index.ts:1:1	index.ts:18:9	POST	/chain	index.ts:5:13
+regby	index.ts:1:1	index.ts:7:19	GET	/items	index.ts:5:13
+regby	index.ts:1:1	index.ts:8:20	POST	/items	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:23	PUT	/items/:id	index.ts:5:13

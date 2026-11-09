@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: O10 residual: upgradeWebSocket from a project module (relative and path alias) is a library-call handler; chat middleware precedes it
+# census: verb_multi_handler (oracle gap O10 residual; SPEC R5)
+entry	chat.ts:6:3	http

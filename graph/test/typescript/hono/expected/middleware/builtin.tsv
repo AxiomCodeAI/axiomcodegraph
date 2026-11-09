@@ -1,0 +1,13 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: library middleware keyed by registering call site; order logger, cors, secureHeaders, etag
+# census: builtin_mw_import
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/api/data	index.ts:13:22	index.ts:9:13	4
+route	GET	/	index.ts:14:14	index.ts:9:13	5
+mw	lib:hono/logger.logger@index.ts:10:9	index.ts:13:22	GET	/api/data	0	index.ts:9:13
+mw	lib:hono/cors.cors@index.ts:11:19	index.ts:13:22	GET	/api/data	1	index.ts:9:13
+mw	lib:hono/secure-headers.secureHeaders@index.ts:12:19	index.ts:13:22	GET	/api/data	2	index.ts:9:13
+mw	lib:hono/etag.etag@index.ts:12:36	index.ts:13:22	GET	/api/data	3	index.ts:9:13
+mw	lib:hono/logger.logger@index.ts:10:9	index.ts:14:14	GET	/	0	index.ts:9:13
+regby	index.ts:1:1	index.ts:13:22	GET	/api/data	index.ts:9:13
+regby	index.ts:1:1	index.ts:14:14	GET	/	index.ts:9:13

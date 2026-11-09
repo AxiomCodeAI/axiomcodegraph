@@ -1,0 +1,8 @@
+ambient_terminal	FUNCTION_CALL	x#<module-init>() @L10 -> x#mixin(string,Members)
+ambient_terminal	FUNCTION_CALL	x#<module-init>() @L29 -> x#mixin(string,Members)
+ambiguous_unknown	METHOD_CALL	x#b() @L25 -> -
+known_edge	METHOD_CALL	Host#<arrow@29>() @L29 -> Host#run()
+known_edge	METHOD_CALL	x#greet() @L11 -> Greeter#shout()
+known_edge	METHOD_CALL	x#hail() @L15 -> Greeter#greet()
+known_edge	METHOD_CALL	x#shout() @L12 -> Greeter#greet()
+known_edge	METHOD_CALL	x#wave() @L19 -> Greeter#shout()

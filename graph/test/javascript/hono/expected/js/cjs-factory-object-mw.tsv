@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-04 (CommonJS): m.auth checks.js:3 on /admin/* only, m.audit checks.js:9 on every route
+# census: use_global, use_scoped, mw_factory_returning_fn, require_hono (violation hono-7-04; CommonJS)
+route	GET	/ping	index.js:12:18	index.js:9:13	2
+route	GET	/admin/users	index.js:13:25	index.js:9:13	3
+mw	checks.js:9:12	index.js:12:18	GET	/ping	0	index.js:9:13
+mw	checks.js:3:16	index.js:13:25	GET	/admin/users	0	index.js:9:13
+mw	checks.js:9:12	index.js:13:25	GET	/admin/users	1	index.js:9:13
+regby	index.js:1:1	index.js:12:18	GET	/ping	index.js:9:13
+regby	index.js:1:1	index.js:13:25	GET	/admin/users	index.js:9:13

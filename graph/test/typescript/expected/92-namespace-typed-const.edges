@@ -1,0 +1,5 @@
+known_edge	FUNCTION_CALL	scorers#<module-init>() @L7 -> scorers#makeScorer(number)
+known_edge	FUNCTION_CALL	x#viaNamed(string) @L7 -> scorers#<arrow@1>(string)
+known_edge	METHOD_CALL	x#viaArrow(string) @L8 -> scorers#scoreArrow(?)
+known_edge	METHOD_CALL	x#viaNamespace(string) @L5 -> scorers#<arrow@1>(string)
+known_edge	METHOD_CALL	x#viaPlain(string) @L9 -> scorers#plain(string)

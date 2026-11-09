@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: basePath clones share one route list; the original app's own route has no prefix
+# census: basepath
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/	index.ts:9:14	index.ts:5:13	0
+route	GET	/api/status	index.ts:10:20	index.ts:5:13	1
+route	GET	/api/v2/status	index.ts:11:19	index.ts:5:13	2
+regby	index.ts:1:1	index.ts:10:20	GET	/api/status	index.ts:5:13
+regby	index.ts:1:1	index.ts:11:19	GET	/api/v2/status	index.ts:5:13
+regby	index.ts:1:1	index.ts:9:14	GET	/	index.ts:5:13

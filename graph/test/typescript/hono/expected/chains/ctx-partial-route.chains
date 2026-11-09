@@ -1,0 +1,25 @@
+# hand-reviewed 2026-10-28 against the fixture, the compiler call-chain oracle and the runtime trace: R18 on partial routes: the handlers read the service out of the context typed by the sub-app Env (destructured c.get, const x = c.var.k then a member call); service -> repository -> db. The provider -> handler hop is the partial route decidable chain (mwp). At run time API_BASE is unset, so the chains are requested at the un-rebased path
+# census: ctx_di on a rebased root (SPEC R18 on a PARTIAL route: http_route_partial, dynamic_mount_prefix)
+fn	app.ts:10:16
+fn	app.ts:14:19
+fn	app.ts:18:22
+fn	app.ts:27:3
+fn	app.ts:30:3
+fn	users.ts:10:3
+fn	users.ts:17:3
+fn	users.ts:20:3
+fn	users.ts:23:3
+fn	users.ts:30:3
+fn	users.ts:33:3
+fn	users.ts:36:3
+fn	users.ts:7:3
+edge	app.ts:10:16	users.ts:17:3
+edge	app.ts:10:16	users.ts:30:3
+edge	app.ts:14:19	users.ts:33:3
+edge	app.ts:18:22	users.ts:36:3
+edge	users.ts:20:3	users.ts:7:3
+edge	users.ts:23:3	users.ts:10:3
+edge	users.ts:33:3	users.ts:20:3
+edge	users.ts:36:3	users.ts:23:3
+chain	user-find	GET	/users/x1	app.ts:10:16	app.ts:14:19	users.ts:33:3	users.ts:20:3	users.ts:7:3
+chain	user-remove	DELETE	/users/x1	app.ts:10:16	app.ts:18:22	users.ts:36:3	users.ts:23:3	users.ts:10:3

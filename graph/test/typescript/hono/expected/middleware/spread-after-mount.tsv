@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: spread array a then b reaches /after only; the mounted /sub/inside was copied before the use
+# census: use_multi, route_mount_literal
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/sub/inside	index.ts:12:20	index.ts:14:17	0
+route	GET	/after	index.ts:17:23	index.ts:14:17	3
+mw	index.ts:7:30	index.ts:17:23	GET	/after	0	index.ts:14:17
+mw	index.ts:8:30	index.ts:17:23	GET	/after	1	index.ts:14:17
+submount	/sub	index.ts:15:9
+regby	index.ts:1:1	index.ts:12:20	GET	/sub/inside	index.ts:14:17
+regby	index.ts:1:1	index.ts:17:23	GET	/after	index.ts:14:17

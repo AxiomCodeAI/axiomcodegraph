@@ -1,0 +1,47 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: each derived schema plus Base (and Extra for merge); .openapi('Person') keeps the same schema with Base as base
+# census: zvalidator (SPEC 3.9 composition)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	POST	/extended	index.ts:19:53	index.ts:18:13	1
+route	POST	/merged	index.ts:20:49	index.ts:18:13	3
+route	POST	/picked	index.ts:21:49	index.ts:18:13	5
+route	POST	/omitted	index.ts:22:51	index.ts:18:13	7
+route	PATCH	/partial	index.ts:23:52	index.ts:18:13	9
+route	PUT	/many	index.ts:24:44	index.ts:18:13	11
+route	POST	/named	index.ts:25:47	index.ts:18:13	13
+mw	lib:@hono/zod-validator.zValidator@index.ts:19:23	index.ts:19:53	POST	/extended	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:20:21	index.ts:20:49	POST	/merged	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:21:21	index.ts:21:49	POST	/picked	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:22:22	index.ts:22:51	POST	/omitted	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:23:23	index.ts:23:52	PATCH	/partial	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:24:18	index.ts:24:44	PUT	/many	0	index.ts:18:13
+mw	lib:@hono/zod-validator.zValidator@index.ts:25:20	index.ts:25:47	POST	/named	0	index.ts:18:13
+schema	index.ts:19:53	json	index.ts:10:7
+schema	index.ts:19:53	json	index.ts:8:7
+schema	index.ts:20:49	json	index.ts:11:7
+schema	index.ts:20:49	json	index.ts:8:7
+schema	index.ts:20:49	json	index.ts:9:7
+schema	index.ts:21:49	json	index.ts:12:7
+schema	index.ts:21:49	json	index.ts:8:7
+schema	index.ts:22:51	json	index.ts:13:7
+schema	index.ts:22:51	json	index.ts:8:7
+schema	index.ts:23:52	json	index.ts:14:7
+schema	index.ts:23:52	json	index.ts:8:7
+schema	index.ts:24:44	json	index.ts:15:7
+schema	index.ts:24:44	json	index.ts:8:7
+schema	index.ts:25:47	json	index.ts:16:7
+schema	index.ts:25:47	json	index.ts:8:7
+validread	index.ts:19:67	index.ts:19:53	json	index.ts:10:7
+validread	index.ts:20:63	index.ts:20:49	json	index.ts:11:7
+validread	index.ts:21:63	index.ts:21:49	json	index.ts:12:7
+validread	index.ts:22:65	index.ts:22:51	json	index.ts:13:7
+validread	index.ts:23:66	index.ts:23:52	json	index.ts:14:7
+validread	index.ts:24:58	index.ts:24:44	json	index.ts:15:7
+validread	index.ts:25:61	index.ts:25:47	json	index.ts:16:7
+regby	index.ts:1:1	index.ts:19:53	POST	/extended	index.ts:18:13
+regby	index.ts:1:1	index.ts:20:49	POST	/merged	index.ts:18:13
+regby	index.ts:1:1	index.ts:21:49	POST	/picked	index.ts:18:13
+regby	index.ts:1:1	index.ts:22:51	POST	/omitted	index.ts:18:13
+regby	index.ts:1:1	index.ts:23:52	PATCH	/partial	index.ts:18:13
+regby	index.ts:1:1	index.ts:24:44	PUT	/many	index.ts:18:13
+regby	index.ts:1:1	index.ts:25:47	POST	/named	index.ts:18:13

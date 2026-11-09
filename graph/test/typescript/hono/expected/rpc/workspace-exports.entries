@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: hono-2-08/O3: @scope/client/v2 resolves through package.json exports; the client reaches GET /sessions
+# census: hc_client (violation hono-2-08; oracle gap O3: a workspace package subpath through package.json exports)
+entry	packages/server/src/app.ts:4:37	http

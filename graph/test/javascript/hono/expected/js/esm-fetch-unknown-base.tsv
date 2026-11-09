@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-5-09: R14/R14a in JavaScript: parameter and URL bases and a single-label host join as base_unknown; a dotted external host never joins
+# census: request_fetch (violation hono-5-09, SPEC R14 / R14a in JavaScript)
+route	POST	/api/sessions	api.js:7:23	api.js:6:13	0
+route	GET	/api/sessions/:id	api.js:8:26	api.js:6:13	1
+request	client.js:1:1	POST	/api/sessions	api.js:7:23	base_unknown
+request	client.js:5:1	GET	/api/sessions/${}	api.js:8:26	base_unknown
+request	client.js:9:1	GET	/api/sessions/1	api.js:8:26	base_unknown
+regby	api.js:1:1	api.js:7:23	POST	/api/sessions	api.js:6:13
+regby	api.js:1:1	api.js:8:26	GET	/api/sessions/:id	api.js:6:13

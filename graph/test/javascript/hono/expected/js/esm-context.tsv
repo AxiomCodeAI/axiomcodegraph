@@ -1,0 +1,15 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: user flows from withUser to both /me routes; /public outside the scope has no setter
+# census: ctx_set, ctx_get, ctx_var, create_middleware (ESM JavaScript)
+# iteration 2: mw rows carry the served root app (SPEC R3), re-derived; every other row unchanged
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/me/profile	index.js:12:24	index.js:10:13	1
+route	GET	/me/id	index.js:13:19	index.js:10:13	2
+route	GET	/public	index.js:14:20	index.js:10:13	3
+mw	index.js:5:35	index.js:12:24	GET	/me/profile	0	index.js:10:13
+mw	index.js:5:35	index.js:13:19	GET	/me/id	0	index.js:10:13
+ctx	index.js:5:35	index.js:12:24	user
+ctx	index.js:5:35	index.js:13:19	user
+regby	index.js:1:1	index.js:12:24	GET	/me/profile	index.js:10:13
+regby	index.js:1:1	index.js:13:19	GET	/me/id	index.js:10:13
+regby	index.js:1:1	index.js:14:20	GET	/public	index.js:10:13
+unknown	index.js:14:20	no_setter_on_chain	index.js:14:20

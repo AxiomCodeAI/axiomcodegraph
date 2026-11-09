@@ -1,0 +1,7 @@
+92-namespace-typed-const [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 4   resolved 4 (100.0%)
+  tiers known_edge=4
+  contexts METHOD_RETURN=1  VARIABLE_TYPE=3
+  not scored: 0 rows whose target is not a client declaration

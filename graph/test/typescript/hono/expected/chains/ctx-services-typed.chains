@@ -1,0 +1,38 @@
+# hand-reviewed 2026-10-29 against the fixture, the compiler call-chain oracle and the runtime trace: R18: services read from the context (c.get destructured, c.var.k, const x = c.var.k, c.get(k).m()) through every Env form reach service -> repository -> db
+# census: ctx_di (SPEC R18; call-chain break class 1)
+fn	app.ts:16:23
+fn	app.ts:21:51
+fn	app.ts:26:15
+fn	db.ts:7:3
+fn	handlers.ts:11:1
+fn	handlers.ts:5:1
+fn	repos.ts:15:3
+fn	repos.ts:18:3
+fn	repos.ts:5:3
+fn	repos.ts:8:3
+fn	services.ts:15:3
+fn	services.ts:18:3
+fn	services.ts:24:3
+fn	services.ts:5:3
+fn	services.ts:8:3
+fn	wire.ts:12:48
+fn	wire.ts:19:52
+edge	app.ts:16:23	services.ts:8:3
+edge	app.ts:21:51	services.ts:8:3
+edge	app.ts:26:15	repos.ts:5:3
+edge	app.ts:26:15	services.ts:5:3
+edge	handlers.ts:11:1	services.ts:8:3
+edge	handlers.ts:5:1	services.ts:18:3
+edge	repos.ts:18:3	db.ts:7:3
+edge	repos.ts:8:3	db.ts:7:3
+edge	services.ts:18:3	repos.ts:18:3
+edge	services.ts:8:3	repos.ts:8:3
+edge	wire.ts:12:48	repos.ts:15:3
+edge	wire.ts:12:48	repos.ts:5:3
+edge	wire.ts:12:48	services.ts:15:3
+edge	wire.ts:12:48	services.ts:5:3
+edge	wire.ts:19:52	services.ts:24:3
+chain	keys-verify	GET	/keys/abc	wire.ts:12:48	wire.ts:19:52	handlers.ts:5:1	services.ts:18:3	repos.ts:18:3	db.ts:7:3
+chain	users-inline-get	GET	/users/u1	wire.ts:12:48	app.ts:16:23	services.ts:8:3	repos.ts:8:3	db.ts:7:3
+chain	factory-handlers-var	GET	/f/whoami/u1	wire.ts:12:48	app.ts:21:51	services.ts:8:3	repos.ts:8:3	db.ts:7:3
+chain	interface-env-const-var	GET	/i/u/u1	wire.ts:12:48	app.ts:26:15	handlers.ts:11:1	services.ts:8:3	repos.ts:8:3	db.ts:7:3

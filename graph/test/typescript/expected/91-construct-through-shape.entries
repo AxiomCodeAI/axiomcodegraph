@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  exported_from_entry_module x#viaAlias   x.ts:8
+  exported_from_entry_module x#viaCtorType   x.ts:12
+  exported_from_entry_module x#viaInterface   x.ts:14
+  exported_from_entry_module x#viaLiteral   x.ts:9
+  unimported_module x#<module>   x.ts:1

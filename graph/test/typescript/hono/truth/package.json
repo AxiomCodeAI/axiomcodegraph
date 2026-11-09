@@ -1,0 +1,14 @@
+{
+  "name": "hono-torture-oracle",
+  "private": true,
+  "description": "Independent ground truth for the Hono torture suites: the TypeScript compiler API plus the real hono package. Never imports the axiom parser.",
+  "type": "module",
+  "dependencies": {
+    "typescript": "5.9.3",
+    "hono": "4.13.13",
+    "@hono/zod-openapi": "1.6.3",
+    "zod": "4.1.13",
+    "@hono/zod-validator": "0.9.1",
+    "@hono/node-server": "2.1.3"
+  }
+}

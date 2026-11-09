@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: R13b re-derived: plugin apps mounted by register(app) over a filtered list of known plugins are exact at their prefixes with conditional_registration
+# census: route_mount_literal (oracle gap O11 residual; SPEC 2 a mount argument is never a root)
+entry	index.ts:19:14	http
+entry	plugins/media.ts:6:16	http
+entry	plugins/media.ts:7:22	http
+entry	plugins/variables.ts:5:24	http
+entry	plugins/variables.ts:8:23	http

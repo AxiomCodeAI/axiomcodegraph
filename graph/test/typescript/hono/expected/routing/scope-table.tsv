@@ -1,0 +1,24 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: QD09: /x/* reaches /x, /x/, /x/a not /xy; /x* reaches all four; /a/*/c reaches only /a/b/c
+# census: use_scoped, path_wildcard (SPEC 3.3 [iter2] QD09 table, settled against the pinned hono routers)
+route	GET	/x	index.ts:15:15	index.ts:10:13	3
+route	GET	/x/	index.ts:16:16	index.ts:10:13	4
+route	GET	/x/a	index.ts:17:17	index.ts:10:13	5
+route	GET	/xy	index.ts:18:16	index.ts:10:13	6
+route	GET	/a/b/c	index.ts:19:19	index.ts:10:13	7
+route	GET	/a/c	index.ts:20:17	index.ts:10:13	8
+route	GET	/a/b/d/c	index.ts:21:21	index.ts:10:13	9
+mw	index.ts:6:38	index.ts:15:15	GET	/x	0	index.ts:10:13
+mw	index.ts:7:37	index.ts:15:15	GET	/x	1	index.ts:10:13
+mw	index.ts:6:38	index.ts:16:16	GET	/x/	0	index.ts:10:13
+mw	index.ts:7:37	index.ts:16:16	GET	/x/	1	index.ts:10:13
+mw	index.ts:6:38	index.ts:17:17	GET	/x/a	0	index.ts:10:13
+mw	index.ts:7:37	index.ts:17:17	GET	/x/a	1	index.ts:10:13
+mw	index.ts:7:37	index.ts:18:16	GET	/xy	0	index.ts:10:13
+mw	index.ts:8:36	index.ts:19:19	GET	/a/b/c	0	index.ts:10:13
+regby	index.ts:1:1	index.ts:15:15	GET	/x	index.ts:10:13
+regby	index.ts:1:1	index.ts:16:16	GET	/x/	index.ts:10:13
+regby	index.ts:1:1	index.ts:17:17	GET	/x/a	index.ts:10:13
+regby	index.ts:1:1	index.ts:18:16	GET	/xy	index.ts:10:13
+regby	index.ts:1:1	index.ts:19:19	GET	/a/b/c	index.ts:10:13
+regby	index.ts:1:1	index.ts:20:17	GET	/a/c	index.ts:10:13
+regby	index.ts:1:1	index.ts:21:21	GET	/a/b/d/c	index.ts:10:13

@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: sub-app resolved through export { default as } from
+# census: reexport_default_as, route_mount_literal
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/books	routes/books.ts:4:16	index.ts:6:13	0
+submount	/books	index.ts:7:5
+regby	routes/books.ts:1:1	routes/books.ts:4:16	GET	/books	index.ts:6:13

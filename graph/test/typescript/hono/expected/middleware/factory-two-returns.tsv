@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-03: both returns of the factory are middleware at position 0 (the arrow and basicAuth at its call); verifyUser is no middleware
+# census: use_scoped (violation hono-3-03, SPEC 3.1 "resolve the return; if several, all", R10)
+route	GET	/admin/stats	index.ts:22:25	index.ts:20:13	2
+route	GET	/public	index.ts:23:20	index.ts:20:13	3
+mw	index.ts:13:12	index.ts:22:25	GET	/admin/stats	0	index.ts:20:13
+mw	lib:hono/basic-auth.basicAuth@index.ts:17:10	index.ts:22:25	GET	/admin/stats	0	index.ts:20:13
+regby	index.ts:1:1	index.ts:22:25	GET	/admin/stats	index.ts:20:13
+regby	index.ts:1:1	index.ts:23:20	GET	/public	index.ts:20:13

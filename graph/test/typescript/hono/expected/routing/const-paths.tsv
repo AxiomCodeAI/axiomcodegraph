@@ -1,0 +1,11 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: imported const, const-object member, template and + over consts all decidable
+# census: verb_const_path, verb_template_path
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/users	index.ts:9:16	index.ts:7:13	0
+route	GET	/users/:id	index.ts:10:27	index.ts:7:13	1
+route	GET	/health	index.ts:11:23	index.ts:7:13	2
+route	GET	/api/version	index.ts:12:33	index.ts:7:13	3
+regby	index.ts:1:1	index.ts:10:27	GET	/users/:id	index.ts:7:13
+regby	index.ts:1:1	index.ts:11:23	GET	/health	index.ts:7:13
+regby	index.ts:1:1	index.ts:12:33	GET	/api/version	index.ts:7:13
+regby	index.ts:1:1	index.ts:9:16	GET	/users	index.ts:7:13

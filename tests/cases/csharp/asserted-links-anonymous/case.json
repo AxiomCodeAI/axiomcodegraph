@@ -1,0 +1,190 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "BASE: one call site linked to an anonymous function: the link names it by its declaration, since every one of the lambdas shares the name Wire.<lambda>",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "App/Wire.cs:12"
+   ],
+   "want": [
+    "linked App/Bus.cs:19:17 `listener` → Wire.<lambda> (App/Wire.cs:12) [asserted]"
+   ]
+  },
+  {
+   "why": "a second link from the SAME site to ANOTHER of the lambdas is a second link, not a replacement of the first (both are named Wire.<lambda>)",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "App/Wire.cs:13"
+   ],
+   "want": [
+    "linked App/Bus.cs:19:17 `listener` → Wire.<lambda> (App/Wire.cs:13) [asserted]"
+   ]
+  },
+  {
+   "why": "both links are kept and both applied",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "[applied] App/Bus.cs:19:17  → Wire.<lambda> (App/Wire.cs:12)",
+    "[applied] App/Bus.cs:19:17  → Wire.<lambda> (App/Wire.cs:13)"
+   ]
+  },
+  {
+   "why": "CONTROL: re-linking the same site to the same declaration replaces its row (idempotent)",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "App/Wire.cs:12"
+   ],
+   "want": [
+    "linked App/Bus.cs:19:17 `listener` → Wire.<lambda> (App/Wire.cs:12) [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: still two links after the re-link",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "→ Wire.<lambda> (App/Wire.cs:12)",
+    "→ Wire.<lambda> (App/Wire.cs:13)"
+   ],
+   "avoid": [
+    "3 asserted link(s)"
+   ]
+  },
+  {
+   "why": "removing by the placeholder name would remove two different links: refused, naming each declaration",
+   "run": [
+    "link",
+    "--remove",
+    "App/Bus.cs:19",
+    "Wire.<lambda>"
+   ],
+   "expect_error": true,
+   "want": [
+    "`Wire.<lambda>` names 2 links at App/Bus.cs:19",
+    "(App/Wire.cs:12)",
+    "(App/Wire.cs:13)",
+    "file:line"
+   ]
+  },
+  {
+   "why": "nothing was removed by the refused removal",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)"
+   ]
+  },
+  {
+   "why": "removing by the declaration's file:line removes that link only",
+   "run": [
+    "link",
+    "--remove",
+    "App/Bus.cs:19",
+    "App/Wire.cs:12"
+   ],
+   "want": [
+    "removed 1 link(s) at App/Bus.cs:19"
+   ]
+  },
+  {
+   "why": "the other anonymous target's link stays",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "1 asserted link(s)",
+    "→ Wire.<lambda> (App/Wire.cs:13)"
+   ],
+   "avoid": [
+    "→ Wire.<lambda> (App/Wire.cs:12)"
+   ]
+  },
+  {
+   "why": "CONTROL: the same site linked to two NAMED functions keeps both",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "Wire.OnCreated"
+   ],
+   "want": [
+    "→ Wire.OnCreated [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: the second named function",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "Wire.OnUpdated"
+   ],
+   "want": [
+    "→ Wire.OnUpdated [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: three links: one anonymous, two named",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "3 asserted link(s)",
+    "→ Wire.<lambda> (App/Wire.cs:13)",
+    "→ Wire.OnCreated",
+    "→ Wire.OnUpdated"
+   ]
+  },
+  {
+   "why": "CONTROL: --remove <site> <name> removes only the one named",
+   "run": [
+    "link",
+    "--remove",
+    "App/Bus.cs:19",
+    "Wire.OnCreated"
+   ],
+   "want": [
+    "removed 1 link(s) at App/Bus.cs:19"
+   ]
+  },
+  {
+   "why": "CONTROL: the other named link and the anonymous one stay",
+   "run": [
+    "link",
+    "--list"
+   ],
+   "want": [
+    "2 asserted link(s)",
+    "→ Wire.<lambda> (App/Wire.cs:13)",
+    "→ Wire.OnUpdated"
+   ],
+   "avoid": [
+    "→ Wire.OnCreated  "
+   ]
+  },
+  {
+   "why": "`-` still removes every link at the site",
+   "run": [
+    "link",
+    "App/Bus.cs:19",
+    "-"
+   ],
+   "want": [
+    "removed 2 link(s) at App/Bus.cs:19"
+   ]
+  }
+ ]
+}

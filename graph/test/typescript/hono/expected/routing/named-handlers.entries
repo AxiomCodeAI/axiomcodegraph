@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: handler is the declaration in handlers.ts, not the reference
+# census: verb_literal_path, export_default_app
+entry	handlers.ts:3:1	http
+entry	handlers.ts:7:27	http
+entry	handlers.ts:9:1	http

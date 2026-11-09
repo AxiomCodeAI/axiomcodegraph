@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-01 (ESM): each destructured name takes only its own property: stock and orders with their own handlers
+# census: route_mount_literal, app_factory_fn (violation hono-7-01, P1 false_route; ESM JavaScript)
+entry	routes/orders.js:5:25	http
+entry	routes/orders.js:6:27	http
+entry	routes/stock.js:5:18	http
+entry	routes/stock.js:6:25	http

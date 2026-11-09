@@ -1129,6 +1129,16 @@ class G:
             for a, b, how, where, conf in self.q(f"SELECT c0, c1, c2, c3, c4 FROM {table}"):
                 if a == b or a not in self.sym or b not in self.sym: continue
                 self.OUTSIDE.setdefault((a, b, tier), []).append((how, where, conf))
+        # an HTTP router's chain: the router runs a middleware before each handler it applies to, and a request-context
+        # key one function on the chain sets is read by a later one (middleware_applies, ctx_key_flow)
+        if self.has('ext_middleware_applies'):
+            for a, b, verb, path, pos in self.q("SELECT c0, c1, c2, c3, c4 FROM ext_middleware_applies"):
+                if a == b or a not in self.sym or b not in self.sym: continue
+                self.OUTSIDE.setdefault((a, b, 'framework'), []).append(('middleware', f'{verb} {path}', f'position {pos}'))
+        if self.has('ext_ctx_key_flow'):
+            for a, b, key in self.q("SELECT c0, c1, c2 FROM ext_ctx_key_flow"):
+                if a == b or a not in self.sym or b not in self.sym: continue
+                self.OUTSIDE.setdefault((a, b, 'framework'), []).append(('context_key', key, 'same route chain'))
         # a library summarised (from its source) to call a client member back (Python framework-behavior/
         # library-callbacks.dl): `impact` walks it as the `library callback` hop, so the chain search does too
         if self.has('ext_lib_callback_edge'):
@@ -1236,6 +1246,8 @@ def outside_hop_holds(g, a, b, t):
     if t != 'framework': return False
     if g.has('ext_lib_callback_edge') and g.q("SELECT 1 FROM ext_lib_callback_edge WHERE c0 = ? AND c1 = ? LIMIT 1", a, b):
         return True
+    for tbl in ('ext_middleware_applies', 'ext_ctx_key_flow'):
+        if g.has(tbl) and g.q(f"SELECT 1 FROM {tbl} WHERE c0 = ? AND c1 = ? LIMIT 1", a, b): return True
     import ax_registration
     links = getattr(g, '_filter_links', None)
     if links is None: links = g._filter_links = {(x, y) for x, y, _h in ax_registration.filter_links(g.q)}

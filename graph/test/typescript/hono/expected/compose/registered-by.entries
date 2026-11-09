@@ -1,0 +1,6 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route_registered_by: registerGetMonitor and registerListMonitors for the /v1 routes, the module initializer for /
+# census: app_factory_fn (SPEC 4 [iter2] route_registered_by: the method enclosing each registering call)
+entry	index.ts:11:14	http
+entry	monitors.ts:4:28	http
+entry	monitors.ts:7:24	http
+entry	monitors.ts:8:25	http

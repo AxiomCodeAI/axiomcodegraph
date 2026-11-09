@@ -1,0 +1,8 @@
+.work/
+*.draft
+.oracle-all.log
+.tip-ts.log
+.tip-js.log
+.tip-*.log
+.rescore.log
+.redraft.log

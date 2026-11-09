@@ -1,0 +1,9 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: hono-3-05: a zero-argument method returning a literal is the constant /console; a field-built prefix stays partial
+# census: mount_dynamic_prefix_call (violation hono-3-05, SPEC 3.2 G8)
+route	GET	/console/login	index.ts:9:29	index.ts:35:13	0
+route	GET	/console/home	index.ts:10:28	index.ts:35:13	1
+submount	/console	index.ts:37:5
+partial	index.ts:25:29	GET	dynamic_mount_prefix
+regby	index.ts:8:3	index.ts:10:28	GET	/console/home	index.ts:35:13
+regby	index.ts:8:3	index.ts:9:29	GET	/console/login	index.ts:35:13
+unknown	index.ts:39:1	dynamic_mount_prefix	index.ts:25:29

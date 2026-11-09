@@ -1,0 +1,8 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: z from zod, zod/v4, zod/v3, zod/v4-mini and @hono/zod-openapi: each route's json schema is its const; a validator(fn) route has no schema row
+# census: zvalidator, req_valid (SPEC 3.9 import forms: zod, zod/v4, zod/v3, zod/v4-mini, @hono/zod-openapi's z)
+entry	index.ts:19:47	http
+entry	index.ts:20:45	http
+entry	index.ts:21:45	http
+entry	index.ts:22:49	http
+entry	index.ts:23:66	http
+entry	index.ts:24:57	http

@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: an .mts module is parsed like .ts
+# census: new_hono, verb_literal_path (an .mts module)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/mts	server.mts:6:17	server.mts:4:20	0
+route	POST	/mts	server.mts:7:18	server.mts:4:20	1
+regby	server.mts:1:1	server.mts:6:17	GET	/mts	server.mts:4:20
+regby	server.mts:1:1	server.mts:7:18	POST	/mts	server.mts:4:20

@@ -1,0 +1,61 @@
+// ============================================================================
+// RESOLUTION · DYNAMIC IMPORTS  (what `await import('./m')` loads)
+//
+// `const { x } = await import('./m.ts')` binds x to module m's export x, exactly as
+// `import { x } from './m.ts'` would. Test suites write it this way so a mock is in
+// place before the module runs; nothing else in the engine read it, so every value the
+// test took from the module (an app, a factory, a handler) had no origin.
+//
+//   dynamic_import_module(Call, Module)            the module an import() call loads
+//   var_dynamic_import_binding(Var, Kind, Entity)  a destructured name and the export it takes
+//
+// The specifier must be a string literal. A relative one is joined to the importing
+// file's directory (`./`, any number of `../`) and tried as written and with each source
+// extension; a bare one resolves wherever a static import of the same specifier does.
+// ============================================================================
+
+.decl dyn_import_spec(c0:symbol, c1:symbol, c2:symbol)
+dyn_import_spec(ce, spec, p) :- call_site("client", "DYNAMIC_IMPORT_CALL", _, _, _, ce, _),
+    expr_child("client", ce, "ARGUMENT", "0", a), expr_literal_value("client", spec, a), spec != "",
+    expr_module("client", mod, ce), module_file("client", p, mod).
+
+// the directory a path is in, with its trailing `/` ("" at the root)
+.decl dyn_dir_of(c0:symbol, c1:symbol)
+.decl dyn_dir_need(c0:symbol)
+dyn_dir_need(p) :- dyn_import_spec(_, _, p).
+.decl dyn_slash(c0:symbol, c1:number)
+dyn_slash(p, i) :- dyn_dir_need(p), i = range(0, strlen(p)), substr(p, i, 1) = "/".
+dyn_dir_of(p, d) :- dyn_dir_need(p), dyn_slash(p, _), i = max x : { dyn_slash(p, x) }, d = substr(p, 0, i + 1).
+dyn_dir_of(p, "") :- dyn_dir_need(p), !dyn_slash(p, _).
+
+// (call, directory, rest of the specifier): `./` stays, each `../` climbs one directory
+.decl dyn_rel(c0:symbol, c1:symbol, c2:symbol)
+dyn_rel(ce, d, spec) :- dyn_import_spec(ce, spec, p), substr(spec, 0, 1) = ".", dyn_dir_of(p, d).
+dyn_rel(ce, d, r) :- dyn_rel(ce, d, s), strlen(s) > 2, substr(s, 0, 2) = "./", r = substr(s, 2, strlen(s) - 2).
+dyn_rel(ce, up, r) :- dyn_rel(ce, d, s), strlen(s) > 3, substr(s, 0, 3) = "../", dyn_parent(d, up),
+    r = substr(s, 3, strlen(s) - 3).
+.decl dyn_parent_need(c0:symbol)
+dyn_parent_need(d) :- dyn_rel(_, d, s), strlen(s) > 3, substr(s, 0, 3) = "../", d != "".
+// (no aggregate here: the climb is recursive, so the parent is the prefix up to the slash that
+// has no other slash after it)
+.decl dyn_parent(c0:symbol, c1:symbol)
+dyn_parent(d, up) :- dyn_parent_need(d), i = range(0, strlen(d) - 1), substr(d, i, 1) = "/",
+    !contains("/", substr(d, i + 1, strlen(d) - i - 2)), up = substr(d, 0, i + 1).
+dyn_parent(d, "") :- dyn_parent_need(d), !contains("/", substr(d, 0, strlen(d) - 1)).
+
+.decl dynamic_import_module(c0:symbol, c1:symbol)
+dynamic_import_module(ce, m) :- dyn_rel(ce, d, r), substr(r, 0, 1) != ".", module_file("client", cat(d, r), m).
+dynamic_import_module(ce, m) :- dyn_rel(ce, d, r), substr(r, 0, 1) != ".", ts_source_extension(ext),
+    module_file("client", cat(cat(d, r), ext), m).
+dynamic_import_module(ce, m) :- dyn_import_spec(ce, spec, _), substr(spec, 0, 1) != ".",
+    specifier_global_target(spec, "client", m).
+
+// the value an initializer takes from an import() call: the call itself, or its awaited result
+.decl dyn_import_value(c0:symbol, c1:symbol)
+dyn_import_value(ce, ce) :- dynamic_import_module(ce, _).
+dyn_import_value(e, ce) :- dynamic_import_module(ce, _), expr_child("client", e, _, _, ce),
+    expr_kind("client", "AWAIT_EXPRESSION", _, e).
+
+.decl var_dynamic_import_binding(c0:symbol, c1:symbol, c2:symbol)
+var_dynamic_import_binding(v, k, ent) :- var_binding("client", _, "PROPERTY", src, e, v), e != "",
+    dyn_import_value(e, ce), dynamic_import_module(ce, m), module_export_any("client", m, src, k, ent).

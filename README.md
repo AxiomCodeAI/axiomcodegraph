@@ -315,6 +315,10 @@ Three questions, `impact`, `path` and `tests`, each answered as numbered places 
 one sits in. The MCP server offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`, with
 `context(task)` and `link(site, target)` beside them. Finding where code lives is left to your own search: bring
 the name you found to these commands.
+Three questions, each answered as numbered places with the code of the function each one sits in. The MCP server
+offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`, plus `context(task, source=False)`
+for a narrative of the files, callables and call flow relevant to a task. Finding where code lives is
+left to your own search: bring the name you found to these commands.
 
 | command | what it answers |
 |---|---|
@@ -323,6 +327,7 @@ the name you found to these commands.
 | `axiomcode path <A> <B>` | how A reaches B: every hop of the call chain, with the code at each call |
 | `axiomcode tests` | the tests your uncommitted edits reach, and a last `run:` line with the command that runs them |
 | `axiomcode context "<task>"` | how something works, as a narrative: the files and callables the task touches and, for a how-does-X-work question, the call flow step by step; `--source` carries each step's code |
+| `axiomcode context "<task>" [--source]` | explain the files and callables a task touches and, for a how-does-it-work question, the call flow; `--source` includes each step's code |
 | `axiomcode link <file:line> <target>` | record where a call the graph could not resolve lands (kept in `axiomcode-links.tsv`); impact, path and tests then walk it, labelled `[asserted]`. Alone, lists the links and whether each was applied |
 | `axiomcode index` | build the graph explicitly (the first query builds it too); `--lang`, `--src` and `--library` narrow it |
 | `axiomcode report` | where an answer verifiably helped: every Redirected / Helped / Useful chain the end-of-turn receipts recorded, as one HTML page (`.axiomcode/assists.html`) |

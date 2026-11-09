@@ -1,0 +1,10 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Map and a router-shaped object beside one app: only /real
+# census: neg_map_get_in_hono_file, neg_route_on_nonhono (JavaScript)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/real	index.js:18:18	index.js:17:13	0
+regby	index.js:1:1	index.js:18:18	GET	/real	index.js:17:13
+absent	index.js:6:17
+absent	index.js:14:25
+absent	index.js:15:12
+absent	index.js:10:3
+absent	index.js:11:3

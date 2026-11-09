@@ -202,6 +202,7 @@ var_type(v, prov, t) :- var_initializer("client", _, e, v),
 var_shape(v, s) :- var_initializer("client", _, e, v),
     e != "",
     !var_has_declared_type(v),
+    !var_is_destructured(v),
     expr_shape(e, s).
 
 // `const s = "text"` and friends — a literal initializer types the variable by its
@@ -494,6 +495,28 @@ param_binding_method(bh, m2) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
     scope_sibling(t, sib),
     declared_method(sib, src, _, m2).
 
+// (c) the pattern is typed by an OBJECT TYPE LITERAL — `({ port }: { port: Port })`, or
+// `({ port }: Opts)` with `type Opts = { port: Port }`. A type literal has no declaration
+// to give param_type; it is a SHAPE (param_shape_target), and a shape is its own scope
+// (scope_sibling(s, s)), so the field and method lookups above read off it unchanged.
+binding_pattern_shape(bh, sh) :- param_binding(_, _, pos, "PROPERTY", _, m, bh),
+    param_decl(_, _, pos, _, m, ph),
+    param_shape_target(ph, sh).
+param_type(bh, prov, ft) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_shape(bh, sh),
+    scope_sibling(sh, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+param_shape_target(bh, fs) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_shape(bh, sh),
+    scope_sibling(sh, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, fs).
+param_binding_method(bh, m2) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_shape(bh, sh),
+    scope_sibling(sh, sib),
+    declared_method(sib, src, _, m2).
+
 
 // ── a DESTRUCTURED VARIABLE takes the type of the member it names ───────────
 // `const { helper, nested } = ctx` — the mirror of the parameter case, and the more
@@ -525,6 +548,27 @@ var_shape(v, sh) :- var_binding("client", _, "PROPERTY", src, _, v),
 var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
     var_binding_target(v, _, t),
     scope_sibling(t, sib),
+    declared_method(sib, src, _, m).
+
+// (c) the initializer has a SHAPE, not a type — `const { port } = opts` with
+// `opts: { port: Port }`. `opts.port.execute()` already resolved through the shape
+// (expr_shape off a shape qualifier); the destructured name beside it did not.
+var_binding_shape(v, sh) :- var_binding("client", _, "PROPERTY", _, e, v),
+    e != "",
+    expr_shape(e, sh).
+var_type(v, prov, ft) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_shape(v, sh),
+    scope_sibling(sh, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+var_shape(v, fs) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_shape(v, sh),
+    scope_sibling(sh, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, fs).
+var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_shape(v, sh),
+    scope_sibling(sh, sib),
     declared_method(sib, src, _, m).
 
 

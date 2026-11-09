@@ -782,6 +782,7 @@ holder_elem_fn(h, m) :- holder_value(h, e),
 // ── the reads ───────────────────────────────────────────────────────────────
 // `h[i]`, `h[kind]`: any element (an index or a computed key picks one we cannot)
 elem_read_fn(x, m) :- expr_kind("client", "ELEMENT_ACCESS", _, x),
+    !elem_key_is_decided(x),
     expr_child("client", x, "RECEIVER", _, r),
     expr_holder(r, h),
     holder_elem_fn(h, m).
@@ -837,5 +838,75 @@ array_method_element_param("every", "0").
 array_method_element_param("reduce", "1").
 array_method_element_param("reduceRight", "1").
 
-// `h[i](x)`, `h.run(x)`
-call_runs(ce, m) :- call_callee_expr(_, ce, ne), elem_read_fn(ne, m).
+// `h[i](x)`, `h.run(x)` -- and, for an element access, only when its key is decided (SPEC R21a): a table
+// read with a key the program computes (`handlers[op](x)`) can run any element, so the call stays unknown
+// and the elements stay reachable from it only as its candidates (elem_call_candidate), never as calls it makes
+call_runs(ce, m) :- call_callee_expr(_, ce, ne), elem_read_fn(ne, m), !elem_key_undecided(ne).
+elem_key_undecided(x) :- expr_kind("client", "ELEMENT_ACCESS", _, x), !elem_key_is_decided(x).
+elem_call_candidate(ce, m) :- call_callee_expr(_, ce, ne), elem_key_undecided(ne), elem_read_fn(ne, m).
+// …and where the table is TYPED (`const factories: { [k: string]: (n: number) => Shape }`), the call resolves to the
+// call signature of its element type: each element is then a `value` candidate of that signature, the tier that says
+// "may run" (SPEC R21a), not a call the site makes
+method_dispatch_candidate(sig, m, "value") :- elem_call_candidate(ce, m),
+    expr_resolves_to_method(ce, sig),
+    method_kind(_, k, _, sig),
+    method_kind_is_call_signature(k),
+    m != sig.
+
+// loop_elem_callee(Call, Method) — `for (const g of groups) g.prefix(v)` where `groups` is a const array literal of typed
+// elements (`[new UserRoutes()]`): the method of each element's class. A value fact the call graph does not draw
+// (the loop variable's declared type is the elements' union, which it leaves ambiguous); read by the string
+// evaluation only.
+loop_elem_callee(ce, w) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), expr_referenced("client", "VARIABLE", v, r),
+    for_binding_iterable(v, it), expr_referenced("client", "VARIABLE", d, it), var_initializer("client", _, arr, d),
+    expr_kind("client", "ARRAY_LITERAL", _, arr), expr_child("client", arr, _, _, el), expr_type(el, _, tt), method_in_scope(tt, cn, _, w),
+    !call_chain_edge(ce, _, "-", _, "client", _, _).
+
+// ── a DECIDED key picks its own element  (SPEC R21a) ─────────────────────────
+.decl elem_key_decided(c0:symbol, c1:symbol)
+.decl elem_key_is_decided(c0:symbol)
+.decl elem_key_undecided(c0:symbol)
+.decl elem_value_fn(c0:symbol, c1:symbol)
+.decl elem_call_candidate(c0:symbol, c1:symbol)   // (call, function): a table read with an undecided key may run it
+// `handlers['archive'](id)`, `handlers[ACTION](id)` with `const ACTION = 'restore'`, and
+// `pipeline[1](id)` name ONE element of a literal the holder holds. Joining them to every
+// element ran `purge` from a call that can only run `archive`. A key written as a literal,
+// or a const initialised with one, is decided; it selects the property of that name of an
+// object literal, or the element at that position of an array literal, and nothing else.
+// A key that is not decided still reaches every element (the rule above), as a dispatch
+// candidate of a call that stays unknown.
+// (element access, the key)
+elem_key_decided(x, k) :- expr_kind("client", "ELEMENT_ACCESS", _, x),
+    expr_child("client", x, "INDEX_ARGUMENT", _, i),
+    expr_kind("client", "LITERAL", _, i),
+    expr_literal_value("client", k, i).
+elem_key_decided(x, k) :- expr_kind("client", "ELEMENT_ACCESS", _, x),
+    expr_child("client", x, "INDEX_ARGUMENT", _, i),
+    expr_literal_type("client", "NO_SUBSTITUTION_TEMPLATE", i),
+    expr_literal_value("client", k, i).
+elem_key_decided(x, k) :- expr_kind("client", "ELEMENT_ACCESS", _, x),
+    expr_child("client", x, "INDEX_ARGUMENT", _, i),
+    expr_referenced("client", "VARIABLE", v, i),
+    !var_reassigned(v),
+    var_initializer("client", _, li, v),
+    expr_kind("client", "LITERAL", _, li),
+    expr_literal_value("client", k, li).
+elem_key_is_decided(x) :- elem_key_decided(x, _).
+// the property of that name / the element at that position
+elem_read_fn(x, m) :- elem_key_decided(x, k),
+    expr_child("client", x, "RECEIVER", _, r),
+    expr_holder(r, h),
+    holder_value(h, e),
+    value_branch(e, l),
+    objlit_prop(l, k, val),
+    elem_value_fn(val, m).
+elem_read_fn(x, m) :- elem_key_decided(x, k),
+    expr_child("client", x, "RECEIVER", _, r),
+    expr_holder(r, h),
+    holder_value(h, e),
+    value_branch(e, l),
+    expr_kind("client", "ARRAY_LITERAL", _, l),
+    expr_child("client", l, "ARRAY_ELEMENT", k, val),
+    elem_value_fn(val, m).
+elem_value_fn(val, m) :- !expr_kind("client", "CALL_EXPRESSION", _, val), expr_callable(val, m).
+elem_value_fn(val, m) :- expr_holder(val, h2), holder_holds_function(h2, m).

@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: route objects from routes.ts, {id} as :id, handler is arg 1 not the hook; param and response schemas, Task as a base of z.array(Task)
+# census: create_route, openapi_register, new_openapihono
+entry	index.ts:12:3	http
+entry	index.ts:9:24	http

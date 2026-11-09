@@ -1,0 +1,7 @@
+93-literal-member-chain [types]
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 8   resolved 8 (100.0%)
+  tiers known_edge=8
+  contexts FIELD_TYPE=5  METHOD_PARAM=3
+  not scored: 0 rows whose target is not a client declaration

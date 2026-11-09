@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-28 against the fixture and the oracle: m39/hono-5-07: /api/skills${path} reaches /api/skills/:id (base_unknown and local), never /api/agents
+# census: request_fetch (stress-5 mutation m39 shape; violation hono-5-07)
+entry	index.ts:7:24	http
+entry	index.ts:8:28	http

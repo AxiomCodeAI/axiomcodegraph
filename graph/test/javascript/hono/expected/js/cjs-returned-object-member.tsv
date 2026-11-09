@@ -1,0 +1,12 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-01 (CommonJS): each rt.p read takes only its own property: stock and orders with their own handlers
+# census: route_mount_literal, prop_receiver_route, require_hono (violation hono-7-01, P1 false_route; CommonJS)
+route	GET	/stock	routes/stock.js:5:18	index.js:9:13	0
+route	DELETE	/stock/:sku	routes/stock.js:6:25	index.js:9:13	1
+route	GET	/orders/recent	routes/orders.js:5:25	index.js:9:13	2
+route	PUT	/orders/:orderId	routes/orders.js:6:27	index.js:9:13	3
+submount	/stock	index.js:10:5
+submount	/orders	index.js:11:5
+regby	routes/orders.js:3:1	routes/orders.js:5:25	GET	/orders/recent	index.js:9:13
+regby	routes/orders.js:3:1	routes/orders.js:6:27	PUT	/orders/:orderId	index.js:9:13
+regby	routes/stock.js:3:1	routes/stock.js:5:18	GET	/stock	index.js:9:13
+regby	routes/stock.js:3:1	routes/stock.js:6:25	DELETE	/stock/:sku	index.js:9:13

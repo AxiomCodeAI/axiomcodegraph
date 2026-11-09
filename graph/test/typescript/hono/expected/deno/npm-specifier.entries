@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: npm:hono@4 app with npm:hono/cors scoped to /api/*; Deno.serve({ port }, app.fetch)
+# census: none (corpus gap). npm:hono@4 and npm:hono/cors specifiers: shape from Hono's Deno docs, corpus gap. Oracle maps them to the
+entry	main.ts:8:21	http

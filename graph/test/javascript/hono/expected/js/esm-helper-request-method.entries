@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-29 against the fixture and the oracle: hono-7-02 (ESM): the post helper's literal POST joins the two POST routes; the get helper (no init) joins GET /auth/login
+# census: app_request_test (violation hono-7-02; ESM JavaScript)
+entry	auth.js:4:26	http
+entry	auth.js:5:27	http
+entry	auth.js:6:32	http

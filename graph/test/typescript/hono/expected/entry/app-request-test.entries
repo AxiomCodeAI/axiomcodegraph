@@ -1,0 +1,5 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: four test functions reach their routes (three app.request, one testClient); /nowhere is unserved
+# census: app_request_test, test_client
+entry	app.ts:4:19	http
+entry	app.ts:5:19	http
+entry	app.ts:6:22	http

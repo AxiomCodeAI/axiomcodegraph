@@ -1,0 +1,5 @@
+nominal	globals#Function.apply -> globals#CallableFunction.apply
+nominal	globals#Function.bind -> globals#CallableFunction.bind
+nominal	globals#Function.call -> globals#CallableFunction.call
+value	x#<function-type>@6:16 -> x#View.<arrow>@6
+value	x#<function-type>@7:12 -> x#View.<arrow>@7

@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Deno.serve / Bun.serve inside a start function; the route from the exported app
+# census: deno_serve, bun_serve
+entry	index.ts:9:18	http

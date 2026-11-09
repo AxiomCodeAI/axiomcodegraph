@@ -1,0 +1,7 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: O6: authSdk.middleware() from an unresolvable package stays at position 0 ahead of tag
+# census: builtin_mw_import (oracle gap O6: a library middleware whose package cannot be resolved)
+# iteration 2: regby rows (route_registered_by, SPEC 4) re-derived; every other row unchanged
+route	GET	/secure	index.js:13:20	index.js:10:13	2
+mw	lib:acme-auth-sdk.authSdk.middleware@index.js:11:9	index.js:13:20	GET	/secure	0	index.js:10:13
+mw	index.js:6:13	index.js:13:20	GET	/secure	1	index.js:10:13
+regby	index.js:1:1	index.js:13:20	GET	/secure	index.js:10:13

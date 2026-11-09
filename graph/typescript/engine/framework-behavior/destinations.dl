@@ -81,7 +81,7 @@ rd_demand(c) :- rd_demand(e), expr_kind("client", "BINARY_EXPRESSION", _, e), ex
     expr_child("client", e, "RIGHT_OPERAND", _, c).
 rd_demand(c) :- rd_demand(e), expr_literal_type("client", "TEMPLATE", e),
     expr_child("client", e, "TEMPLATE_SPAN", _, c).
-rd_demand(i) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "".
+rd_demand(i) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "", !var_reassigned(v).
 rd_demand(val) :- rd_prop_value(_, val).
 rd_demand(c) :- rd_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k),
     expr_child("client", e, _, _, c).
@@ -105,12 +105,23 @@ rd_prop_value(e, val) :- rd_demand(e), expr_kind("client", "PROPERTY_ACCESS", _,
 .decl rd_is_prop(c0:symbol)
 .decl rd_is_transparent(c0:symbol)
 rd_is_str(e) :- rd_demand(e), expr_kind("client", "LITERAL", _, e), expr_literal_type("client", "STRING", e).
+rd_is_str(e) :- rd_demand(e), expr_kind("client", "LITERAL", _, e), expr_literal_type("client", "NO_SUBSTITUTION_TEMPLATE", e).
 rd_is_tmpl(e) :- rd_demand(e), expr_literal_type("client", "TEMPLATE", e).
 rd_is_plus(e) :- rd_demand(e), expr_kind("client", "BINARY_EXPRESSION", _, e), expr_operator("client", "+", e).
-rd_is_ref(e) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "".
+// a `let` assigned again anywhere is not a constant: its use is a computed part `{}`, never its
+// first value (`let id = ''` later set by a test step)
+rd_is_ref(e) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "", !var_reassigned(v).
 rd_is_prop(e) :- rd_prop_value(e, _).
 rd_is_transparent(e) :- rd_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k),
     expr_child("client", e, _, _, _).
+// `this.baseUrl`, a field with an initializer that nothing assigns again
+.decl rd_is_field(c0:symbol, c1:symbol)
+.decl rd_field_rewritten(c0:symbol)
+rd_field_rewritten(f) :- expr_kind("client", k, _, x), (k = "ASSIGNMENT_EXPRESSION" ; k = "COMPOUND_ASSIGNMENT"),
+    expr_child("client", x, "LEFT_OPERAND", _, l), ts_field_access_target(l, f).
+rd_is_field(e, i) :- rd_demand(e), expr_kind("client", "PROPERTY_ACCESS", _, e), ts_field_access_target(e, f),
+    field_initializer("client", i, f), i != "", !rd_field_rewritten(f).
+rd_demand(i) :- rd_is_field(_, i).
 
 .decl rd_val(c0:symbol, c1:symbol)
 // literalValue is the text between the quotes; an empty string has no row at all
@@ -119,11 +130,48 @@ rd_val(e, "") :- rd_is_str(e), !expr_literal_value("client", _, e).
 rd_val(e, cat(l, r)) :- rd_is_plus(e),
     expr_child("client", e, "LEFT_OPERAND", _, lc), expr_child("client", e, "RIGHT_OPERAND", _, rc),
     rd_val(lc, l), rd_val(rc, r), strlen(l) + strlen(r) < 400.
-rd_val(e, v) :- rd_demand(e), rd_denotes_var(e, x), var_initializer("client", _, i, x), i != "", rd_val(i, v).
+rd_val(e, v) :- rd_demand(e), rd_denotes_var(e, x), var_initializer("client", _, i, x), i != "", !var_reassigned(x), rd_val(i, v).
 rd_val(e, v) :- rd_prop_value(e, val), rd_val(val, v).
 rd_val(e, v) :- rd_is_transparent(e), expr_child("client", e, _, _, c), rd_val(c, v).
+rd_val(e, v) :- rd_is_field(e, i), rd_val(i, v).
+// a call with no arguments of a function with exactly one return (`getBasePath() { return '/dashboard' }`):
+// the value it returns (SPEC 3.2, G8)
+.decl rd_call0(c0:symbol, c1:symbol)
+rd_call0(ce, w) :- call_site("client", _, _, _, _, ce, _),
+    call_chain_edge(ce, _, "-", w, "client", st, _), st != "callback_registered".
+rd_call0(ce, w) :- loop_elem_callee(ce, w).
+.decl rd_ret_top(c0:symbol, c1:symbol)
+// the returned expression itself: a ROOT (method_returns_expr also holds every sub-expression under a
+// `return`). Read off the expression's own root flag rather than by joining each returned expression with
+// its parents, which ran over every returned sub-expression of every called function in the program.
+rd_ret_top(w, e) :- rd_call0(_, w), method_returns_expr(w, e), expr_kind("client", _, "ROOT", e).
+.decl rd_ret_one(c0:symbol, c1:symbol)
+rd_ret_one(w, e) :- rd_ret_top(w, e), 1 = count : { rd_ret_top(w, _) }.
+.decl rd_call0_one(c0:symbol, c1:symbol)
+rd_call0_one(ce, e) :- rd_call0(ce, w), rd_ret_one(w, e), 1 = count : { rd_call0(ce, _) }.
+rd_demand(e) :- rd_demand(ce), rd_call0_one(ce, e).
+// the value ONE method returns, whatever calls it (a call reaching several methods, `g.prefix(v)` over a loop of
+// classes, is then read per method by whoever knows which one runs)
+rd_demand(e) :- rd_demand(ce), rd_call0(ce, w), rd_ret_one(w, e).
+.decl rd_mval(c0:symbol, c1:symbol)
+rd_mval(w, v) :- rd_ret_one(w, e), rd_demand(e), rd_val(e, v).
+rd_val(ce, v) :- rd_call0_one(ce, e), rd_val(e, v).
+.decl rd_is_call0(c0:symbol)
+rd_is_call0(ce) :- rd_demand(ce), rd_call0_one(ce, _).
+// a parameter of a function called from exactly one place: the value that place passes
+.decl rd_param_calls(c0:symbol, c1:number)
+rd_param_calls(w, n) :- param_decl("client", _, _, _, w, _), n = count : { rd_call0(_, w) }.
+.decl rd_param_one(c0:symbol, c1:symbol)
+rd_param_one(e, a) :- rd_demand(e), expr_referenced("client", "PARAMETER", p, e), param_decl("client", _, pos, _, w, p),
+    rd_param_calls(w, 1), rd_call0(ce, w), expr_child("client", ce, "ARGUMENT", pos, a).
+rd_demand(a) :- rd_param_one(_, a).
+rd_val(e, v) :- rd_param_one(e, a), rd_val(a, v).
+.decl rd_is_param_one(c0:symbol)
+rd_is_param_one(e) :- rd_param_one(e, _).
+.decl rd_is_field_any(c0:symbol)
+rd_is_field_any(e) :- rd_is_field(e, _).
 rd_val(e, "{}") :- rd_demand(e), !rd_is_str(e), !rd_is_tmpl(e), !rd_is_plus(e), !rd_is_ref(e),
-    !rd_is_prop(e), !rd_is_transparent(e).
+    !rd_is_prop(e), !rd_is_transparent(e), !rd_is_field_any(e), !rd_is_param_one(e), !rd_is_call0(e).
 
 // ── a template: its raw text, split at each `${…}` ──────────────────────────
 // The parser keeps the template as written, backticks included, and gives each hole
@@ -176,7 +224,11 @@ rd_route_fn_arg(ce, p, m) :- rd_route_call(ce, _), cfg_named_fn_arg(ce, pos, m),
 .decl rd_route_last(c0:symbol, c1:number)
 rd_route_last(ce, p) :- rd_route_fn_arg(ce, _, _), p = max q : { rd_route_fn_arg(ce, q, _) }.
 rd_route_raw(m, p, verb) :- rd_route_call(ce, verb), rd_route_last(ce, k), rd_route_fn_arg(ce, k, m),
-    expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, p), strlen(p) >= 1, substr(p, 0, 1) = "/".
+    expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, p), strlen(p) >= 1, substr(p, 0, 1) = "/", !hr_reg(ce, _, _).
+// a registration on an application whose route table the engine composes (http-router-routes.dl): joined on
+// the FULL path a request reaches it by, never on the path written at the call (a `/health` registered on a
+// `basePath('/api')` app is served at `/api/health` only)
+rd_route_raw(m, p, verb) :- http_route(m, verb, p, _, _).
 
 // A handler registered under a path read from a constant is as much a root as one
 // under a literal: config-resolution/entry-points.dl reads the literal only.
@@ -244,7 +296,22 @@ rd_fetch_verb(ce, v) :- rd_fetch_init(ce, o), !expr_kind("client", "OBJECT_LITER
 rd_demand(a) :- rd_fetch_call(ce), expr_child("client", ce, "ARGUMENT", "0", a).
 rd_send(ce, from, verb, u) :- rd_fetch_verb(ce, verb), expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, u),
     expr_enclosing_method(ce, from).
-rd_send_site(ce, from) :- rd_fetch_call(ce), expr_enclosing_method(ce, from).
+rd_send_site(ce, from) :- rd_fetch_call(ce), expr_enclosing_method(ce, from), !rd_file_fetch(ce).
+// `fetch(new URL('./x.wasm', import.meta.url))` reads a file shipped beside the module: not a request at all
+.decl rd_file_fetch(c0:symbol)
+rd_file_fetch(ce) :- rd_fetch_call(ce), expr_child("client", ce, "ARGUMENT", "0", u), call_site("client", "CONSTRUCTOR_CALL", "URL", _, _, u, _),
+    expr_child("client", u, "ARGUMENT", "1", b), rd_module_url(b).
+// `fetch(new URL('/x', base))`: the path under a base the program does not spell
+.decl rd_fetch_url_obj(c0:symbol, c1:symbol)
+rd_fetch_url_obj(ce, p) :- rd_fetch_call(ce), expr_child("client", ce, "ARGUMENT", "0", u),
+    call_site("client", "CONSTRUCTOR_CALL", "URL", _, _, u, _), expr_child("client", u, "ARGUMENT", "0", p),
+    expr_child("client", u, "ARGUMENT", "1", b), !rd_module_url(b).
+// `new URL('../fonts/x.ttf', import.meta.url)` names a file next to the module, never a request to a route
+.decl rd_module_url(c0:symbol)
+rd_module_url(b) :- expr_kind("client", "PROPERTY_ACCESS", _, b), property_access_name(b, "url"), !expr_child("client", b, "RECEIVER", _, _).
+rd_demand(p) :- rd_fetch_url_obj(_, p).
+rd_send(ce, from, verb, cat("{}", pv)) :- rd_fetch_url_obj(ce, p), rd_fetch_verb(ce, verb), rd_val(p, pv),
+    substr(pv, 0, 1) = "/", expr_enclosing_method(ce, from).
 
 // ── <client>.<verb>(url, …) ─────────────────────────────────────────────────
 // The receiver is the package's import itself, or a const its factory made:
@@ -329,7 +396,13 @@ rd_pn_nonempty_at(n, i) :- rd_pn_seg_at(n, i, t), t != "".
 rd_pn_seg_raw(n, k, t) :- rd_pn_seg_at(n, i, t), t != "", k = count : { rd_pn_nonempty_at(n, x), x < i }.
 .decl rd_seg_ph(c0:symbol)
 rd_seg_ph(t) :- rd_pn_seg_raw(_, _, t), substr(t, 0, 1) = ":".
-rd_seg_ph(t) :- rd_pn_seg_raw(_, _, t), contains("{", t).
+rd_seg_ph(t) :- rd_pn_seg_raw(_, _, t), contains("{", t), !rd_mixed_lit(t, _).
+// a client segment that starts with a literal and ends in a computed part (`skills${path}`): it keeps the literal, and
+// fits only a segment starting with it; at the end of the path the computed part may hold more segments
+.decl rd_mixed_lit(c0:symbol, c1:symbol)
+rd_mixed_lit(t, l) :- rd_pn_seg_raw(n, _, t), rd_norm(s, n), rd_client_path(s), strlen(t) > 2, contains("{}", t),
+    c = substr(t, 0, 1), c != ":", c != "{", c != "*", i = min j : { j = range(0, strlen(t) - 1), substr(t, j, 2) = "{}" },
+    l = substr(t, 0, i).
 rd_seg_ph("*") :- rd_pn_seg_raw(_, _, "*").
 .decl rd_pn_seg(c0:symbol, c1:number, c2:symbol)
 rd_pn_seg(n, k, "{}") :- rd_pn_seg_raw(n, k, t), rd_seg_ph(t).
@@ -373,12 +446,33 @@ rd_dest(s, d) :- rd_client_path(s), rd_ccount(s, c), c > 0, rd_dest_step(s, c, d
 rd_dest(p, d) :- rd_server_path(p), rd_scount(p, c), c > 0, rd_dest_step(p, c, d).
 rd_dest(p, "/") :- rd_server_path(p), rd_scount(p, 0).
 
+// ── a send to a PUBLIC host is not a request to this program ───────────────
+// `https://api.example.com/health` names a host on the internet by its DNS name: another
+// party's server, even when a route here happens to spell the same path. A single-label host
+// (`http://billing:9000`, `localhost`), an address, or a computed host stays joinable: those
+// are how services of one deployment, and tests, reach each other.
+.decl rd_host(c0:symbol, c1:symbol)
+rd_host(s, h) :- rd_after_scheme(s, r), rd_slash_in(r, _), m = min i : rd_slash_in(r, i), h = substr(r, 0, m).
+rd_host(s, r) :- rd_after_scheme(s, r), !rd_slash_in(r, _).
+.decl rd_foreign(c0:symbol)
+rd_foreign(s) :- rd_client_path(s), rd_host(s, h), contains(".", h), !contains("{}", h), strlen(h) >= 1,
+    c = substr(h, 0, 1), c != "[", !rd_digit(c).
+.decl rd_digit(c0:symbol)
+rd_digit("0"). rd_digit("1"). rd_digit("2"). rd_digit("3"). rd_digit("4").
+rd_digit("5"). rd_digit("6"). rd_digit("7"). rd_digit("8"). rd_digit("9").
+
 // ── the join ────────────────────────────────────────────────────────────────
 .decl rd_route_pair(c0:symbol, c1:symbol)
-rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c), rd_chas_literal(s).
-rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c + 1), rd_server_last_optional(p), rd_chas_literal(s).
+rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c), rd_chas_literal(s), !rd_foreign(s).
+rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c + 1), rd_server_last_optional(p), rd_chas_literal(s), !rd_foreign(s).
+rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c2), c2 > c, rd_ctail_mixed(s), rd_chas_literal(s), !rd_foreign(s).
+.decl rd_ctail_mixed(c0:symbol)
+rd_ctail_mixed(s) :- rd_ccount(s, c), rd_cseg(s, c - 1, a), rd_mixed_lit(a, _), substr(a, strlen(a) - 2, 2) = "{}".
+.decl rd_mixed_fits(c0:symbol, c1:symbol)
+rd_mixed_fits(a, b) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, b), rd_mixed_lit(a, l), strlen(b) >= strlen(l),
+    substr(b, 0, strlen(l)) = l.
 .decl rd_seg_conflict(c0:symbol, c1:symbol)
-rd_seg_conflict(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, b), a != b, a != "{}", b != "{}".
+rd_seg_conflict(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, b), a != b, a != "{}", b != "{}", !rd_mixed_fits(a, b).
 .decl rd_seg_literal_eq(c0:symbol, c1:symbol)
 rd_seg_literal_eq(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, a), a != "{}".
 .decl rd_seg_differs(c0:symbol, c1:symbol)
@@ -401,7 +495,49 @@ rd_verb_ok(a, b) :- rd_send(_, _, a, _), rd_route_raw(_, _, b), ts_http_verb_any
 rd_seg_diff_n(s, p, n) :- rd_route_match(s, p, _), n = count : { rd_cseg(s, k, a), rd_sseg(p, k, b), a != b }.
 .decl rd_candidate(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number)
 rd_candidate(e, from, to, p, conf, n) :- rd_send(e, from, sv, s), rd_route_match(s, p, conf),
-    rd_route_raw(to, p, rv), rd_verb_ok(sv, rv), rd_seg_diff_n(s, p, n), from != to.
+    rd_route_raw(to, p, rv), rd_verb_ok(sv, rv), rd_seg_diff_n(s, p, n), from != to, !rd_base_unknown_to(s, to, p), !rd_method_unknown(e).
+// …whose method is not decidable: it MAY reach the route, on whatever verb (SPEC ruling R17)
+rd_candidate(e, from, to, p, conf, n) :- rd_send(e, from, sv, s), rd_route_match(s, p, _),
+    rd_route_raw(to, p, rv), rd_verb_ok(sv, rv), rd_seg_diff_n(s, p, n), from != to, !rd_base_unknown_to(s, to, p), rd_method_unknown(e),
+    ts_remote_confidence_method_unknown(conf).
+.decl rd_method_unknown(c0:symbol)
+rd_method_unknown(ce) :- rd_fetch_has_method(ce), !rd_fetch_has_verb(ce).
+rd_method_unknown(ce) :- rd_fetch_init(ce, o), !expr_kind("client", "OBJECT_LITERAL", _, o).
+// a request whose base address is computed (`${base}/x`, a host from the environment) joined to a route of a
+// composed route table: it MAY reach it, and says so (SPEC ruling R14)
+rd_candidate(e, from, to, p, conf, n) :- rd_send(e, from, sv, s), rd_route_match(s, p, _),
+    rd_route_raw(to, p, rv), rd_verb_ok(sv, rv), rd_seg_diff_n(s, p, n), from != to, rd_base_unknown_to(s, to, p),
+    !contains("*", p), !rd_bu_test_only(e, to, p), ts_remote_confidence_base_unknown(conf).
+// what a request with an unknown base may NOT be said to reach: a catch-all (`*`) route, which any path fits, and,
+// from code outside the tests, a route only an app built in a test file serves (that app is never deployed)
+.decl rd_test_path(c0:symbol)
+rd_test_path(fp) :- module_decl("client", _, _, fp, _, _),
+    (contains(".test.", fp) ; contains(".spec.", fp) ; contains("__tests__/", fp) ; contains("/test/", fp) ; contains("/tests/", fp) ;
+     contains("/e2e/", fp) ; substr(fp, 0, 5) = "test/" ; substr(fp, 0, 6) = "tests/" ; substr(fp, 0, 4) = "e2e/").
+.decl rd_route_in_test(c0:symbol, c1:symbol)
+rd_route_in_test(to, p) :- rd_base_unknown_to(_, to, p), http_route(to, _, p, a, _), expr_module("client", m, a),
+    module_decl("client", _, _, fp, _, m), rd_test_path(fp).
+.decl rd_route_served_outside_tests(c0:symbol, c1:symbol)
+rd_route_served_outside_tests(to, p) :- rd_base_unknown_to(_, to, p), http_route(to, _, p, a, _), expr_module("client", m, a),
+    module_decl("client", _, _, fp, _, m), !rd_test_path(fp).
+.decl rd_bu_test_only(c0:symbol, c1:symbol, c2:symbol)
+rd_bu_test_only(e, to, p) :- rd_send(e, _, _, s), rd_base_unknown_to(s, to, p), rd_route_in_test(to, p),
+    !rd_route_served_outside_tests(to, p), expr_module("client", m, e), module_decl("client", _, _, fp, _, m), !rd_test_path(fp).
+.decl rd_base_unknown(c0:symbol)
+rd_base_unknown(s) :- rd_client_drops_base(s).
+// a computed host name (a computed port alone keeps the host: `http://localhost:${port}` is this machine)
+rd_base_unknown(s) :- rd_host(s, h), contains("{}", h), !contains(":", h).
+rd_base_unknown(s) :- rd_host(s, h), contains(":", h), i = min j : { j = range(0, strlen(h)), substr(h, j, 1) = ":" },
+    contains("{}", substr(h, 0, i)).
+// a literal SINGLE-LABEL host (`http://billing:9000`): a service of the same deployment, which app serves it is not
+// known here (SPEC ruling R14a); localhost is this machine
+rd_base_unknown(s) :- rd_host(s, h), rd_hostname(h, hn), hn != "", !contains("{}", hn), !contains(".", hn), hn != "localhost",
+    substr(hn, 0, 1) != "[".
+.decl rd_hostname(c0:symbol, c1:symbol)
+rd_hostname(h, substr(h, 0, i)) :- rd_host(_, h), contains(":", h), i = min j : { j = range(0, strlen(h)), substr(h, j, 1) = ":" }.
+rd_hostname(h, h) :- rd_host(_, h), !contains(":", h).
+.decl rd_base_unknown_to(c0:symbol, c1:symbol, c2:symbol)
+rd_base_unknown_to(s, to, p) :- rd_base_unknown(s), rd_route_match(s, p, _), http_route(to, _, p, _, _).
 .decl rd_candidate_best(c0:symbol, c1:number)
 rd_candidate_best(e, b) :- rd_candidate(e, _, _, _, _, _), b = min n : rd_candidate(e, _, _, _, _, n).
 

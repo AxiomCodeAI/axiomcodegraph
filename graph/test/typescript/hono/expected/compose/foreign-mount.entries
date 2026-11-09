@@ -1,0 +1,4 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: mount: ANY /legacy/* served by the foreign function, which is an http entry
+# census: mount_foreign
+entry	index.ts:11:17	http
+entry	index.ts:5:1	http

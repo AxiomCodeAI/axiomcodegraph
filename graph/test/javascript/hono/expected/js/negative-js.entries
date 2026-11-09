@@ -1,0 +1,3 @@
+# hand-reviewed 2026-10-24 against the fixture and the oracle: Map and a router-shaped object beside one app: only /real
+# census: neg_map_get_in_hono_file, neg_route_on_nonhono (JavaScript)
+entry	index.js:18:18	http

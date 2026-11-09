@@ -121,13 +121,16 @@ def main(argv):
         open(os.path.realpath(ptr), 'wb').write(os.urandom(8192))
         sys.path.insert(0, os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp')); os.environ.update(AXIOMCODE_ENGINE=ROOT, AXIOMCODE_NO_REFRESH='1')
         import server
-        text = server.run(['impact', 'helper', repo])
+        def words(args):                                        # a refusal comes as the server's ToolError, words intact
+            try: return server.run(args)
+            except server.ToolError as e: return str(e)
+        text = words(['impact', 'helper', repo])
         check('Traceback' not in text and 'corrupt' in text, 'mcp: the tool answer says the graph is corrupt, no traceback', text)
         sys.path.insert(0, SCRIPTS); import ax_fresh
         for _ in range(600):                                                          # the rebuild it started
             if os.path.exists(ptr) and not ax_fresh.building(repo): break
             time.sleep(1)
-        text = server.run(['impact', 'helper', repo])
+        text = words(['impact', 'helper', repo])
         check('caller' in text and 'corrupt' not in text, 'mcp: once rebuilt the tool answers again', text)
 
         # ── bad page ────────────────────────────────────────────────────────────────────────────────────────
