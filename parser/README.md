@@ -52,6 +52,19 @@ a link the parser emits is correct, and a link it cannot decide is absent rather
 There is no standalone CLI. It is consumed as a library through `extractProject()` or as a
 subprocess through `dist/index.js`.
 
+**0.2.2** makes the parse stage fit a large repository in a stock Node heap. Python and Java parse output now streams:
+each worker writes its files' rows straight to per-worker CSV shards, the main thread copies them out in file order,
+and Python's cross-module pass reads a compact view of the rows and records its changes as patches applied while the
+shards are written, so no table is held whole on the main thread. Results are taken as they arrive. A worker's results cross to the main
+thread with repeated strings shared once, every file's rows are appended without spreading them as call arguments
+(which overflowed the stack on a file with very many rows), and each Python table is freed as soon as it is written.
+The largest files are dispatched first, a worker collects its garbage after a very large file, and the worker count
+follows memory as well as cores (one per 2 GB, at most 4). Python's cross-module pass no longer copies the project's
+import map for each module, and worklists in the Python, Java, TypeScript and C# extractors drain by index rather
+than `shift()`. Two Python changes alter the IR: an `except` tuple that spans lines no longer tears its block row,
+and a line break inside a string literal's value is kept as a newline rather than folded to a space, so a
+multi-line string gets a new value and expression hash.
+
 **0.2.1** fixes the HTML and CSS front end. Pages and sheets get their own `<ir>/web/` folder. The web walk now reads
 `dist/`, `build/` and `out/`, and reads `.shtml` and `.shtm` pages as HTML. A relative URL can climb out of a
 sub-project up to the repository root. A bare `on*` attribute is no longer an event handler, and an XHTML page keeps
