@@ -69,7 +69,8 @@
 #       every verb with what it does; with a verb, that verb's own usage, printed from the script that implements it.
 #
 # A repo in several languages is indexed in all of them, one graph each, and the query verbs ask every graph (the main
-# language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
+# language's, the one with the most code, first); a language under 20 files and 5% of the code (or 100 lines) is
+# incidental and left out, and the index names it. --lang chooses one language or a comma list, the first the main one;
 # --src limits the analysed tree (e.g. src); --library names dependency roots. --fresh (context, path, impact) waits for
 # a refresh in flight and answers from the new graph; without it an answer from a graph older than an edit marks its rows.
 # --no-refresh (every query verb: context, path, impact, changed, test-impact; MCP refresh=false) is a READ-ONLY

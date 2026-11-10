@@ -8,7 +8,7 @@ language, the C# graph was written 131 s into the first index and the first quer
 The other languages are held back here on purpose: the engine is wrapped by one that runs the real engine,
 reports the first language it solved, and holds the rest back until the test lets them go. Nothing else is faked.
 
-One throwaway repository: a C# web API (the main language: most files), a small Java report job and some Python
+One throwaway repository: a C# web API (the main language: most code), a small Java report job and some Python
 scripts, more Python files than Java ones.
 
   order          the engine solves the main language first, then the others by file count (python before
@@ -49,6 +49,14 @@ TOOLS = {
     'tools/scripts/export.py': 'from totals import sum_totals\n\n\ndef export(rows):\n    return {"sum": sum_totals(rows)}\n',
     'tools/scripts/labels.py': 'def label(x):\n    return "total " + str(x)\n',
 }
+# ENOUGH CODE IN EACH LANGUAGE THAT NONE IS INCIDENTAL (ax_fresh.py choose): a language under 20 files is built only
+# with 5% of the code and 100 lines or more, and the main one is the language with the most code. These name nothing
+# any check asks about; C# stays the main language, and Python keeps more files than Java.
+CS['WebApp/Models/Colours.cs'] = 'namespace WebApp.Models;\n\npublic static class Colours\n{\n' + ''.join(
+    f'    public static int Colour{i}()\n    {{\n        return {i};\n    }}\n' for i in range(40)) + '}\n'
+TOOLS['tools/report/src/main/java/app/report/Colours.java'] = 'package app.report;\n\npublic class Colours {\n' + ''.join(
+    f'    public int colour{i}() {{\n        return {i};\n    }}\n' for i in range(36)) + '}\n'
+TOOLS['tools/scripts/colours.py'] = ''.join(f'def colour_{i}():\n    return {i}\n' for i in range(52))
 
 # the engine, wrapped: the real `all` runs, and the first language it names is passed on the moment it is named; the
 # rest only once the real run has ended AND the HOLD file is gone. So the main graph is published while the real engine

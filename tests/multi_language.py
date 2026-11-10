@@ -6,7 +6,7 @@ symbol, no edge, and `changed` on an edit in the dropped language said the edit 
 language now has its own graph (the main one where it always was, the others in .axiomcode/lang/<lang>), and the
 query verbs ask all of them. A graph holds one language; no call is followed from one to another.
 
-One throwaway repository in TypeScript (the main language: most files), Python and JavaScript:
+One throwaway repository in TypeScript (the main language: most code), Python and JavaScript:
 
   build          every language gets a graph, and the build names each
   queries        a name declared in each language is found, in its own graph; one that is nowhere is refused once
@@ -55,6 +55,13 @@ FILES = {
     'notes/steps.json': '{ "steps": ["total"] }\n',
     'jslib/index.js':'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
 }
+# ENOUGH CODE IN EACH LANGUAGE THAT NONE IS INCIDENTAL (ax_fresh.py choose): a language under 20 files is built only
+# with 5% of the code and 100 lines or more, and the main one is the language with the most code. These modules name
+# nothing any check asks about; they make python and javascript languages the repository is written in, typescript
+# still the main one.
+FILES['src/colours.ts'] = ''.join(f'export function colour{i}(): number {{\n  return {i}\n}}\n' for i in range(45))
+FILES['pyutil/colours.py'] = ''.join(f'def colour_{i}():\n    return {i}\n' for i in range(55))
+FILES['jslib/colours.js'] = ''.join(f'function colour{i}() {{\n  return {i}\n}}\n' for i in range(36)) + 'module.exports = { colour0 }\n'
 
 # a Maven project whose build wrote javadoc: target/ beside the pom.xml, and a copy committed for a docs site
 JAVADOC_JS = 'function loadScripts(doc, tag) {\n  createElem(doc, tag, \'search.js\')\n}\n\nfunction createElem(doc, tag, path) {\n  return doc.createElement(tag)\n}\n'
@@ -376,11 +383,15 @@ def main(argv):
         check(st.get('state') == 'fresh', 'build output: and the graph is fresh, not waiting on a language it will never build', json.dumps(st))
         web = os.path.join(work, 'maven-web'); make(web, dict(MAVEN, **MAVEN_WEB))
         b = sh(web, AX, 'index', '.', env=quiet)
-        # three JavaScript files to one Java file, so JavaScript is the main language and Java the other one
-        check(b.returncode == 0 and 'javascript + java' in b.stdout and 'javascript 3 ' in b.stdout
-              and os.path.exists(os.path.join(web, '.axiomcode', 'lang', 'java', 'out', 'graph.sqlite')),
+        # three JavaScript files to one Java file, so JavaScript is the main language; the one six-line Java class beside
+        # them is incidental (ax_fresh.py choose): not built, and named with the --lang that builds it
+        check(b.returncode == 0 and 'building javascript graph' in b.stdout and 'javascript 3 ' in b.stdout
+              and 'java (1 file' in b.stdout and '--lang javascript,java' in b.stdout
+              and not os.path.exists(os.path.join(web, '.axiomcode', 'lang', 'java', 'out', 'graph.sqlite')),
               'build output (control): the same repository with JavaScript of its own gets its graph, all three files', b.stdout + b.stderr)
-        j = sh(web, AX, 'path', 'start', 'point', '.', env=quiet)
+        # the verb's own answer (AXIOMCODE_RAW): the front door's places-with-code form of a one-graph answer names the
+        # call site, not the file the callee is declared in
+        j = sh(web, AX, 'path', 'start', 'point', '.', env=dict(quiet, AXIOMCODE_RAW='1'))
         check(j.returncode == 0 and 'verified' in j.stdout and 'src/main/js/target/aim.js' in j.stdout,
               'build output (control): a directory named target that no pom.xml owns is source', j.stdout + j.stderr)
         n = sh(web, AX, 'impact', 'createElem', '.', env=quiet)
