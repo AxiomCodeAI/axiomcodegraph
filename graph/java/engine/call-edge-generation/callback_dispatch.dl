@@ -33,6 +33,8 @@
 // `defines` hop: it is lexically inside the method that hands it over.
 // ============================================================================
 
+.decl cb_client_override(m:symbol)
+.decl cb_lib_overridden(b:symbol)
 cb_object_member("equals"). cb_object_member("hashCode"). cb_object_member("toString").
 cb_object_member("clone").  cb_object_member("finalize").
 
@@ -69,7 +71,13 @@ cb_callback(t, m) :- cb_member(t, name, m), !cb_object_member(name),
 // (b) @Override, under an external ancestor
 cb_external_ancestor(t) :- cb_handoff(_, t), type_ancestor(t, x), external_type(x).
 cb_callback(t, m) :- cb_member(t, name, m), !cb_object_member(name), cb_external_ancestor(t),
-    ann_on_method("client", _, "Override", m, _).
+    ann_on_method("client", _, "Override", m, _), !cb_client_override(m).
+// ...unless the @Override is explained by a CLIENT declaration that is itself no override: `deepCopy()`
+// in `class JsonArray extends JsonElement implements Iterable<JsonElement>` overrides JsonElement's own
+// abstract deepCopy, which no library declares, so handing a JsonArray to a list cannot run it.
+cb_client_override(m) :- virtual_override(base, m), method_owner("client", _, base),
+    !ann_on_method("client", _, "Override", base, _), !cb_lib_overridden(base).
+cb_lib_overridden(b) :- virtual_override(lb, b), method_owner("lib", _, lb).
 // (c) with the library absent and a class that writes no @Override at all, the annotation says
 // nothing either way: every PUBLIC instance method it declares is a candidate (a library calls
 // an implementation through its interface, and an interface method is public). A class that

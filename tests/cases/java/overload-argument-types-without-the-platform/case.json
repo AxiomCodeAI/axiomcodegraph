@@ -1,0 +1,18 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a string concatenation is a String without the JDK staged",
+   "run": ["impact", "User.concat", "--depends"], "want": ["Sink.java:7"], "avoid": ["one of a set"]},
+  {"why": "a class literal is a Class: read(Class) and not read(Node) or read(String)",
+   "run": ["impact", "User.literal", "--depends"], "want": ["Sink.java:10"], "avoid": ["one of a set"]},
+  {"why": "a creation of an unstaged type is that type: load(Reader) is not load(String)",
+   "run": ["impact", "User.creation", "--depends"], "want": ["Sink.java:14"], "avoid": ["one of a set"]},
+  {"why": "a catch parameter has its declared type: never a String",
+   "run": ["impact", "User.caught", "--depends"], "want": ["Sink.java:16"], "avoid": ["Sink.java:15"]},
+  {"why": "String.class is a Class, not a Type it merely implements",
+   "run": ["impact", "User.classLit", "--depends"], "want": ["Sink.java:18"], "avoid": ["one of a set"]},
+  {"why": "a primitive cast names the value's type",
+   "run": ["impact", "User.castChar", "--depends"], "want": ["Sink.java:19"], "avoid": ["one of a set"]},
+  {"why": "a client-typed variable is never a String: String is final",
+   "run": ["impact", "User.nodeArg", "--depends"], "want": ["Sink.java:23"], "avoid": ["one of a set"]},
+  {"why": "control: an argument that is a call's result keeps both overloads",
+   "run": ["impact", "User.callArg", "--depends"], "want": ["one of a set", "Sink.java:22", "Sink.java:23"]}]}

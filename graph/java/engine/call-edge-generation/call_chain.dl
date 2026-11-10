@@ -99,7 +99,18 @@ site_leaves_client(call) :- external_target(call, _).
 // dispatch_capped_site carries the count. The conditions are exactly the ones under which the
 // fan would have applied: not an exactly typed receiver, not a super call, a wide base.
 call_fan_capped(call) :- invocation_site(call, _), expr_call_candidate(call, base), cha_wide_base(base),
-    !call_exact_receiver(call), !call_super_receiver(call).
+    !call_exact_receiver(call), !call_super_receiver(call), call_recv_wide(call, base).
+// ...where the fan was refused at one of the receiver's own types (resolution/dispatch-cap.dl): a receiver
+// typed only by narrow types took its fan under them, and is no capped site
+.decl call_recv_wide(call:symbol, base:symbol)
+.decl call_recv_typed(call:symbol)
+call_recv_typed(call) :- call_site(call, _, recv), expr_type(_, recv, _).
+call_recv_typed(call) :- call_unqualified(call, _), expr_ultimate_type("client", call, _).
+call_recv_wide(call, base) :- expr_call_candidate(call, base), cha_wide_base(base),
+    call_site(call, _, recv), expr_type(_, recv, rt), cha_wide_for(base, rt).
+call_recv_wide(call, base) :- expr_call_candidate(call, base), cha_wide_base(base),
+    call_unqualified(call, _), expr_ultimate_type("client", call, et), cha_wide_for(base, et).
+call_recv_wide(call, base) :- expr_call_candidate(call, base), cha_wide_base(base), !call_recv_typed(call).
 dispatch_capped_site(call, base, n) :- call_fan_capped(call), expr_call_candidate(call, base),
     cha_wide_base(base), cha_override_count(base, n).
 call_class(call, "fan_capped")        :- call_fan_capped(call).

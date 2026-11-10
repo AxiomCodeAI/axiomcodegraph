@@ -63,3 +63,32 @@ cha_override_count(base, n) :- cha_override_low(base, _),
 cha_wide_base(base) :- dispatch_cap(k),
     cha_override_count(base, n),
     n > to_number(k).
+
+// ── THE CAP IS READ AT THE RECEIVER'S TYPE ──────────────────────────────────────────────────
+// A base is wide over its whole hierarchy, but a call is made on a receiver of some type R, and the
+// fan the call can take is only the overrides reachable under R. `StrLookup.noneLookup().lookup(k)`
+// names StringLookup#lookup (twenty-odd implementations) on a StrLookup (two): refusing the fan for
+// the base's width left the declaration as the site's one candidate, and a reverse walk from ANY
+// StringLookup implementation then found that site through the declaration. The width is now
+// counted under R (an override declared in R or a subtype of R), from raw hierarchy, so it stays
+// LOW like the base count and its negation still stratifies; the base count is unchanged for a
+// receiver whose type is the base's own owner.
+.decl cha_override_under(base:symbol, rt:symbol, ov:symbol)
+cha_override_under(base, rt, ov) :- cha_override_low(base, ov),
+    java_method(_, _, _, _, _, _, _, rt, _, _, _, _, _, _, _, _, _, _, _, _, _, ov).
+cha_override_under(base, rt, ov) :- cha_override_low(base, ov),
+    java_method(_, _, _, _, _, _, _, o, _, _, _, _, _, _, _, _, _, _, _, _, _, ov),
+    type_ancestor(o, rt).
+.decl cha_under_count(base:symbol, rt:symbol, n:number)
+cha_under_count(base, rt, n) :- cha_override_under(base, rt, _),
+    n = count : { cha_override_under(base, rt, _) }.
+.decl cha_wide_for(base:symbol, rt:symbol)
+cha_wide_for(base, rt) :- dispatch_cap(k), cha_wide_base(base), cha_under_count(base, rt, n), n > to_number(k).
+// a receiver type no counted override sits under is narrow; one that is the base's owner (or above
+// it) sees the whole fan, so it is wide exactly when the base is
+cha_wide_for(base, rt) :- cha_wide_base(base),
+    java_method(_, _, _, _, _, _, _, bt, _, _, _, _, _, _, _, _, _, _, _, _, _, base), rt = bt.
+cha_wide_for(base, rt) :- cha_wide_base(base),
+    java_method(_, _, _, _, _, _, _, bt, _, _, _, _, _, _, _, _, _, _, _, _, _, base), type_ancestor(bt, rt).
+cha_wide_for(base, rt) :- cha_wide_base(base),
+    lib_method(_, _, _, _, _, _, _, bt, _, _, _, _, _, _, _, _, _, _, _, _, _, base), rt = bt.

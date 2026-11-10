@@ -15,6 +15,7 @@ known_edge	method	probe.QualifiedThis$anon:Runnable#run() -> probe.QualifiedThis
 known_edge	method	probe.QualifiedThis.Inner#viaPlainThis() -> probe.QualifiedThis.Inner#tag()
 known_edge	method	probe.QualifiedThis.Inner#viaQualifiedThis() -> probe.QualifiedThis#tag()
 known_edge	method	probe.QualifiedThis.Inner#viaQualifiedThisNoClash() -> probe.QualifiedThis#only()
+known_edge	method	probe.QualifiedThis.Inner#viaUnqualified() -> probe.QualifiedThis.Inner#tag()
 known_edge	method	probe.QualifiedThis.Inner.Deeper#oneLevelOut() -> probe.QualifiedThis.Inner#tag()
 known_edge	method	probe.QualifiedThis.Inner.Deeper#ownTag() -> probe.QualifiedThis.Inner.Deeper#tag()
 known_edge	method	probe.QualifiedThis.Inner.Deeper#twoLevelsOut() -> probe.QualifiedThis#tag()
@@ -22,5 +23,3 @@ known_edge	new	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis#<init>(
 known_edge	new	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis.Inner#<init>()
 known_edge	new	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis.Inner.Deeper#<init>()
 multi_inferred	method	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis$anon:Runnable#run()
-multi_inferred	method	probe.QualifiedThis.Inner#viaUnqualified() -> probe.QualifiedThis#tag()
-multi_inferred	method	probe.QualifiedThis.Inner#viaUnqualified() -> probe.QualifiedThis.Inner#tag()
