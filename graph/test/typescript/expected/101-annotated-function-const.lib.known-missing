@@ -1,0 +1,13 @@
+# Accepted gaps for 101-annotated-function-const: each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# A const that HOLDS a function literal and is annotated with a callable type: the compiler names
+# the annotation's signature, the engine names the literal's body, the same accepted shape as
+# 92-namespace-typed-const and 98-namespace-const-callable (#2005). Kept on purpose: the signature
+# must not be added beside the body as a second target.
+x#aliasLocal(string) -> formats#<arrow@4>(string)
+x#aliasNamed(string) -> formats#<arrow@4>(string)
+x#aliasNamespace(string) -> formats#<arrow@4>(string)
+x#viaLocal(string) -> Format#<arrow@3>(string)
+x#viaNamed(string) -> Format#<arrow@3>(string)
+x#viaNamespace(string) -> Format#<arrow@3>(string)

@@ -1,0 +1,7 @@
+101-annotated-function-const [types]
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    1.0000   (6 of 6 the compiler resolved)
+  sites 9   resolved 9 (100.0%)
+  tiers known_edge=9
+  contexts METHOD_PARAM=1  METHOD_RETURN=1  SUPER_TYPE=2  VARIABLE_TYPE=5
+  not scored: 0 rows whose target is not a client declaration
