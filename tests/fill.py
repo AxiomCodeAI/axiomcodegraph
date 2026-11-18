@@ -82,6 +82,11 @@ def main():
     names = ax_fill.imported_names(['from html import escape', 'import os.path as osp', "import { z } from 'zod'",
                                     "import { local } from './mine'"])
     check({'escape', 'osp', 'z'} <= names and 'local' not in names, f'library: imported names, a relative import excluded (got {sorted(names)})')
+    multi = ax_fill.imported_names(['import {', '  describe,', '  expectTypeOf,', '} from "vitest";', "import { b } from '@acme/core'",
+                                    'import os'], {'@acme/core'})
+    check(multi == {'describe', 'expectTypeOf', 'os'}, f'library: a multi-line import is read; a workspace package is the project (got {sorted(multi)})')
+    rel = ax_fill.relative_names(["import { assert } from '../utils'", "import { z } from 'zod'"])
+    check(rel == {'assert'}, f'library: a relative import of a global-named function is the project\'s (got {sorted(rel)})')
 
     repo = tempfile.mkdtemp(prefix='ax-fill-')
     try:

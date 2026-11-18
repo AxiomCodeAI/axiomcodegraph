@@ -85,24 +85,67 @@ def graph_counts(con):
 
 
 def _project_names(con):
-    """(every callable name the project declares, the names of its METHODS): a call on a receiver reaches a method,
-    never a free or nested function"""
+    """(the names a bare call may reach: functions, classes, consts, variables; the names a call on a receiver may
+    reach: methods, constructors, fields). A bare `fetch()` never reaches a method called fetch, `x.add()` never a
+    nested function called add"""
     try:
         rows = con.execute("SELECT DISTINCT name, kind FROM symbols WHERE method_id IS NOT NULL AND kind <> 'module'").fetchall()
     except sqlite3.Error: return set(), set()
-    return {n for n, _k in rows}, {n for n, k in rows if k in ('method', 'constructor', 'field')}
+    return {n for n, k in rows if k not in ('method', 'constructor')}, {n for n, k in rows if k in ('method', 'constructor', 'field')}
 
 
 # a call written as a bare name or a computed callee: when the name declares nothing, it is a parameter, a local or a
 # computed value, so the target may be anywhere
-BARE_VALUE_KINDS = {'SIMPLE_CALL', 'DYNAMIC_CALL', 'COMPUTED_CALL', 'FUNCTION_CALL_APPLY', 'FUNCTION_CALL_CALL',
+# (Python SIMPLE_CALL, TypeScript / JavaScript FUNCTION_CALL and JSX_COMPONENT_CALL, C# INVOCATION and DELEGATE_INVOKE)
+BARE_VALUE_KINDS = {'SIMPLE_CALL', 'FUNCTION_CALL', 'LOCAL_FUNCTION_CALL', 'JSX_COMPONENT_CALL', 'INVOCATION',
+                    'DELEGATE_INVOKE', 'DYNAMIC_CALL', 'COMPUTED_CALL', 'FUNCTION_CALL_APPLY', 'FUNCTION_CALL_CALL',
                     'FUNCTION_CALL_BIND', 'IIFE_CALL', 'DYNAMIC_CODE_CALL'}
+# names a JavaScript runtime or test runner provides without an import: a bare call of one is the platform's
+JS_GLOBALS = {'fetch', 'setTimeout', 'setInterval', 'setImmediate', 'clearTimeout', 'clearInterval', 'queueMicrotask',
+              'structuredClone', 'require', 'atob', 'btoa', 'describe', 'it', 'test', 'expect', 'beforeEach', 'afterEach',
+              'beforeAll', 'afterAll', 'suite', 'bench', 'expectTypeOf', 'assertType', 'assert', 'vi', 'jest', 'parseInt', 'parseFloat', 'isNaN', 'encodeURIComponent',
+              'decodeURIComponent', 'encodeURI', 'decodeURI', 'Symbol', 'BigInt', 'String', 'Number', 'Boolean', 'Array',
+              'Object', 'Date', 'Error', 'Promise', 'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect'}
 
 
-_JS_IMPORT = re.compile(r'^\s*import\s+(?:type\s+)?([^;]*?)\s+from\s+[\'"]([^\'"]+)[\'"]')
+def workspace_packages(repo):
+    """the package names the repository itself declares (a monorepo's workspaces): an import from one is project code"""
+    names = set()
+    if not repo: return names
+    for dirpath, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', '.axiomcode', 'dist', 'build') and not d.startswith('.')]
+        if 'package.json' in files:
+            try:
+                with open(os.path.join(dirpath, 'package.json'), encoding='utf-8') as fh: n = json.load(fh).get('name')
+                if isinstance(n, str) and n: names.add(n)
+            except (OSError, ValueError): pass
+    return names
 
 
-def imported_names(lines):
+# an import clause: braces, names, commas, `* as x`, `type` — never a quote, a semicolon or a paren, so a Python file's
+# `import os` lines cannot drag the match across the file (bounded, no backtracking past the clause)
+_JS_IMPORT_ALL = re.compile(r'(?m)^[ \t]*import[ \t]+((?:type[ \t]+)?[\w$*{},\s]{1,2000}?)[ \t]*\bfrom[ \t]+[\'"]([^\'"\n]+)[\'"]')
+
+
+def _package(spec):
+    """the package a bare import specifier names: `@scope/pkg/sub` -> `@scope/pkg`, `pkg/sub` -> `pkg`"""
+    parts = spec.split('/')
+    return '/'.join(parts[:2]) if spec.startswith('@') else parts[0]
+
+
+def relative_names(lines, own=frozenset()):
+    """the names a JS/TS file imports from the project itself: a relative path or one of its own workspace packages"""
+    out = set(); text = '\n'.join(lines or [])
+    for m in (_JS_IMPORT_ALL.finditer(text) if ("from '" in text or 'from "' in text) else ()):
+        if not (m.group(2).startswith('.') or _package(m.group(2)) in own): continue
+        for part in re.sub(r'[{}]', ',', m.group(1)).split(','):
+            part = re.sub(r'\s+', ' ', part).strip()
+            part = part[5:] if part.startswith('type ') else part
+            if part and part != '*': out.add(part.split(' as ')[-1].strip())
+    return out
+
+
+def imported_names(lines, own=frozenset()):
     """the names a file binds by importing them from a PACKAGE: Python `from x import a, b as c` / `import a`, and a JS/TS
     import from a bare specifier (a relative one is the project's own, which declares the name anyway)"""
     out = set()
@@ -114,16 +157,19 @@ def imported_names(lines):
                 part = part.strip().strip('()')
                 if part and part != '*': out.add(part.split(' as ')[-1].strip())
             continue
-        if st.startswith('import ') and not any(q in st for q in ('"', "'")):                             # Python import
+        if re.fullmatch(r'import\s+[\w.]+(\s+as\s+\w+)?(\s*,\s*[\w.]+(\s+as\s+\w+)?)*', st):               # Python import
             for part in st[len('import '):].split(','):
                 part = part.strip()
                 if part: out.add(part.split(' as ')[-1].strip().split('.')[0])
             continue
-        m = _JS_IMPORT.match(t)
-        if m and not m.group(2).startswith('.'):
-            for part in re.split(r'[{},]', m.group(1)):
-                part = part.strip()
-                if part and part != '*': out.add(part.split(' as ')[-1].strip())
+    # JS / TS, over the whole text: an import's braces often span lines
+    text = '\n'.join(lines or [])
+    for m in (_JS_IMPORT_ALL.finditer(text) if ("from '" in text or 'from "' in text) else ()):
+        if m.group(2).startswith('.') or _package(m.group(2)) in own: continue
+        for part in re.sub(r'[{}]', ',', m.group(1)).split(','):
+            part = re.sub(r'\s+', ' ', part).strip()
+            part = part[5:] if part.startswith('type ') else part
+            if part and part != '*': out.add(part.split(' as ')[-1].strip())
     return out
 
 
@@ -135,13 +181,20 @@ def fillable(names, reader=None, site_file=lambda f: f):
     reading the project: --library stages the library so the engine resolves it."""
     every, members = names
     seen = {}
+    own = workspace_packages(getattr(reader, 'repo', None))
     def imported(f):
-        if f not in seen: seen[f] = imported_names(reader.lines(site_file(f)) if reader else None)
+        if f not in seen:
+            L = reader.lines(site_file(f)) if reader else None
+            # a runtime global, unless this file imports the project's own declaration of that name
+            seen[f] = imported_names(L, own) | (JS_GLOBALS - relative_names(L, own))
         return seen[f]
     def keep(row, reason):
         _sid, _c, kind, callee, _f, _l = row
         nm = (callee or '').split('.')[-1]
         on_receiver = kind in ax_links.MEMBER_KINDS or reason.startswith('untyped_receiver') or '.' in (callee or '')
+        # a bare call of a name the runtime provides, or the file imports from a package, is the platform's or the
+        # package's, whatever the project also declares under that name elsewhere
+        if not on_receiver and nm in imported(_f): return False
         if nm in (members if on_receiver else every): return True
         # no project declaration carries the name: only a call THROUGH A VALUE may still land in the project. A member
         # called on a receiver the engine could not type (`s[:1].isupper()` is a SUBSCRIPT_CALL, `p.exists()` can be an
@@ -151,7 +204,7 @@ def fillable(names, reader=None, site_file=lambda f: f):
         if reason in ax_links.VALUE_REASONS or reason == 'escape_hatch': return True
         # a bare name the project does not declare: a parameter or a local holding a function — unless the file imports
         # it, which makes it a library's function (`from html import escape`)
-        return kind in BARE_VALUE_KINDS and '.' not in (callee or '') and nm not in imported(_f)
+        return kind in BARE_VALUE_KINDS and '.' not in (callee or '')
     return keep
 
 
