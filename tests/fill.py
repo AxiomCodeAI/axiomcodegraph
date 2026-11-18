@@ -70,6 +70,19 @@ def main():
         if not ok: bad.append(what)
         if VERBOSE: print(('ok   ' if ok else 'FAIL ') + what)
 
+    # no graph: what counts as a library's call, both directions
+    sys.path.insert(0, SCRIPTS)
+    import ax_links, ax_fill
+    rp = ax_links.runs_a_process
+    check(not rp('m.invoke', 'external:java.lang.reflect.Method.invoke') and not rp('fn.apply', 'builtin:Function.apply')
+          and not rp('t.run', 'external:Thread.run'), 'library: a call that runs a value it is handed stays a site (control)')
+    check(rp('run', 'external:subprocess.run') and rp('run', 'external:_sp.run', ['    import platform as _p, subprocess as _sp'])
+          and rp('cp.exec', 'external:cp.exec', ["import * as cp from 'child_process'"]),
+          'library: a process launcher is not one, through an alias too')
+    names = ax_fill.imported_names(['from html import escape', 'import os.path as osp', "import { z } from 'zod'",
+                                    "import { local } from './mine'"])
+    check({'escape', 'osp', 'z'} <= names and 'local' not in names, f'library: imported names, a relative import excluded (got {sorted(names)})')
+
     repo = tempfile.mkdtemp(prefix='ax-fill-')
     try:
         os.makedirs(os.path.join(repo, 'app'))

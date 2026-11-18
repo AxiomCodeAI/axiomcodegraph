@@ -45,6 +45,35 @@ VALUE_REASONS = ('callee_is_parameter', 'dynamic_call', 'escape_hatch', 'unbound
 # the methods every language invokes a held callable or a reflected member through
 REFLECTIVE = {'invoke', 'Invoke', 'DynamicInvoke', 'InvokeMember', 'apply', 'call', 'accept', 'test', 'run',
               'applyAsInt', 'applyAsLong', 'applyAsDouble', 'handle', 'execute', 'Execute', '__call__', 'emit', 'dispatch'}
+# a library function named like a reflective one that runs a PROCESS or an event loop, not a value it is handed:
+# `subprocess.run(cmd)`, `asyncio.run(main())`, `child_process.exec(..)`. Matched on the module the call is written on,
+# after an import alias (`import subprocess as sp`) is read back to its module
+PROCESS_MODULES = {'subprocess', 'asyncio', 'os', 'shutil', 'child_process', 'execa', 'uvicorn', 'trio', 'anyio'}
+_JS_NS = re.compile(r'^\s*import\s+\*\s+as\s+(\w+)\s+from\s+[\'"]([^\'"]+)[\'"]')
+
+
+def _aliases(lines):
+    """{alias: module} from `import a as b, c as d` (Python) and `import * as b from 'a'` (JS/TS)"""
+    out = {}
+    for t in lines or []:
+        st = t.strip()
+        if st.startswith('import ') and ' as ' in st and ' from ' not in st:
+            for part in st[len('import '):].split('#')[0].split(','):
+                m = re.fullmatch(r'\s*([\w.]+)\s+as\s+(\w+)\s*', part)
+                if m: out[m.group(2)] = m.group(1).split('.')[0]
+            continue
+        m = _JS_NS.match(t)
+        if m: out[m.group(1)] = m.group(2).split('/')[-1]
+    return out
+
+
+def runs_a_process(callee, label, lines=None):
+    """True when a reflective-looking library call (`run`, `call`, `exec`) is a process or event-loop launcher"""
+    owner = (label or '').split(':')[-1].rsplit('.', 1)[0] or (callee or '').rsplit('.', 1)[0]
+    root = owner.split('.')[0]
+    return root in PROCESS_MODULES or _aliases(lines).get(root) in PROCESS_MODULES
+
+
 RANK = {'applied': 0, 'moved': 1, 'redundant': 2, 'changed': 3, 'stale': 3, 'rejected': 4, 'malformed': 5}
 # the library methods that run a callable or a member someone else chose: a site resolved to one of them is as unknown as an
 # unresolved one, and is listed with them (unknown_sites)
@@ -1006,6 +1035,17 @@ def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5)
     return out
 
 
+_LINES = {}
+def _lines_of(repo, rel):
+    """a file's lines for the alias check, read once per file per process"""
+    k = (repo, rel)
+    if k not in _LINES:
+        try:
+            with open(os.path.join(repo, rel), encoding='utf-8', errors='replace') as fh: _LINES[k] = fh.read().split('\n')
+        except OSError: _LINES[k] = []
+    return _LINES[k]
+
+
 def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None, keep=None, with_candidates=True):
     """the unresolved call sites inside these callables: where the answer stops being complete. Each with the call as
     written, the engine's own reason, and the targets it was linked to (if any). `keep(row, reason)` narrows the rows
@@ -1023,7 +1063,9 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None, keep=N
         # resolved it (to the library method), so it is no unresolved site, and what it runs is as unknown as one's
         for sid, c, k, n, f, l, lib in q(f"SELECT s.id, s.caller_id, s.kind, s.callee_name, s.file_path, s.start_line, e.callee_label FROM call_edges e "
                                           f"JOIN call_sites s ON s.id = e.call_site_id WHERE e.tier = 'boundary_lib' AND e.caller_id IN ({ph})", *ch):
-            if (n or '').split('.')[-1] in REFLECTIVE_LIB: rows.append((sid, c, k, n, f, l)); libcall[sid] = lib
+            if (n or '').split('.')[-1] in REFLECTIVE_LIB:
+                if runs_a_process(n, lib, _lines_of(repo, site_file(f)) if repo and f else None): continue
+                rows.append((sid, c, k, n, f, l)); libcall[sid] = lib
         # …and a typed front end's call through a holder of a FUNCTION TYPE: resolved to a signature with no body, so the
         # function the holder is given is what runs (axiomcode-path's value calls, FUNCTION_TYPE_KINDS there)
         for sid, c, k, n, f, l, qn in q(f"SELECT s.id, s.caller_id, s.kind, s.callee_name, s.file_path, s.start_line, m.qualified_name FROM call_edges e "

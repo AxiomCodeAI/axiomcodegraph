@@ -99,8 +99,6 @@ BARE_VALUE_KINDS = {'SIMPLE_CALL', 'DYNAMIC_CALL', 'COMPUTED_CALL', 'FUNCTION_CA
                     'FUNCTION_CALL_BIND', 'IIFE_CALL', 'DYNAMIC_CODE_CALL'}
 
 
-PROCESS_RUNNERS = re.compile(r'\b(subprocess|_?sp|asyncio|os|shutil|child_process|execa|ProcessBuilder|Process)\b[.:]|\bexec(Sync|File)?\b')
-_PY_IMPORT = re.compile(r'^\s*(?:from\s+[\w.]+\s+)?import\s+\(?([^#]+?)\)?\s*(?:#.*)?$')
 _JS_IMPORT = re.compile(r'^\s*import\s+(?:type\s+)?([^;]*?)\s+from\s+[\'"]([^\'"]+)[\'"]')
 
 
@@ -109,10 +107,16 @@ def imported_names(lines):
     import from a bare specifier (a relative one is the project's own, which declares the name anyway)"""
     out = set()
     for t in lines or []:
-        m = _PY_IMPORT.match(t)
-        if m and (t.lstrip().startswith(('from ', 'import '))):
-            for part in m.group(1).split(','):
+        st = t.split('#')[0].strip()
+        if st.startswith('from ') and ' import ' in st and not st.rstrip(';').endswith(("'", '"')):     # Python from-import
+            if st.split()[1].startswith('.'): continue                                                  # the project's own
+            for part in st.split(' import ', 1)[1].strip('() ').split(','):
                 part = part.strip().strip('()')
+                if part and part != '*': out.add(part.split(' as ')[-1].strip())
+            continue
+        if st.startswith('import ') and not any(q in st for q in ('"', "'")):                             # Python import
+            for part in st[len('import '):].split(','):
+                part = part.strip()
                 if part: out.add(part.split(' as ')[-1].strip().split('.')[0])
             continue
         m = _JS_IMPORT.match(t)
@@ -143,9 +147,7 @@ def fillable(names, reader=None, site_file=lambda f: f):
         # called on a receiver the engine could not type (`s[:1].isupper()` is a SUBSCRIPT_CALL, `p.exists()` can be an
         # UNKNOWN_CALLEE_CALL), or a library's decorator, is the library's
         if reason.startswith('untyped_receiver'): return False
-        if reason.startswith('runs a value through '):
-            # a library that runs a value it is handed (Method.invoke, Function.apply) — not one that runs a PROCESS
-            return not PROCESS_RUNNERS.search(reason)
+        if reason.startswith('runs a value through '): return True     # process launchers are already left out (ax_links)
         if reason in ax_links.VALUE_REASONS or reason == 'escape_hatch': return True
         # a bare name the project does not declare: a parameter or a local holding a function — unless the file imports
         # it, which makes it a library's function (`from html import escape`)
