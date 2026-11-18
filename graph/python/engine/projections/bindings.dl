@@ -50,9 +50,20 @@ binding_is_namespace("lib", h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _
 // bindingCount is the number of DISTINCT binding sites for this name in this scope.
 // == 1 is the precondition for treating a name as single-valued (the alias case
 // `_Aliased = Base`); > 1 means the name is rebound and a single-value inference is
-// unsound. Consumed by resolution/name-resolution.dl.
-binding_rebinding("client", n, first, last, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
-binding_rebinding("lib", n, first, last, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
+// unsound.
+// This is the RAW per-row count. It cannot see a write made from a NESTED scope through
+// `nonlocal`: that write is a separate NONLOCAL row with its own count, so the enclosing
+// cell's row still says 1. resolution/name-resolution.dl derives binding_rebinding from
+// this and adds those writes; every single-write guard reads binding_rebinding. Only the
+// LEGB walk reads the raw count, because it is what binding_rebinding is derived from.
+binding_rebinding_raw("client", n, first, last, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
+binding_rebinding_raw("lib", n, first, last, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── binding_is_assigned(Prov, BindingHash) ───────────────────────────────────
+// Symbol.is_assigned(): the name is a store target in this scope. Separates a
+// `nonlocal fn` that rebinds the enclosing cell from one that only reads it.
+binding_is_assigned("client", h) :- py_binding(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+binding_is_assigned("lib", h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── binding_annotation(Prov, DeclaredTypeName, DeclaredBaseType, PotentialQName, BindingHash) ──
 // "" on 68.2% of parameters, which is exactly why declared-type receiver typing —
