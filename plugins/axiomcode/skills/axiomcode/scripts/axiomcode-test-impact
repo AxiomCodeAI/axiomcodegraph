@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh]
+"""axiomcode test-impact [<repo>] [[--files] <file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh]
 
 --no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
 graph as it is and never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph
@@ -1873,7 +1873,9 @@ def main(argv):
     limit = 40
     if '--limit' in argv:
         i = argv.index('--limit'); limit = int(argv[i + 1])
-    passthru = [a for a in argv if a not in ('--json', '--why')]
+    # --files is a spelling of the named-file list, not a file: `test-impact --files a b` passed it on to `changed`,
+    # which read it as one more named file (#1832)
+    passthru = [a for a in argv if a not in ('--json', '--why', '--files')]
     if '--limit' in passthru:
         i = passthru.index('--limit'); del passthru[i:i + 2]
     if '-h' in argv or '--help' in argv:

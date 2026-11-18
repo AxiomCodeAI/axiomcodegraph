@@ -446,5 +446,20 @@ check("next: several commands are counted",
       ax_pages.next_test_impact("\n  (cd p && npx tsx a.ts)\n  (cd p && npx tsx b.ts)\n").startswith('next: run the 2 commands above'),
       True)
 
+# #1832: `test-impact --files a b` names a and b; `--files` is not a file, and never reaches `changed` as one
+seen = []
+_run = ti.run
+ti.run = lambda *a: (seen.append(a[1]), (0, json.dumps({'refused': 'stop'}), ''))[1]
+try:
+    with open(os.devnull, 'w') as null:
+        _out, sys.stdout = sys.stdout, null
+        try: ti.main(['--files', 'a.py', 'b.py'])
+        finally: sys.stdout = _out
+finally:
+    ti.run = _run
+check("--files: the named files reach changed, the flag does not",
+      [x for x in (seen[0] if seen else []) if x not in ('--whole', '--json', '--suggest')], ['a.py', 'b.py'])
+check("--files: the named files count whole", '--whole' in (seen[0] if seen else []), True)
+
 print('\n' + ('all passed' if not fails else f"{fails} FAILED"))
 sys.exit(1 if fails else 0)
