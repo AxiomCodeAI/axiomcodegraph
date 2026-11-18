@@ -614,3 +614,7 @@ if [ ${#READY[@]} -gt 0 ]; then
 else
   echo "graph at $OUT/graph.sqlite"
 fi
+# WHAT THE ENGINE LEFT: one line over every graph — resolved into the project, into a library, asserted by a link, and the
+# unresolved sites that may land in the project, which an agent settles by reading them (/axiomcode:fill, ax_fill.py).
+# Counting only, no candidates; a failure here never fails the build.
+python3 "$H/ax_fill.py" "$REPO" --summary 2>/dev/null || true
