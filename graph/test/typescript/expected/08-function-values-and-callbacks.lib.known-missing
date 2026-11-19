@@ -1,0 +1,7 @@
+# Accepted client->library gaps for 08-function-values-and-callbacks:
+# each line is an edge the TypeScript compiler resolves and this engine does not. A NEW missing
+# edge fails the suite; a line here that STARTS working also fails, so the debt cannot rot.
+# A const that HOLDS a function literal and is annotated with a callable type: the compiler names
+# the annotation's signature, the engine names the literal's body, the accepted shape of
+# 92-namespace-typed-const and 101-annotated-function-const (#2005).
+values#useLibrary() -> hooks#<arrow@1>(string)

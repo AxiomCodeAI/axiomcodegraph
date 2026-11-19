@@ -152,12 +152,35 @@ call_kind_is_plain_call("DECORATOR_CALL").
 // value's type carries a call signature, which IS the target. Java's nearest
 // analogue is a functional interface, and there the single abstract method has to be
 // found by counting; here the call signature is a member with its own row.
+//
+// Not where the callee already holds a function LITERAL — `const f: Format = (i) => i;
+// f(s)`. The literal's body is the target (rule (2), rule (8), expr_callable), and the
+// annotation's bodiless signature beside it turned a right answer into a two-way hedge
+// (#2005). The same guard the namespace var_shape clause in expr-type.dl carries. Where
+// the value is a factory's result, or the callee is a parameter, there is no literal and
+// the signature stays the answer.
 expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_type(ne, _, t),
+    !callee_holds_function(ne),
     call_signature_in_scope(t, m).
 expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_shape(ne, s),
+    !callee_holds_function(ne),
     call_signature_in_scope(s, m).
+
+// A local, a named import, or a namespace member read whose value is a function literal.
+// Built only from relations below the expression fixpoint (expr_callable is negated by
+// callee_expr_bound already; expr_namespace and var_is_function feed expr_callable), so
+// the negation above stays stratifiable.
+callee_holds_function(e) :- expr_referenced("client", "VARIABLE", v, e),
+    var_is_function(v, _).
+callee_holds_function(e) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "VARIABLE", v),
+    var_is_function(v, _).
+callee_holds_function(e) :- property_access_recv(e, n, q),
+    expr_namespace(q, _, mod),
+    module_export(_, mod, n, "VARIABLE", v),
+    var_is_function(v, _).
 
 // ============================================================================
 // METHOD CALLS — `recv.name(...)`

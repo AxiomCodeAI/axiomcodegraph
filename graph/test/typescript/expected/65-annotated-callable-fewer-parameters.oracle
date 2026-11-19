@@ -1,3 +1,5 @@
-oracle=6 engine=8 agree=6 missing=0 (known 0, NEW 0) extra=2
+oracle=6 engine=6 agree=4 missing=2 (known 2, NEW 0) extra=2
+  known    fewer#callDeclaresFewer() -> TwoArgs#<arrow@36>(number,number)
+  known    fewer#callDeclaresSame() -> TwoArgs#<arrow@36>(number,number)
   extra    fewer#callDeclaresFewer() -> fewer#declaresFewer(number)
   extra    fewer#callDeclaresSame() -> fewer#declaresSame(number,number)

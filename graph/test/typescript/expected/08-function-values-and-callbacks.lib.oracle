@@ -1,3 +1,4 @@
-oracle=8 engine=10 agree=8 missing=0 (known 0, NEW 0) extra=2
+oracle=8 engine=9 agree=7 missing=1 (known 1, NEW 0) extra=2
+  known    values#useLibrary() -> hooks#<arrow@1>(string)
   extra    values#drive() -> Pipeline#tag(string)
   extra    values#useLibrary() -> hooks#identity(?)

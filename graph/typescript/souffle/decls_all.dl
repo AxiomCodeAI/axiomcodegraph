@@ -83,6 +83,7 @@
 .decl call_target_is_signature(c0:symbol)
 .decl call_type_only_target(c0:symbol,c1:symbol)
 .decl callee_expr_bound(c0:symbol)
+.decl callee_holds_function(c0:symbol)
 .decl callee_names_local(c0:symbol)
 .decl category_is_class(c0:symbol)
 .decl category_is_instantiable(c0:symbol)
