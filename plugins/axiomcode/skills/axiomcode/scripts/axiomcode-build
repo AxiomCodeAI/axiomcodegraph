@@ -603,6 +603,11 @@ warm_wait(){ [ -n "${WARM_PID:-}" ] || return 0
   kill -0 "$WARM_PID" 2>/dev/null && echo "graph ready; precomputing impact facts in the background"
   return 0; }
 warm_wait
+# WHAT THE ENGINE LEFT: one line over every graph — resolved into the project, into a library, asserted by a link, and the
+# unresolved sites that may land in the project, which an agent settles by reading them (/axiomcode:fill, ax_fill.py).
+# Counting only, no candidates; a failure here never fails the build. It comes before the warnings and the graph line, so
+# the build still ends with `graph at <path>`, which callers read as its last line.
+python3 "$H/ax_fill.py" "$REPO" --summary 2>/dev/null || true
 if [ ${#FAILED[@]} -gt 0 ]; then
   for l in "${FAILED[@]}"; do
     if [ -f "$LANGDIR/$l/out/graph.sqlite" ]; then echo "⚠️  the $l graph did not build: $l questions are answered from its PREVIOUS graph, which predates this tree; see $REPO/.axiomcode/build.log"
@@ -614,7 +619,3 @@ if [ ${#READY[@]} -gt 0 ]; then
 else
   echo "graph at $OUT/graph.sqlite"
 fi
-# WHAT THE ENGINE LEFT: one line over every graph — resolved into the project, into a library, asserted by a link, and the
-# unresolved sites that may land in the project, which an agent settles by reading them (/axiomcode:fill, ax_fill.py).
-# Counting only, no candidates; a failure here never fails the build.
-python3 "$H/ax_fill.py" "$REPO" --summary 2>/dev/null || true

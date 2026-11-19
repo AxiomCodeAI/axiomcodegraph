@@ -4,7 +4,8 @@
 One throwaway Python repository with four unresolved sites: `cb(i)`, a callback read out of a dict, which may land in
 the project, and three a library's methods on untyped values (`opts.get(..)` twice, `text.strip()`).
 
-  build      the index ends with the summary line: 1 site may land in the project, 3 are a library's
+  build      the index prints the summary line: 1 site may land in the project, 3 are a library's; it still ends
+             with `graph at <path>`, the line callers read last
   worklist   `unresolved` lists the callback site only, with the function handed in as its candidate; --all lists all
              four (the control: the three are filtered, not missing); the counts are the same either way
   batch      `link --batch -` links the callback to `progress` and refuses a target that is not a declaration (exit 1,
@@ -97,9 +98,12 @@ def main():
         sh(repo, 'git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init')
         b = sh(repo, AX, 'index', repo)
         check(b.returncode == 0 and os.path.isfile(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')), 'build: the graph is built')
-        last = [l for l in b.stdout.split('\n') if l.strip()][-1:] or ['']
-        check(last[0].startswith('graph: ') and '1 may land in the project' in last[0] and "3 a library's method" in last[0],
-              f'build: the index ends with the summary line (got {last[0][:160]!r})')
+        lines = [l for l in b.stdout.split('\n') if l.strip()]
+        line = next((l for l in lines if l.startswith('graph: ')), '')
+        check('1 may land in the project' in line and "3 a library's method" in line,
+              f'build: the index prints the summary line (got {line[:160]!r})')
+        check(bool(lines) and lines[-1].startswith('graph at '),
+              f'build: the index still ends with the graph line (got {(lines or [""])[-1][:160]!r})')
 
         s = summary(repo)
         check((s['unresolved'], s['library'], s['open']) == (4, 3, 1), f"worklist: 4 unresolved, 3 library, 1 open (got {s})")
