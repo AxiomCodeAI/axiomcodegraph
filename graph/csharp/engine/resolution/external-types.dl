@@ -435,20 +435,52 @@ external_target(prov, e, label) :-
 // constructor clause above needs the type to be UNSTAGED, so once a library
 // declares the type the site had neither a constructor to resolve nor a name to
 // carry. Refusing the implicit-constructor claim alone leaves it a blind spot.
+//
+// NOT FOR `new T()` ON A STAGED TYPE THAT CARRIES NO CONSTRUCTOR AT ALL. That site
+// runs T's parameterless constructor, which exists whether the library declares it
+// or the compiler supplies it, and T is staged: `external` would say the
+// dependency was not supplied, and it was (#1339). staged_parameterless_ctor names
+// it inside the library instead. What is left here is a site whose argument count
+// no carried constructor accepts although the IR carries some: a member the subset
+// IR was not told about, named like an uncarried method.
 external_target(prov, e, label) :-
     call_needs_ctor_lookup(prov, e),
     expr_new_type(prov, e, gk),
     type_group("lib", _, gk),
     call_argc(prov, e, ac),
     !call_ctor_target_accepts(prov, e, ac),
+    !staged_parameterless_ctor(prov, e, _),
     type_decl("lib", n, _, _, _, t), type_group("lib", t, gk),
     label = cat("external:", cat(n, ".<constructor>")).
 
 // Whether any constructor of the created type accepts this site's argument
 // count. Named rather than inlined because the rule above needs its NEGATION,
 // and a negated conjunction over three relations is where a cross-product hides.
+//
+// call_ctor_target already admits a constructor only where it accepts the site's
+// argument count, under the provenance the constructor is DECLARED in. Re-checking
+// it here under the SITE's provenance missed every staged constructor -- a client
+// `new` reaching a library constructor -- so a resolved site was also labelled an
+// unstaged one and had two rows (#1339).
 call_ctor_target_accepts(prov, e, ac) :-
-    call_ctor_target(prov, e, ctor), ctor_accepts_argc(prov, ctor, ac).
+    call_ctor_target(prov, e, _), call_argc(prov, e, ac).
+
+// staged_parameterless_ctor(Prov, Site, Node) -- `new T()` with no argument, on a
+// staged type whose IR carries no constructor. Not known_implicit_ctor: a library IR
+// is a signature subset, so it cannot show that T declares none. But `new T()`
+// compiles only if T has a parameterless constructor, declared or supplied, so the
+// target is known to exist and to be T's. The node is the `generated:` member id the
+// bundle gives a methods row (provenance generated, owner T), so the edge points at
+// T inside the library rather than at a label for an unsupplied dependency.
+staged_parameterless_ctor(prov, e, node) :-
+    call_needs_ctor_lookup(prov, e),
+    expr_new_type(prov, e, gk),
+    type_group("lib", _, gk),
+    !type_ctor("lib", gk, _),
+    !type_ctor(prov, gk, _),
+    call_argc(prov, e, "0"),
+    type_decl("lib", _, qn, _, _, t), type_group("lib", t, gk),
+    node = cat("generated:", cat(qn, "#<constructor>/0")).
 
 // ── A PROPERTY READ ON AN EXTERNAL RECEIVER ─────────────────────────────────
 // `someString.Length`, `dict.Count`, `ex.Message`. Reading a property IS a call, and

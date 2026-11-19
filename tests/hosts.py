@@ -127,14 +127,14 @@ with tempfile.TemporaryDirectory() as work:
         sys.exit(1)
     lib = os.path.join(repo, 'lib.py')
 
-    # UserPromptSubmit with a graph: changes.py and orient.py answer in Cursor's shape or not at all.
-    for hook in ('changes.py', 'orient.py'):
+    # UserPromptSubmit with a graph: changes.py, orient.py and fill.py answer in Cursor's shape or not at all.
+    for hook in ('changes.py', 'orient.py', 'fill.py'):
         rc2, out2 = fire(hook, cursor('beforeSubmitPrompt', None, {}, repo, 'p1', prompt='what calls greet'),
                          cursor=True)
         said = said_cursor(out2, 'beforeSubmitPrompt')
         check(f'{hook} on beforeSubmitPrompt: exit 0 and Cursor-shaped', rc2 == 0 and said is not None, out2[:160])
 
-    for hook in ('changes.py', 'orient.py'):
+    for hook in ('changes.py', 'orient.py', 'fill.py'):
         rc3, out3 = fire(hook, gemini('BeforeAgent', None, {}, repo, 'p3', prompt='what calls greet'))
         said = said_gemini(out3, 'BeforeAgent')
         check(f'{hook} on BeforeAgent: exit 0 and JSON only', rc3 == 0 and said is not None, out3[:160])

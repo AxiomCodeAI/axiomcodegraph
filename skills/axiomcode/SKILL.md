@@ -19,6 +19,7 @@ Search with grep as usual; the graph answers what grep cannot. Use the MCP tools
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
 | which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
 | an answer lists an unresolved call I can see the target of | `link(site, target)` | `axiomcode link <file:line> <target>` |
+| the graph says sites are left unresolved after a build | `unresolved()`, then `unresolved(decisions)` — or `/axiomcode:fill` | `axiomcode unresolved` |
 | how does this work, start to finish? | `context(task, source=True)` | `axiomcode context "<task>" --source` |
 
 Names are written as in the code: `Owner.method`, `function`, `Type`, or `file.py:123` for the declaration at that
@@ -79,6 +80,16 @@ engine resolved. The links are kept in `axiomcode-links.tsv` at the repository r
 one. A link is refused when the call written there names a different declaration, or the target is not one; when
 the line it was made on is edited, it is dropped and listed as stale, and the site is to resolve again. Never link a
 guess: an asserted edge is trusted by every answer after it.
+
+## unresolved
+
+After a build, a note says how many call sites the engine left unresolved that may land in the project's own code
+(a library's method on a receiver it could not type is counted, not listed: reading the project does not settle it).
+`/axiomcode:fill` works through them in a subagent; without it, `unresolved(limit=25)` lists the next open sites, the
+ones inside the most called callers first, each with its code, the engine's reason and the candidates, and
+`unresolved(decisions="...")` takes one decision per line and answers with the next page: `<site> <target>` when the code makes it certain, `<site> not:<target>`
+for a wrong candidate, `<site> ?` to leave it open (not asked again until its line changes). Settled sites drop off the
+list. The same rule as `link`: never link a guess.
 
 ## context
 

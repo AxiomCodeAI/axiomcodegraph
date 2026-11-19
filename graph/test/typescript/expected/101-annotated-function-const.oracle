@@ -1,0 +1,13 @@
+oracle=10 engine=10 agree=4 missing=6 (known 6, NEW 0) extra=6
+  known    x#aliasLocal(string) -> formats#<arrow@4>(string)
+  known    x#aliasNamed(string) -> formats#<arrow@4>(string)
+  known    x#aliasNamespace(string) -> formats#<arrow@4>(string)
+  known    x#viaLocal(string) -> Format#<arrow@3>(string)
+  known    x#viaNamed(string) -> Format#<arrow@3>(string)
+  known    x#viaNamespace(string) -> Format#<arrow@3>(string)
+  extra    x#aliasLocal(string) -> x#localAlias(?)
+  extra    x#aliasNamed(string) -> formats#fromAlias(?)
+  extra    x#aliasNamespace(string) -> formats#fromAlias(?)
+  extra    x#viaLocal(string) -> x#local(?)
+  extra    x#viaNamed(string) -> formats#fromArrow(?)
+  extra    x#viaNamespace(string) -> formats#fromArrow(?)

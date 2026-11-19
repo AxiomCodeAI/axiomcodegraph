@@ -111,6 +111,8 @@ site_leaves_client(prov, e) :- client_calls_lib(prov, e, _, _).
 // a real project that is most of the unresolved sites -- which makes the number that
 // matters unreadable.
 site_leaves_client(prov, e) :- external_target(prov, e, _).
+// And one into a staged type whose parameterless constructor its IR does not carry.
+site_leaves_client(prov, e) :- staged_parameterless_ctor(prov, e, _).
 // A call through a field or property holding a delegate lands on the delegate's
 // Invoke, which the runtime supplies (resolution/delegates.dl). The site gets an edge
 // to that member's Invoke node and the stored functions are in the envelope.
@@ -232,6 +234,14 @@ method_is_bodiless(prov, m) :-
 // use for unstaged imports. A chain then ends at a named boundary instead of stopping.
 call_chain_edge(e, caller, "-", label, "external", "boundary_lib", kind) :-
     client_calls_external(e, label),
+    call_from("client", e, caller),
+    invocation_site("client", e, kind).
+
+// client -> A STAGED TYPE'S PARAMETERLESS CONSTRUCTOR, NOT CARRIED BY ITS IR. The
+// target belongs to a staged type, so the provenance is `lib`; it is the `generated:`
+// node resolution/external-types.dl names, which the bundle gives a methods row.
+call_chain_edge(e, caller, "-", node, "lib", "boundary_lib", kind) :-
+    staged_parameterless_ctor("client", e, node),
     call_from("client", e, caller),
     invocation_site("client", e, kind).
 
@@ -400,6 +410,7 @@ call_has_edge(prov, e) :- client_calls_lib(prov, e, _, _).
 call_has_edge("client", e) :- client_calls_external(e, _).
 call_has_edge("client", e) :- delegate_member_call("client", e, _).
 call_has_edge("client", e) :- delegate_param_call(e, _).
+call_has_edge("client", e) :- staged_parameterless_ctor("client", e, _).
 
 call_chain_edge(e, caller, "-", "-", "-", cls, kind) :-
     invocation_site("client", e, kind),

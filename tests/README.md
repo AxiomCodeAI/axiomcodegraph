@@ -40,6 +40,10 @@ One check needs no graph and is its own script:
     python3 tests/graph_verb.py          `axiomcode graph` draws the existing graph and rebuilds a stale one with the flags it
                                          was indexed with; no rebuild path (refresh, repair, bare index) solves a language an
                                          explicit --lang left out (builds real graphs, needs the engine)
+    python3 tests/fill.py                `unresolved` lists only the sites that may land in the project (a library's method
+                                         on an untyped value is counted, not listed), `link --batch` takes links, rejected
+                                         leads and `?` skips in one apply, and the build's notice is said once per build
+                                         (builds a small Python graph, needs the engine)
     python3 tests/repo_arg.py            a repository argument that is not there (every verb, the MCP tools' repo=, --src)
                                          is an error naming it, with nothing built in the working directory; an absolute
                                          --src is used as given (indexes a small Python project, so it needs the engine)

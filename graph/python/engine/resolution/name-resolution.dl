@@ -438,7 +438,7 @@ binding_lookup(p, b, b2) :-
     binding_owner(p, mod, _, b),
     module_init(p, _, modScope, mod),
     binding_decl(p, n, modScope, _, _, b2), b2 != b,
-    binding_rebinding(p, cnt, _, _, b2), cnt != "0".
+    binding_rebinding_raw(p, cnt, _, _, b2), cnt != "0".
 // (c) FREE / NONLOCAL — nearest enclosing scope that binds the name. Candidate set
 //     first, then the max-depth filter in the next stratum.
 binding_free_candidate(p, b, b2, d) :-
@@ -446,7 +446,7 @@ binding_free_candidate(p, b, b2, d) :-
     binding_decl(p, n, s, _, _, b),
     scope_ancestor(p, s, anc),
     binding_decl(p, n, anc, _, _, b2),
-    binding_rebinding(p, cnt, _, _, b2), cnt != "0",
+    binding_rebinding_raw(p, cnt, _, _, b2), cnt != "0",
     scope_depth(p, dstr, _, anc),
     d = to_number(dstr).
 binding_free_nearest_depth(p, b, dmax) :-
@@ -455,6 +455,29 @@ binding_free_nearest_depth(p, b, dmax) :-
 binding_lookup(p, b, b2) :-
     binding_free_nearest_depth(p, b, dmax),
     binding_free_candidate(p, b, b2, dmax).
+
+// ── binding_nonlocal_write / binding_rebinding: writes from a nested scope ──
+// symtable counts a name's binding sites per scope, so a cell rebound from a nested
+// function through `nonlocal` has two rows, each with its own count: the cell's own
+// (1, `fn = first`) and the nested NONLOCAL row (`fn = second`). Read alone, the cell's
+// row says the name is written once, and every single-write guard then commits to the
+// first write. #381: `fn = first; def swap(): nonlocal fn; fn = second; swap(); fn()`
+// came out known_edge -> first, a function that cannot run there, and `second` was the
+// target of no edge.
+// A NONLOCAL row that is ASSIGNED is a write to the cell its LEGB walk lands on. One that
+// only reads (`nonlocal fn` and no store) is not, and leaves the count alone.
+binding_nonlocal_write(p, cell, nb) :-
+    binding_decl(p, _, _, "NONLOCAL", _, nb),
+    binding_is_assigned(p, nb),
+    binding_lookup(p, nb, cell), cell != nb.
+binding_rebinding(p, n, first, last, b) :-
+    binding_rebinding_raw(p, n, first, last, b),
+    !binding_nonlocal_write(p, b, _).
+binding_rebinding(p, total, first, last, b) :-
+    binding_rebinding_raw(p, n, first, last, b),
+    binding_nonlocal_write(p, b, _),
+    k = count : { binding_nonlocal_write(p, b, _) },
+    total = to_string(to_number(n) + k).
 
 // ── binding_lookup_unresolved(Prov, ReferenceBinding, Name, BindingKind) ─────
 // A reference-side binding whose LEGB walk found no declaration. THE HONEST FRONTIER:

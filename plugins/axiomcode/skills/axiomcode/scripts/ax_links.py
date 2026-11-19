@@ -45,6 +45,35 @@ VALUE_REASONS = ('callee_is_parameter', 'dynamic_call', 'escape_hatch', 'unbound
 # the methods every language invokes a held callable or a reflected member through
 REFLECTIVE = {'invoke', 'Invoke', 'DynamicInvoke', 'InvokeMember', 'apply', 'call', 'accept', 'test', 'run',
               'applyAsInt', 'applyAsLong', 'applyAsDouble', 'handle', 'execute', 'Execute', '__call__', 'emit', 'dispatch'}
+# a library function named like a reflective one that runs a PROCESS or an event loop, not a value it is handed:
+# `subprocess.run(cmd)`, `asyncio.run(main())`, `child_process.exec(..)`. Matched on the module the call is written on,
+# after an import alias (`import subprocess as sp`) is read back to its module
+PROCESS_MODULES = {'subprocess', 'asyncio', 'os', 'shutil', 'child_process', 'execa', 'uvicorn', 'trio', 'anyio'}
+_JS_NS = re.compile(r'^\s*import\s+\*\s+as\s+(\w+)\s+from\s+[\'"]([^\'"]+)[\'"]')
+
+
+def _aliases(lines):
+    """{alias: module} from `import a as b, c as d` (Python) and `import * as b from 'a'` (JS/TS)"""
+    out = {}
+    for t in lines or []:
+        st = t.strip()
+        if st.startswith('import ') and ' as ' in st and ' from ' not in st:
+            for part in st[len('import '):].split('#')[0].split(','):
+                m = re.fullmatch(r'\s*([\w.]+)\s+as\s+(\w+)\s*', part)
+                if m: out[m.group(2)] = m.group(1).split('.')[0]
+            continue
+        m = _JS_NS.match(t)
+        if m: out[m.group(1)] = m.group(2).split('/')[-1]
+    return out
+
+
+def runs_a_process(callee, label, lines=None):
+    """True when a reflective-looking library call (`run`, `call`, `exec`) is a process or event-loop launcher"""
+    owner = (label or '').split(':')[-1].rsplit('.', 1)[0] or (callee or '').rsplit('.', 1)[0]
+    root = owner.split('.')[0]
+    return root in PROCESS_MODULES or _aliases(lines).get(root) in PROCESS_MODULES
+
+
 RANK = {'applied': 0, 'moved': 1, 'redundant': 2, 'changed': 3, 'stale': 3, 'rejected': 4, 'malformed': 5}
 # the library methods that run a callable or a member someone else chose: a site resolved to one of them is as unknown as an
 # unresolved one, and is listed with them (unknown_sites)
@@ -1006,9 +1035,21 @@ def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5)
     return out
 
 
-def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
+_LINES = {}
+def _lines_of(repo, rel):
+    """a file's lines for the alias check, read once per file per process"""
+    k = (repo, rel)
+    if k not in _LINES:
+        try:
+            with open(os.path.join(repo, rel), encoding='utf-8', errors='replace') as fh: _LINES[k] = fh.read().split('\n')
+        except OSError: _LINES[k] = []
+    return _LINES[k]
+
+
+def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None, keep=None, with_candidates=True):
     """the unresolved call sites inside these callables: where the answer stops being complete. Each with the call as
-    written, the engine's own reason, and the targets it was linked to (if any)."""
+    written, the engine's own reason, and the targets it was linked to (if any). `keep(row, reason)` narrows the rows
+    before any candidate is worked out (row = site id, caller, kind, callee, file, line); total counts the kept ones."""
     callers = [c for c in dict.fromkeys(callers) if c]
     if not callers: return [], 0
     tabs = {r[0] for r in q("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
@@ -1022,7 +1063,9 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
         # resolved it (to the library method), so it is no unresolved site, and what it runs is as unknown as one's
         for sid, c, k, n, f, l, lib in q(f"SELECT s.id, s.caller_id, s.kind, s.callee_name, s.file_path, s.start_line, e.callee_label FROM call_edges e "
                                           f"JOIN call_sites s ON s.id = e.call_site_id WHERE e.tier = 'boundary_lib' AND e.caller_id IN ({ph})", *ch):
-            if (n or '').split('.')[-1] in REFLECTIVE_LIB: rows.append((sid, c, k, n, f, l)); libcall[sid] = lib
+            if (n or '').split('.')[-1] in REFLECTIVE_LIB:
+                if runs_a_process(n, lib, _lines_of(repo, site_file(f)) if repo and f else None): continue
+                rows.append((sid, c, k, n, f, l)); libcall[sid] = lib
         # …and a typed front end's call through a holder of a FUNCTION TYPE: resolved to a signature with no body, so the
         # function the holder is given is what runs (axiomcode-path's value calls, FUNCTION_TYPE_KINDS there)
         for sid, c, k, n, f, l, qn in q(f"SELECT s.id, s.caller_id, s.kind, s.callee_name, s.file_path, s.start_line, m.qualified_name FROM call_edges e "
@@ -1037,6 +1080,14 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
                          "(SELECT 1 FROM asserted_rejections r WHERE r.call_site_id = e.call_site_id AND r.callee_id = e.callee_method_id AND r.status IN ('applied','moved')) LIMIT 1", sid)
                 if not left: rows.append((sid, c, k, n, f, l))
     rows = list(dict.fromkeys(rows))
+    if keep is not None:
+        why_all = {}
+        if 'ext_call_site_unresolved' in tabs:
+            ids_all = [r[0] for r in rows]
+            for i in range(0, len(ids_all), 500):
+                ch = ids_all[i:i + 500]
+                for sid, why in q(f"SELECT c0, c2 FROM ext_call_site_unresolved WHERE c0 IN ({','.join('?' * len(ch))})", *ch): why_all.setdefault(sid, why)
+        rows = [r for r in rows if keep(r, why_all.get(r[0]) or (f"runs a value through {libcall[r[0]]}" if r[0] in libcall else ''))]
     total = len(rows)
     rank = {c: i for i, c in enumerate(order or callers)}
     rows.sort(key=lambda r: (rank.get(r[1], len(rank)), str(r[4]), r[5] or 0))
@@ -1077,7 +1128,7 @@ def unknown_sites(q, callers, site_file, limit=30, order=None, repo=None):
         lc = str(libcall.get(sid, ''))
         why = reasons.get(sid) or ((f"calls a value typed by {lc}" if ' ' in lc else f"runs a value through {lc.split(':')[-1]}") if sid in libcall else 'unresolved')
         rf = site_file(f) if f else '?'
-        try: cands = candidates(qm, sid, caller, callee, kind, rf, ln, reasons.get(sid), rd)
+        try: cands = candidates(qm, sid, caller, callee, kind, rf, ln, reasons.get(sid), rd) if with_candidates else []
         except Exception: cands = []
         site = f"{rf}:{ln or 0}:{col_of(sid, rf, callee)}"
         out.append(dict(at=f"{rf}:{ln or 0}", site=site, call=callee or '', kind=kind, caller=disp[caller], candidates=cands,
@@ -1222,7 +1273,59 @@ def removal_targets(repo, at_site, tgt):
     return hit
 
 
+def validate(repo, links, f, line, col, target, reader, callee='', detail=False):
+    """one link (target `not:<decl>` rejects a lead) checked against the live graphs and merged into `links`, not written.
+    -> (ok, reason, links) — and (new row, verdict) as a fourth when detail. A link no graph would take is refused."""
+    reject = target.startswith('not:')
+    if reject: target = target[4:]
+    fail = lambda why: (False, why, links) + ((None,) if detail else ())
+    L = reader.lines(f)
+    if L is None or not (0 < line <= len(L)): return fail(f"{f}:{line} is not a line of a file in this repository")
+    new = dict(file=f, line=line, line_sha=line_sha(L[line - 1]), callee=callee, caller='', target=target, target_file='',
+               col=col, ncol=norm_col(L[line - 1], col) if col else None,
+               by=os.environ.get('AXIOMCODE_LINK_BY') or os.environ.get('USER') or 'agent', at=time.strftime('%Y-%m-%dT%H:%M:%S'), n=0)
+    verdicts = []
+    for db, rd, live in graph_dbs(repo):
+        if not live: continue
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            g = Graph(con)
+            if reject:
+                ap = {(a, b) for a, b in g.q("SELECT call_site_id, callee_method_id FROM call_edges WHERE tier = ?", TIER)}
+                verdicts.append((resolve_not(g, rd, new, ap), g))
+            else: verdicts.append((resolve(g, rd, new), g))
+        except sqlite3.Error: con.close()
+    good = [(r, g) for r, g in verdicts if r['status'] in ('applied', 'redundant')]
+    if not good:
+        why = sorted(verdicts, key=lambda x: (x[0]['reason'].startswith('no call is written'), x[0]['reason'].startswith('the target is not')))
+        for _r, g in verdicts: g.con.close()
+        return fail(why[0][0]['reason'] if why else 'no graph to check it against')
+    r, g = good[0]
+    new.update(callee=r.get('callee_written') or callee, caller=g.display(r['caller']) if r.get('caller') else '',
+               target=r['target_display'], target_file=r.get('target_file') or '', **({'not': True} if reject else {}))
+    new['target'], new['target_file'] = stable_name(g, r['callee_id'], r['target_display'], new['target_file'])
+    # the column the link resolved to is recorded even when none was given: it is what the link names from now on
+    if r.get('col') and not new.get('col'): new['col'] = r['col']; new['ncol'] = norm_col(L[line - 1], r['col'])
+    # re-linking the same site to the same DECLARATION replaces that row; the same name declared elsewhere (two arrows
+    # handed to one registry) is another link
+    dup = [l for l in links if l['file'] == f and l['line'] == line and l.get('col') == new.get('col')
+           and bool(l.get('not')) == bool(new.get('not')) and same_target(l, new, g, r['callee_id'])]
+    for _r, gg in verdicts: gg.con.close()
+    links = [l for l in links if l not in dup] + [new]
+    return (True, '', links) + (((new, r),) if detail else ())
+
+
 def main(argv):
+    if '--batch' in argv:
+        i = argv.index('--batch'); src = argv[i + 1] if i + 1 < len(argv) else '-'
+        rest = argv[:i] + argv[i + 2:]
+        try: text = sys.stdin.read() if src == '-' else open(src, encoding='utf-8').read()
+        except OSError as e: print(f"axiomcode link --batch: {e}", file=sys.stderr); return 2
+        import ax_fill
+        repo, _ = find_repo([a for a in rest if a != '--json'])
+        if not os.path.isdir(os.path.join(repo, '.axiomcode')):
+            print(f"axiomcode link: no graph for {repo}", file=sys.stderr); return 2
+        return ax_fill.run_batch(repo, text, '--json' in rest)
     as_json = '--json' in argv
     argv = [a for a in argv if a != '--json']
     remove = '--remove' in argv
@@ -1257,42 +1360,13 @@ def main(argv):
         return 0 if gone else 1
     if len(args) < 2:
         print(USAGE, file=sys.stderr); return 2
-    target = args[1]; callee = args[2] if len(args) > 2 else ''
-    if target.startswith('not:'): reject, target = True, target[4:]
-    reader = Reader(repo); L = reader.lines(f)
-    if L is None or not (0 < line <= len(L)):
-        print(f"axiomcode link: rejected — {f}:{line} is not a line of a file in this repository", file=sys.stderr); return 1
-    new = dict(file=f, line=line, line_sha=line_sha(L[line - 1]), callee=callee, caller='', target=target, target_file='',
-               col=col, ncol=norm_col(L[line - 1], col) if col else None,
-               by=os.environ.get('AXIOMCODE_LINK_BY') or os.environ.get('USER') or 'agent', at=time.strftime('%Y-%m-%dT%H:%M:%S'), n=0)
-    # validate against the live graphs first: a link no graph would take is refused, not written
-    verdicts = []
-    for db, rd, live in graph_dbs(repo):
-        if not live: continue
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
-            g = Graph(con)
-            if reject:
-                ap = {(a, b) for a, b in g.q("SELECT call_site_id, callee_method_id FROM call_edges WHERE tier = ?", TIER)}
-                verdicts.append((resolve_not(g, rd, new, ap), g))
-            else: verdicts.append((resolve(g, rd, new), g))
-        except sqlite3.Error: pass
-    good = [(r, g) for r, g in verdicts if r['status'] in ('applied', 'redundant')]
-    if not good:
-        why = sorted(verdicts, key=lambda x: (x[0]['reason'].startswith('no call is written'), x[0]['reason'].startswith('the target is not')))
-        print(f"axiomcode link: rejected — {why[0][0]['reason'] if why else 'no graph to check it against'}", file=sys.stderr); return 1
-    r, g = good[0]
-    new.update(callee=r.get('callee_written') or callee, caller=g.display(r['caller']) if r.get('caller') else '',
-               target=r['target_display'], target_file=r.get('target_file') or '', **({'not': True} if reject else {}))
-    new['target'], new['target_file'] = stable_name(g, r['callee_id'], r['target_display'], new['target_file'])
-    # the column the link resolved to is recorded even when none was given: it is what the link names from now on
-    if r.get('col') and not new.get('col'): new['col'] = r['col']; new['ncol'] = norm_col(L[line - 1], r['col'])
-    # re-linking the same site to the same DECLARATION replaces that row; the same name declared elsewhere (two arrows
-    # handed to one registry) is another link
-    dup = [l for l in links if l['file'] == f and l['line'] == line and l.get('col') == new.get('col')
-           and bool(l.get('not')) == bool(new.get('not')) and same_target(l, new, g, r['callee_id'])]
-    g.con.close()
-    links = [l for l in links if l not in dup] + [new]
+    target = args[1] if not reject or args[1].startswith('not:') else 'not:' + args[1]
+    callee = args[2] if len(args) > 2 else ''
+    ok, why, links, extra = validate(repo, links, f, line, col, target, Reader(repo), callee, detail=True)
+    if not ok:
+        print(f"axiomcode link: rejected — {why}", file=sys.stderr); return 1
+    new, r = extra
+    reject = bool(new.get('not'))
     t0 = time.time()
     write_links(repo, links); _restore_bad(repo, bad)
     res = apply_repo(repo)

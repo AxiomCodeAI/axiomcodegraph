@@ -1,0 +1,16 @@
+ambiguous_unknown	SIMPLE_CALL	main.nonlocal_rebind -> -
+callback_registered	METHOD_REFERENCE	main.nonlocal_read_only -> main.first
+callback_registered	METHOD_REFERENCE	main.nonlocal_rebind -> main.first
+callback_registered	METHOD_REFERENCE	main.nonlocal_rebind.<locals>.swap -> main.second
+callback_registered	METHOD_REFERENCE	main.unrelated_nested_name -> main.first
+callback_registered	METHOD_REFERENCE	main.unrelated_nested_name.<locals>.shadow -> main.second
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.main -> main.nonlocal_read_only
+known_edge	SIMPLE_CALL	main.main -> main.nonlocal_rebind
+known_edge	SIMPLE_CALL	main.main -> main.unrelated_nested_name
+known_edge	SIMPLE_CALL	main.nonlocal_read_only -> main.first
+known_edge	SIMPLE_CALL	main.nonlocal_read_only -> main.nonlocal_read_only.<locals>.peek
+known_edge	SIMPLE_CALL	main.nonlocal_rebind -> main.nonlocal_rebind.<locals>.swap
+known_edge	SIMPLE_CALL	main.unrelated_nested_name -> main.first
+known_edge	SIMPLE_CALL	main.unrelated_nested_name -> main.unrelated_nested_name.<locals>.shadow
+known_edge	SIMPLE_CALL	main.unrelated_nested_name.<locals>.shadow -> main.second

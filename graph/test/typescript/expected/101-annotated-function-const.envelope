@@ -1,0 +1,4 @@
+value	formats#<function-type>@4:18 -> formats#<arrow>@6
+value	formats#<function-type>@4:18 -> x#<arrow>@11
+value	formats#Format.<call-signature> -> formats#<arrow>@5
+value	formats#Format.<call-signature> -> x#<arrow>@6

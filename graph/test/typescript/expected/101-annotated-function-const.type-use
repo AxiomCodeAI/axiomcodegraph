@@ -1,0 +1,8 @@
+known_edge	METHOD_PARAM	0	x [METHOD_PARAM] -> Format
+known_edge	METHOD_RETURN	0	formats [METHOD] -> Format
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	VARIABLE_TYPE	0	formats [VARIABLE] -> Fn
+known_edge	VARIABLE_TYPE	0	formats [VARIABLE] -> Format
+known_edge	VARIABLE_TYPE	0	x [VARIABLE] -> Fn
+known_edge	VARIABLE_TYPE	0	x [VARIABLE] -> Format

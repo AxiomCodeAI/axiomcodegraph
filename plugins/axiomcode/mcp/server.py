@@ -282,12 +282,41 @@ def plain(text):
         if keep and ''.join(keep).strip(): out.append(' '.join(keep).rstrip(' ;,'))
     return '\n'.join(out)
 
+def fill_notice(args):
+    """once per build, on the first query answer after it: the unresolved sites that may land in the project, and the
+    tools that settle them (ax_fill.notice). Every host reads a tool answer; not every host runs hooks. '' otherwise"""
+    if not args or args[0] not in ('impact', 'path', 'context', 'tests'): return ''
+    repo = repository(args)
+    if not os.path.isfile(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')): return ''
+    # the common case, a build already told about, is a few stats and a small read here: no process is started for it.
+    # The stamp is ax_fill.build_stamp's: every live graph, main then each language's, each real file once
+    try:
+        ax = os.path.join(repo, '.axiomcode'); lang = os.path.join(ax, 'lang')
+        dbs = [os.path.join(ax, 'out', 'graph.sqlite')] + [os.path.join(lang, l, 'out', 'graph.sqlite')
+                                                           for l in (sorted(os.listdir(lang)) if os.path.isdir(lang) else [])]
+        seen, parts = set(), []
+        for db in dbs:
+            rp = os.path.realpath(db)
+            if os.path.isfile(rp) and rp not in seen:
+                seen.add(rp); parts.append(f"{rp}@{int(os.stat(db).st_mtime)}")
+        with open(os.path.join(ax, '.fill-noted-mcp'), encoding='utf-8') as fh:
+            if fh.read().strip() == '|'.join(parts): return ''
+    except OSError: pass
+    try:
+        r = subprocess.run([sys.executable, os.path.join(scripts_dir(), 'ax_fill.py'), repo, '--notice', 'mcp'],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception: return ''
+
+
 def answer(args):
     """a tool's answer: the CLI's words with the option-naming clauses dropped. A failure run() raises goes the same
     way — its words through plain(), then on as the ToolError the client marks isError — so the model reads the
     correction (the nearest names, the fix) either way, and a flag it cannot pass is named in neither."""
-    try: return plain(run(args))
+    try: out = plain(run(args))
     except ToolError as e: raise ToolError(plain(str(e))) from None
+    note = fill_notice(args)
+    return f"{out}\n{note}" if note else out
 
 
 # THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as
@@ -315,13 +344,32 @@ def path(start: str, end: str) -> str:
     return answer(['path', start, end, os.getcwd()])
 
 @srv.tool()
+def unresolved(limit: int = 25, decisions: str = '') -> str:
+    """The calls the graph could not resolve, over the whole graph: a summary line, then the next `limit` open sites
+    (inside the most called callers first), each with its code, the engine's reason and the graph's candidates. Read
+    each call, then send one decision per line as `decisions`: `<site> <target>` only when the code makes the target
+    CERTAIN, `<site> not:<target>` for a wrong candidate, `<site> ?` to leave it open. The answer says what was taken
+    and lists the next page; settled sites drop off. Never link a guess."""
+    n = str(max(1, min(int(limit or 25), 200)))
+    if not decisions.strip(): return answer(['unresolved', '--limit', n, os.getcwd()])
+    import tempfile
+    with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False, encoding='utf-8') as fh: fh.write(decisions)
+    try:
+        try: took = answer(['link', '--batch', fh.name, os.getcwd()])
+        except ToolError as e: took = str(e)          # a refused line is reported with the next page, not as a failure
+    finally:
+        try: os.unlink(fh.name)
+        except OSError: pass
+    return took + '\n\n' + answer(['unresolved', '--limit', n, os.getcwd()])
+
+@srv.tool()
 def link(site: str = '', target: str = '') -> str:
     """Record where an unresolved call lands, when you have read the code and the target is CERTAIN: site is the call's
     file:line as an answer's `unknown:` block lists it, target the declaration it reaches (Owner.method, function, or
     its file:line). impact, path and tests then walk the edge, labelled [asserted]. With no arguments: every link and
     whether the graph took it (a link whose line changed is dropped, never trusted). target "-" removes the site's links;
     target "not:<declaration>" rejects a lead (a by-name or one-of-a-set guess) at that site, which is then not walked.
-    Never link a guess, and never link a candidate for its rank alone."""
+    Never link a guess, and never link a candidate for its rank alone. Many sites at once: unresolved(decisions=...)."""
     return answer(['link'] + ([site] if site.strip() else []) + ([target] if site.strip() and target.strip() else []) + [os.getcwd()])
 
 @srv.tool()

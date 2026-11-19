@@ -19,9 +19,9 @@
 // WHAT THE DISCRIMINATOR IS. Read the `.edges` golden, not the `.oracle` one. `tsc`
 // answers with the DECLARED TYPE -- the two-parameter call signature -- and is right to;
 // the implementation surviving beside it is a claim about what RUNS, which the compiler
-// oracle does not make and cannot score. Reverting the relaxation removes the arrow edge
-// from every mismatch cell below and drops the tier back to `known_edge`, so the `.edges`
-// golden is where it shows up.
+// oracle does not make and cannot score. Reverting the relaxation removes the arrow edge,
+// each cell's only one since the signature is no longer added beside a literal (#2005),
+// so a revert leaves the call with no edge, and the `.edges` golden is where it shows up.
 //
 // THE ANNOTATION IS A NAMED INTERFACE, not an inline function type, so that the target
 // both sides name is the interface's call signature and the comparison is about which
