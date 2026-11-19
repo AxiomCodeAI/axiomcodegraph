@@ -167,6 +167,12 @@ Any other agent that speaks MCP takes one entry in its MCP config; see
 [Support for agents](#support-for-agents). Start a new agent session afterward: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
+To build it yourself, or to pin the language, run `axiomcode index --lang <language>` in the repository
+(`--lang python`, or a list such as `--lang python,typescript`, the first one the main graph). Without `--lang`, every
+language the repository is written in gets its own graph, and a language with fewer than 20 files and under 5% of the
+code (or under 100 lines) is incidental, such as a few build scripts: it is skipped, and the index names it with the
+`--lang` that includes it.
+
 After upgrading the engine or the plugin, **restart the agent session**: a session started before the upgrade keeps the
 old version's MCP server and hooks running beside the new ones, and the two rebuild the graph in turn.
 
