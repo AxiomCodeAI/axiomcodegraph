@@ -5,7 +5,8 @@
         "hooks": [
           { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" changes.py", "timeout": 25000 },
           { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" orient.py", "timeout": 20000 },
-          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 },
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" fill.py", "timeout": 10000 }
         ]
       }
     ],

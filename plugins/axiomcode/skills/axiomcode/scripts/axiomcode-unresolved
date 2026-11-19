@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""axiomcode unresolved [<repo>] [--limit N] [--summary] [--json]
+
+The call sites the graph could not resolve, over the whole graph: a one-line summary (call sites, resolved, asserted,
+unresolved, open), then the next N open sites, the ones inside the most called callers first, each with its code, the
+engine's reason and the graph's candidates. A site is open until a link settles it or a fill pass leaves it open (`?`).
+Decide them with `axiomcode link --batch -`. See ax_fill.py.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ax_fill
+
+if __name__ == '__main__':
+    sys.exit(ax_fill.main(sys.argv[1:]))
