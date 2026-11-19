@@ -347,7 +347,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `client` | all | Declared in the analysed project. |
 | `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
 | `generated` | java | Declared by a compile-time annotation processor: present in the compiled artefact and in every caller's source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers. |
-| `generated` | csharp | The Invoke of the delegate held in one field or property: id `generated:<owner qualified name>#<member>.Invoke`, no file and no line numbers. Every call through that member is an edge to it (tier boundary_lib, which is also where the compiler binds the call), and what the member holds is in dispatch_candidates with basis `value`. |
+| `generated` | csharp | The Invoke of the delegate held in one field or property: id `generated:<owner qualified name>#<member>.Invoke`, no file and no line numbers. Every call through that member is an edge to it (tier boundary_lib, which is also where the compiler binds the call), and what the member holds is in dispatch_candidates with basis `value`. And the parameterless constructor of a staged library type whose IR carries no constructor: id `generated:<type qualified name>#<constructor>/0`. `new T()` compiles only if T has one, so the target exists, but a library IR is a signature subset and cannot say whether T declares it or the compiler supplies it. The `new` site is an edge to it with callee_provenance `lib` and tier boundary_lib, not an `external:` label, because the library WAS staged. |
 
 **Notes**
 
@@ -578,7 +578,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 |---|---|---|
 | `external` | all | The target is outside every staged IR. callee_method_id is NULL and callee_label names it, as `external:<Type>.<Member>`. A client-only run of a C# project reaches the BCL this way for most of its calls. |
 | `client` | all | Target is a client method (callee_method_id set). |
-| `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
+| `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). C# only: or the parameterless constructor of a staged type its IR does not carry, a methods row with provenance `generated`. |
 | `generated` | csharp | The target is a member the compiler generated and no source declares (a `boundary_generated` row); callee_label names it. |
 | `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
 | `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |

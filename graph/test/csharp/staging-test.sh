@@ -288,6 +288,51 @@ aln=$(awk -F'	' '$6=="boundary_lib"' "$AL" 2>/dev/null | wc -l | tr -d ' ')
 [ "${aln:-0}" -eq 2 ] || fail "a keyword-typed receiver did not reach the staged framework type: got ${aln:-0} of 2"
 grep -q "external:" "$AL" 2>/dev/null && fail "a keyword-typed receiver was still labelled external although its type is staged"
 
+# ── `new T()` ON A STAGED TYPE IS NOT AN UNSTAGED DEPENDENCY (#1339) ───────
+# Two shapes of one site, each in its own run because the library is the variable:
+#   ctor/   Store declares a constructor. The site has exactly ONE row, the
+#           resolved one. It used to have a second, `external:Store.<constructor>`,
+#           because the "no carried constructor accepts this arity" check joined
+#           the library's constructor under the client's provenance and found
+#           nothing, so a resolved site was also labelled unstaged.
+#   noctor/ Store declares none. The parameterless constructor the site runs is
+#           not carried, but the TYPE is staged, so the row must not say
+#           `external` -- that provenance means "this dependency was not
+#           supplied", and it was. Nor is it known_implicit_ctor: a library IR is
+#           a signature subset, so it cannot prove the type declares none.
+for shape in ctor noctor; do
+  mkdir -p "$WORK/new-$shape-lib" "$WORK/new-$shape-cli"
+  if [ "$shape" = ctor ]; then decl='public Store() { }'; else decl=''; fi
+  cat > "$WORK/new-$shape-lib/Store.cs" <<EOF2
+namespace Acme;
+public class Box { public int Size() { return 0; } }
+public class Store { $decl public Box Open(string k) { return new Box(); } }
+EOF2
+  cat > "$WORK/new-$shape-cli/Program.cs" <<'EOF2'
+using Acme;
+namespace App;
+public static class Program { public static int Main() { var s = new Store(); return s.Open("x").Size(); } }
+EOF2
+  node "$REPO/parser/dist/index.js" "$WORK/new-$shape-lib" "new-$shape-lib" false "$WORK/new-$shape-libir" --per-language > "$WORK/new-$shape-parse.log" 2>&1
+  bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/new-$shape-cli" --out "$WORK/new-$shape-out" \
+    --library "$WORK/new-$shape-libir" --version pinned --debug > "$WORK/new-$shape.log" 2>&1
+  NEW="$WORK/new-$shape-out/csharp/raw/call-chain-edges.csv"
+  rows=$(awk -F'\t' '$7=="new"' "$NEW" 2>/dev/null | wc -l | tr -d ' ')
+  ext=$(awk -F'\t' '$7=="new" && $5=="external"' "$NEW" 2>/dev/null | wc -l | tr -d ' ')
+  libm=$(awk -F'\t' '$7=="new" && $5=="lib" && $4 ~ /^CS_METHOD_/' "$NEW" 2>/dev/null | wc -l | tr -d ' ')
+  implicit=$(awk -F'\t' '$7=="new" && $6=="known_implicit_ctor"' "$NEW" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$shape" = ctor ]; then
+    [ "${rows:-0}" -eq 1 ] && [ "${libm:-0}" -eq 1 ] || \
+      fail "\`new Store()\` on a staged type that DECLARES its constructor has ${rows:-0} row(s), ${libm:-0} to the library constructor and ${ext:-0} external; expected exactly the one resolved row"
+  else
+    [ "${rows:-0}" -eq 1 ] || fail "\`new Store()\` on a staged type with no carried constructor has ${rows:-0} row(s), expected 1"
+    [ "${ext:-0}" -eq 0 ] || fail "\`new Store()\` on a STAGED type with no carried constructor is labelled external, as if the library had not been supplied"
+    [ "${implicit:-0}" -eq 0 ] || fail "\`new Store()\` on a staged type claimed known_implicit_ctor, which a signature-subset IR cannot prove"
+  fi
+  [ "${rows:-0}" -ge 1 ] || awk -F'\t' '{print "        got: "$4"  "$5"  "$6"  "$7}' "$NEW" 2>/dev/null | head -5
+  [ "${rows:-0}" -le 1 ] || awk -F'\t' '$7=="new"{print "        got: "$4"  "$5"  "$6"  "$7}' "$NEW" 2>/dev/null | head -5
+done
+
 # ── STAGING NOTHING CHANGES NOTHING ─────────────────────────────────────────
 # The cross-provenance clauses must be inert on a client-only run. Compared
 # relation by relation, and then the SAME comparison is run against the staged

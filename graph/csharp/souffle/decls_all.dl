@@ -916,6 +916,7 @@
 .decl site_unresolved_named(c0:symbol,c1:symbol,c2:symbol)
 .decl site_unresolved_real(c0:symbol)
 .decl sseg(c0:symbol,c1:number,c2:symbol)
+.decl staged_parameterless_ctor(c0:symbol,c1:symbol,c2:symbol)
 .decl starts_slash(c0:symbol)
 .decl static_edge_exists(c0:symbol,c1:symbol)
 .decl static_fan_member(c0:symbol,c1:symbol,c2:symbol)
