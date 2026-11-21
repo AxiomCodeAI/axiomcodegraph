@@ -91,6 +91,9 @@ def run_case(case):
     edited = {}
     for ch in spec['checks']:
         tot += 1
+        if name == 'asserted-links' and l == 'python':
+            try: open(os.path.join(path, '.axiomcode', 'TRACE.log'), 'a').write(f"{time.time():.3f} STEP {tot - 1} {ch.get('run')} edit={bool(ch.get('edit'))}\n")
+            except OSError: pass
         if ch.get('edit'):
             ef, old, new = ch['edit']; fp = os.path.join(path, ef); txt = open(fp, encoding='utf-8', newline='').read()
             edited.setdefault(fp, txt)

@@ -1158,6 +1158,11 @@ def kick(repo, trigger='an edit'):
     try:
         if not _flock(fd, False): return False                # a worker is running; it re-checks before it exits
     finally: os.close(fd)
+    try:
+        import time as _t, os as _o, sys as _s
+        with open(_o.path.join(repo, '.axiomcode', 'TRACE.log'), 'a') as _f: _f.write(f"{_t.time():.3f} pid={_o.getpid()} ppid={_o.getppid()} kick-started trigger={trigger} argv={_s.argv[:4]}\n")
+    except Exception: pass
+
     log = open(os.path.join(repo, '.axiomcode', 'refresh.log'), 'a')
     env = dict(os.environ, AXIOMCODE_REFRESH_TRIGGER=trigger)
     argv = [sys.executable, os.path.abspath(__file__), 'worker', repo]

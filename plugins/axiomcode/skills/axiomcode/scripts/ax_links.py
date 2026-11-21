@@ -911,6 +911,11 @@ def _has_rejections(db):
 
 def apply_repo(repo, quiet=True):
     """apply the links file to every graph of the repository, patching each one's facts. -> {graph: results}"""
+
+    try:
+        import time as _t, os as _o, sys as _s
+        with open(_o.path.join(repo, '.axiomcode', 'TRACE.log'), 'a') as _f: _f.write(f"{_t.time():.3f} pid={_o.getpid()} ppid={_o.getppid()} apply_repo argv={_s.argv[:4]}\n")
+    except Exception: pass
     links, bad = read_links(repo); sha = file_sha(repo); out = {}
     for db, reader, live in graph_dbs(repo):
         try: old = os.stat(db).st_mtime
