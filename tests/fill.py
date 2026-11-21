@@ -152,6 +152,39 @@ def main():
         sh(repo, AX, 'link', '--batch', '-', repo, stdin=f"{site} progress\n")
         t += 5; os.utime(os.path.realpath(db), (t, t))
         check(sh(repo, 'python3', FILL, repo, '--notice', 'hook').stdout.strip() == '', 'notice: silent when nothing is open')
+
+        # A BUILD STILL FINISHING: the graph is published (a waiting query has returned) but not yet stamped with the
+        # links file it was given, and the linked line is edited in that window. The summary line and the notice read
+        # the graphs and write nothing, so the listing still calls the link [changed]; written into the graph from
+        # the edited text it would be [stale] (the nightly's Windows failure on python/asserted-links). A query
+        # (`unresolved`) still re-applies a links file the graphs were not given: the control
+        import sqlite3
+        dbs = sorted({os.path.realpath(os.path.join(dp, f)) for dp, _d, fs in os.walk(os.path.join(repo, '.axiomcode'))
+                      for f in fs if f == 'graph.sqlite'})
+        def unstamp():
+            for d in dbs:
+                with sqlite3.connect(d) as c: c.execute("UPDATE index_meta SET value = '' WHERE key = 'links_sha'")
+        def stamps():
+            out = set()
+            for d in dbs:
+                with sqlite3.connect(d) as c: out |= {r[0] for r in c.execute("SELECT value FROM index_meta WHERE key = 'links_sha'")}
+            return out
+        def link_status():
+            row = [l for l in sh(repo, AX, 'link', repo).stdout.splitlines() if f'app/jobs.py:{CB_LINE}' in l]
+            return row[0] if row else ''
+        check('[applied]' in link_status(), f'unstamped: the link is applied before the edit (got {link_status()!r})')
+        unstamp()
+        L = JOBS.split('\n'); L[CB_LINE - 1] = L[CB_LINE - 1].replace('cb(i)', 'cb(i + 0)')
+        open(p, 'w').write('\n'.join(L))
+        sh(repo, 'python3', FILL, repo, '--summary')
+        t += 5; os.utime(os.path.realpath(db), (t, t))
+        sh(repo, 'python3', FILL, repo, '--notice', 'hook')
+        st = link_status()
+        check('[changed]' in st and '[stale]' not in st, f'unstamped: the summary and the notice write nothing; the edited link is [changed] (got {st!r})')
+        check(stamps() == {''}, f'unstamped: no graph was re-stamped by the summary or the notice (got {stamps()})')
+        sh(repo, AX, 'unresolved', repo)
+        check('' not in stamps(), f'unstamped (control): a query re-applies the links file the graphs were not given (got {stamps()})')
+        open(p, 'w').write(JOBS)
     finally:
         shutil.rmtree(repo, ignore_errors=True)
 
