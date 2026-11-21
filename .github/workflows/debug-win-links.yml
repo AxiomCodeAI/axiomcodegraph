@@ -1,0 +1,44 @@
+name: debug-win-links
+on:
+  push:
+    branches: [debug/win-asserted-links]
+permissions:
+  contents: read
+jobs:
+  win:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        scripts: [dev, pre-0.2.4]
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: plugin scripts of ${{ matrix.scripts }}
+        if: matrix.scripts == 'pre-0.2.4'
+        shell: bash
+        run: git checkout 45ee8b1b -- plugins/axiomcode tests/run.py
+      - name: install the 0.2.3 engine
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/proj" && cd "$RUNNER_TEMP/proj" && npm init -y >/dev/null
+          npm install --no-audit --no-fund --loglevel=error @axiomcode/code-graph@0.2.3
+          echo "AXIOMCODE_ENGINE=$RUNNER_TEMP/proj/node_modules/@axiomcode/code-graph" >> "$GITHUB_ENV"
+      - name: run the case 3 times
+        shell: bash
+        env: { PYTHONUTF8: '1' }
+        run: |
+          . graph/test/tools/hide-souffle.sh || true
+          export AXIOMCODE_BASH="$(cygpath -m "$BASH")"
+          for i in 1 2 3; do
+            python tests/run.py asserted-links --lang python --keep -v 2>&1 | grep -E "FAIL|missing|stale|changed|passed" | head -12 || true
+            d=tests/cases/python/asserted-links/.axiomcode
+            echo "--- refresh.log"; cat $d/refresh.log 2>/dev/null
+            echo "--- refresh.json"; cat $d/refresh.json 2>/dev/null; echo
+            echo "--- build.log tail"; tail -15 $d/build.log 2>/dev/null
+            echo "=========="
+          done
