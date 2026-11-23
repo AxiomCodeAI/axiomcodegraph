@@ -39,6 +39,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ax_edges, ax_text
+from ax_walk import FORWARD, BACKWARD, DIRECTIONS, DEFAULT_DIRECTION   # which way a walk follows a call edge
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
                          scope_spec, under_scope, scope_sql,
                          dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms,
@@ -1071,12 +1072,18 @@ def source_lines(repo, f):
     return _SRC[f]
 
 
-def neighbourhood(g, seed_ids, cap=3):
-    """{symbol id: nearest hop} out to `cap` hops, both directions. Callers matter as much as callees for
-    "where is this handled" — the thing you are looking for is often what CALLS the name you recognised."""
+NEIGHBOURHOOD_DEPTH = 3
+
+def neighbourhood(g, seed_ids, cap=NEIGHBOURHOOD_DEPTH, direction=DEFAULT_DIRECTION, report=None):
+    """{symbol id: nearest hop} out to `cap` hops, both directions by default. Callers matter as much as callees for
+    "where is this handled" — the thing you are looking for is often what CALLS the name you recognised.
+    `report`, when given, is filled with where the walk stopped: depth_reached, and stop_reason — complete when
+    nothing was left to reach, depth_limit when the cap cut it."""
+    ways = DIRECTIONS[direction]
     adj = collections.defaultdict(set)
     for a, b, _t in g.edges():
-        adj[a].add(b); adj[b].add(a)
+        if FORWARD in ways: adj[a].add(b)
+        if BACKWARD in ways: adj[b].add(a)
     depth = {s: 0 for s in seed_ids}
     frontier = list(seed_ids)
     for d in range(1, cap + 1):
@@ -1086,6 +1093,10 @@ def neighbourhood(g, seed_ids, cap=3):
                 if y not in depth: depth[y] = d; nxt.append(y)
         frontier = nxt
         if not frontier: break
+    if report is not None:
+        report['depth_reached'] = max(depth.values(), default=0)
+        report['stop_reason'] = ('depth_limit' if any(y not in depth for x in frontier for y in adj.get(x, ()))
+                                 else 'complete')
     return depth
 
 
@@ -1465,10 +1476,10 @@ def type_members(g, types, scored):
     return out
 
 
-def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
+def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None, depth_cap=FLOW_DEPTH):
     if not steps: return False
     print("\nhow it runs — the call flow from " + ("where you started it" if chosen else "this task's entry points")
-          + ", every callee in the order the calls are written, to depth " + str(FLOW_DEPTH)
+          + ", every callee in the order the calls are written, to depth " + str(depth_cap)
           + " (→ resolved call, ⇢ one of a set; ⚠ a call the graph could not resolve — read that body to follow it):")
     if not chosen:
         print("  started at the entry points this task's words matched; if the mechanism begins elsewhere, "
@@ -1527,12 +1538,10 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
 
 RESULT = {'task': None, 'repo': None, 'scope': None, 'scope_offered': None, 'terms': [],
           'entry_points': [], 'files': [], 'flow': [],
-          # the walk's own account of where it stopped. Not computed yet,
-          # so None (unknown), never an empty list that would read as "nothing omitted"
+          # the file walk's own account of where it stopped (neighbourhood). A field still None is not computed yet
+          # (unknown), never an empty list that would read as "nothing omitted"
           'depth_reached': None, 'stop_reason': None, 'branches_remaining': None, 'continuation_id': None,
           'unresolved': None, 'omitted': None}
-
-DIRECTIONS = ('callers', 'callees', 'both')
 
 
 def main(argv):
@@ -1546,7 +1555,7 @@ def main(argv):
     as_json = False
     explain = None             # None: decided from the task's wording; --explain / --no-explain force it
     starts = []                # --from <name>: where the flow starts, when the caller knows (repeatable)
-    direction = depth = continuation = branch = None    # --direction, --depth, --continue, --branch
+    direction = max_depth = continuation = branch = None    # --direction, --depth, --continue, --branch
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -1561,10 +1570,9 @@ def main(argv):
         elif a == '--explain': explain = True; i += 1
         elif a == '--from' and i + 1 < len(argv): starts.append(argv[i + 1]); explain = True if explain is None else explain; i += 2
         elif a == '--no-explain': explain = False; i += 1
-        # interface only: parsed and checked so a bad value is refused rather than read as task words;
-        # the walk does not use them yet
+        # the walk's bounds: which way it follows calls, and how many hops (both walks: the files and the flow)
         elif a == '--direction' and i + 1 < len(argv): direction = argv[i + 1]; i += 2
-        elif a == '--depth' and i + 1 < len(argv): depth = argv[i + 1]; i += 2
+        elif a == '--depth' and i + 1 < len(argv): max_depth = argv[i + 1]; i += 2
         elif a == '--continue' and i + 1 < len(argv): continuation = argv[i + 1]; i += 2
         elif a == '--branch' and i + 1 < len(argv): branch = argv[i + 1]; i += 2
         elif a in ('-h', '--help'): print(__doc__); return 0
@@ -1574,8 +1582,11 @@ def main(argv):
         return 2
     if direction is not None and direction not in DIRECTIONS:
         print(f"--direction must be one of {', '.join(DIRECTIONS)}, not {direction!r}"); return 2
-    if depth is not None and not (depth.isdigit() and int(depth) >= 1):
-        print(f"--depth must be a whole number, 1 or more, not {depth!r}"); return 2
+    if max_depth is not None and not (max_depth.isdigit() and int(max_depth) >= 1):
+        print(f"--depth must be a whole number, 1 or more, not {max_depth!r}"); return 2
+    direction = direction or DEFAULT_DIRECTION
+    files_depth = int(max_depth) if max_depth else NEIGHBOURHOOD_DEPTH
+    flow_depth = int(max_depth) if max_depth else FLOW_DEPTH
     if not args: print(__doc__); return 2
     task = args[0]
     repo = args[1] if len(args) > 1 else '.'
@@ -1782,6 +1793,9 @@ def main(argv):
         print()
     print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))
     if explain is None: explain = explain_intent(task)
+    # the flow follows calls forward, to callees: a walk asked to go only backward has no flow to tell, and its answer
+    # is the files around the entry points instead
+    if explain and FORWARD not in DIRECTIONS[direction]: explain = False
     # explaining: the flow below starts at its own roots and IS the answer, so the lexical entry points (a word
     # match per term) and the long file list are what a reader would spend the page on instead of the flow
     if explain: budget = min(budget, 0 if show_source else 5)   # with the code shown, the flow is the whole answer
@@ -1826,7 +1840,7 @@ def main(argv):
             roots_ = producer_first(g, roots_, [s_ for s_, _t, _sc in seeds], task, terms)
         # a producer joined only by name is shown as one step: its code holds the call, and the budget goes to the
         # mechanism the task asked about rather than to everything else the producer does
-        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS,
+        roots, steps, gaps, marks = flow(g, roots_, depth_cap=flow_depth, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS,
                                          shallow=frozenset(ENTRY_NOTE))
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
@@ -1837,7 +1851,7 @@ def main(argv):
                                              and (x, via[0], via[2]) in HANDOFF else None),
                            'leaves_graph': (marks.get(x, []) if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
-        if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks):
+        if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks, depth_cap=flow_depth):
             # the entry points and files were held back because the flow was to BE the answer; with no flow they are
             # the answer again, so they are printed, and the reader is told why there is no flow
             print("\nno call flow: " + ("none of the entry points is a callable, or a type declaring one"
@@ -1848,7 +1862,9 @@ def main(argv):
                 print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {term or 'best overall match'}")
             budget = max(budget, 5)
 
-    depth = neighbourhood(g, [s for s, _t, _sc in seeds])
+    walk = {}
+    depth = neighbourhood(g, [s for s, _t, _sc in seeds], cap=files_depth, direction=direction, report=walk)
+    RESULT.update(walk)
     # A file can match the task by NAME and be reachable by no call at all — an enum of flags, a constants
     # module, a config surface. Those have no callers by construction, so a list built only from the call
     # closure drops them however well they match: on one task the file was literally named for the word the
@@ -1891,12 +1907,16 @@ def main(argv):
         return (d - 0.8 * hit - 1.6 * pkg, d, f)
     if scopes and not scope_offered: files = {f: v for f, v in files.items() if in_scope(f)}
     order = sorted(files.items(), key=file_rank)
-    shown, foot = budgeted([x for x in order if not TESTY.search(x[0])], budget, "file")
+    listed = [x for x in order if not TESTY.search(x[0])]
+    shown, foot = budgeted(listed, budget, "file")
+    # what the budget cut, by name: the walk reached these and the answer does not list them
+    RESULT['omitted'] = [f for f, _v in listed[len(shown):]]
+    if RESULT['omitted']: RESULT['stop_reason'] = 'budget_limit'
     if budget > 0:
-        print(f"\nwhere the work is ({len(files)} file(s) within 3 hops of those entry points; "
+        print(f"\nwhere the work is ({len(files)} file(s) within {files_depth} hops of those entry points; "
               f"nearest first, then by how much of the task each matches):")
     else:
-        print(f"\n{len(files)} file(s) lie within 3 hops of the entry points; `--budget N` lists them")
+        print(f"\n{len(files)} file(s) lie within {files_depth} hops of the entry points; `--budget N` lists them")
     # Name the DECLARATIONS, not only the file. Every symbol here was already scored — that is how the file
     # got its rank — and then discarded, so the answer said "look in this file" where it could have said
     # which functions to look at. Measured over 31 real commits, naming two declarations per file roughly

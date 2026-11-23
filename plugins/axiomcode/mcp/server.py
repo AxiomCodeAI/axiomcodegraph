@@ -331,11 +331,12 @@ def context(task: str, source: bool = False, start_symbol: str = '', direction: 
     call. source=True asks for the flow with each step's code, so it is read without opening files.
     start_symbol starts the flow at that declaration. direction (callers, callees or both) and max_depth bound the
     walk; token_budget bounds the answer's size. Each is optional: left out, the answer is today's."""
-    # interface only: start_symbol and token_budget map to the existing
-    # --from and --page-budget; direction and max_depth are checked by the CLI and not yet used by the walk
+    # start_symbol and token_budget map to the existing
+    # --from and --page-budget; direction and max_depth map to the CLI's --direction and --depth
     # checked here, in the tool's own words: the CLI's refusal names its flag, and plain() drops a clause that does
-    if direction.strip() and direction.strip() not in ('callers', 'callees', 'both'):
-        raise ToolError(f"direction must be callers, callees or both, not {direction!r}")
+    directions = scripts_module('ax_walk').DIRECTIONS          # the one list the CLI walks by (ax_walk.py)
+    if direction.strip() and direction.strip() not in directions:
+        raise ToolError(f"direction must be one of {', '.join(directions)}, not {direction!r}")
     if max_depth < 0: raise ToolError(f"max_depth must be 1 or more, not {max_depth}")
     if token_budget < 0: raise ToolError(f"token_budget must be a positive number of tokens, not {token_budget}")
     return answer(['context', task] + (['--source'] if source else [])
