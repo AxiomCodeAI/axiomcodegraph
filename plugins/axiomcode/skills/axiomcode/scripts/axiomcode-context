@@ -1526,7 +1526,13 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
 
 
 RESULT = {'task': None, 'repo': None, 'scope': None, 'scope_offered': None, 'terms': [],
-          'entry_points': [], 'files': [], 'flow': []}
+          'entry_points': [], 'files': [], 'flow': [],
+          # the walk's own account of where it stopped. Not computed yet,
+          # so None (unknown), never an empty list that would read as "nothing omitted"
+          'depth_reached': None, 'stop_reason': None, 'branches_remaining': None, 'continuation_id': None,
+          'unresolved': None, 'omitted': None}
+
+DIRECTIONS = ('callers', 'callees', 'both')
 
 
 def main(argv):
@@ -1540,6 +1546,7 @@ def main(argv):
     as_json = False
     explain = None             # None: decided from the task's wording; --explain / --no-explain force it
     starts = []                # --from <name>: where the flow starts, when the caller knows (repeatable)
+    direction = depth = continuation = branch = None    # --direction, --depth, --continue, --branch
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -1554,8 +1561,21 @@ def main(argv):
         elif a == '--explain': explain = True; i += 1
         elif a == '--from' and i + 1 < len(argv): starts.append(argv[i + 1]); explain = True if explain is None else explain; i += 2
         elif a == '--no-explain': explain = False; i += 1
+        # interface only: parsed and checked so a bad value is refused rather than read as task words;
+        # the walk does not use them yet
+        elif a == '--direction' and i + 1 < len(argv): direction = argv[i + 1]; i += 2
+        elif a == '--depth' and i + 1 < len(argv): depth = argv[i + 1]; i += 2
+        elif a == '--continue' and i + 1 < len(argv): continuation = argv[i + 1]; i += 2
+        elif a == '--branch' and i + 1 < len(argv): branch = argv[i + 1]; i += 2
         elif a in ('-h', '--help'): print(__doc__); return 0
         else: args.append(a); i += 1
+    if continuation is not None or branch is not None:
+        print("context --continue is not implemented yet: ask context again with the task instead")
+        return 2
+    if direction is not None and direction not in DIRECTIONS:
+        print(f"--direction must be one of {', '.join(DIRECTIONS)}, not {direction!r}"); return 2
+    if depth is not None and not (depth.isdigit() and int(depth) >= 1):
+        print(f"--depth must be a whole number, 1 or more, not {depth!r}"); return 2
     if not args: print(__doc__); return 2
     task = args[0]
     repo = args[1] if len(args) > 1 else '.'
@@ -2004,7 +2024,7 @@ QUOTED = re.compile(r'"([^"\n]{4,120})"|(?<![\w])\'([^\'\n]{4,120})\'(?![\w])|`(
 
 
 def quoted_text(argv):
-    skip = {'--budget', '--seeds', '--in', '--from', '--page', '--page-budget'}
+    skip = {'--budget', '--seeds', '--in', '--from', '--page', '--page-budget', '--direction', '--depth', '--continue', '--branch'}
     pos, i = [], 0
     while i < len(argv):
         if argv[i] in skip: i += 2; continue

@@ -33,6 +33,7 @@ PUBLIC = ['index', 'impact', 'path', 'tests', 'context', 'link', 'unresolved', '
 NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself',
           'report': 'a page for the user, not a question for the agent: the end-of-turn receipt already reaches both',
           'graph': 'a page for the user to look at, not an answer for the agent'}
+MCP_ONLY = {'expand_context': 'context --continue: the continuation of a context answer, so it is not a second verb'}
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',
@@ -123,8 +124,8 @@ def main():
     for v in INTERNAL:
         if v in tools: bad.append(f"{v}: internal, and still an MCP tool")
         if re.search(r'^## .*\b%s\b' % re.escape(v), skill, re.M): bad.append(f"{v}: internal, and still a SKILL.md section")
-    if tools != {v for v in PUBLIC if v not in NO_MCP}:
-        bad.append(f"the MCP tools are {sorted(tools)}, want {sorted(v for v in PUBLIC if v not in NO_MCP)}")
+    if tools != {v for v in PUBLIC if v not in NO_MCP} | set(MCP_ONLY):
+        bad.append(f"the MCP tools are {sorted(tools)}, want {sorted({v for v in PUBLIC if v not in NO_MCP} | set(MCP_ONLY))}")
     for label, text in docs():
         bad += doc_findings(label, text)
 

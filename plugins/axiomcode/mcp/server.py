@@ -172,7 +172,7 @@ TIMEOUT = float(os.environ.get('AXIOMCODE_MCP_TIMEOUT') or 900)
 SEEN = set()
 # the flags whose next argument is their value, as the dispatcher skips them when it looks for the repository
 VALUED = {'--in', '--from', '--budget', '--seeds', '--depth', '--limit', '--tests-in', '--kind', '--range', '--old',
-          '--new', '--file', '--page', '--page-budget', '--out'}
+          '--new', '--file', '--page', '--page-budget', '--out', '--direction', '--continue', '--branch'}
 def orphaned(root=None):
     """ax_orphan.orphaned for the install this server runs now (plugin_root): '' while it is current. An install whose
     scripts are gone cannot be imported, so that is said here"""
@@ -271,7 +271,7 @@ def run(args, cwd=None, timeout=None):
 # and only the tools' own parameters count as a `name=` to set, never an HTML attribute (`style="…"`, `class="…"`).
 _CLI_OPTIONS = ('json|tests|tests-only|tests-in|why|unknown|depends|in|limit|depth|page|page-budget|budget|kind|top|warm|from-text|delete|'
                 'help|fresh|no-refresh|every|all|grep|grep-limit|paths|from|seeds|source|lang|language|languages|src|library|exclude-tests|'
-                'debug|range|selftest|version|exact|evidence|no-evidence|verbs|alongside|drop|slug')
+                'debug|range|selftest|version|exact|evidence|no-evidence|verbs|alongside|drop|slug|direction|continue|branch')
 _OPTION = re.compile(r"(?<![\w(-])--(?:" + _CLI_OPTIONS + r")(?![\w-])(?!\s*:)|\b(?:task|source|name|start|end)=(?:True|False|N\b|<|\d|\"|')")
 def plain(text):
     out = []; code = False
@@ -322,13 +322,34 @@ def answer(args):
 # THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as
 # numbered places with the code of the function each sits in, so a place is understood without opening its file,
 # plus context, the one narrative verb: a task in words answered as the verb's own flow. No options beyond
-# context's source: the repository is the one the session works in.
+# context's source and its walk bounds: the repository is the one the session works in.
 @srv.tool()
-def context(task: str, source: bool = False) -> str:
+def context(task: str, source: bool = False, start_symbol: str = '', direction: str = '', max_depth: int = 0,
+            token_budget: int = 0) -> str:
     """How something works, from a task in words: the files and callables the task touches, and for a "how does X
     work" question the call FLOW — every step in the order the calls are written, with ⚠ where the graph lost a
-    call. source=True asks for the flow with each step's code, so it is read without opening files."""
-    return answer(['context', task] + (['--source'] if source else []) + [os.getcwd()])
+    call. source=True asks for the flow with each step's code, so it is read without opening files.
+    start_symbol starts the flow at that declaration. direction (callers, callees or both) and max_depth bound the
+    walk; token_budget bounds the answer's size. Each is optional: left out, the answer is today's."""
+    # interface only: start_symbol and token_budget map to the existing
+    # --from and --page-budget; direction and max_depth are checked by the CLI and not yet used by the walk
+    # checked here, in the tool's own words: the CLI's refusal names its flag, and plain() drops a clause that does
+    if direction.strip() and direction.strip() not in ('callers', 'callees', 'both'):
+        raise ToolError(f"direction must be callers, callees or both, not {direction!r}")
+    if max_depth < 0: raise ToolError(f"max_depth must be 1 or more, not {max_depth}")
+    if token_budget < 0: raise ToolError(f"token_budget must be a positive number of tokens, not {token_budget}")
+    return answer(['context', task] + (['--source'] if source else [])
+                  + (['--from', start_symbol] if start_symbol.strip() else [])
+                  + (['--direction', direction] if direction.strip() else [])
+                  + (['--depth', str(max_depth)] if max_depth else [])
+                  + (['--page-budget', str(token_budget)] if token_budget else []) + [os.getcwd()])
+
+@srv.tool()
+def expand_context(continuation_id: str, branch: str = '') -> str:
+    """Continue a context answer that stopped early: continuation_id as the answer gives it, and branch (optional)
+    one of the branches it lists as remaining. Not implemented yet: every call is refused."""
+    # until the CLI implements --continue, refused here in the tool's own words (its refusal names the flag)
+    raise ToolError("expand_context is not implemented yet: call context again with the task instead")
 
 @srv.tool()
 def impact(name: str = '') -> str:
