@@ -12,7 +12,8 @@ command.
      path answer with numbered places and a fenced code block; after an edit, impact with no name starts with
      `your edits:`, and tests lists the test with its code and ends with a `run:` line. A verb off the surface is
      refused with the supported list.
-  b. the MCP server lists exactly context, impact, path, tests, link and unresolved, each with at most two parameters, and a call to one
+  b. the MCP server lists exactly context, expand_context, impact, path, tests, link and unresolved, each with at most two
+     parameters but context (its walk bounds), and a call to one
      answers in the same shape.
   c. CONTROLS: the dispatcher run directly, bin/axiomcode with --json, and AXIOMCODE_RAW=1 give the old answer — no
      fenced block — for the same question.
@@ -130,8 +131,8 @@ def main():
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
         got = mcp(repo, [('path', {'start': 'total', 'end': 'vat_rate'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly context, impact, path, tests, link and unresolved (search is grep\'s)', set(tools) == {'context', 'impact', 'path', 'tests', 'link', 'unresolved'}, tools)
-        check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
+        check('MCP tools/list is exactly context, expand_context, impact, path, tests, link and unresolved (search is grep\'s)', set(tools) == {'context', 'expand_context', 'impact', 'path', 'tests', 'link', 'unresolved'}, tools)
+        check('MCP: every tool but context takes at most two parameters', bool(tools) and all(len(p) <= (6 if n == 'context' else 2) for n, p in tools.items()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
         check('MCP path answers as numbered places with their code', places(text(3)), text(3)[:600])
         check('MCP impact answers as numbered places with their code', places(text(4)) and 'shop/pricing.py:6' in text(4), text(4)[:600])

@@ -99,6 +99,12 @@ source=True)` — source carries each step's code, so the flow is read without o
 words land (the graph's vocabulary is the code's identifiers); any language works once the task includes one
 identifier as written in the code.
 
+Optional bounds on the walk: `start_symbol` starts the flow at that declaration and `token_budget` caps the
+answer's size. `direction` is which way the walk follows calls — `callers` (who calls it, for what a change
+breaks), `callees` (what it calls, for how it works) or `both`, the default; the flow is told only when the walk goes
+to callees. `max_depth` is how many calls away it goes (by default 3 for the files, 4 for the flow).
+`expand_context(continuation_id, branch)` will continue an answer that stopped early; it is not implemented yet.
+
 ## index
 
 `axiomcode index` builds the graph explicitly; `--lang` and `--src` narrow it. Never re-run it on an
