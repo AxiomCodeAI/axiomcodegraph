@@ -130,7 +130,7 @@ def controls(tools):
         got = len(mismatches(documented(text), fake, 'control'))
         if got != want:
             bad.append(f"control {text!r}: {got} mismatch(es), want {want}")
-    if set(tools) != {'context', 'impact', 'link', 'path', 'tests', 'unresolved'}:
+    if set(tools) != {'context', 'expand_context', 'impact', 'link', 'path', 'tests', 'unresolved'}:
         bad.append(f"the server listed {sorted(tools)}; the MCP tools were not read")
     return bad
 

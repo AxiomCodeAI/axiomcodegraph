@@ -195,7 +195,7 @@ dirlike(){ [[ "$1" =~ :[0-9]+$ ]] && return 1
 gone(){ echo "axiomcode $cmd: no such directory: $1 (the repository to ask). Nothing was built or asked; pass a directory that exists, or leave it out to use the current one." >&2; exit 2; }
 POS=(); skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
   if [ -n "$skip" ]; then skip=""; continue; fi
-  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out|--from-text|--top) skip=1; continue ;; -*) continue ;; esac
+  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out|--from-text|--top|--direction|--continue|--branch) skip=1; continue ;; -*) continue ;; esac
   POS+=("$a")
 done
 LASTPOS=""; [ "${#POS[@]}" -gt 0 ] && LASTPOS="${POS[${#POS[@]}-1]}"
@@ -209,7 +209,7 @@ case "$cmd" in
 esac
 FR=.; skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
   if [ -n "$skip" ]; then skip=""; continue; fi
-  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out) skip=1; continue ;; esac
+  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out|--direction|--continue|--branch) skip=1; continue ;; esac
   [ -d "$a" ] && FR="$a"
 done
 # --grep (internal: the suites and their cases): the answer's sites one per line, `path:line: code  [tag]`, the way

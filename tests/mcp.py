@@ -31,9 +31,13 @@ LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 # THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
 # at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
-# answered as the verb's own flow rather than as places.
-TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target'],
-         'unresolved': ['limit', 'decisions']}
+# answered as the verb's own flow rather than as places. ONE EXCEPTION: context
+# also takes optional bounds on its walk, and expand_context continues an answer that stopped early; each bound left
+# out gives today's answer.
+TOOLS = {'context': ['task', 'source', 'start_symbol', 'direction', 'max_depth', 'token_budget'], 'impact': ['name'],
+         'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target'], 'unresolved': ['limit', 'decisions'],
+         'expand_context': ['continuation_id', 'branch']}
+MAX_PARAMS = {'context': 6}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -375,8 +379,8 @@ def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
     if set(listed) != set(TOOLS):
         bad.append(f"{label}: tools/list gave {sorted(listed)}, want {sorted(TOOLS)}")
     for name, params in listed.items():
-        if name in TOOLS and (sorted(params) != sorted(TOOLS[name]) or len(params) > 2):
-            bad.append(f"{label}: {name} takes {params}, want {TOOLS[name]} (at most two)")
+        if name in TOOLS and (sorted(params) != sorted(TOOLS[name]) or len(params) > MAX_PARAMS.get(name, 2)):
+            bad.append(f"{label}: {name} takes {params}, want {TOOLS[name]} (at most {MAX_PARAMS.get(name, 2)})")
     content = replies.get(3, {}).get('result', {}).get('content', [])
     if not any(c.get('type') == 'text' and c.get('text') for c in content):
         bad.append(f"{label}: tools/call returned no text: {replies.get(3)}")

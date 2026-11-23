@@ -13,7 +13,8 @@ that never spell the name:
     unresolved()        every open call site that may land in the project; after a build, settle them in a
                         subagent with /axiomcode:fill
     context(task)       how something works, as a narrative: the call flow step by step;
-                        context(task, source=True) carries each step's code
+                        context(task, source=True) carries each step's code;
+                        start_symbol, direction, max_depth and token_budget bound the walk (being built)
 
 Without the tools, the same from the shell: `axiomcode impact <name>`,
 `axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`.

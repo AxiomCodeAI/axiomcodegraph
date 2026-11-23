@@ -46,7 +46,7 @@ def language_of(db):
 
 
 # the options dev's verbs take with a value (review #10, #26): the value is neither the repository nor a target
-VALUE_FLAGS = ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds', '--top', '--tests-in', '--page-budget', '--grep-limit')
+VALUE_FLAGS = ('--in', '--limit', '--depth', '--kind', '--budget', '--paths', '--page', '--from', '--seeds', '--top', '--tests-in', '--page-budget', '--grep-limit', '--direction', '--continue', '--branch')
 
 
 def like_esc(s):
