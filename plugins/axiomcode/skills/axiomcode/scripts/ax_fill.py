@@ -246,12 +246,18 @@ def open_sites(con, repo, reader, skips, every=False, cands=True):
     return listing, n_all, n_all - n_proj, len(proj)
 
 
-def worklist(repo, limit=25, every=False):
-    """(summary dict, [open site]) over every live graph of the repository; limit 0 counts only (no candidates)"""
+def worklist(repo, limit=25, every=False, sync=True):
+    """(summary dict, [open site]) over every live graph of the repository; limit 0 counts only (no candidates).
+    sync=False reads the graphs as they are and writes nothing: the build's summary line and the once-per-build notice
+    run while a build may still be finishing, and a re-apply there reads the working tree as it is at that moment"""
     cands = limit > 0
-    # the links file may have changed since the graphs were last given it (edited, pulled, deleted): as before a query
-    try: ax_links.sync(repo)
-    except Exception: pass
+    # the links file may have changed since the graphs were last given it (edited, pulled, deleted): as before a query.
+    # Only a query does this. The build's summary ran it after the new graph was published but before the build had
+    # stamped it, so a file edited in that window had its links re-applied against the edited line: a link the next
+    # listing should call [changed] (edited since the build) was written into the graph as [stale]
+    if sync:
+        try: ax_links.sync(repo)
+        except Exception: pass
     reader = ax_links.Reader(repo); skips = read_skips(repo)
     summ = dict(calls=0, project=0, boundary=0, asserted=0, unresolved=0, library=0, open=0, skipped=0, graphs=0)
     sites = []
@@ -390,7 +396,7 @@ def notice(repo, surface):
         with open(mark, encoding='utf-8') as fh:
             if fh.read().strip() == stamp: return ''
     except OSError: pass
-    s, _ = worklist(repo, 0)
+    s, _ = worklist(repo, 0, sync=False)
     try:
         with open(mark, 'w', encoding='utf-8') as fh: fh.write(stamp)
     except OSError: pass
@@ -422,7 +428,7 @@ def main(argv):
     if not os.path.isdir(os.path.join(repo, '.axiomcode')):
         print(f"axiomcode unresolved: no graph for {repo} — `axiomcode index` builds it", file=sys.stderr); return 2
     if only:
-        s, _ = worklist(repo, 0)
+        s, _ = worklist(repo, 0, sync=False)
         print(json.dumps(s) if as_json else summary_line(s)); return 0
     return print_worklist(repo, limit, as_json, every)
 
